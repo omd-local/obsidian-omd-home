@@ -1,0 +1,9 @@
+{
+  "id": "omd-home",
+  "name": "OMD Home",
+  "version": "0.1.0",
+  "minAppVersion": "1.10.0",
+  "description": "A local-first home, calendar, inbox, and omnibox for OMD.",
+  "author": "OMD Local contributors",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,27 @@
+{
+  "name": "omd-home",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first Obsidian home, calendar, inbox, and omnibox for OMD.",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.mjs production",
+    "dev": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test && npm run build",
+    "build:eventkit": "bash scripts/build-eventkit.sh",
+    "install:test-vault": "node scripts/install-test-vault.mjs"
+  },
+  "dependencies": {
+    "fullcalendar": "^7.0.1",
+    "temporal-polyfill": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "latest",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+/main.js
+/styles.css
+*.map
+eventkit-helper/.build/
+dist/
+bridge/__pycache__/
+# The test vault is a local runtime fixture and may accumulate real captures.
+# Keep only its safety notice under version control.
+test-vault/*
+!test-vault/README.md
+preview/*.png
+.omx/
+.DS_Store
+._*

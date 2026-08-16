@@ -1,0 +1,21 @@
+@import "../styles.css";
+
+:root {
+  --interactive-accent: #9b8cff;
+  --background-primary: #12131a;
+  --background-secondary: #181a24;
+  --background-modifier-border: #2a2d3a;
+  --background-modifier-border-hover: #464b5d;
+  --background-modifier-hover: #202330;
+  --text-normal: #e4e5eb;
+  --text-muted: #9297a8;
+  --text-error: #f07b78;
+  --font-ui-small: 12px;
+  --font-monospace: "SFMono-Regular", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; margin: 0; background: var(--background-primary); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+.icon-button { width: 32px; height: 32px; border: 1px solid var(--background-modifier-border); border-radius: 2px; background: var(--background-secondary); color: var(--text-muted); }
+.omd-widget-header > span { color: var(--text-muted); font-family: var(--font-monospace); }
