@@ -74,10 +74,10 @@ test("runner maps non-zero exits into process errors", async () => {
 });
 
 test("runner gives a safe, copyable Ollama pull command for a missing configured model", async () => {
-  const request = makeRequest();
+  const request = sampleRequest();
   request.model = "qwen3:4b-instruct";
   const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
-    options.onStderrLine?.(JSON.stringify({
+    options?.onStderrLine?.(JSON.stringify({
       v: 1,
       event: "error",
       kind: "model_not_installed",
