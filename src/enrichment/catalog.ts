@@ -1,10 +1,15 @@
 import {
   ENRICH_NOTE_MAX_CANDIDATES,
   ENRICH_NOTE_MAX_EVIDENCE_CHARS,
+  truncateCodePoints,
 } from "./contract.ts";
 import type { EnrichmentCandidate, EnrichmentRequest } from "./contract.ts";
 import { EnrichmentError } from "./errors.ts";
-import { inspectVaultRelativeMarkdownPath, normalizeRelativeMarkdownPath } from "./path-safety.ts";
+import {
+  inspectVaultRelativeMarkdownPath,
+  normalizeRelativeMarkdownPath,
+  type PathInspectionResult,
+} from "./path-safety.ts";
 import { buildEnrichmentRequest as buildBoundedRequest } from "./request-builder.ts";
 
 export interface EnrichmentFileRecord {
@@ -72,11 +77,13 @@ export async function buildEnrichmentRequest(
 
   const incoming = buildIncomingLinks(app.metadataCache.resolvedLinks);
   const safeFiles: MarkdownFileLike[] = [];
+  const pathBindings = new Map<string, PathInspectionResult>();
 
   for (const file of app.vault.getMarkdownFiles()) {
     const inspection = await inspectVaultRelativeMarkdownPath(vaultPath, file.path);
     if (!inspection.ok) continue;
     safeFiles.push(file);
+    pathBindings.set(file.path, inspection);
   }
 
   const safeTarget = safeFiles.find((file) => file.path === targetFile.path);
@@ -86,6 +93,7 @@ export async function buildEnrichmentRequest(
 
   const files = safeFiles.map((file) => metadataRecord(app, file, incoming.get(file.path) ?? []));
   const targetMetadata = files.find((entry) => entry.path === targetFile.path)!;
+  await requireMatchingPathBinding(vaultPath, safeTarget.path, pathBindings.get(safeTarget.path));
   const target = { ...targetMetadata, content: await app.vault.cachedRead(safeTarget) };
   const vaultTags = files.flatMap((file) => file.tags);
 
@@ -100,7 +108,7 @@ export async function buildEnrichmentRequest(
     const file = fileByPath.get(candidate.path);
     if (!file) continue;
     const inspection = await inspectVaultRelativeMarkdownPath(vaultPath, file.path);
-    if (!inspection.ok) continue;
+    if (!samePathBinding(pathBindings.get(file.path), inspection)) continue;
     candidates.push({ ...candidate, evidence: extractEvidence(await app.vault.cachedRead(file)) });
   }
   const built = buildBoundedRequest({
@@ -119,6 +127,31 @@ export async function buildEnrichmentRequest(
   };
 }
 
+async function requireMatchingPathBinding(
+  vaultRoot: string,
+  relativePath: string,
+  expected: PathInspectionResult | undefined,
+): Promise<void> {
+  const current = await inspectVaultRelativeMarkdownPath(vaultRoot, relativePath);
+  if (!samePathBinding(expected, current)) {
+    throw new EnrichmentError("invalid_request", "The selected note changed during enrichment setup. Try again.");
+  }
+}
+
+function samePathBinding(
+  expected: PathInspectionResult | undefined,
+  current: PathInspectionResult,
+): boolean {
+  return Boolean(
+    expected?.ok
+    && current.ok
+    && expected.normalizedPath === current.normalizedPath
+    && expected.absolutePath === current.absolutePath
+    && expected.device === current.device
+    && expected.inode === current.inode,
+  );
+}
+
 export function buildEnrichmentCatalog(input: {
   target: EnrichmentFileRecord;
   files: EnrichmentFileRecord[];
@@ -128,8 +161,14 @@ export function buildEnrichmentCatalog(input: {
   if (!targetPath) throw new Error("Target note path is not safe for enrichment.");
 
   const target = { ...input.target, path: targetPath };
+  const targetText = target.content.toLocaleLowerCase();
   const targetIdentityPhrases = new Set(normalizeIdentityPhrases([target.basename, ...target.aliases]));
-  const targetTokens = new Set(normalizeTokens([target.basename, ...target.aliases, ...target.tags]));
+  const targetTokens = new Set(normalizeTokens([
+    target.basename,
+    ...target.aliases,
+    ...target.tags,
+    target.content,
+  ]));
   const targetOutgoing = new Set(target.outgoingLinks.map((value) => normalizeRelativeMarkdownPath(value)).filter(Boolean) as string[]);
 
   const candidates = input.files
@@ -140,7 +179,12 @@ export function buildEnrichmentCatalog(input: {
       const normalizedOutgoing = new Set(file.outgoingLinks.map((value) => normalizeRelativeMarkdownPath(value)).filter(Boolean) as string[]);
       const relationScore = (targetOutgoing.has(file.path) ? 2 : 0) + (normalizedOutgoing.has(target.path) ? 1 : 0);
       const candidatePhrases = normalizeIdentityPhrases([file.basename, ...file.aliases]);
-      const exactMatchScore = candidatePhrases.reduce((count, phrase) => count + (targetIdentityPhrases.has(phrase) ? 1 : 0), 0);
+      const exactMatchScore = candidatePhrases.reduce(
+        (count, phrase) => count
+          + (targetIdentityPhrases.has(phrase) ? 2 : 0)
+          + (containsIdentityPhrase(targetText, phrase) ? 1 : 0),
+        0,
+      );
       const lexicalOverlapScore = countTokenOverlap(
         targetTokens,
         new Set(normalizeTokens([file.basename, ...file.aliases, ...file.tags])),
@@ -184,10 +228,10 @@ export function extractEvidence(content: string): string {
       .replace(/^[-*]\s+/u, "")
       .trim();
     if (!cleaned) continue;
-    return cleaned.slice(0, ENRICH_NOTE_MAX_EVIDENCE_CHARS);
+    return truncateCodePoints(cleaned, ENRICH_NOTE_MAX_EVIDENCE_CHARS);
   }
 
-  return withoutFrontmatter.trim().slice(0, ENRICH_NOTE_MAX_EVIDENCE_CHARS);
+  return truncateCodePoints(withoutFrontmatter.trim(), ENRICH_NOTE_MAX_EVIDENCE_CHARS);
 }
 
 export function normalizeVaultTags(tags: string[]): string[] {
@@ -220,8 +264,16 @@ function compareCandidates(left: EnrichmentCatalogCandidate, right: EnrichmentCa
     right.relationScore - left.relationScore
     || right.exactMatchScore - left.exactMatchScore
     || right.lexicalOverlapScore - left.lexicalOverlapScore
-    || left.path.localeCompare(right.path)
+    || compareText(left.path, right.path)
   );
+}
+
+function compareText(left: string, right: string): number {
+  const foldedLeft = left.toLocaleLowerCase();
+  const foldedRight = right.toLocaleLowerCase();
+  if (foldedLeft < foldedRight) return -1;
+  if (foldedLeft > foldedRight) return 1;
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function countTokenOverlap(left: Set<string>, right: Set<string>): number {
@@ -234,6 +286,30 @@ function countTokenOverlap(left: Set<string>, right: Set<string>): number {
 
 function normalizeIdentityPhrases(values: string[]): string[] {
   return dedupeStrings(values.map((value) => value.trim().toLocaleLowerCase()).filter(Boolean));
+}
+
+function containsIdentityPhrase(text: string, phrase: string): boolean {
+  if (!phrase) return false;
+  if (containsUnsegmentedScript(phrase)) {
+    return [...phrase].length >= 2 && text.includes(phrase);
+  }
+  let index = text.indexOf(phrase);
+  while (index !== -1) {
+    const before = index === 0 ? "" : text[index - 1] ?? "";
+    const afterIndex = index + phrase.length;
+    const after = afterIndex >= text.length ? "" : text[afterIndex] ?? "";
+    if (!isIdentityCharacter(before) && !isIdentityCharacter(after)) return true;
+    index = text.indexOf(phrase, index + phrase.length);
+  }
+  return false;
+}
+
+function containsUnsegmentedScript(value: string): boolean {
+  return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value);
+}
+
+function isIdentityCharacter(value: string): boolean {
+  return value !== "" && /[\p{Letter}\p{Number}_]/u.test(value);
 }
 
 function normalizeTokens(values: string[]): string[] {
@@ -284,7 +360,8 @@ function desktopVaultPath(adapter: unknown): string | null {
   if (!adapter || typeof adapter !== "object") return null;
   const candidate = adapter as { getBasePath?: unknown };
   if (typeof candidate.getBasePath !== "function") return null;
-  const value = candidate.getBasePath.call(adapter);
+  const getBasePath = candidate.getBasePath as (this: unknown) => string;
+  const value = getBasePath.call(adapter);
   return typeof value === "string" && value.length ? value : null;
 }
 

@@ -78,19 +78,24 @@ export class OmdBridge {
     onEvent: (event: OmdProgressEvent) => void,
   ): Promise<string | null> {
     this.assertDesktop();
-    const result = await this.spawnManagedProcess(
-      this.omdExecutable(),
-      omdCaptureArgs(source, vaultPath, tags, polish),
-      {
-        timeoutMs: CAPTURE_TIMEOUT_MS,
-        maxStdoutChars: 32_000,
-        maxStderrChars: 1_000_000,
-        onStderrLine: (line) => {
-          const event = parseOmdEvent(line);
-          if (event) onEvent(event);
+    let result: SpawnResult;
+    try {
+      result = await this.spawnManagedProcess(
+        this.omdExecutable(),
+        omdCaptureArgs(source, vaultPath, tags, polish),
+        {
+          timeoutMs: CAPTURE_TIMEOUT_MS,
+          maxStdoutChars: 32_000,
+          maxStderrChars: 1_000_000,
+          onStderrLine: (line) => {
+            const event = parseOmdEvent(line);
+            if (event) onEvent(event);
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      throw new Error(captureProcessErrorMessage(error), { cause: error as Error });
+    }
     if (result.code !== 0) throw new Error(captureErrorMessage(result.stderr));
     const done = result.stderr.split(/\r?\n/).map(parseOmdEvent).findLast((event) => event?.event === "done");
     return done?.output ?? null;
@@ -131,17 +136,22 @@ export class OmdBridge {
     this.assertDesktop();
     const path = this.bridgePath();
     if (!path) throw new Error("Configure the OMD Home Python bridge path in settings");
-    const result = await this.spawnManagedProcess(await this.resolvePythonExecutable(), [path], {
-      stdin: JSON.stringify(payload),
-      timeoutMs: BRIDGE_TIMEOUT_MS,
-      maxStdoutChars: DEFAULT_MAX_STDOUT_CHARS,
-      maxStderrChars: DEFAULT_MAX_STDERR_CHARS,
-    });
+    let result: SpawnResult;
+    try {
+      result = await this.spawnManagedProcess(await this.resolvePythonExecutable(), [path], {
+        stdin: JSON.stringify(payload),
+        timeoutMs: BRIDGE_TIMEOUT_MS,
+        maxStdoutChars: DEFAULT_MAX_STDOUT_CHARS,
+        maxStderrChars: DEFAULT_MAX_STDERR_CHARS,
+      });
+    } catch (error) {
+      throw new Error(bridgeProcessErrorMessage(error), { cause: error as Error });
+    }
     const response = parseBridgeResponse(result.stdout);
     if (result.code !== 0) {
       throw bridgeError(
         response?.ok === false ? response.error : undefined,
-        lastUsefulLine(result.stderr) || "OMD Home bridge failed",
+        "OMD Home bridge failed",
       );
     }
     if (!response) throw new Error("OMD Home bridge returned no response");
@@ -153,13 +163,14 @@ export class OmdBridge {
     const configured = this.pythonExecutable().trim();
     if (configured) return configured;
     const omd = this.omdExecutable().trim();
-    const executable = omd.includes("/")
+    const locator = process.platform === "win32" ? "where.exe" : "which";
+    const executable = /[\\/]/u.test(omd)
       ? omd
-      : (await this.spawnManagedProcess("/usr/bin/which", [omd], {
+      : (await this.spawnManagedProcess(locator, [omd], {
         timeoutMs: WHICH_TIMEOUT_MS,
         maxStdoutChars: 16_000,
         maxStderrChars: 16_000,
-      })).stdout.trim();
+      })).stdout.trim().split(/\r?\n/u).find(Boolean) ?? "";
     if (!executable) throw new Error("Could not find the configured OMD executable");
     const runtimeWindow = window as Window & { require?: (id: string) => typeof import("node:fs") };
     if (!runtimeWindow.require) throw new Error("Desktop file APIs are unavailable");
@@ -170,7 +181,7 @@ export class OmdBridge {
   }
 
   private assertDesktop(): void {
-    if (!isDesktopApp()) throw new Error("This OMD action is available on Mac only in v1");
+    if (!isDesktopApp()) throw new Error("This OMD action requires the desktop Obsidian app");
   }
 
   dispose(): void {
@@ -223,36 +234,37 @@ export async function spawnProcess(
     let stderrBytes = 0;
     let pending = "";
     let failure: Error | null = null;
+    let stdinFailure: Error | null = null;
     let settled = false;
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+    let forceKillTimer: number | null = null;
     const timeoutHandle = timeoutMs === undefined
       ? null
-      : setTimeout(() => {
+      : window.setTimeout(() => {
         failure = new Error(`Process timed out after ${timeoutMs}ms`);
         child.kill("SIGTERM");
-        forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+        forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
       }, timeoutMs);
     const abort = () => {
       failure = abortError();
       child.kill("SIGTERM");
-      forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
     };
     const cleanup = () => {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (timeoutHandle) window.clearTimeout(timeoutHandle);
+      if (forceKillTimer) window.clearTimeout(forceKillTimer);
       signal?.removeEventListener("abort", abort);
     };
     const failForOverflow = (stream: "stdout" | "stderr", limit: number) => {
       if (failure) return;
       failure = new Error(`Process ${stream} exceeded ${limit} characters`);
       child.kill("SIGTERM");
-      forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
     };
     const failForByteOverflow = (stream: "stdout" | "stderr", limit: number) => {
       if (failure) return;
       failure = new Error(`Process ${stream} exceeded ${limit} bytes`);
       child.kill("SIGTERM");
-      forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
     };
     if (signal?.aborted) {
       abort();
@@ -283,6 +295,9 @@ export async function spawnProcess(
       pending = lines.pop() ?? "";
       for (const line of lines) onStderrLine?.(line);
     });
+    child.stdin.on("error", (error: Error) => {
+      stdinFailure = error;
+    });
     child.on("error", (error) => {
       if (settled) return;
       settled = true;
@@ -296,6 +311,10 @@ export async function spawnProcess(
       if (pending) onStderrLine?.(pending);
       if (failure) {
         reject(failure);
+        return;
+      }
+      if (stdinFailure && code === 0) {
+        reject(stdinFailure);
         return;
       }
       resolve({ stdout, stderr, code: code ?? 1 });
@@ -328,19 +347,9 @@ export function parseBridgeResponse(value: string): Record<string, unknown> | nu
 }
 
 export function bridgeErrorMessage(error: unknown, fallback: string): string {
-  if (typeof error === "string") {
-    const parsed = parseJsonLine(error);
-    if (parsed) return bridgeErrorMessage(parsed, error.trim() || fallback);
-    return error.trim() || fallback;
-  }
-  if (error && typeof error === "object") {
-    const record = error as Record<string, unknown>;
-    for (const key of ["message", "error", "detail", "reason"] as const) {
-      const value = record[key];
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-  }
-  return fallback;
+  const detail = extractBridgeErrorDetail(error);
+  if (!detail) return sanitizeBridgeFallback(fallback);
+  return mapBridgeDetailToUserMessage(detail) ?? sanitizeBridgeFallback(fallback);
 }
 
 function bridgeError(error: unknown, fallback: string): Error {
@@ -348,22 +357,149 @@ function bridgeError(error: unknown, fallback: string): Error {
 }
 
 function isDesktopApp(): boolean {
-  const runtime = globalThis as typeof globalThis & {
-    window?: Window & { require?: (id: string) => unknown };
-  };
-  return typeof runtime.window?.require === "function";
-}
-
-function lastUsefulLine(value: string): string {
-  return value.trim().split(/\r?\n/).filter((line) => line && !parseOmdEvent(line)).at(-1) ?? "";
+  return typeof window !== "undefined"
+    && typeof (window as Window & { require?: (id: string) => unknown }).require === "function";
 }
 
 export function captureErrorMessage(value: string): string {
   const lines = value.trim().split(/\r?\n/).filter(Boolean).reverse();
   for (const line of lines) {
     const event = parseOmdEvent(line);
-    if (event?.message?.trim()) return event.message.trim();
-    if (!event) return line;
+    if (event) return mapCaptureEventToUserMessage(event);
   }
-  return "OMD capture failed";
+  return "OMD capture failed. Check the OMD setup and try again.";
+}
+
+function extractBridgeErrorDetail(error: unknown): BridgeErrorDetail | null {
+  if (typeof error === "string") {
+    const parsed = parseJsonLine(error);
+    if (parsed) return extractBridgeErrorDetail(parsed);
+    return { message: error.trim() };
+  }
+  if (!error || typeof error !== "object") return null;
+  const record = error as Record<string, unknown>;
+  const detail: BridgeErrorDetail = {};
+  for (const key of ["message", "error", "detail", "reason"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      detail.message = value.trim();
+      break;
+    }
+  }
+  for (const key of ["type", "kind", "code"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      detail.kind = value.trim();
+      break;
+    }
+  }
+  return detail.message || detail.kind ? detail : null;
+}
+
+function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null {
+  const tokens = normalize(`${detail.kind ?? ""} ${detail.message ?? ""}`);
+  if (!tokens) return null;
+  if (tokens.includes("loopback ollama endpoint")) {
+    return "OMD Home v1 only permits a local Ollama endpoint.";
+  }
+  if (
+    tokens.includes("does not expose its ai service modules")
+    || tokens.includes("fallback execution only through local ollama")
+  ) {
+    return "This OMD build only supports local Ollama for vault questions.";
+  }
+  if (tokens.includes("ollama is not reachable at")) {
+    return "Ollama is not reachable at the configured local endpoint. Start Ollama and try again.";
+  }
+  if (tokens.includes("ollama rejected the request")) {
+    return "Ollama rejected the request. Check the selected local model and try again.";
+  }
+  if (tokens.includes("ollama returned an empty answer")) {
+    return "Ollama returned an empty answer. Try again or choose another local model.";
+  }
+  if (tokens.includes("ollama returned an invalid response")) {
+    return "Ollama returned an invalid response. Try again after the local service is ready.";
+  }
+  if (tokens.includes("vault path does not exist")) {
+    return "The selected vault could not be read by OMD Home.";
+  }
+  if (
+    tokens.includes("request must be a json object")
+    || tokens.includes("unsupported action")
+    || tokens.includes("must be a non-empty string")
+    || tokens.includes("limit must be between 1 and 20")
+  ) {
+    return "OMD Home rejected the request. Check the plugin settings and try again.";
+  }
+  return null;
+}
+
+function sanitizeBridgeFallback(fallback: string): string {
+  const tokens = normalize(fallback);
+  if (tokens.includes("returned no response")) return "OMD Home bridge returned no response.";
+  if (tokens.includes("rejected the request")) return "OMD Home rejected the request. Check the plugin settings and try again.";
+  if (tokens.includes("timed out")) return "OMD Home bridge timed out. Try again.";
+  if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {
+    return "OMD Home bridge output exceeded its safety limit.";
+  }
+  return "OMD Home bridge failed. Check the local bridge setup and try again.";
+}
+
+function bridgeProcessErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.name === "AbortError") return "OMD Home bridge was cancelled.";
+  const detail = error instanceof Error ? error.message : String(error);
+  const tokens = normalize(detail);
+  if (tokens.includes("could not find the configured omd executable") || tokens.includes("spawn enoent")) {
+    return "The configured OMD executable could not be found.";
+  }
+  if (tokens.includes("could not determine omd's python interpreter")) {
+    return "OMD Home could not determine OMD's Python interpreter. Set it in settings.";
+  }
+  if (tokens.includes("timed out")) return "OMD Home bridge timed out. Try again.";
+  if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {
+    return "OMD Home bridge output exceeded its safety limit.";
+  }
+  return sanitizeBridgeFallback(detail);
+}
+
+function captureProcessErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.name === "AbortError") return "OMD capture was cancelled.";
+  const detail = error instanceof Error ? error.message : String(error);
+  const tokens = normalize(detail);
+  if (tokens.includes("spawn enoent") || tokens.includes("could not find the configured omd executable")) {
+    return "The configured OMD executable could not be found.";
+  }
+  if (tokens.includes("timed out")) return "OMD capture timed out. Try again.";
+  if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {
+    return "OMD capture output exceeded its safety limit.";
+  }
+  return "OMD capture failed. Check the OMD setup and try again.";
+}
+
+function mapCaptureEventToUserMessage(event: OmdProgressEvent): string {
+  const tokens = normalize(`${event.kind ?? ""} ${event.event} ${event.message ?? ""}`);
+  if (tokens.includes("cancel")) return "OMD capture was cancelled.";
+  if (tokens.includes("playwright") || tokens.includes("browser")) {
+    return "OMD could not load the page. Check the local browser capture setup and try again.";
+  }
+  if (
+    tokens.includes("no such file")
+    || tokens.includes("enoent")
+    || tokens.includes("unsupported url")
+    || tokens.includes("invalid url")
+    || tokens.includes("permission denied")
+  ) {
+    return "OMD could not read that source. Check the URL or file path and try again.";
+  }
+  if (tokens.includes("timed out") || tokens.includes("timeout")) return "OMD capture timed out. Try again.";
+  return "OMD capture failed. Check the OMD setup and try again.";
+}
+
+function normalize(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+interface BridgeErrorDetail {
+  message?: string;
+  kind?: string;
 }

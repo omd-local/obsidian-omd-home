@@ -31,7 +31,7 @@ export class OmdCalendarView extends ItemView {
   }
 
   getViewType(): string { return CALENDAR_VIEW_TYPE; }
-  getDisplayText(): string { return "OMD Calendar"; }
+  getDisplayText(): string { return "OMD calendar"; }
   getIcon(): string { return "calendar-days"; }
 
   async onOpen(): Promise<void> {
@@ -52,7 +52,7 @@ export class OmdCalendarView extends ItemView {
     legendItem(legend, "linked", "Linked");
     const sync = topbar.createEl("button", { cls: "omd-action-button", type: "button", text: "Sync" });
     sync.addEventListener("click", () => void this.syncEvents());
-    const create = topbar.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "+ New event" });
+    const create = topbar.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "+ new event" });
     create.addEventListener("click", () => this.createEvent());
     const host = shell.createDiv({ cls: "omd-calendar-host" });
     this.calendar = new Calendar(host, {
@@ -77,7 +77,7 @@ export class OmdCalendarView extends ItemView {
       eventClick: (info) => this.openEvent(info),
       eventChange: (info) => void this.commitChange(info),
       eventContent: (info: CalendarEventContentArg) => {
-        const content = document.createElement("span");
+        const content = createSpan();
         const monthView = info.view.type === "dayGridMonth";
         content.className = `omd-calendar-event-content${monthView ? " is-month-view" : ""}`;
         content.title = info.event.title;
@@ -217,7 +217,7 @@ class EventConflictModal extends Modal {
     this.contentEl.createEl("p", { cls: "omd-conflict-help", text: "Choose which version should become the linked event. Nothing is overwritten until you choose." });
     new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Keep note").onClick(async () => this.resolve("vault")))
-      .addButton((button) => button.setCta().setButtonText("Keep Calendar").onClick(async () => this.resolve("external")));
+      .addButton((button) => button.setCta().setButtonText("Keep calendar").onClick(async () => this.resolve("external")));
   }
 
   onClose(): void { this.contentEl.empty(); }
@@ -345,14 +345,14 @@ class EventEditorModal extends Modal {
     if (this.initialSource === "linked") {
       new Setting(this.contentEl)
         .setName("Detach link")
-        .setDesc("Keep the note and stop syncing it to Calendar.")
+        .setDesc("Keep the note and stop syncing it to Apple Calendar.")
         .addButton((button) => button.setButtonText("Detach").onClick(async () => {
           await this.runDetachAction(false, "Detach is not available until main.ts wires detachCalendarEvent(event, false).");
         }));
       if (syncState === "unavailable") {
         new Setting(this.contentEl)
-          .setName("Recreate in default Calendar")
-          .setDesc("Create a fresh Calendar copy using the current writable default calendar.")
+          .setName("Recreate in default calendar")
+          .setDesc("Create a fresh Apple Calendar copy using the current writable default calendar.")
           .addButton((button) => button.setCta().setButtonText("Recreate").onClick(async () => {
             await this.recreateCalendarCopy();
           }));
@@ -361,7 +361,7 @@ class EventEditorModal extends Modal {
     if (capabilities.showCreateLinkedNote) {
       new Setting(this.contentEl)
         .setName("Create linked vault note")
-        .setDesc("Save this read-only Calendar event as a linked Markdown note. Calendar will not be modified.")
+        .setDesc("Save this read-only calendar event as a linked Markdown note. Apple Calendar will not be modified.")
         .addButton((button) => button.setCta().setButtonText("Create note").onClick(async () => {
           try {
             await this.onSave({ ...this.draft, source: "linked", syncState: "clean" });
@@ -373,13 +373,16 @@ class EventEditorModal extends Modal {
     }
     if (capabilities.showDelete) {
       new Setting(this.contentEl)
-        .setName("Delete Calendar copy")
+        .setName("Delete calendar copy")
         .setDesc(this.initialSource === "external"
           ? "Delete the Calendar event."
           : "Delete the Calendar event and leave the note detached.")
-        .addButton((button) => button.setWarning().setButtonText("Delete").onClick(async () => {
-          await this.runDetachAction(true, "Delete is not available until main.ts wires detachCalendarEvent(event, true).");
-        }));
+        .addButton((button) => {
+          button.buttonEl.addClass("mod-warning");
+          button.setButtonText("Delete").onClick(async () => {
+            await this.runDetachAction(true, "Delete is not available until main.ts wires detachCalendarEvent(event, true).");
+          });
+        });
     }
   }
 
@@ -389,7 +392,7 @@ class EventEditorModal extends Modal {
     const validationError = validateCalendarEventRange(this.draft.start, this.draft.end);
     if (validationError) return void new Notice(validationError);
     if (!this.defaultCalendar) {
-      return void new Notice("Choose a writable default Calendar in OMD Home settings first");
+      return void new Notice("Choose a writable default calendar in OMD Home settings first");
     }
     try {
       await this.onSave({
@@ -429,7 +432,7 @@ class EventEditorModal extends Modal {
     const validationError = validateCalendarEventRange(this.draft.start, this.draft.end);
     if (validationError) return void new Notice(validationError);
     if (this.draft.source === "linked" && !this.draft.appleCalendarId && !this.defaultCalendar) {
-      return void new Notice("Choose a writable default Calendar in OMD Home settings first");
+      return void new Notice("Choose a writable default calendar in OMD Home settings first");
     }
     try {
       await this.onSave({ ...this.draft, title });

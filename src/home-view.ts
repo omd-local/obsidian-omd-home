@@ -418,7 +418,7 @@ function emptyState(container: HTMLElement, title: string, detail: string): void
   const empty = container.createDiv({ cls: "omd-empty" });
   empty.createDiv({ cls: "omd-empty-pixel" });
   empty.createEl("strong", { text: title });
-  empty.createEl("span", { text: detail });
+  empty.createSpan({ text: detail });
 }
 
 function emptyAction(container: HTMLElement, title: string, label: string, action: () => void): void {

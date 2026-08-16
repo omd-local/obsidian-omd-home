@@ -171,7 +171,7 @@ export class Omnibox {
     await this.app.vault.create(path, content);
     await this.app.workspace.openLinkText(path, "", false);
     this.input.value = "";
-    new Notice("Saved to Inbox");
+    new Notice("Saved to inbox");
   }
 
   private showRows(rows: Array<{ title: string; detail: string; action: () => void }>): void {

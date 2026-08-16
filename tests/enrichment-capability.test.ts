@@ -33,3 +33,48 @@ test("capability service maps missing executable errors", async () => {
   });
   await assert.rejects(service.requireEnrichNote("omd"), /could not be found/i);
 });
+
+test("capability service explains legacy OMD executables clearly", async () => {
+  const service = new OmdCapabilityService(async () => ({
+    stdout: "",
+    stderr: "error: capabilities not found",
+    code: 1,
+  }));
+
+  await assert.rejects(
+    service.requireEnrichNote("omd"),
+    /too old for capabilities\/enrich-note/i,
+  );
+});
+
+test("capability service caches a failed probe until retry clears it", async () => {
+  let calls = 0;
+  const service = new OmdCapabilityService(async () => {
+    calls += 1;
+    return {
+      stdout: "{\"enrich_note\":{\"supported\":true,\"schema_versions\":[2]}}",
+      stderr: "",
+      code: 0,
+    };
+  });
+
+  await assert.rejects(service.requireEnrichNote("omd"), /schema v1/i);
+  await assert.rejects(service.requireEnrichNote("omd"), /schema v1/i);
+  assert.equal(calls, 1);
+  await assert.rejects(service.retry("omd"), /schema v1/i);
+  assert.equal(calls, 2);
+});
+
+test("capability service maps malformed JSON and timeouts", async () => {
+  const malformed = new OmdCapabilityService(async () => ({
+    stdout: "{",
+    stderr: "",
+    code: 0,
+  }));
+  await assert.rejects(malformed.requireEnrichNote("omd"), /invalid capability response/i);
+
+  const timeout = new OmdCapabilityService(async () => {
+    throw new Error("process timed out after 5000ms");
+  });
+  await assert.rejects(timeout.requireEnrichNote("omd"), /timed out after five seconds/i);
+});

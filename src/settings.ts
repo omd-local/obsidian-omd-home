@@ -51,13 +51,13 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("p", {
       cls: "omd-settings-intro",
-      text: "Configure local OMD capabilities and optional macOS Calendar access. OMD Home does not install external tools.",
+      text: "Configure local OMD capabilities and optional macOS calendar access. OMD Home does not install external tools.",
     });
 
     new Setting(containerEl).setName("Startup").setHeading();
 
     new Setting(containerEl)
-      .setName("Open Home on launch")
+      .setName("Open home on launch")
       .setDesc("Open once when Obsidian starts without closing restored tabs.")
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.openOnLaunch).onChange(async (value) => {
         this.plugin.settings.openOnLaunch = value;
@@ -81,6 +81,12 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     this.pathSetting(containerEl, "OMD Home bridge", "Absolute path to bridge/omd_home_bridge.py.", "pythonBridgePath");
 
     new Setting(containerEl).setName("Local note enrichment").setHeading();
+
+    new Setting(containerEl)
+      .setName("Local content boundary")
+      .setDesc(
+        "Generate sends the current note (up to 64 kibibytes), ranked candidate metadata and evidence, and vault tags to the configured OMD executable and loopback Ollama. No vault file changes occur until you confirm the proposal.",
+      );
 
     new Setting(containerEl)
       .setName("Enrichment model")
@@ -121,7 +127,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Capture polish model")
-      .setDesc("Local Ollama model used only when Capture's optional Markdown polish is enabled.")
+      .setDesc("Local Ollama model used only when capture's optional Markdown polish is enabled.")
       .addText((text) => text.setValue(this.plugin.settings.capturePolishModel).onChange(async (value) => {
         this.plugin.settings.capturePolishModel = value.trim();
         await this.plugin.saveSettings();
@@ -131,7 +137,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     if (!Platform.isMacOS) {
       new Setting(containerEl)
         .setName("Apple Calendar unavailable")
-        .setDesc("Apple Calendar, including Google and Outlook accounts added to Calendar, is supported on macOS only.");
+        .setDesc("Apple Calendar, including Google and Outlook accounts added to calendar, is supported on macOS only.");
       return;
     }
 
@@ -182,7 +188,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     );
     new Setting(containerEl)
       .setName("Default calendar")
-      .setDesc("Required for “Vault + Calendar” events. Only explicitly selected writable calendars appear here.")
+      .setDesc("Required for “vault + calendar” events. Only explicitly selected writable calendars appear here.")
       .addDropdown((dropdown) => {
         dropdown.addOption("", "Choose a calendar");
         for (const calendar of writable) dropdown.addOption(calendar.id, `${calendar.sourceTitle} / ${calendar.title}`);

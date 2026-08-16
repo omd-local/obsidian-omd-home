@@ -86,6 +86,12 @@ export class OmdCapabilityService {
         maxStderrChars: CAPABILITY_OUTPUT_LIMIT_BYTES,
       });
       if (result.code !== 0) {
+        if (looksLikeLegacyOmd(result.stdout, result.stderr)) {
+          throw new OmdEnrichmentError(
+            "unsupported_capability",
+            "The configured OMD executable is too old for capabilities/enrich-note. Point OMD Home at a newer OMD build.",
+          );
+        }
         throw new OmdEnrichmentError("omd_failed", "OMD could not report its enrichment capabilities.");
       }
       let parsed: unknown;
@@ -115,4 +121,11 @@ export class OmdCapabilityService {
       this.controllers.delete(controller);
     }
   }
+}
+
+function looksLikeLegacyOmd(stdout: string, stderr: string): boolean {
+  const combined = `${stdout}\n${stderr}`;
+  return /\bcapabilities\b.+\bnot found\b/iu.test(combined)
+    || /\bthe following arguments are required:\s+input\b/iu.test(combined)
+    || /\bomd enrich-note\b/iu.test(combined);
 }

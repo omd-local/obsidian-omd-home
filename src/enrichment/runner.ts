@@ -93,11 +93,7 @@ export class OmdEnrichmentRunner {
           throw new OmdEnrichmentError("invalid_event", "OMD failed without one valid terminal error event.");
         }
         if (typeof terminal.kind === "string") {
-          const mapped = mapOmdErrorKind(terminal.kind);
-          if (mapped.code !== "omd_failed") throw mapped;
-        }
-        if (typeof terminal.message === "string" && terminal.message.trim()) {
-          throw new OmdEnrichmentError("omd_failed", terminal.message.trim());
+          throw mapOmdErrorKind(terminal.kind, options.request.model);
         }
         throw new OmdEnrichmentError("omd_failed", "OMD enrichment failed. Check the OMD setup and try again.");
       }

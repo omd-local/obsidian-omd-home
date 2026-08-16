@@ -42,7 +42,7 @@ export function toUserFacingEnrichmentMessage(error: unknown): string {
   return "OMD enrichment failed. Check the OMD setup and try again.";
 }
 
-export function mapOmdErrorKind(kind: string): OmdEnrichmentError {
+export function mapOmdErrorKind(kind: string, model?: string): OmdEnrichmentError {
   switch (kind) {
     case "unsupported_schema":
       return new OmdEnrichmentError("unsupported_schema", "Update OMD to a build that supports enrichment schema v1.");
@@ -57,7 +57,12 @@ export function mapOmdErrorKind(kind: string): OmdEnrichmentError {
     case "remote_ollama_not_authorized":
       return new OmdEnrichmentError("remote_host_not_allowed", "OMD Home v1 only allows a loopback Ollama endpoint for enrichment.");
     case "model_not_installed":
-      return new OmdEnrichmentError("omd_failed", "The selected Ollama model is not installed.");
+      return new OmdEnrichmentError(
+        "omd_failed",
+        safeOllamaModelName(model)
+          ? `The selected Ollama model is not installed. Run: ollama pull ${model}`
+          : "The selected Ollama model is not installed. Run ollama pull for the exact model in OMD Home settings.",
+      );
     case "generation_timeout":
       return new OmdEnrichmentError("generation_timeout", "The local model timed out while generating suggestions.");
     case "invalid_model_json":
@@ -68,4 +73,8 @@ export function mapOmdErrorKind(kind: string): OmdEnrichmentError {
     default:
       return new OmdEnrichmentError("omd_failed", "OMD enrichment failed. Check the local OMD output and try again.");
   }
+}
+
+function safeOllamaModelName(model: string | undefined): model is string {
+  return typeof model === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u.test(model);
 }

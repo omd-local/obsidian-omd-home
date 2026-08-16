@@ -2,7 +2,9 @@ import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 
 const WINDOWS_ABSOLUTE = /^[A-Za-z]:[\\/]/u;
-const SYSTEM_COMPONENTS = new Set([".obsidian", ".git", ".trash", "__MACOSX"]);
+// Dot-prefixed directories, including a custom Obsidian config directory,
+// are rejected below. This set is only for non-hidden system directories.
+const SYSTEM_COMPONENTS = new Set(["__MACOSX"]);
 
 export interface PathInspectionResult {
   ok: boolean;

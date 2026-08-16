@@ -51,16 +51,48 @@ test("does not duplicate OMD's executable directory in PATH", () => {
 test("preserves structured bridge error messages", () => {
   assert.equal(
     bridgeErrorMessage({ message: "vault path does not exist", type: "ValueError" }, "fallback"),
-    "vault path does not exist",
+    "The selected vault could not be read by OMD Home.",
   );
   assert.equal(
     bridgeErrorMessage('{"message":"loopback only","type":"ValueError"}', "fallback"),
-    "loopback only",
+    "OMD Home bridge failed. Check the local bridge setup and try again.",
   );
 });
 
-test("preserves structured OMD capture error events", () => {
-  assert.equal(captureErrorMessage('{"v":1,"event":"fatal","ts":1,"message":"Playwright could not load the page"}'), "Playwright could not load the page");
+test("sanitizes structured bridge errors before surfacing them", () => {
+  assert.equal(
+    bridgeErrorMessage(
+      { message: "Ollama is not reachable at http://localhost:11434. Start the Ollama app or run `ollama serve`. ([Errno 61] Connection refused)" },
+      "fallback",
+    ),
+    "Ollama is not reachable at the configured local endpoint. Start Ollama and try again.",
+  );
+  assert.equal(
+    bridgeErrorMessage(
+      { message: "Ollama rejected the request: {\"error\":\"model 'secret-model' not found\"}" },
+      "fallback",
+    ),
+    "Ollama rejected the request. Check the selected local model and try again.",
+  );
+  assert.equal(
+    bridgeErrorMessage("Traceback: /Users/shion/private/vault.md", "OMD Home bridge failed"),
+    "OMD Home bridge failed. Check the local bridge setup and try again.",
+  );
+});
+
+test("sanitizes structured OMD capture error events", () => {
+  assert.equal(
+    captureErrorMessage('{"v":1,"event":"fatal","ts":1,"message":"Playwright could not load the page"}'),
+    "OMD could not load the page. Check the local browser capture setup and try again.",
+  );
+  assert.equal(
+    captureErrorMessage("{\"v\":1,\"event\":\"error\",\"kind\":\"source_missing\",\"ts\":1,\"message\":\"ENOENT: no such file or directory, open \\\"/private/path.txt\\\"\"}"),
+    "OMD could not read that source. Check the URL or file path and try again.",
+  );
+  assert.equal(
+    captureErrorMessage("Traceback: /Users/shion/secrets.txt"),
+    "OMD capture failed. Check the OMD setup and try again.",
+  );
 });
 
 test("parses JSON bridge responses from stdout", () => {
@@ -137,7 +169,12 @@ async function withNodeRequire<T>(run: () => Promise<T>): Promise<T> {
   const runtime = globalThis as typeof globalThis & { window?: unknown };
   const previous = runtime.window;
   Object.defineProperty(runtime, "window", {
-    value: { ...(typeof previous === "object" && previous ? previous : {}), require: nodeRequire },
+    value: {
+      ...(typeof previous === "object" && previous ? previous : {}),
+      require: nodeRequire,
+      setTimeout,
+      clearTimeout,
+    },
     configurable: true,
     writable: true,
   });

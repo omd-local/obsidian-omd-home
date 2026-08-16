@@ -27,7 +27,7 @@ or bundle OMD, Python, Ollama, or the EventKit helper for you.
 OMD Home can run without any external helper, but optional features depend on local tools
 you configure yourself in settings.
 
-- OMD executable: used for URL/file capture now, and for review-first enrichment in Phase 2.
+- OMD executable: used for URL/file capture and for review-first note enrichment.
 - Python bridge: used by the current optional omnibox AI and vault retrieval bridge.
 - EventKit helper: used only for macOS Calendar read/write.
 
@@ -43,9 +43,12 @@ The plugin never downloads these tools and never self-updates.
 - OMD capture may contact the URL you submit, read a local file path you submit, and write
   Markdown plus OMD recovery artifacts into your vault.
 - Optional calendar syncing uses the local EventKit helper and macOS calendar permissions.
-- Optional AI actions send only the task payload chosen by the user to the configured OMD
-  path. If you point OMD at a hosted provider, that provider's privacy and retention rules
-  apply instead of OMD Home's.
+- Review-first note enrichment sends only bounded note content, ranked candidate metadata,
+  and bounded vault tags to your configured local OMD executable, which then talks only to
+  a loopback Ollama endpoint in v1.
+- Optional omnibox AI actions are separate from note enrichment. They send only the task
+  payload chosen by the user to the configured OMD path. If you point that optional path at
+  a hosted provider, that provider's privacy and retention rules apply instead of OMD Home's.
 
 ## Current workflows
 
@@ -72,6 +75,16 @@ The plugin never downloads these tools and never self-updates.
 - Paste a URL or local file path.
 - Add optional tags.
 - OMD writes the recoverable capture into the vault.
+
+### Review-first note enrichment
+
+- Use **Suggest links and tags** from the command palette, file menu, or Inbox row action.
+- OMD Home builds the candidate catalog from your vault, then asks the configured local OMD
+  executable for a proposal.
+- The review modal shows exact evidence, existing-note link suggestions, existing tags,
+  optional new tags, and display-only new concepts.
+- Nothing is written until you explicitly press **Apply**.
+- v1 accepts only loopback Ollama endpoints for this workflow.
 
 ### Optional AI actions
 
@@ -111,6 +124,22 @@ npm run install:test-vault
 ```
 
 `test-vault/` is the only vault this repository's helper installer touches automatically.
+
+To check the copied OMD enrichment contract fixtures without writing anything:
+
+```bash
+node scripts/sync-omd-contract-fixtures.mjs /path/to/omd
+```
+
+Contract drift exits nonzero and prints the fixture/provenance changes. After reviewing the
+upstream contract and corresponding TypeScript validators, accept the update explicitly:
+
+```bash
+node scripts/sync-omd-contract-fixtures.mjs /path/to/omd --accept
+```
+
+See [the release checklist](./docs/release-checklist.md) before tagging a Community Plugins
+release.
 
 ## License
 

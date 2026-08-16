@@ -31,6 +31,8 @@ export class EnrichmentReviewModal extends Modal {
   private selection: EnrichmentSelection;
   private readonly callbacks: EnrichmentReviewModalCallbacks;
   private actionHandled = false;
+  private focusTimer: number | null = null;
+  private focusNextRender = true;
 
   constructor(app: App, state: EnrichmentReviewState, callbacks: EnrichmentReviewModalCallbacks) {
     super(app);
@@ -47,11 +49,16 @@ export class EnrichmentReviewModal extends Modal {
   }
 
   onClose(): void {
+    if (this.focusTimer !== null) {
+      window.clearTimeout(this.focusTimer);
+      this.focusTimer = null;
+    }
     if (!this.actionHandled && isActiveDismissal(this.state.phase)) void this.callbacks.onCancel();
     this.contentEl.empty();
   }
 
   setState(state: EnrichmentReviewState): void {
+    if (state.phase !== this.state.phase) this.focusNextRender = true;
     this.state = state;
     this.selection = reconcileEnrichmentSelection(state, this.selection);
     if (this.contentEl.isConnected) this.render();
@@ -61,7 +68,14 @@ export class EnrichmentReviewModal extends Modal {
     return this.state;
   }
 
+  closeWithoutCallback(): void {
+    this.actionHandled = true;
+    this.close();
+  }
+
   private render(): void {
+    if (this.focusTimer !== null) window.clearTimeout(this.focusTimer);
+    const focusKey = this.currentFocusKey();
     this.contentEl.empty();
     const shell = this.contentEl.createDiv({ cls: "omd-enrichment-shell" });
     const phase = describeEnrichmentPhase(this.state.phase);
@@ -100,9 +114,16 @@ export class EnrichmentReviewModal extends Modal {
     });
     footerCopy.createDiv({ cls: "omd-enrichment-footer-note", text: footerNote(this.state.phase) });
     this.renderActions(footer.createDiv({ cls: "omd-enrichment-actions" }));
-    window.setTimeout(() => {
-      this.contentEl.querySelector<HTMLButtonElement | HTMLInputElement>("button:not([disabled]), input:not([disabled])")?.focus();
-    }, 0);
+    if (focusKey || this.focusNextRender) {
+      this.focusNextRender = false;
+      this.focusTimer = window.setTimeout(() => {
+        this.focusTimer = null;
+        const preserved = focusKey ? this.findFocusableByKey(focusKey) : null;
+        const firstAvailable = this.contentEl.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled])");
+        const focusTarget = preserved ?? firstAvailable ?? null;
+        focusTarget?.focus();
+      }, 0);
+    }
   }
 
   private renderProposal(shell: HTMLElement): void {
@@ -138,15 +159,22 @@ export class EnrichmentReviewModal extends Modal {
       const row = list.createDiv({
         cls: `omd-enrichment-item${displayOnly ? " is-display-only" : ""}${this.selection.selectedIds[suggestion.id] ? " is-selected" : ""}${selectable ? " is-selectable" : ""}`,
       });
-      const checkbox = row.createEl("input", { type: "checkbox", cls: "omd-enrichment-checkbox" });
-      checkbox.checked = this.selection.selectedIds[suggestion.id] ?? false;
-      checkbox.disabled = !selectable;
-      checkbox.setAttribute("aria-label", `${suggestionKindLabel(suggestion)}: ${suggestion.label}`);
+      const checkbox = displayOnly
+        ? null
+        : row.createEl("input", { type: "checkbox", cls: "omd-enrichment-checkbox" });
+      if (checkbox) {
+        checkbox.dataset.omdFocusKey = `suggestion:${suggestion.id}`;
+        checkbox.checked = this.selection.selectedIds[suggestion.id] ?? false;
+        checkbox.disabled = !selectable;
+        checkbox.setAttribute("aria-label", `${suggestionKindLabel(suggestion)}: ${suggestion.label}`);
+      } else {
+        row.createSpan({ cls: "omd-enrichment-display-mark", attr: { "aria-hidden": "true" }, text: "◇" });
+      }
       const toggle = (selected: boolean): void => {
         this.selection = toggleEnrichmentSelection(this.selection, suggestion.id, selected);
         this.render();
       };
-      checkbox.addEventListener("change", () => toggle(checkbox.checked));
+      checkbox?.addEventListener("change", () => toggle(checkbox.checked));
 
       const body = row.createDiv({ cls: "omd-enrichment-item-body" });
       const labelRow = body.createDiv({ cls: "omd-enrichment-item-labelrow" });
@@ -154,6 +182,7 @@ export class EnrichmentReviewModal extends Modal {
       labelRow.createSpan({ cls: "omd-enrichment-item-kind tone-idle", text: suggestionKindLabel(suggestion) });
       if (suggestion.path) {
         const pathButton = labelRow.createEl("button", { cls: "omd-enrichment-path", type: "button", text: suggestion.path });
+        pathButton.dataset.omdFocusKey = `path:${suggestion.id}`;
         pathButton.addEventListener("click", (event) => {
           event.stopPropagation();
           this.callbacks.onOpenPath?.(suggestion.path!);
@@ -164,7 +193,7 @@ export class EnrichmentReviewModal extends Modal {
       if (selectable) {
         row.addEventListener("click", (event) => {
           if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) return;
-          toggle(!checkbox.checked);
+          if (checkbox) toggle(!checkbox.checked);
         });
       }
     }
@@ -208,7 +237,7 @@ export class EnrichmentReviewModal extends Modal {
       return;
     }
     if (phase === "error" || phase === "conflict") {
-      this.button(parent, "Close", false, () => this.cancelAndClose());
+      this.button(parent, "Close", false, () => this.closeWithoutCallback());
       const retry = this.button(parent, "Generate again", true, async () => {
         if (!this.callbacks.onRetry) return;
         this.actionHandled = true;
@@ -223,7 +252,7 @@ export class EnrichmentReviewModal extends Modal {
       applying.disabled = true;
       return;
     }
-    this.button(parent, "Close", false, () => this.cancelAndClose());
+    this.button(parent, "Close", false, () => this.closeWithoutCallback());
   }
 
   private button(parent: HTMLElement, label: string, primary: boolean, action: () => void | Promise<void>): HTMLButtonElement {
@@ -232,8 +261,23 @@ export class EnrichmentReviewModal extends Modal {
       type: "button",
       text: label,
     });
+    button.dataset.omdFocusKey = `action:${label}`;
     button.addEventListener("click", () => void action());
     return button;
+  }
+
+  private currentFocusKey(): string | null {
+    const active = document.activeElement;
+    if (!active?.instanceOf(HTMLElement) || !this.contentEl.contains(active)) return null;
+    return active.dataset.omdFocusKey ?? null;
+  }
+
+  private findFocusableByKey(focusKey: string): HTMLElement | null {
+    const focusable = focusableElements(this.contentEl);
+    for (const element of focusable) {
+      if (element.getAttribute("data-omd-focus-key") === focusKey) return element;
+    }
+    return null;
   }
 
   private async cancelAndClose(): Promise<void> {
@@ -267,4 +311,10 @@ function suggestionKindLabel(suggestion: EnrichmentSuggestion): string {
     case "new-concept": return "Display only";
     default: return "Suggestion";
   }
+}
+
+function focusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll("[data-omd-focus-key]")).filter(
+    (element): element is HTMLElement => element.instanceOf(HTMLElement),
+  );
 }

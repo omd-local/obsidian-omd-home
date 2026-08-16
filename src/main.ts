@@ -74,13 +74,13 @@ export default class OmdHomePlugin extends Plugin {
     this.registerView(HOME_VIEW_TYPE, (leaf) => new OmdHomeView(leaf, this));
     this.registerView(CALENDAR_VIEW_TYPE, (leaf) => new OmdCalendarView(leaf, this));
     this.addRibbonIcon("layout-dashboard", "Open OMD Home", () => void this.openHome());
-    this.addRibbonIcon("calendar-days", "Open OMD Calendar", () => void this.openCalendar());
+    this.addRibbonIcon("calendar-days", "Open OMD calendar", () => void this.openCalendar());
     this.addCommand({ id: "open-home", name: "Open home", callback: () => void this.openHome() });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => void this.openCalendar() });
     this.addCommand({ id: "new-event", name: "Create event", callback: () => void this.createCalendarEvent() });
     this.addCommand({
       id: "sync-calendar",
-      name: "Sync linked Calendar events",
+      name: "Sync linked calendar events",
       callback: () => void this.synchronizeCalendarEvents()
         .then(() => new Notice("Calendar sync complete"))
         .catch((error) => new Notice(message(error))),
@@ -215,7 +215,9 @@ export default class OmdHomePlugin extends Plugin {
         this.refreshHomeViews();
       });
       const vaultRelative = capturedOutputVaultPath(outputPath, vault);
-      if (vaultRelative) {
+      if (!vaultRelative) {
+        new Notice("Capture completed, but OMD did not return a verifiable vault note path. The note was not added to OMD inbox.");
+      } else {
         const inspection = await inspectVaultRelativeMarkdownPath(vault, vaultRelative);
         const file = inspection.ok && inspection.normalizedPath
           ? this.app.vault.getFileByPath(inspection.normalizedPath)
@@ -223,7 +225,7 @@ export default class OmdHomePlugin extends Plugin {
         if (file instanceof TFile) {
           await this.refreshInboxStatus(file, "inbox");
         } else {
-          new Notice("Capture completed, but its output path could not be verified. The note was not added to OMD Inbox.");
+          new Notice("Capture completed, but its output path could not be verified. The note was not added to OMD inbox.");
         }
       }
       new Notice("OMD capture complete");

@@ -5,7 +5,9 @@ import { OmdEnrichmentRunner, parseEnrichEventLine, parseStrictStdout } from "..
 
 test("parseEnrichEventLine ignores invalid JSON lines", () => {
   assert.equal(parseEnrichEventLine("not json"), null);
-  assert.deepEqual(parseEnrichEventLine("{\"event\":\"done\",\"request_id\":\"r1\"}"), {
+  assert.deepEqual(parseEnrichEventLine("{\"v\":1,\"ts\":1,\"event\":\"done\",\"request_id\":\"r1\"}"), {
+    v: 1,
+    ts: 1,
     event: "done",
     request_id: "r1",
   });
@@ -65,10 +67,79 @@ test("runner validates stdout and ignores stale stderr events", async () => {
 test("runner maps non-zero exits into process errors", async () => {
   const request = sampleRequest();
   const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
-    options?.onStderrLine?.("{\"v\":1,\"ts\":1,\"event\":\"error\",\"request_id\":\"request-1\",\"message\":\"Model missing\"}");
+    options?.onStderrLine?.("{\"v\":1,\"ts\":1,\"event\":\"error\",\"request_id\":\"request-1\",\"kind\":\"model_not_installed\",\"message\":\"untrusted details\"}");
     return { code: 1, stderr: "", stdout: "" };
   });
-  await assert.rejects(runner.run({ executable: "omd", request }), /Model missing/);
+  await assert.rejects(runner.run({ executable: "omd", request }), /selected Ollama model is not installed/i);
+});
+
+test("runner gives a safe, copyable Ollama pull command for a missing configured model", async () => {
+  const request = makeRequest();
+  request.model = "qwen3:4b-instruct";
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options.onStderrLine?.(JSON.stringify({
+      v: 1,
+      event: "error",
+      kind: "model_not_installed",
+      request_id: request.request_id,
+      ts: 1,
+    }));
+    return { code: 1, stdout: "", stderr: "" };
+  });
+
+  await assert.rejects(
+    runner.run({ executable: "/usr/local/bin/omd", request }),
+    (error: unknown) => error instanceof Error
+      && error.message === "The selected Ollama model is not installed. Run: ollama pull qwen3:4b-instruct",
+  );
+});
+
+test("runner does not surface an unclassified terminal error message", async () => {
+  const request = sampleRequest();
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.("{\"v\":1,\"ts\":1,\"event\":\"error\",\"request_id\":\"request-1\",\"message\":\"private note text\"}");
+    return { code: 1, stderr: "", stdout: "" };
+  });
+  await assert.rejects(
+    runner.run({ executable: "omd", request }),
+    (error: unknown) => error instanceof Error
+      && /OMD enrichment failed/u.test(error.message)
+      && !error.message.includes("private note text"),
+  );
+});
+
+test("runner rejects malformed enrichment progress events", async () => {
+  const request = sampleRequest();
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.("{\"event\":\"progress\"}");
+    return { code: 0, stderr: "", stdout: "{}\n" };
+  });
+  await assert.rejects(runner.run({ executable: "omd", request }), /event\.v|invalid|unsupported/i);
+});
+
+test("runner rejects duplicate terminal events", async () => {
+  const request = sampleRequest();
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.("{\"v\":1,\"ts\":1,\"event\":\"done\",\"request_id\":\"request-1\"}");
+    options?.onStderrLine?.("{\"v\":1,\"ts\":2,\"event\":\"error\",\"request_id\":\"request-1\",\"message\":\"late failure\"}");
+    return { code: 0, stderr: "", stdout: "{}\n" };
+  });
+  await assert.rejects(runner.run({ executable: "omd", request }), /more than one terminal enrichment event/i);
+});
+
+test("runner maps cancellation and overflow errors", async () => {
+  const request = sampleRequest();
+  const cancelled = new OmdEnrichmentRunner(async () => {
+    const error = new Error("aborted");
+    error.name = "AbortError";
+    throw error;
+  });
+  await assert.rejects(cancelled.run({ executable: "omd", request }), /cancelled/i);
+
+  const overflow = new OmdEnrichmentRunner(async () => {
+    throw new Error("stderr exceeded 262144 bytes");
+  });
+  await assert.rejects(overflow.run({ executable: "omd", request }), /exceeded its safety limit/i);
 });
 
 function sampleRequest(): OmdEnrichRequest {

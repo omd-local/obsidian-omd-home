@@ -13,6 +13,8 @@ export const MAX_NEW_CONCEPTS = 12;
 export const MAX_EXISTING_TAGS = 20;
 export const MAX_NEW_TAGS = 12;
 export const MAX_EVIDENCE_CHARS = 400;
+export const MAX_WARNINGS = 16;
+export const MAX_WARNING_CHARS = 160;
 
 export const ENRICH_NOTE_REQUEST_LIMIT_BYTES = MAX_REQUEST_BYTES;
 export const ENRICH_NOTE_TARGET_LIMIT_BYTES = MAX_TARGET_NOTE_BYTES;
@@ -422,7 +424,14 @@ function validateTagSuggestions(
 
 function normalizeWarnings(value: unknown): string[] {
   const array = expectArray(value, "response.warnings");
-  return array.map((entry, index) => expectString(entry, `response.warnings[${index}]`));
+  if (array.length > MAX_WARNINGS) {
+    throw new EnrichmentError("invalid_response", "OMD returned too many enrichment warnings.");
+  }
+  return array.map((entry, index) => expectBoundedString(
+    entry,
+    MAX_WARNING_CHARS,
+    `response.warnings[${index}]`,
+  ));
 }
 
 function validateGeneration(value: unknown): EnrichmentResponse["generation"] {

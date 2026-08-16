@@ -136,7 +136,7 @@ export class EnrichmentWorkflowController {
       ts: Date.now() / 1000,
       message: "Note enrichment cancelled",
     });
-    active.modal.close();
+    active.modal.closeWithoutCallback();
     return true;
   }
 

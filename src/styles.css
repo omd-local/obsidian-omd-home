@@ -634,6 +634,13 @@
   margin-top: 2px;
   accent-color: var(--omd-accent);
 }
+.omd-enrichment-display-mark {
+  width: 14px;
+  margin-top: 1px;
+  color: var(--omd-muted);
+  font: 700 13px/1 var(--font-monospace);
+  text-align: center;
+}
 .omd-enrichment-item-body { display: grid; gap: 4px; min-width: 0; }
 .omd-enrichment-item-labelrow {
   display: flex;

@@ -28,13 +28,13 @@ export class CaptureModal extends Modal {
       .setDesc("For example: https://… or /Users/…/document.pdf")
       .addText((text) => {
         text.inputEl.addClass("omd-capture-source");
-        text.setPlaceholder("https://example.com/article").onChange((value) => { this.source = value.trim(); });
+        text.setPlaceholder("Example URL or file path").onChange((value) => { this.source = value.trim(); });
         window.setTimeout(() => text.inputEl.focus(), 0);
       });
     new Setting(this.contentEl)
       .setName("Tags")
       .setDesc("Optional comma-separated Obsidian tags. Nested tags such as project/research are supported.")
-      .addText((text) => text.setPlaceholder("inbox, research/calendar").onChange((value) => { this.tags = value; }));
+      .addText((text) => text.setPlaceholder("Example: inbox, research/calendar").onChange((value) => { this.tags = value; }));
     new Setting(this.contentEl)
       .setName("Polish with local AI")
       .setDesc(`Optional. Runs ${this.polishModel} after fast structural cleanup. Long pages can take several minutes.`)

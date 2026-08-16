@@ -1,10 +1,13 @@
-import { Platform } from "obsidian";
 import type { CalendarEventRecord, ExternalCalendarDescriptor } from "./model";
+import { eventKitErrorMessage, eventKitProcessErrorMessage } from "./eventkit-errors";
 
 export class EventKitBridge {
   private readonly activeChildren = new Set<ReturnType<typeof import("node:child_process")["spawn"]>>();
+  private readonly helperPath: () => string;
 
-  constructor(private readonly helperPath: () => string) {}
+  constructor(helperPath: () => string) {
+    this.helperPath = helperPath;
+  }
 
   dispose(): void {
     for (const child of this.activeChildren) child.kill();
@@ -33,7 +36,7 @@ export class EventKitBridge {
   }
 
   private async call(args: string[], stdin?: string): Promise<Record<string, unknown>> {
-    if (!Platform.isDesktopApp) throw new Error("Live Calendar access is available on Mac only in v1");
+    if (process.platform !== "darwin") throw new Error("Live Calendar access is available on macOS only in v1");
     const command = this.helperPath();
     if (!command) throw new Error("Configure the EventKit helper path in settings");
     const runtimeWindow = window as Window & { require?: (id: string) => typeof import("node:child_process") };
@@ -64,9 +67,9 @@ export class EventKitBridge {
       child.stderr.on("data", (chunk: string) => {
         stderr = appendBounded(stderr, chunk, child, () => finish(new Error("EventKit helper error output exceeded 2 MB")));
       });
-      child.on("error", (error) => finish(error));
+      child.on("error", (error) => finish(new Error(eventKitProcessErrorMessage(error), { cause: error })));
       child.on("close", (code: number | null) => {
-        if (code !== 0) return finish(new Error(stderr.trim() || "EventKit helper failed"));
+        if (code !== 0) return finish(new Error(eventKitErrorMessage(stderr)));
         try { finish(undefined, JSON.parse(stdout.trim()) as Record<string, unknown>); }
         catch { finish(new Error("EventKit helper returned invalid JSON")); }
       });

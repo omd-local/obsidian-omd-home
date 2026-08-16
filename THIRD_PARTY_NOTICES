@@ -3,15 +3,27 @@ Third-party notices for OMD Home
 This project includes dependencies distributed under their own licenses.
 
 1. FullCalendar
-   Package: fullcalendar
+   Packages: fullcalendar, @fullcalendar/core, @full-ui/headless-calendar
    License: MIT
-   Copyright: © Adam Shaw and contributors
+   Copyright: © 2026 Adam Shaw
    Source: https://github.com/fullcalendar/fullcalendar
 
-2. Temporal Polyfill
-   Package: temporal-polyfill
+2. Preact
+   Package: preact
    License: MIT
-   Copyright: © fullcalendar and contributors
+   Copyright: © 2015-present Jason Miller
+   Source: https://github.com/preactjs/preact
+
+3. Temporal Polyfill and Utils
+   Packages: temporal-polyfill, temporal-utils
+   License: MIT
+   Copyright: © 2026 Adam Shaw
+   Source: https://github.com/fullcalendar/temporal-polyfill
+
+4. Temporal Spec
+   Package: temporal-spec
+   License: Apache-2.0
+   Copyright: © 2026 Adam Shaw; portions © Microsoft Corporation
    Source: https://github.com/fullcalendar/temporal-polyfill
 
 Bundle builds preserve legal comments at the end of the generated artifact when required.
