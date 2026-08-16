@@ -7,19 +7,21 @@ import {
   prependExecutableDirectoryToPath,
 } from "./omd-events.ts";
 
-interface SpawnResult {
+export interface SpawnResult {
   stdout: string;
   stderr: string;
   code: number;
 }
 
-interface SpawnOptions {
+export interface SpawnOptions {
   onStderrLine?: (line: string) => void;
   stdin?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
   maxStdoutChars?: number;
   maxStderrChars?: number;
+  maxStdoutBytes?: number;
+  maxStderrBytes?: number;
 }
 
 const DEFAULT_MAX_STDOUT_CHARS = 1_000_000;
@@ -211,10 +213,14 @@ export async function spawnProcess(
       signal,
       maxStdoutChars = DEFAULT_MAX_STDOUT_CHARS,
       maxStderrChars = DEFAULT_MAX_STDERR_CHARS,
+      maxStdoutBytes,
+      maxStderrBytes,
     } = options;
     const child = spawn(command, args, { env, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let pending = "";
     let failure: Error | null = null;
     let settled = false;
@@ -242,6 +248,12 @@ export async function spawnProcess(
       child.kill("SIGTERM");
       forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
     };
+    const failForByteOverflow = (stream: "stdout" | "stderr", limit: number) => {
+      if (failure) return;
+      failure = new Error(`Process ${stream} exceeded ${limit} bytes`);
+      child.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+    };
     if (signal?.aborted) {
       abort();
     } else if (signal) {
@@ -251,12 +263,19 @@ export async function spawnProcess(
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
+      stdoutBytes += Buffer.byteLength(chunk, "utf8");
       if (stdout.length > maxStdoutChars) failForOverflow("stdout", maxStdoutChars);
+      if (maxStdoutBytes !== undefined && stdoutBytes > maxStdoutBytes) failForByteOverflow("stdout", maxStdoutBytes);
     });
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
+      stderrBytes += Buffer.byteLength(chunk, "utf8");
       if (stderr.length > maxStderrChars) {
         failForOverflow("stderr", maxStderrChars);
+        return;
+      }
+      if (maxStderrBytes !== undefined && stderrBytes > maxStderrBytes) {
+        failForByteOverflow("stderr", maxStderrBytes);
         return;
       }
       pending += chunk;

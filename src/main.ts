@@ -5,7 +5,6 @@ import {
   Plugin,
   TFile,
   normalizePath,
-  setIcon,
   type WorkspaceLeaf,
 } from "obsidian";
 import { HOME_VIEW_TYPE, OmdHomeView } from "./home-view";
@@ -23,6 +22,12 @@ import { OmdBridge, type AiAnswer } from "./omd-bridge";
 import { EventKitBridge } from "./eventkit-bridge";
 import { eventNotePath, recordFromFrontmatter, serializeEventNote, updateEventNote } from "./event-note";
 import { AiConsentModal, CaptureModal } from "./modals";
+import { OmdCapabilityService } from "./enrichment/capability";
+import { EnrichmentWorkflowController } from "./enrichment/controller.ts";
+import { OmdEnrichmentRunner } from "./enrichment/runner";
+import { toUserFacingEnrichmentMessage } from "./enrichment/errors.ts";
+import { inspectVaultRelativeMarkdownPath } from "./enrichment/path-safety.ts";
+import { capturedOutputVaultPath, isOmdInboxNote } from "./inbox";
 import {
   calendarFetchWindow,
   calendarIdentityKeys,
@@ -42,15 +47,22 @@ export default class OmdHomePlugin extends Plugin {
   externalCalendars: ExternalCalendarDescriptor[] = [];
   processingEvents: OmdProgressEvent[] = [];
   captureActive = false;
+  enrichmentActive = false;
+  enrichmentCapability: { status: "unchecked" | "checking" | "ready" | "unavailable"; message: string } = {
+    status: "unchecked",
+    message: "Not checked this session",
+  };
   lastError = "";
+  readonly omdCapabilityService = new OmdCapabilityService();
+  readonly omdEnrichmentRunner = new OmdEnrichmentRunner();
   private omdBridge!: OmdBridge;
   private eventKitBridge!: EventKitBridge;
+  private enrichmentWorkflowController!: EnrichmentWorkflowController;
   private calendarRefresh: Promise<void> | null = null;
   private calendarRefreshTimer: number | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
-    await this.hydrateBundledPaths();
     this.deviceLayout = this.loadDeviceLayout();
     this.omdBridge = new OmdBridge(
       () => this.settings.omdExecutable,
@@ -58,13 +70,13 @@ export default class OmdHomePlugin extends Plugin {
       () => this.settings.pythonBridgePath,
     );
     this.eventKitBridge = new EventKitBridge(() => this.settings.eventKitHelperPath);
-
+    this.enrichmentWorkflowController = new EnrichmentWorkflowController(this);
     this.registerView(HOME_VIEW_TYPE, (leaf) => new OmdHomeView(leaf, this));
     this.registerView(CALENDAR_VIEW_TYPE, (leaf) => new OmdCalendarView(leaf, this));
     this.addRibbonIcon("layout-dashboard", "Open OMD Home", () => void this.openHome());
     this.addRibbonIcon("calendar-days", "Open OMD Calendar", () => void this.openCalendar());
-    this.addCommand({ id: "open-home", name: "Open Home", callback: () => void this.openHome() });
-    this.addCommand({ id: "open-calendar", name: "Open Calendar", callback: () => void this.openCalendar() });
+    this.addCommand({ id: "open-home", name: "Open home", callback: () => void this.openHome() });
+    this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => void this.openCalendar() });
     this.addCommand({ id: "new-event", name: "Create event", callback: () => void this.createCalendarEvent() });
     this.addCommand({
       id: "sync-calendar",
@@ -75,12 +87,13 @@ export default class OmdHomePlugin extends Plugin {
     });
     this.addCommand({ id: "capture-with-omd", name: "Capture URL or file", callback: () => this.openCaptureModal() });
     this.addCommand({ id: "cancel-omd", name: "Cancel active OMD action", callback: () => this.cancelActiveOmd() });
+    this.addCommand({ id: "suggest-links-and-tags", name: "Suggest links and tags", callback: () => void this.suggestLinksAndTags() });
     this.addCommand({
       id: "focus-omnibox",
       name: "Focus omnibox",
       callback: async () => {
         const leaf = await this.openHome();
-        (leaf.view as OmdHomeView).focusOmnibox();
+        if (leaf.view instanceof OmdHomeView) leaf.view.focusOmnibox();
       },
     });
     this.addSettingTab(new OmdHomeSettingTab(this.app, this));
@@ -101,39 +114,32 @@ export default class OmdHomePlugin extends Plugin {
           await this.saveSettings();
           this.refreshHomeViews();
         }));
+      if (file.extension === "md") {
+        menu.addItem((item) => item
+          .setTitle("Suggest links and tags")
+          .setIcon("sparkles")
+          .onClick(() => void this.suggestLinksAndTags(file)));
+      }
     }));
 
     this.app.workspace.onLayoutReady(() => {
       void this.refreshCalendarEvents();
-      if (Platform.isDesktopApp && this.settings.eventKitHelperPath) void this.refreshExternalCalendars();
+      if (Platform.isMacOS && this.settings.eventKitHelperPath) void this.refreshExternalCalendars();
       if (this.settings.openOnLaunch) void this.openHome(false);
     });
   }
 
   onunload(): void {
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
+    this.omdCapabilityService.dispose();
+    this.omdEnrichmentRunner.dispose();
+    this.enrichmentWorkflowController?.dispose();
     this.eventKitBridge?.dispose();
     this.omdBridge?.dispose?.();
   }
 
   async loadSettings(): Promise<void> {
     this.settings = normalizeOmdHomeSettings(await this.loadData());
-  }
-
-  private async hydrateBundledPaths(): Promise<void> {
-    const adapter = this.app.vault.adapter;
-    if (!(adapter instanceof FileSystemAdapter) || !this.manifest.dir) return;
-    const pluginRoot = adapter.getFullPath(this.manifest.dir);
-    let changed = false;
-    if (!this.settings.pythonBridgePath) {
-      this.settings.pythonBridgePath = `${pluginRoot}/bridge/omd_home_bridge.py`;
-      changed = true;
-    }
-    if (!this.settings.eventKitHelperPath) {
-      this.settings.eventKitHelperPath = `${pluginRoot}/omd-eventkit`;
-      changed = true;
-    }
-    if (changed) await this.saveSettings();
   }
 
   async saveSettings(): Promise<void> { await this.saveData(this.settings); }
@@ -144,7 +150,7 @@ export default class OmdHomePlugin extends Plugin {
       leaf = this.app.workspace.getLeaf("tab");
       await leaf.setViewState({ type: HOME_VIEW_TYPE, active: focus });
     }
-    if (focus) this.app.workspace.revealLeaf(leaf);
+    if (focus) await this.app.workspace.revealLeaf(leaf);
     return leaf;
   }
 
@@ -154,13 +160,14 @@ export default class OmdHomePlugin extends Plugin {
       leaf = this.app.workspace.getLeaf("tab");
       await leaf.setViewState({ type: CALENDAR_VIEW_TYPE, active: true });
     }
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
     return leaf;
   }
 
   async createCalendarEvent(): Promise<void> {
     const leaf = await this.openCalendar();
-    (leaf.view as OmdCalendarView).createEvent();
+    if (!(leaf.view instanceof OmdCalendarView)) throw new Error("OMD Calendar is still loading. Try again.");
+    leaf.view.createEvent();
   }
 
   openCaptureModal(): void {
@@ -179,22 +186,26 @@ export default class OmdHomePlugin extends Plugin {
   async openTagSearch(tag: string): Promise<void> {
     const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: "search", active: true, state: { query: `tag:#${tag}` } });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
 
   async saveDeviceLayout(layout: WidgetPlacement[]): Promise<void> {
     this.deviceLayout = normalizeLayout(layout);
-    localStorage.setItem(this.layoutStorageKey(), JSON.stringify(this.deviceLayout));
+    this.app.saveLocalStorage(this.layoutStorageKey(), this.deviceLayout);
   }
 
   async captureWithOmd(source: string, tags: string[] = [], polish = this.settings.capturePolish): Promise<void> {
+    if (this.captureActive || this.enrichmentActive) {
+      new Notice("Another OMD action is already active.");
+      return;
+    }
     this.captureActive = true;
     this.processingEvents = [];
     this.refreshHomeViews();
     try {
       this.lastError = "";
       const vault = this.vaultPath();
-      await this.omdBridge.capture(source, vault, tags, {
+      const outputPath = await this.omdBridge.capture(source, vault, tags, {
         enabled: polish,
         model: this.settings.capturePolishModel,
         host: this.settings.ollamaHost,
@@ -203,6 +214,18 @@ export default class OmdHomePlugin extends Plugin {
         this.processingEvents = this.processingEvents.slice(-40);
         this.refreshHomeViews();
       });
+      const vaultRelative = capturedOutputVaultPath(outputPath, vault);
+      if (vaultRelative) {
+        const inspection = await inspectVaultRelativeMarkdownPath(vault, vaultRelative);
+        const file = inspection.ok && inspection.normalizedPath
+          ? this.app.vault.getFileByPath(inspection.normalizedPath)
+          : null;
+        if (file instanceof TFile) {
+          await this.refreshInboxStatus(file, "inbox");
+        } else {
+          new Notice("Capture completed, but its output path could not be verified. The note was not added to OMD Inbox.");
+        }
+      }
       new Notice("OMD capture complete");
       await this.refreshCalendarEvents();
     } catch (error) {
@@ -224,8 +247,19 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   cancelActiveOmd(): void {
-    if (!this.captureActive) return void new Notice("OMD is idle");
-    this.omdBridge.cancelActive();
+    let cancelled = false;
+    if (this.captureActive) {
+      this.omdBridge.cancelActive();
+      cancelled = true;
+    }
+    if (this.enrichmentActive) {
+      this.omdEnrichmentRunner.cancel();
+      this.omdCapabilityService.cancelActive(this.settings.omdExecutable);
+      this.enrichmentActive = false;
+      this.refreshHomeViews();
+      cancelled = true;
+    }
+    if (!cancelled) new Notice("OMD is idle");
   }
 
   async searchWithOmd(query: string, output: HTMLElement): Promise<void> {
@@ -272,7 +306,37 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
+  async suggestLinksAndTags(file = this.app.workspace.getActiveFile()): Promise<void> {
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    await this.enrichmentWorkflowController.start(file);
+  }
+
+  async checkEnrichmentCapability(force = false): Promise<boolean> {
+    if (force) this.omdCapabilityService.clear(this.settings.omdExecutable);
+    this.enrichmentCapability = { status: "checking", message: "Checking the configured OMD executable…" };
+    try {
+      await this.omdCapabilityService.requireEnrichNote(this.settings.omdExecutable);
+      this.enrichmentCapability = { status: "ready", message: "OMD enrich-note schema v1 is available." };
+      return true;
+    } catch (error) {
+      this.enrichmentCapability = { status: "unavailable", message: toUserFacingEnrichmentMessage(error) };
+      return false;
+    } finally {
+      this.refreshHomeViews();
+    }
+  }
+
+  resetEnrichmentCapability(): void {
+    this.omdCapabilityService.clear();
+    this.enrichmentCapability = { status: "unchecked", message: "Not checked since the executable changed" };
+    this.refreshHomeViews();
+  }
+
   async refreshExternalCalendars(): Promise<void> {
+    if (!Platform.isMacOS) throw new Error("Apple Calendar integration is available on macOS only");
     try {
       this.externalCalendars = await this.eventKitBridge.calendars();
       const reconciled = reconcileCalendarSelection(this.settings, this.externalCalendars);
@@ -316,7 +380,7 @@ export default class OmdHomePlugin extends Plugin {
       });
     let external: CalendarEventRecord[] = [];
     let externalFetchFailed = false;
-    if (Platform.isDesktopApp && this.settings.eventKitHelperPath && this.settings.selectedCalendarIds.length) {
+    if (Platform.isMacOS && this.settings.eventKitHelperPath && this.settings.selectedCalendarIds.length) {
       const { start, end } = calendarFetchWindow(vaultEvents);
       try {
         external = await this.eventKitBridge.events(this.settings.selectedCalendarIds, start, end);
@@ -529,8 +593,7 @@ export default class OmdHomePlugin extends Plugin {
     await this.ensureFolder("Calendar/Events");
     const existing = event.notePath ? this.app.vault.getFileByPath(event.notePath) : null;
     if (existing) {
-      const current = await this.app.vault.read(existing);
-      await this.app.vault.modify(existing, updateEventNote(current, event));
+      await this.app.vault.process(existing, (current) => updateEventNote(current, event));
       return { ...event, notePath: existing.path };
     } else {
       const path = await this.uniquePath(eventNotePath(event));
@@ -561,6 +624,18 @@ export default class OmdHomePlugin extends Plugin {
     throw new Error("Could not allocate a unique note path");
   }
 
+  listInboxFiles(): TFile[] {
+    return this.app.vault.getMarkdownFiles()
+      .filter((file) => isOmdInboxNote(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter))
+      .sort((a, b) => b.stat.mtime - a.stat.mtime);
+  }
+
+  async refreshInboxStatus(file: TFile, status: "inbox" | "reviewed"): Promise<void> {
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      (frontmatter as Record<string, unknown>).omd_home_status = status;
+    });
+  }
+
   private renderAiAnswer(output: HTMLElement, answer: AiAnswer): void {
     output.empty();
     output.hidden = false;
@@ -582,7 +657,7 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
-  private refreshHomeViews(): void {
+  refreshHomeViews(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(HOME_VIEW_TYPE)) {
       if (leaf.view instanceof OmdHomeView) leaf.view.render();
     }
@@ -591,10 +666,17 @@ export default class OmdHomePlugin extends Plugin {
   private loadDeviceLayout(): WidgetPlacement[] {
     try {
       const key = this.layoutStorageKey();
-      const stored = localStorage.getItem(key) ?? localStorage.getItem(this.legacyLayoutStorageKey());
+      const primaryValue: unknown = this.app.loadLocalStorage(key);
+      const legacyValue: unknown = this.app.loadLocalStorage(this.legacyLayoutStorageKey());
+      const storedValue = primaryValue ?? legacyValue;
+      const stored = typeof storedValue === "string"
+        ? storedValue
+        : storedValue === null
+          ? null
+          : JSON.stringify(storedValue);
       if (!stored) return DEFAULT_LAYOUT.map((item) => ({ ...item }));
       const layout = normalizeLayout(JSON.parse(stored) as WidgetPlacement[]);
-      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(layout));
+      if (this.app.loadLocalStorage(key) === null) this.app.saveLocalStorage(key, layout);
       return layout;
     } catch { return DEFAULT_LAYOUT.map((item) => ({ ...item })); }
   }

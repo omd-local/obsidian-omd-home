@@ -1,63 +1,117 @@
 # OMD Home
 
-OMD Home is a local-first Obsidian plugin with four connected surfaces:
+OMD Home is a desktop-only Obsidian plugin that gives OMD a local-first home screen,
+calendar workspace, Inbox workflow, and omnibox.
 
-- **Home**: a draggable, resizable startup canvas.
-- **Calendar**: Markdown events plus selected macOS Calendar sources.
-- **Inbox**: OMD Inbox review and processing status.
-- **Omnibox**: vault search, commands, quick notes, OMD capture, and consent-gated AI retrieval.
+It is designed for a separate local OMD installation. OMD Home does not install, update,
+or bundle OMD, Python, Ollama, or the EventKit helper for you.
 
-The plugin does not replace OMD. OMD remains the recoverable conversion and capture
-boundary. OMD Home uses OMD's AI service when the installed build exposes it; otherwise
-local vault Q&A falls back to read-only Markdown retrieval and a loopback-only Ollama
-request. macOS EventKit access is isolated in a small TCC-gated native helper with no
-network role. On mobile, the UI remains available but native OMD and EventKit actions
-fail closed with an explanatory state.
+## What it includes
 
-## Using Home
+- Home: a centered dashboard with draggable and resizable widgets.
+- Calendar: Markdown event notes plus optional linked macOS Calendar events.
+- Inbox: recent OMD captures and processing status.
+- Omnibox: vault search, commands, quick notes, capture shortcuts, and optional AI actions.
 
-- Select **+ Event** in the Home header, a calendar widget, or the Calendar top bar.
-  Choose **Vault note only** for Markdown, or **Vault + _calendar_** for a linked
-  Markdown/EventKit event. A writable default must first be selected in settings.
-- Calendar **Refresh** is read-only. Use the visible **Sync** button when you want
-  pending one-sided changes applied. If both versions changed, OMD Home asks which
-  version to keep. Missing or deselected Calendar items are shown as **Unavailable**
-  and can be recreated or detached instead of being mislabeled as conflicts.
-- A linked event's editor provides explicit **Detach**, **Delete Calendar copy**, and
-  **Recreate** actions. An unavailable link exposes only Detach/Recreate. Read-only
-  Calendar events can still create linked vault notes without attempting a Calendar
-  write. Cross-system edits persist a recoverable `pending` note before EventKit runs,
-  so OMD Home never silently turns a linked event into two copies.
-- Select **Capture** or **Capture URL or file**, paste a URL or local path, add optional
-  comma-separated tags, and let OMD write the recoverable result into the vault.
-  The Processing widget shows only live work as active and offers **Cancel**; completed
-  work remains short history instead of leaving the system permanently “working.”
-- Select **Ask vault**, type a question after `@`, and press Return. OMD Home retrieves
-  Markdown evidence before the configured model answers; Ollama remains local.
-- The **Vault tags** widget reads inline and frontmatter tags automatically. Nested tags
-  such as `project/work` are grouped under `project`; selecting a group opens tag search.
-- Drag from the persistent grip. Dropping onto an occupied area pushes affected widgets
-  down and compacts the remaining gap. Use **Widgets** to restore hidden panels one at
-  a time. Layout is stored per vault path, device, and wide/compact viewport.
+## Platform support
+
+- Desktop only. The plugin uses Node.js child processes and desktop filesystem APIs, so
+  `isDesktopOnly` is set to `true`.
+- macOS calendar integration is optional and currently supported on macOS 14+ with the
+  separately built EventKit helper.
+- Windows and Linux can still use Home, Inbox, omnibox, Markdown events, and OMD capture,
+  but Apple Calendar controls stay disabled.
+
+## External dependencies and manual setup
+
+OMD Home can run without any external helper, but optional features depend on local tools
+you configure yourself in settings.
+
+- OMD executable: used for URL/file capture now, and for review-first enrichment in Phase 2.
+- Python bridge: used by the current optional omnibox AI and vault retrieval bridge.
+- EventKit helper: used only for macOS Calendar read/write.
+
+The plugin never downloads these tools and never self-updates.
+
+## Privacy and data behavior
+
+- No OMD Home telemetry.
+- No ads.
+- No account creation or payment flow in OMD Home.
+- OMD Home reads and writes files only inside the current vault, except when it launches
+  user-configured local executables.
+- OMD capture may contact the URL you submit, read a local file path you submit, and write
+  Markdown plus OMD recovery artifacts into your vault.
+- Optional calendar syncing uses the local EventKit helper and macOS calendar permissions.
+- Optional AI actions send only the task payload chosen by the user to the configured OMD
+  path. If you point OMD at a hosted provider, that provider's privacy and retention rules
+  apply instead of OMD Home's.
+
+## Current workflows
+
+### Home and widgets
+
+- Open OMD Home from the ribbon or command palette.
+- Drag widgets from their grip handle.
+- Resize widgets from the lower-right handle.
+- Use Widgets to re-show hidden panels.
+- Layout is stored per device viewport, so wide and compact layouts can differ safely.
+
+### Calendar
+
+- Choose **Vault note only** to create a Markdown event note.
+- Choose **Vault + Calendar** to create a linked Markdown note and a macOS Calendar event.
+- OMD Home reads only calendars you explicitly select in settings.
+- Google Calendar and Outlook Calendar can participate when they have already been added to
+  macOS Calendar and then selected inside OMD Home.
+- If a linked event changes in both places, OMD Home shows a conflict and lets you choose.
+
+### Capture
+
+- Use **Capture** or the **Capture URL or file** command.
+- Paste a URL or local file path.
+- Add optional tags.
+- OMD writes the recoverable capture into the vault.
+
+### Optional AI actions
+
+- Type `@` in the omnibox to ask a vault question.
+- The current omnibox AI path is optional and read-only.
+- Local Ollama can be used through your OMD configuration.
+- If a hosted provider is selected, OMD Home should show task-specific disclosure and consent
+  before content is sent.
+
+## Release expectations
+
+Obsidian installs community plugins from GitHub release assets whose tag exactly matches the
+version in `manifest.json`. OMD Home release assets include only:
+
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+External helpers remain manual prerequisites and are not assumed to be present after a
+Marketplace install.
 
 ## Development
 
 ```bash
 npm install
-npm run check
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
+
+Optional helper workflows:
+
+```bash
 npm run build:eventkit
 npm run install:test-vault
 ```
 
-The dedicated `test-vault/` is intentionally separate from any personal vault.
-The install command copies the built plugin, Python bridge, and signed EventKit
-helper into that vault only. This repository never writes to a real vault
-automatically.
+`test-vault/` is the only vault this repository's helper installer touches automatically.
 
-## OMD compatibility
+## License
 
-Set the OMD executable and optional Python bridge paths in plugin settings. The plugin
-consumes OMD's v1 JSON-lines progress contract and Markdown/sidecar vault formats.
-Hosted-provider API keys stay in OMD's credential boundary when its AI service is
-available; the self-contained compatibility fallback deliberately supports only local
-Ollama.
+MIT. See [LICENSE](./LICENSE) and [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES).

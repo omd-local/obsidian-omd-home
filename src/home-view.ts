@@ -65,9 +65,9 @@ export class OmdHomeView extends ItemView {
     title.createEl("h1", { text: greeting() });
     title.createEl("p", { text: longDate() });
     const controls = header.createDiv({ cls: "omd-home-controls" });
-    const capture = controls.createEl("button", { cls: "omd-action-button", type: "button", text: "Capture" });
+    const capture = controls.createEl("button", { cls: "omd-action-button", type: "button", text: "Capture URL or file" });
     capture.addEventListener("click", () => this.plugin.openCaptureModal());
-    const event = controls.createEl("button", { cls: "omd-action-button mod-cta", type: "button", text: "+ Event" });
+    const event = controls.createEl("button", { cls: "omd-action-button mod-cta", type: "button", text: "Create event" });
     event.addEventListener("click", () => void this.plugin.createCalendarEvent());
     this.manageWidgetsButton = controls.createEl("button", {
       cls: "omd-action-button omd-widget-manager",
@@ -79,10 +79,11 @@ export class OmdHomeView extends ItemView {
     this.manageWidgetsButton.addEventListener("click", (event) => this.openWidgetManagerMenu(event));
     const reset = controls.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Reset widget layout" } });
     setIcon(reset, "rotate-ccw");
-    reset.addEventListener("click", async () => {
-      await this.plugin.saveDeviceLayout(DEFAULT_LAYOUT.map((item) => ({ ...item })));
-      this.render();
-      new Notice("OMD Home layout reset");
+    reset.addEventListener("click", () => {
+      void this.plugin.saveDeviceLayout(DEFAULT_LAYOUT.map((item) => ({ ...item }))).then(() => {
+        this.render();
+        new Notice("OMD Home layout reset");
+      });
     });
 
     this.grid = contentEl.createDiv({ cls: "omd-widget-grid" });
@@ -138,7 +139,7 @@ export class OmdHomeView extends ItemView {
       add.addEventListener("click", () => void this.plugin.createCalendarEvent());
     }
     if (placement.id === "processing") {
-      const add = controls.createEl("button", { cls: "clickable-icon omd-widget-action", attr: { "aria-label": "Capture with OMD" } });
+      const add = controls.createEl("button", { cls: "clickable-icon omd-widget-action", attr: { "aria-label": "Capture URL or file" } });
       setIcon(add, "download");
       add.addEventListener("click", () => this.plugin.openCaptureModal());
     }
@@ -179,7 +180,7 @@ export class OmdHomeView extends ItemView {
       }
       return;
     }
-    if (id === "inbox") return this.renderFileList(body, filesInFolder(this.app.vault.getMarkdownFiles(), "Inbox").slice(0, 7), "Inbox is clear");
+    if (id === "inbox") return this.renderInbox(body, this.plugin.listInboxFiles().slice(0, 7));
     if (id === "recent") return this.renderFileList(body, [...this.app.vault.getMarkdownFiles()].sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 7), "No recent notes");
     if (id === "continue") {
       const file = this.app.workspace.getActiveFile();
@@ -244,6 +245,7 @@ export class OmdHomeView extends ItemView {
     if (id === "status") {
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
       statusLine(body, "OMD", activity.active ? "active" : activity.recent.length ? "idle" : "ready");
+      statusLine(body, "Enrichment", this.plugin.enrichmentCapability.status);
       if (activity.recent[0]) statusLine(body, "Last run", activity.recent[0].value);
       statusLine(body, "Calendar", this.plugin.externalCalendars.length ? "connected" : "vault only");
       statusLine(body, "AI", this.plugin.settings.aiProvider === "ollama" ? "local" : "task consent");
@@ -251,8 +253,31 @@ export class OmdHomeView extends ItemView {
   }
 
   private get captureActive(): boolean {
-    return (this.plugin as OmdHomePlugin & { captureActive?: boolean }).captureActive
-      ?? inferCaptureActive(this.plugin.processingEvents);
+    return this.plugin.captureActive
+      || this.plugin.enrichmentActive
+      || inferCaptureActive(this.plugin.processingEvents);
+  }
+
+  private renderInbox(body: HTMLElement, files: TFile[]): void {
+    if (!files.length) return emptyState(body, "Inbox is clear", "New OMD captures and legacy Inbox notes appear here.");
+    for (const file of files) {
+      const row = body.createDiv({ cls: "omd-inbox-row" });
+      const open = row.createEl("button", {
+        cls: "omd-note-row omd-inbox-open",
+        type: "button",
+        attr: { "aria-label": `Open ${file.basename}` },
+      });
+      open.createSpan({ cls: "omd-note-title", text: file.basename });
+      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
+      open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
+      const suggest = row.createEl("button", {
+        cls: "clickable-icon omd-inbox-suggest",
+        type: "button",
+        attr: { "aria-label": `Suggest links and tags for ${file.basename}` },
+      });
+      setIcon(suggest, "sparkles");
+      suggest.addEventListener("click", () => void this.plugin.suggestLinksAndTags(file));
+    }
   }
 
   private renderProcessingSection(body: HTMLElement, title: string, rows: ProcessingRow[]): void {
@@ -354,16 +379,19 @@ export class OmdHomeView extends ItemView {
         finished = true;
         if (handle.hasPointerCapture(end.pointerId)) handle.releasePointerCapture(end.pointerId);
         window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onEnd);
-        window.removeEventListener("pointercancel", onEnd);
+        window.removeEventListener("pointerup", onEndWrapper);
+        window.removeEventListener("pointercancel", onEndWrapper);
         widget.removeClass("is-transforming");
         this.grid.removeClass("is-rearranging");
         await this.plugin.saveDeviceLayout(previewLayout);
         this.render();
       };
+      const onEndWrapper = (end: PointerEvent): void => {
+        void onEnd(end);
+      };
       window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onEnd);
-      window.addEventListener("pointercancel", onEnd);
+      window.addEventListener("pointerup", onEndWrapper);
+      window.addEventListener("pointercancel", onEndWrapper);
     });
   }
 
@@ -384,10 +412,6 @@ function applyPlacement(element: HTMLElement, value: WidgetPlacement): void {
 
 function widgetTitle(id: WidgetId): string {
   return ({ omnibox: "Omnibox", today: "Today", inbox: "OMD Inbox", processing: "Active processing", recent: "Recent notes", continue: "Continue", upcoming: "Upcoming", pinned: "Pinned", attention: "Needs attention", tags: "Vault tags", status: "System" })[id];
-}
-
-function filesInFolder(files: TFile[], folder: string): TFile[] {
-  return files.filter((file) => file.path.startsWith(`${folder}/`)).sort((a, b) => b.stat.mtime - a.stat.mtime);
 }
 
 function emptyState(container: HTMLElement, title: string, detail: string): void {

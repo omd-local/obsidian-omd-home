@@ -18,7 +18,7 @@ export class CaptureModal extends Modal {
   }
 
   onOpen(): void {
-    this.titleEl.setText("Capture with OMD");
+    this.titleEl.setText("Capture URL or file with OMD");
     this.contentEl.createEl("p", {
       cls: "omd-modal-intro",
       text: "Paste a URL or local file path. OMD converts it into recoverable Markdown inside this vault.",

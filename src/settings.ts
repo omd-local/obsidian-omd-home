@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
 import type OmdHomePlugin from "./main";
 import type { ExternalCalendarDescriptor } from "./model";
 
@@ -14,6 +14,7 @@ export interface OmdHomeSettings {
   defaultExternalCalendarId: string;
   aiProvider: "ollama" | "openai" | "anthropic" | "deepseek";
   aiModel: string;
+  enrichmentModel: string;
   ollamaHost: string;
   capturePolish: boolean;
   capturePolishModel: string;
@@ -30,6 +31,7 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
   defaultExternalCalendarId: "",
   aiProvider: "ollama",
   aiModel: "qwen3:4b-instruct",
+  enrichmentModel: "qwen3:4b-instruct",
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
   capturePolishModel: "qwen3:4b-instruct",
@@ -47,11 +49,12 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "OMD Home" });
     containerEl.createEl("p", {
       cls: "omd-settings-intro",
-      text: "Local-first paths and provider choices. API keys remain in OMD's Keychain boundary.",
+      text: "Configure local OMD capabilities and optional macOS Calendar access. OMD Home does not install external tools.",
     });
+
+    new Setting(containerEl).setName("Startup").setHeading();
 
     new Setting(containerEl)
       .setName("Open Home on launch")
@@ -61,10 +64,41 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         await this.plugin.saveSettings();
       }));
 
-    this.pathSetting(containerEl, "OMD executable", "Command or absolute path used for capture.", "omdExecutable");
+    new Setting(containerEl).setName("OMD").setHeading();
+    this.pathSetting(containerEl, "OMD executable", "Command or absolute path used for capture and note suggestions.", "omdExecutable");
+    new Setting(containerEl)
+      .setName("Note enrichment capability")
+      .setDesc(this.plugin.enrichmentCapability.message)
+      .addButton((button) => button
+        .setButtonText(this.plugin.enrichmentCapability.status === "unavailable" ? "Retry" : "Check")
+        .onClick(async () => {
+          button.setDisabled(true).setButtonText("Checking…");
+          const ready = await this.plugin.checkEnrichmentCapability(true);
+          new Notice(ready ? "OMD note enrichment is ready" : this.plugin.enrichmentCapability.message);
+          this.display();
+        }));
     this.pathSetting(containerEl, "Python executable", "Optional override. When blank, use the interpreter embedded in the OMD executable.", "pythonExecutable");
     this.pathSetting(containerEl, "OMD Home bridge", "Absolute path to bridge/omd_home_bridge.py.", "pythonBridgePath");
-    this.pathSetting(containerEl, "EventKit helper", "Absolute path to the signed omd-eventkit helper.", "eventKitHelperPath");
+
+    new Setting(containerEl).setName("Local note enrichment").setHeading();
+
+    new Setting(containerEl)
+      .setName("Enrichment model")
+      .setDesc("Exact local Ollama model used by OMD's review-first link and tag suggestions.")
+      .addText((text) => text.setValue(this.plugin.settings.enrichmentModel).onChange(async (value) => {
+        this.plugin.settings.enrichmentModel = value.trim();
+        await this.plugin.saveSettings();
+      }));
+
+    new Setting(containerEl)
+      .setName("Ollama endpoint")
+      .setDesc("Phase 2 enrichment accepts only a loopback Ollama base URL and never enables remote access.")
+      .addText((text) => text.setValue(this.plugin.settings.ollamaHost).onChange(async (value) => {
+        this.plugin.settings.ollamaHost = value.trim();
+        await this.plugin.saveSettings();
+      }));
+
+    new Setting(containerEl).setName("Optional omnibox AI").setHeading();
 
     new Setting(containerEl)
       .setName("AI provider")
@@ -86,20 +120,22 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       }));
 
     new Setting(containerEl)
-      .setName("Ollama endpoint")
-      .setDesc("Loopback is local. Remote endpoints require OMD's advanced policy checks.")
-      .addText((text) => text.setValue(this.plugin.settings.ollamaHost).onChange(async (value) => {
-        this.plugin.settings.ollamaHost = value.trim();
-        await this.plugin.saveSettings();
-      }));
-
-    new Setting(containerEl)
       .setName("Capture polish model")
       .setDesc("Local Ollama model used only when Capture's optional Markdown polish is enabled.")
       .addText((text) => text.setValue(this.plugin.settings.capturePolishModel).onChange(async (value) => {
         this.plugin.settings.capturePolishModel = value.trim();
         await this.plugin.saveSettings();
       }));
+
+    new Setting(containerEl).setName("Calendar").setHeading();
+    if (!Platform.isMacOS) {
+      new Setting(containerEl)
+        .setName("Apple Calendar unavailable")
+        .setDesc("Apple Calendar, including Google and Outlook accounts added to Calendar, is supported on macOS only.");
+      return;
+    }
+
+    this.pathSetting(containerEl, "EventKit helper", "Absolute path to the separately installed omd-eventkit helper.", "eventKitHelperPath");
 
     new Setting(containerEl)
       .setName("Refresh calendars")
@@ -170,6 +206,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .setValue(this.plugin.settings[key])
       .onChange(async (value) => {
         this.plugin.settings[key] = value.trim();
+        if (key === "omdExecutable") this.plugin.resetEnrichmentCapability();
         await this.plugin.saveSettings();
       }));
   }
@@ -177,8 +214,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
 
 export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
   const input = raw && typeof raw === "object" ? raw as Partial<OmdHomeSettings> : {};
-  const aiProvider = typeof input.aiProvider === "string" && AI_PROVIDERS.has(input.aiProvider as OmdHomeSettings["aiProvider"])
-    ? input.aiProvider as OmdHomeSettings["aiProvider"]
+  const aiProviderValue = input.aiProvider;
+  const aiProvider = typeof aiProviderValue === "string" && AI_PROVIDERS.has(aiProviderValue)
+    ? aiProviderValue
     : DEFAULT_SETTINGS.aiProvider;
   return {
     openOnLaunch: typeof input.openOnLaunch === "boolean" ? input.openOnLaunch : DEFAULT_SETTINGS.openOnLaunch,
@@ -190,6 +228,7 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
     defaultExternalCalendarId: cleanString(input.defaultExternalCalendarId, DEFAULT_SETTINGS.defaultExternalCalendarId),
     aiProvider,
     aiModel: cleanString(input.aiModel, DEFAULT_SETTINGS.aiModel),
+    enrichmentModel: cleanString(input.enrichmentModel, DEFAULT_SETTINGS.enrichmentModel),
     ollamaHost: cleanString(input.ollamaHost, DEFAULT_SETTINGS.ollamaHost),
     capturePolish: typeof input.capturePolish === "boolean" ? input.capturePolish : DEFAULT_SETTINGS.capturePolish,
     capturePolishModel: cleanString(input.capturePolishModel, DEFAULT_SETTINGS.capturePolishModel),

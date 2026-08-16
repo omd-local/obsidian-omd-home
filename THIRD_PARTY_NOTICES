@@ -1,0 +1,17 @@
+Third-party notices for OMD Home
+
+This project includes dependencies distributed under their own licenses.
+
+1. FullCalendar
+   Package: fullcalendar
+   License: MIT
+   Copyright: © Adam Shaw and contributors
+   Source: https://github.com/fullcalendar/fullcalendar
+
+2. Temporal Polyfill
+   Package: temporal-polyfill
+   License: MIT
+   Copyright: © fullcalendar and contributors
+   Source: https://github.com/fullcalendar/temporal-polyfill
+
+Bundle builds preserve legal comments at the end of the generated artifact when required.

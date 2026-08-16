@@ -10,6 +10,17 @@ import type { CalendarEventRecord, EventSource, ExternalCalendarDescriptor } fro
 
 export const CALENDAR_VIEW_TYPE = "omd-home-calendar";
 
+interface CalendarEventContentArg {
+  event: {
+    title: string;
+    extendedProps: Record<string, unknown>;
+  };
+  timeText: string;
+  view: {
+    type: string;
+  };
+}
+
 export class OmdCalendarView extends ItemView {
   private calendar?: Calendar;
   private readonly plugin: OmdHomePlugin;
@@ -65,17 +76,20 @@ export class OmdCalendarView extends ItemView {
       select: (selection) => this.createFromSelection(selection),
       eventClick: (info) => this.openEvent(info),
       eventChange: (info) => void this.commitChange(info),
-      eventContent: (info) => {
+      eventContent: (info: CalendarEventContentArg) => {
         const content = document.createElement("span");
-        content.className = "omd-calendar-event-content";
+        const monthView = info.view.type === "dayGridMonth";
+        content.className = `omd-calendar-event-content${monthView ? " is-month-view" : ""}`;
         content.title = info.event.title;
         if (info.timeText) {
           const time = content.createSpan({ cls: "omd-calendar-event-time", text: info.timeText });
           time.setAttribute("aria-hidden", "true");
         }
         content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title });
-        const statusLabel = calendarStatusLabel(info.event.extendedProps.syncState as string | undefined);
-        if (statusLabel) content.createSpan({ cls: "omd-calendar-event-status", text: ` • ${statusLabel}` });
+        if (!monthView) {
+          const statusLabel = calendarStatusLabel(info.event.extendedProps.syncState as string | undefined);
+          if (statusLabel) content.createSpan({ cls: "omd-calendar-event-status", text: ` • ${statusLabel}` });
+        }
         return { domNodes: [content] };
       },
       eventClass: ({ event }: EventDisplayInfo) => [
@@ -274,11 +288,11 @@ class EventEditorModal extends Modal {
     const capabilities = calendarEditorCapabilities(this.draft);
     const fieldsReadOnly = this.initialSource === "external" && Boolean(this.draft.readOnly);
     this.titleEl.setText(this.draft.title ? "Edit event" : "New event");
-    const statusLabel = calendarStatusLabel(this.draft.syncState as string | undefined);
+    const statusLabel = calendarStatusLabel(this.draft.syncState);
     if (statusLabel) {
       new Setting(this.contentEl)
         .setName("Status")
-        .setDesc(calendarStatusDescription(this.draft.syncState as string | undefined) ?? statusLabel);
+        .setDesc(calendarStatusDescription(this.draft.syncState) ?? statusLabel);
     }
     new Setting(this.contentEl).setName("Title").addText((text) => text
       .setValue(this.draft.title)
