@@ -19,7 +19,7 @@ import {
   type OmdHomeSettings,
 } from "./settings";
 import { OmdBridge, type AiAnswer } from "./omd-bridge";
-import { EventKitBridge } from "./eventkit-bridge";
+import { EventKitBridge, normalizeEventKitEvent } from "./eventkit-bridge";
 import { eventNotePath, recordFromFrontmatter, serializeEventNote, updateEventNote } from "./event-note";
 import { AiConsentModal, CaptureModal } from "./modals";
 import { OmdCapabilityService } from "./enrichment/capability";
@@ -38,6 +38,8 @@ import {
   isSelectedWritableCalendar,
   linkedEventSaveBlockReason,
   mergeExternalIntoLinked,
+  resolveCalendarWriteOverride,
+  type CalendarWriteOverride,
 } from "./calendar-sync";
 
 export default class OmdHomePlugin extends Plugin {
@@ -60,6 +62,7 @@ export default class OmdHomePlugin extends Plugin {
   private enrichmentWorkflowController!: EnrichmentWorkflowController;
   private calendarRefresh: Promise<void> | null = null;
   private calendarRefreshTimer: number | null = null;
+  private readonly calendarWriteOverrides = new Map<string, CalendarWriteOverride>();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -131,6 +134,7 @@ export default class OmdHomePlugin extends Plugin {
 
   onunload(): void {
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
+    this.calendarWriteOverrides.clear();
     this.omdCapabilityService.dispose();
     this.omdEnrichmentRunner.dispose();
     this.enrichmentWorkflowController?.dispose();
@@ -377,7 +381,11 @@ export default class OmdHomePlugin extends Plugin {
   private async performCalendarRefresh(reconcile: boolean): Promise<void> {
     const vaultEvents: CalendarEventRecord[] = this.app.vault.getMarkdownFiles()
       .flatMap((file): CalendarEventRecord[] => {
-        const record = recordFromFrontmatter(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter ?? {});
+        const cached = recordFromFrontmatter(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter ?? {});
+        const override = this.calendarWriteOverrides.get(file.path);
+        const resolved = resolveCalendarWriteOverride(file.path, file.stat.mtime, cached, override);
+        if (override && !resolved.retainOverride) this.calendarWriteOverrides.delete(file.path);
+        const record = resolved.event;
         return record ? [{ ...record, vaultModifiedAt: new Date(file.stat.mtime).toISOString() }] : [];
       });
     let external: CalendarEventRecord[] = [];
@@ -592,15 +600,24 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   private async writeCalendarNote(event: CalendarEventRecord): Promise<CalendarEventRecord> {
+    const normalized = normalizeEventKitEvent(event);
     await this.ensureFolder("Calendar/Events");
-    const existing = event.notePath ? this.app.vault.getFileByPath(event.notePath) : null;
+    const existing = normalized.notePath ? this.app.vault.getFileByPath(normalized.notePath) : null;
     if (existing) {
-      await this.app.vault.process(existing, (current) => updateEventNote(current, event));
-      return { ...event, notePath: existing.path };
+      await this.app.vault.process(existing, (current) => updateEventNote(current, normalized));
+      const saved = { ...normalized, notePath: existing.path };
+      const currentFile = this.app.vault.getFileByPath(existing.path);
+      this.calendarWriteOverrides.set(existing.path, {
+        event: saved,
+        modifiedAt: currentFile?.stat.mtime ?? existing.stat.mtime,
+      });
+      return saved;
     } else {
-      const path = await this.uniquePath(eventNotePath(event));
-      await this.app.vault.create(path, serializeEventNote({ ...event, notePath: path }));
-      return { ...event, notePath: path };
+      const path = await this.uniquePath(eventNotePath(normalized));
+      const file = await this.app.vault.create(path, serializeEventNote({ ...normalized, notePath: path }));
+      const saved = { ...normalized, notePath: file.path };
+      this.calendarWriteOverrides.set(file.path, { event: saved, modifiedAt: file.stat.mtime });
+      return saved;
     }
   }
 

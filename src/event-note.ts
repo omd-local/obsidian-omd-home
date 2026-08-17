@@ -35,7 +35,7 @@ function serializeEventFrontmatter(event: CalendarEventRecord): string {
     `start: ${quoted(event.start)}`,
     `end: ${quoted(event.end)}`,
     `all-day: ${event.allDay}`,
-    `calendar: ${quoted(event.calendar)}`,
+    `calendar: ${quoted(event.calendar.trim())}`,
     `event-source: ${event.source}`,
   ];
   if (event.location) lines.push(`location: ${quoted(event.location)}`);

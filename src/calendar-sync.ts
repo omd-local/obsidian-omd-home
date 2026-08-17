@@ -3,6 +3,11 @@ import type { CalendarEventRecord, ExternalCalendarDescriptor } from "./model";
 export type LinkedChange = "clean" | "vault" | "external" | "conflict";
 export type LinkedAvailability = "available" | "unavailable" | "error";
 
+export interface CalendarWriteOverride {
+  event: CalendarEventRecord;
+  modifiedAt: number;
+}
+
 const SYNC_FIELDS = ["title", "start", "end", "allDay", "location", "appleCalendarId"] as const;
 
 export function eventSyncHash(event: CalendarEventRecord): string {
@@ -66,6 +71,22 @@ export function calendarIdentityKeys(event: CalendarEventRecord): string[] {
     keys.push(`external:${event.appleExternalId}:${event.occurrenceDate ?? ""}:${event.appleCalendarId ?? ""}`);
   }
   return keys;
+}
+
+export function resolveCalendarWriteOverride(
+  path: string,
+  modifiedAt: number,
+  cached: CalendarEventRecord | null,
+  override?: CalendarWriteOverride,
+): { event: CalendarEventRecord | null; retainOverride: boolean } {
+  if (!override) return { event: cached, retainOverride: false };
+  if (override.event.notePath !== path || override.modifiedAt !== modifiedAt) {
+    return { event: cached, retainOverride: false };
+  }
+  if (cached && storedCalendarFields(cached) === storedCalendarFields(override.event)) {
+    return { event: cached, retainOverride: false };
+  }
+  return { event: { ...override.event, notePath: path }, retainOverride: true };
 }
 
 export function findExternalMatch(
@@ -147,4 +168,28 @@ export function detachLinkedEvent(event: CalendarEventRecord): CalendarEventReco
     conflictExternal: undefined,
     readOnly: undefined,
   };
+}
+
+const STORED_CALENDAR_FIELDS = [
+  "id",
+  "title",
+  "start",
+  "end",
+  "allDay",
+  "calendar",
+  "source",
+  "location",
+  "appleCalendarId",
+  "appleItemId",
+  "appleExternalId",
+  "occurrenceDate",
+  "lastSyncedAt",
+  "syncHash",
+  "syncState",
+  "pendingDirection",
+  "readOnly",
+] as const;
+
+function storedCalendarFields(event: CalendarEventRecord): string {
+  return JSON.stringify(STORED_CALENDAR_FIELDS.map((field) => event[field] ?? null));
 }

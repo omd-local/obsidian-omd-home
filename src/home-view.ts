@@ -383,6 +383,7 @@ export class OmdHomeView extends ItemView {
         window.removeEventListener("pointercancel", onEndWrapper);
         widget.removeClass("is-transforming");
         this.grid.removeClass("is-rearranging");
+        this.grid.querySelectorAll<HTMLElement>(".is-displaced").forEach((element) => element.removeClass("is-displaced"));
         await this.plugin.saveDeviceLayout(previewLayout);
         this.render();
       };

@@ -27,6 +27,12 @@ test("serialized event keeps linked identifiers", () => {
   assert.match(markdown, /# Design review/);
 });
 
+test("serialized event trims Calendar names before writing frontmatter", () => {
+  const markdown = serializeEventNote({ ...event, calendar: "Activity " });
+  assert.match(markdown, /calendar: "Activity"/);
+  assert.doesNotMatch(markdown, /calendar: "Activity "/);
+});
+
 test("pending linked writes survive an Obsidian reload for recovery", () => {
   const markdown = serializeEventNote({
     ...event,

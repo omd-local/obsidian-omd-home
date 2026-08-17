@@ -1,5 +1,5 @@
-import type { CalendarEventRecord, ExternalCalendarDescriptor } from "./model";
-import { eventKitErrorMessage, eventKitProcessErrorMessage } from "./eventkit-errors";
+import type { CalendarEventRecord, ExternalCalendarDescriptor } from "./model.ts";
+import { eventKitErrorMessage, eventKitProcessErrorMessage } from "./eventkit-errors.ts";
 
 export class EventKitBridge {
   private readonly activeChildren = new Set<ReturnType<typeof import("node:child_process")["spawn"]>>();
@@ -16,19 +16,23 @@ export class EventKitBridge {
 
   async calendars(): Promise<ExternalCalendarDescriptor[]> {
     const response = await this.call(["calendars"]);
-    return Array.isArray(response.calendars) ? response.calendars as ExternalCalendarDescriptor[] : [];
+    return Array.isArray(response.calendars)
+      ? (response.calendars as ExternalCalendarDescriptor[]).map(normalizeEventKitCalendar)
+      : [];
   }
 
   async events(calendarIds: string[], start: string, end: string): Promise<CalendarEventRecord[]> {
     if (!calendarIds.length) return [];
     const response = await this.call(["events", "--start", start, "--end", end, "--calendars", calendarIds.join(",")]);
-    return Array.isArray(response.events) ? response.events as CalendarEventRecord[] : [];
+    return Array.isArray(response.events)
+      ? (response.events as CalendarEventRecord[]).map(normalizeEventKitEvent)
+      : [];
   }
 
   async upsert(event: CalendarEventRecord, span: "this" | "future" = "this"): Promise<CalendarEventRecord> {
     const response = await this.call(["upsert", "--span", span], JSON.stringify(event));
     if (!response.event) throw new Error("EventKit helper returned no event");
-    return response.event as CalendarEventRecord;
+    return normalizeEventKitEvent(response.event as CalendarEventRecord);
   }
 
   async remove(eventId: string, span: "this" | "future" = "this"): Promise<void> {
@@ -76,6 +80,38 @@ export class EventKitBridge {
       child.stdin.end(stdin ?? "");
     });
   }
+}
+
+export function normalizeEventKitCalendar(calendar: ExternalCalendarDescriptor): ExternalCalendarDescriptor {
+  return {
+    ...calendar,
+    id: calendar.id.trim(),
+    title: calendar.title.trim(),
+    sourceId: calendar.sourceId.trim(),
+    sourceTitle: calendar.sourceTitle.trim(),
+  };
+}
+
+export function normalizeEventKitEvent(event: CalendarEventRecord): CalendarEventRecord {
+  return {
+    ...event,
+    id: event.id.trim(),
+    title: event.title.trim(),
+    start: event.start.trim(),
+    end: event.end.trim(),
+    calendar: event.calendar.trim(),
+    location: trimOptional(event.location),
+    appleCalendarId: trimOptional(event.appleCalendarId),
+    appleItemId: trimOptional(event.appleItemId),
+    appleExternalId: trimOptional(event.appleExternalId),
+    occurrenceDate: trimOptional(event.occurrenceDate),
+    externalModifiedAt: trimOptional(event.externalModifiedAt),
+  };
+}
+
+function trimOptional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
 }
 
 const MAX_PROCESS_OUTPUT = 2 * 1024 * 1024;

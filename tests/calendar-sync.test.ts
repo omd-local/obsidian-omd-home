@@ -10,6 +10,7 @@ import {
   isSelectedWritableCalendar,
   linkedEventSaveBlockReason,
   mergeExternalIntoLinked,
+  resolveCalendarWriteOverride,
 } from "../src/calendar-sync.ts";
 import type { CalendarEventRecord } from "../src/model.ts";
 
@@ -64,6 +65,46 @@ test("finds a rotated EventKit item by stable external occurrence identity", () 
   const rotated = { ...linked, source: "external" as const, appleItemId: "new_item", appleExternalId: "stable", occurrenceDate: "2026-07-23T09:00:00Z" };
   const stale = { ...linked, appleItemId: "old_item", appleExternalId: "stable", occurrenceDate: "2026-07-23T09:00:00Z" };
   assert.equal(findExternalMatch(stale, [rotated])?.appleItemId, "new_item");
+});
+
+test("keeps a finalized Calendar write while Obsidian metadata is still staged", () => {
+  const finalized = {
+    ...linked,
+    notePath: "Calendar/Events/review.md",
+    appleCalendarId: "cal_1",
+    appleExternalId: "external_1",
+    occurrenceDate: linked.start,
+    syncState: "clean" as const,
+  };
+  const staged = {
+    ...finalized,
+    appleItemId: undefined,
+    appleExternalId: undefined,
+    occurrenceDate: undefined,
+    syncState: "pending" as const,
+    pendingDirection: "vault" as const,
+  };
+  const resolved = resolveCalendarWriteOverride(finalized.notePath, 123, staged, {
+    event: finalized,
+    modifiedAt: 123,
+  });
+  assert.equal(resolved.event?.appleExternalId, "external_1");
+  assert.equal(resolved.event?.syncState, "clean");
+  assert.equal(resolved.retainOverride, true);
+});
+
+test("releases a Calendar write override after metadata catches up or the file changes", () => {
+  const finalized = { ...linked, notePath: "Calendar/Events/review.md", syncState: "clean" as const };
+  assert.deepEqual(resolveCalendarWriteOverride(finalized.notePath, 123, { ...finalized }, {
+    event: finalized,
+    modifiedAt: 123,
+  }), { event: finalized, retainOverride: false });
+
+  const edited = { ...finalized, title: "User edit" };
+  assert.deepEqual(resolveCalendarWriteOverride(finalized.notePath, 124, edited, {
+    event: finalized,
+    modifiedAt: 123,
+  }), { event: edited, retainOverride: false });
 });
 
 test("fetch window expands to include every linked note", () => {
