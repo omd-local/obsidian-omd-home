@@ -5,7 +5,7 @@
   "description": "Open a local-first dashboard, calendar, Inbox, and omnibox for OMD.",
   "type": "module",
   "main": "main.js",
-  "license": "MIT",
+  "license": "PolyForm-Shield-1.0.0",
   "scripts": {
     "build": "node esbuild.mjs production",
     "dev": "node esbuild.mjs",

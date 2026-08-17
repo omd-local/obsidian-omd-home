@@ -143,4 +143,12 @@ release.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE) and [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES).
+OMD Home is source-available under the
+[PolyForm Shield License 1.0.0](./LICENSE). Company-wide internal use is
+permitted. You may not use OMD Home to provide or market a product or service
+that competes with OMD Home or the OMD product family without a separate
+license from the copyright holders.
+
+The license text controls if this summary and the license differ. Third-party
+components remain under their own licenses; see
+[THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES).
