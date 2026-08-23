@@ -121,7 +121,10 @@ The plugin never downloads these tools and never self-updates.
 - **Semantic rerank** is optional and off by default. It uses the same embedding model
   to reorder the bounded evidence blocks; it is not a separate cross-encoder reranker.
 - The first hybrid question can be slower while OMD embeds uncached note representations.
-  Later questions reuse the bounded local cache. If embeddings fail, the answer remains
+  OMD Home gives hybrid preview/generation a bounded five-minute bridge window and keeps the
+  work cancellable when its Local AI request is invalidated or the plugin unloads. Later questions
+  reuse the bounded local cache. Ollama model digests isolate cached vectors when a same-name model is
+  replaced. If embeddings fail, the answer remains
   sparse-only and shows the fallback reason instead of silently claiming hybrid retrieval.
 - Phase 1a exposes Ollama-only controls for:
   - model selection per workflow

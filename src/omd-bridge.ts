@@ -29,6 +29,7 @@ export interface SpawnOptions {
 const DEFAULT_MAX_STDOUT_CHARS = 1_000_000;
 const DEFAULT_MAX_STDERR_CHARS = 256_000;
 const BRIDGE_TIMEOUT_MS = 95_000;
+const HYBRID_BRIDGE_TIMEOUT_MS = 5 * 60_000;
 const CAPTURE_TIMEOUT_MS = 10 * 60_000;
 const WHICH_TIMEOUT_MS = 5_000;
 
@@ -65,6 +66,7 @@ export interface AiAnswer {
 export interface HybridRetrievalOptions {
   hybridRetrievalEnabled: boolean;
   embeddingModel: string;
+  embeddingModelRevision?: string;
   semanticRerankEnabled: boolean;
 }
 
@@ -150,6 +152,7 @@ export class OmdBridge {
     model: string,
     endpoint: string,
     retrieval: HybridRetrievalOptions,
+    signal?: AbortSignal,
   ): Promise<AiPreview> {
     return await this.callPythonBridge({
       action: "preview_ai",
@@ -161,8 +164,9 @@ export class OmdBridge {
       limit: 8,
       hybrid_retrieval_enabled: retrieval.hybridRetrievalEnabled,
       embedding_model: retrieval.embeddingModel,
+      embedding_model_revision: retrieval.embeddingModelRevision ?? null,
       semantic_rerank_enabled: retrieval.semanticRerankEnabled,
-    }) as unknown as AiPreview;
+    }, { signal }) as unknown as AiPreview;
   }
 
   async executeAi(
@@ -173,6 +177,7 @@ export class OmdBridge {
     endpoint: string,
     consentGrant: Record<string, unknown> | null,
     retrieval: HybridRetrievalOptions,
+    signal?: AbortSignal,
   ): Promise<AiAnswer> {
     const answer = await this.callPythonBridge({
       action: "execute_ai",
@@ -185,25 +190,31 @@ export class OmdBridge {
       limit: 8,
       hybrid_retrieval_enabled: retrieval.hybridRetrievalEnabled,
       embedding_model: retrieval.embeddingModel,
+      embedding_model_revision: retrieval.embeddingModelRevision ?? null,
       semantic_rerank_enabled: retrieval.semanticRerankEnabled,
-    }) as unknown as AiAnswer;
+    }, { signal }) as unknown as AiAnswer;
     return guardSparseComparisonAnswer(query, answer);
   }
 
-  private async callPythonBridge(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async callPythonBridge(
+    payload: Record<string, unknown>,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<Record<string, unknown>> {
     this.assertDesktop();
     const configuredBridgePath = this.bridgePath();
     const embeddedBridgeSource = this.embeddedBridgeSource();
     const args = pythonBridgeArgs(configuredBridgePath, embeddedBridgeSource);
     let result: SpawnResult;
     try {
-      result = await this.spawnManagedProcess(await this.resolvePythonExecutable(), args, {
+      result = await this.spawnManagedProcess(await this.resolvePythonExecutable(options.signal), args, {
         stdin: pythonBridgeStdin(configuredBridgePath, embeddedBridgeSource, payload),
-        timeoutMs: BRIDGE_TIMEOUT_MS,
+        timeoutMs: bridgeTimeoutMs(payload),
+        signal: options.signal,
         maxStdoutChars: DEFAULT_MAX_STDOUT_CHARS,
         maxStderrChars: DEFAULT_MAX_STDERR_CHARS,
       });
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
       throw new Error(bridgeProcessErrorMessage(error), { cause: error as Error });
     }
     const response = parseBridgeResponse(result.stdout);
@@ -216,7 +227,7 @@ export class OmdBridge {
     return response;
   }
 
-  private async resolvePythonExecutable(): Promise<string> {
+  private async resolvePythonExecutable(signal?: AbortSignal): Promise<string> {
     const configured = this.pythonExecutable().trim();
     if (configured) return configured;
     const omd = this.omdExecutable().trim();
@@ -224,6 +235,7 @@ export class OmdBridge {
     const executable = /[\\/]/u.test(omd)
       ? omd
       : (await this.spawnManagedProcess(locator, [omd], {
+        signal,
         timeoutMs: WHICH_TIMEOUT_MS,
         maxStdoutChars: 16_000,
         maxStderrChars: 16_000,
@@ -250,13 +262,29 @@ export class OmdBridge {
 
   private async spawnManagedProcess(command: string, args: string[], options: SpawnOptions): Promise<SpawnResult> {
     const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (options.signal?.aborted) {
+      controller.abort();
+    } else {
+      options.signal?.addEventListener("abort", relayAbort, { once: true });
+    }
     this.activeControllers.add(controller);
     try {
       return await spawnProcess(command, args, { ...options, signal: controller.signal });
     } finally {
+      options.signal?.removeEventListener("abort", relayAbort);
       this.activeControllers.delete(controller);
     }
   }
+}
+
+export function bridgeTimeoutMs(payload: Record<string, unknown>): number {
+  const action = typeof payload.action === "string" ? payload.action : "";
+  const hybridEnabled = payload.hybrid_retrieval_enabled === true;
+  if (hybridEnabled && (action === "preview_ai" || action === "execute_ai")) {
+    return HYBRID_BRIDGE_TIMEOUT_MS;
+  }
+  return BRIDGE_TIMEOUT_MS;
 }
 
 

@@ -15,6 +15,7 @@ import {
 import {
   bridgeErrorMessage,
   bridgeProcessFailureMessage,
+  bridgeTimeoutMs,
   captureErrorMessage,
   parseBridgeResponse,
   pythonBridgeArgs,
@@ -43,6 +44,13 @@ test("bundled bridge stdin carries source separately from the request payload", 
     pythonBridgeStdin("/custom/bridge.py", "ignored", { action: "search" }),
     JSON.stringify({ action: "search" }),
   );
+});
+
+test("hybrid Vault Q&A gets a longer bounded bridge timeout", () => {
+  assert.equal(bridgeTimeoutMs({ action: "search" }), 95_000);
+  assert.equal(bridgeTimeoutMs({ action: "preview_ai", hybrid_retrieval_enabled: false }), 95_000);
+  assert.equal(bridgeTimeoutMs({ action: "preview_ai", hybrid_retrieval_enabled: true }), 5 * 60_000);
+  assert.equal(bridgeTimeoutMs({ action: "execute_ai", hybrid_retrieval_enabled: true }), 5 * 60_000);
 });
 
 test("uses OMD's vault-capture subcommand instead of standalone conversion", () => {
@@ -343,6 +351,7 @@ class SemanticRecallConfig:
     host: str
     model: str
     rerank: bool = False
+    model_revision: str = ""
 
 def search_notes(root, query, limit=10):
     return [SearchHit(path="legacy.md", title="Legacy", score=1.0, evidence="legacy evidence")]
@@ -357,6 +366,7 @@ def build_answer_context(root, query, hit_limit=8, block_limit=8, semantic_confi
             host="http://localhost:11434",
             model="bge-m3",
             rerank=True,
+            model_revision="sha256:current",
         )
     hits = [
         SearchHit(path="Sources/Web/bouldering-tips.md", title="Bouldering Tips", score=18.0, evidence="outline"),
@@ -459,6 +469,7 @@ def execute_text_task(task, source_text, consent_granted, consent_grant):
       limit: 8,
       hybrid_retrieval_enabled: true,
       embedding_model: "bge-m3",
+      embedding_model_revision: "sha256:current",
       semantic_rerank_enabled: true,
     };
 
@@ -549,6 +560,35 @@ test("Ask AI validates the local hybrid endpoint before retrieval starts", () =>
   });
   assert.equal(response.ok, false);
   assert.match(String(response.error?.message ?? ""), /loopback Ollama endpoint/u);
+});
+
+test("Ask AI keeps hybrid compatibility with OMD builds before model revisions", () => {
+  const code = [
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "class LegacySemanticRecallConfig:",
+    "    def __init__(self, host, model, rerank=False):",
+    "        self.host = host",
+    "        self.model = model",
+    "        self.rerank = rerank",
+    "bridge.SemanticRecallConfig = LegacySemanticRecallConfig",
+    "config = bridge._semantic_config({",
+    "    'hybrid_retrieval_enabled': True,",
+    "    'endpoint': 'http://localhost:11434',",
+    "    'embedding_model': 'bge-m3',",
+    "    'embedding_model_revision': 'sha256:current',",
+    "    'semantic_rerank_enabled': True,",
+    "})",
+    "print(json.dumps({'host': config.host, 'model': config.model, 'rerank': config.rerank}))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    host: "http://localhost:11434",
+    model: "bge-m3",
+    rerank: true,
+  });
 });
 
 test("Ask AI reports sparse fallback when the connected OMD build cannot accept semantic retrieval", async () => {

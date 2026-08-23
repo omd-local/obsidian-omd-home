@@ -233,16 +233,28 @@ def _answer_material(
 def _semantic_config(request: dict[str, Any]) -> Any | None:
     enabled = _boolean(request.get("hybrid_retrieval_enabled"), False)
     model = _optional_string(request.get("embedding_model"))
+    model_revision = _optional_string(request.get("embedding_model_revision"))
     if not enabled:
         return None
     endpoint = _string(request, "endpoint").rstrip("/")
     _validate_local_endpoint(endpoint)
     if not model or SemanticRecallConfig is None:
         return None
+    kwargs: dict[str, Any] = {
+        "host": endpoint,
+        "model": model,
+        "rerank": _boolean(request.get("semantic_rerank_enabled"), False),
+    }
+    if model_revision:
+        kwargs["model_revision"] = model_revision
+    try:
+        return SemanticRecallConfig(**kwargs)
+    except TypeError as exc:
+        if "unexpected keyword argument 'model_revision'" not in str(exc):
+            raise
+        kwargs.pop("model_revision", None)
     return SemanticRecallConfig(
-        host=endpoint,
-        model=model,
-        rerank=_boolean(request.get("semantic_rerank_enabled"), False),
+        **kwargs,
     )
 
 

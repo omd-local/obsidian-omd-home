@@ -111,6 +111,30 @@ export function buildModelEntry(raw: {
   };
 }
 
+export function mergeInspectedModelEntry(
+  catalogEntry: LocalAiModelEntry | undefined,
+  inspectedEntry: LocalAiModelEntry,
+  name = inspectedEntry.name,
+): LocalAiModelEntry {
+  return {
+    ...catalogEntry,
+    ...inspectedEntry,
+    name,
+    digest: inspectedEntry.digest ?? catalogEntry?.digest,
+    remoteModel: inspectedEntry.remoteModel ?? catalogEntry?.remoteModel,
+    remoteHost: inspectedEntry.remoteHost ?? catalogEntry?.remoteHost,
+  };
+}
+
+export function resolveEmbeddingModelRevision(
+  modelName: string,
+  models: Pick<LocalAiModelEntry, "name" | "digest">[],
+): string | undefined {
+  const trimmed = modelName.trim();
+  if (!trimmed) return undefined;
+  return models.find((model) => model.name === trimmed)?.digest?.trim() || undefined;
+}
+
 export function deriveLocalAiDaemonCode(
   status: LocalAiStatusInfo,
   models: LocalAiModelEntry[],

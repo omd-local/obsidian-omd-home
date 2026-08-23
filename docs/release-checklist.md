@@ -32,6 +32,7 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] **Check connection** distinguishes invalid host, unreachable daemon, missing `/api/status`, cloud-enabled Ollama, no installed models, and missing/incompatible selected models.
 - [ ] **Test embeddings** validates the selected local embedding model with English and Chinese probes, reports vector dimensions, and rejects remote, malformed, or dimension-mismatched responses.
 - [ ] Hybrid retrieval can be disabled without making an embedding request; when enabled it labels answers as Hybrid or Sparse and exposes any fallback warning.
+- [ ] First-use hybrid indexing has a longer bounded timeout, remains cancellable, and namespaces cached vectors by the installed Ollama model digest when available.
 - [ ] D01 (`这些抱石笔记给初学者哪些建议？`) recalls both English bouldering fixtures with `bge-m3`, excludes distractors, and fails closed in the sparse-only control.
 - [ ] Optional semantic reranking uses the selected loopback embedding model, stays off by default, and cannot hide a fallback or change an evidence-grounded abstention into an unsupported answer.
 - [ ] Smoke checks exist for vault Q&A, enrichment, and capture polish, send no vault content, and fail closed when the selected model is missing or incompatible.

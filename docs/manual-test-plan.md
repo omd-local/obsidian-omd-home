@@ -247,7 +247,9 @@ the vault.
 2. Confirm the test reports two vectors with one shared non-zero dimension count. It must not send
    vault text, auto-pull a model, accept a remote model, or pass when vector dimensions differ.
 3. Ask `@这些抱石笔记给初学者哪些建议？` three times. The first run may be slower while note
-   representations are embedded; record all three end-to-end durations.
+   representations are embedded; record all three end-to-end durations. Confirm the loading copy
+   explains the first-use delay. Changing a Local AI setting while the request runs, or unloading
+   the plugin, must stop the bridge instead of leaving an orphan Python process.
 4. Confirm every result header says **Hybrid · bge-m3**, both bouldering fixture paths appear, and
    the survival-analysis and transfer-learning distractors do not appear. The answer must distinguish
    the 10 explicit tips from the separate three-mistakes note and must not invent Chinese source text.
@@ -260,12 +262,15 @@ the vault.
    embedding model unavailable, then ask D01. Confirm the result says **Sparse** and shows an explicit
    semantic-recall fallback warning. Restore `bge-m3` and press **Test embeddings** again.
 8. Edit one fixture note, ask D01 again, then restore the edit. Confirm changed content is re-embedded;
-   unchanged notes reuse their cached vectors. Neither the note nor its frontmatter gains vector data.
+   unchanged notes reuse their cached vectors. Refresh Ollama with a different digest for the same
+   model name (or cover this with the automated revision test) and confirm the old vectors are not
+   reused. Neither the note nor its frontmatter gains vector data.
 
 Expected: OMD fuses BM25-style sparse note ranking with multilingual embedding ranking, recalls no
 more than 24 candidate notes and selects no more than eight evidence blocks, while keeping source paths deterministic. Embedding
 traffic stays on the configured default loopback Ollama endpoint. The derived-vector cache is outside
-the vault and bounded; query embeddings are not persisted. Missing, unreachable, malformed, or
+the vault, bounded, and namespaced by Ollama model digest when available; query embeddings are not
+persisted. Missing, unreachable, malformed, or
 dimension-mismatched embeddings degrade to sparse retrieval with a visible warning. Semantic reranking
 uses the selected embedding model only and is optional; it is not a separately installed cross-encoder.
 

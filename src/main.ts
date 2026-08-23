@@ -43,10 +43,12 @@ import {
   describeModelReadiness,
   getActiveWorkflowModels,
   isFresh,
+  mergeInspectedModelEntry,
   modelHasRemoteMetadata,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
   providerMode,
+  resolveEmbeddingModelRevision,
 } from "./local-ai-readiness";
 import { OllamaLocalClient } from "./ollama-local-client";
 import {
@@ -411,17 +413,31 @@ export default class OmdHomePlugin extends Plugin {
     }
     output.hidden = false;
     output.empty();
-    output.createDiv({ cls: "omd-answer-loading", text: "Retrieving local evidence..." });
+    let retrievalOptions = this.qaRetrievalOptions();
+    output.createDiv({
+      cls: "omd-answer-loading",
+      text: retrievalOptions.hybridRetrievalEnabled
+        ? "Preparing local hybrid evidence. First use can take longer..."
+        : "Retrieving local evidence...",
+    });
     const startedAt = performance.now();
-    const retrievalOptions = this.qaRetrievalOptions();
     try {
       const snapshot = createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama");
       const preview = await this.runLocalAiGated(
         snapshot,
         () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
-        async (gatedSnapshot) => await this.omdBridge.previewAi(
-          this.vaultPath(), query, gatedSnapshot.provider, gatedSnapshot.model, gatedSnapshot.host, retrievalOptions,
-        ),
+        async (gatedSnapshot, signal) => {
+          retrievalOptions = this.qaRetrievalOptions();
+          return await this.omdBridge.previewAi(
+            this.vaultPath(),
+            query,
+            gatedSnapshot.provider,
+            gatedSnapshot.model,
+            gatedSnapshot.host,
+            retrievalOptions,
+            signal,
+          );
+        },
       );
       const execute = async (): Promise<void> => {
         output.empty();
@@ -429,9 +445,15 @@ export default class OmdHomePlugin extends Plugin {
         const answer = await this.runLocalAiGated(
           snapshot,
           () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
-          async (gatedSnapshot) => await this.omdBridge.executeAi(
-            this.vaultPath(), query, gatedSnapshot.provider, gatedSnapshot.model,
-            gatedSnapshot.host, preview.consent_grant ?? null, retrievalOptions,
+          async (gatedSnapshot, signal) => await this.omdBridge.executeAi(
+            this.vaultPath(),
+            query,
+            gatedSnapshot.provider,
+            gatedSnapshot.model,
+            gatedSnapshot.host,
+            preview.consent_grant ?? null,
+            retrievalOptions,
+            signal,
           ),
         );
         this.clearIssue("ai");
@@ -591,7 +613,7 @@ export default class OmdHomePlugin extends Plugin {
             try {
               const info = await this.safeShowModel(host, model, signal);
               const entry = buildModelEntry(info);
-              catalogByName.set(model, { ...entry, name: model });
+              catalogByName.set(model, mergeInspectedModelEntry(catalogByName.get(model), entry, model));
               const code = deriveLocalAiModelCode(info);
               modelChecks[model] = {
                 model,
@@ -704,7 +726,7 @@ export default class OmdHomePlugin extends Plugin {
         const selected = await this.safeShowModel(host, model, signal);
         const selectedEntry = buildModelEntry(selected);
         const mergedModels = new Map(models.map((entry) => [entry.name, entry]));
-        mergedModels.set(model, { ...selectedEntry, name: model });
+        mergedModels.set(model, mergeInspectedModelEntry(mergedModels.get(model), selectedEntry, model));
         this.localAiSummaries.set(host, buildConnectionSummary({
           host,
           checkedAt: Date.now(),
@@ -1234,9 +1256,11 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   private qaRetrievalOptions(): HybridRetrievalOptions {
+    const embeddingModel = this.settings.embeddingModel.trim();
     return {
       hybridRetrievalEnabled: this.settings.hybridRetrievalEnabled,
-      embeddingModel: this.settings.embeddingModel.trim(),
+      embeddingModel,
+      embeddingModelRevision: resolveEmbeddingModelRevision(embeddingModel, this.localAiState.models),
       semanticRerankEnabled: this.settings.semanticRerankEnabled,
     };
   }
@@ -1403,7 +1427,9 @@ export default class OmdHomePlugin extends Plugin {
   ): void {
     const previous = this.localAiSummaries.get(snapshot.host);
     const catalog = new Map(models.map((model) => [model.name, model]));
-    if (modelEntry) catalog.set(snapshot.model, { ...modelEntry, name: snapshot.model });
+    if (modelEntry) {
+      catalog.set(snapshot.model, mergeInspectedModelEntry(catalog.get(snapshot.model), modelEntry, snapshot.model));
+    }
     this.localAiSummaries.set(snapshot.host, buildConnectionSummary({
       host: snapshot.host,
       checkedAt: checkedModel.checkedAt,

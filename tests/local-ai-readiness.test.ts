@@ -9,12 +9,14 @@ import {
   deriveLocalAiDaemonCode,
   deriveLocalAiModelCode,
   describeModelReadiness,
+  mergeInspectedModelEntry,
   modelHasRemoteMetadata,
   modelIsKnownThinkingOnly,
   modelSupportsCompletion,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
   providerMode,
+  resolveEmbeddingModelRevision,
   snapshotsMatch,
 } from "../src/local-ai-readiness.ts";
 import { LocalAiError } from "../src/ollama-local-types.ts";
@@ -79,6 +81,33 @@ test("model helpers classify completion support and remote metadata", () => {
   assert.equal(modelIsKnownThinkingOnly(thinkingOnlyModel), true);
   assert.equal(modelSupportsCompletion(thinkingOnlyModel), false);
   assert.equal(modelHasRemoteMetadata(remoteModel), true);
+});
+
+test("model inspection preserves catalog digest and remote metadata", () => {
+  const catalog = buildModelEntry({
+    name: "bge-m3",
+    digest: "sha256:catalog",
+    capabilities: ["embedding"],
+    remoteModel: "remote-bge",
+    remoteHost: "https://example.com",
+  });
+  const inspected = buildModelEntry({ name: "bge-m3", capabilities: ["embedding"] });
+
+  const merged = mergeInspectedModelEntry(catalog, inspected);
+
+  assert.equal(merged.digest, "sha256:catalog");
+  assert.equal(merged.remoteModel, "remote-bge");
+  assert.equal(merged.remoteHost, "https://example.com");
+});
+
+test("embedding model revision resolves from the installed catalog", () => {
+  const models = [
+    buildModelEntry({ name: "bge-m3", digest: " sha256:current ", capabilities: ["embedding"] }),
+  ];
+
+  assert.equal(resolveEmbeddingModelRevision(" bge-m3 ", models), "sha256:current");
+  assert.equal(resolveEmbeddingModelRevision("missing", models), undefined);
+  assert.equal(resolveEmbeddingModelRevision("", models), undefined);
 });
 
 test("createWorkflowSnapshot and snapshotsMatch bind the workflow tuple", () => {
