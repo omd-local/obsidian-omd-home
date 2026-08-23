@@ -7,6 +7,15 @@ import interactionPlugin from "fullcalendar/interaction";
 import classicThemePlugin from "fullcalendar/themes/classic";
 import type OmdHomePlugin from "./main";
 import type { CalendarEventRecord, EventSource, ExternalCalendarDescriptor } from "./model";
+import {
+  calendarEditorInputValue,
+  calendarEditorRangeForMode,
+  calendarEditorStoredValue,
+  eventMatchesSourceFilter,
+  normalizeSourceFilters,
+  replaceCalendarEvents,
+  toggleSourceFilter,
+} from "./calendar-ui";
 
 export const CALENDAR_VIEW_TYPE = "omd-home-calendar";
 
@@ -23,7 +32,9 @@ interface CalendarEventContentArg {
 
 export class OmdCalendarView extends ItemView {
   private calendar?: Calendar;
+  private hostEl?: HTMLDivElement;
   private readonly plugin: OmdHomePlugin;
+  private enabledSources = normalizeSourceFilters();
 
   constructor(leaf: WorkspaceLeaf, plugin: OmdHomePlugin) {
     super(leaf);
@@ -38,66 +49,62 @@ export class OmdCalendarView extends ItemView {
     await this.plugin.refreshCalendarEvents();
     this.render();
   }
-  async onClose(): Promise<void> { this.calendar?.destroy(); }
+  async onClose(): Promise<void> {
+    this.calendar?.destroy();
+    this.calendar = undefined;
+    this.hostEl = undefined;
+  }
 
   render(): void {
-    this.calendar?.destroy();
-    this.contentEl.empty();
-    this.contentEl.addClass("omd-calendar-view");
-    const shell = this.contentEl.createDiv({ cls: "omd-calendar-shell" });
-    const topbar = shell.createDiv({ cls: "omd-calendar-topbar" });
-    const legend = topbar.createDiv({ cls: "omd-calendar-legend" });
-    legendItem(legend, "vault", "Vault");
-    legendItem(legend, "external", "Calendar");
-    legendItem(legend, "linked", "Linked");
-    const sync = topbar.createEl("button", { cls: "omd-action-button", type: "button", text: "Sync" });
-    sync.addEventListener("click", () => void this.syncEvents());
-    const create = topbar.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "+ new event" });
-    create.addEventListener("click", () => this.createEvent());
-    const host = shell.createDiv({ cls: "omd-calendar-host" });
-    this.calendar = new Calendar(host, {
-      plugins: [classicThemePlugin, dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin],
-      initialView: "dayGridMonth",
-      colorScheme: document.body.classList.contains("theme-dark") ? "dark" : "light",
-      firstDay: 1,
-      nowIndicator: true,
-      selectable: true,
-      editable: true,
-      dayMaxEventRows: 3,
-      expandRows: true,
-      displayEventEnd: false,
-      height: "100%",
-      headerToolbar: {
-        start: "prev,next today",
-        center: "title",
-        end: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
-      },
-      events: this.plugin.calendarEvents.map(toFullCalendarEvent),
-      select: (selection) => this.createFromSelection(selection),
-      eventClick: (info) => this.openEvent(info),
-      eventChange: (info) => void this.commitChange(info),
-      eventContent: (info: CalendarEventContentArg) => {
-        const content = createSpan();
-        const monthView = info.view.type === "dayGridMonth";
-        content.className = `omd-calendar-event-content${monthView ? " is-month-view" : ""}`;
-        content.title = info.event.title;
-        if (info.timeText) {
-          const time = content.createSpan({ cls: "omd-calendar-event-time", text: info.timeText });
-          time.setAttribute("aria-hidden", "true");
-        }
-        content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title });
-        if (!monthView) {
-          const statusLabel = calendarStatusLabel(info.event.extendedProps.syncState as string | undefined);
-          if (statusLabel) content.createSpan({ cls: "omd-calendar-event-status", text: ` • ${statusLabel}` });
-        }
-        return { domNodes: [content] };
-      },
-      eventClass: ({ event }: EventDisplayInfo) => [
-        `omd-fc-source-${String(event.extendedProps.source)}`,
-        statusClass(event.extendedProps.syncState as string | undefined),
-      ].filter(Boolean).join(" "),
-    });
-    this.calendar.render();
+    this.ensureShell();
+    if (!this.calendar && this.hostEl) {
+      this.calendar = new Calendar(this.hostEl, {
+        plugins: [classicThemePlugin, dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin],
+        initialView: "dayGridMonth",
+        colorScheme: document.body.classList.contains("theme-dark") ? "dark" : "light",
+        firstDay: 1,
+        nowIndicator: true,
+        selectable: true,
+        editable: true,
+        dayMaxEventRows: 3,
+        expandRows: true,
+        displayEventEnd: false,
+        height: "100%",
+        headerToolbar: {
+          start: "prev,next today",
+          center: "title",
+          end: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
+        },
+        events: this.visibleEvents().map(toFullCalendarEvent),
+        select: (selection) => this.createFromSelection(selection),
+        eventClick: (info) => this.openEvent(info),
+        eventChange: (info) => void this.commitChange(info),
+        eventContent: (info: CalendarEventContentArg) => {
+          const content = createSpan();
+          const monthView = info.view.type === "dayGridMonth";
+          content.className = `omd-calendar-event-content${monthView ? " is-month-view" : ""}`;
+          content.title = info.event.title;
+          if (info.timeText) {
+            const time = content.createSpan({ cls: "omd-calendar-event-time", text: info.timeText });
+            time.setAttribute("aria-hidden", "true");
+          }
+          content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title });
+          if (!monthView) {
+            const statusLabel = calendarStatusLabel(info.event.extendedProps.syncState as string | undefined);
+            if (statusLabel) content.createSpan({ cls: "omd-calendar-event-status", text: ` • ${statusLabel}` });
+          }
+          return { domNodes: [content] };
+        },
+        eventClass: ({ event }: EventDisplayInfo) => [
+          `omd-fc-source-${String(event.extendedProps.source)}`,
+          statusClass(event.extendedProps.syncState as string | undefined),
+        ].filter(Boolean).join(" "),
+      });
+      this.calendar.render();
+    }
+    if (!this.calendar) return;
+    this.calendar.setOption("colorScheme", document.body.classList.contains("theme-dark") ? "dark" : "light");
+    replaceCalendarEvents(this.calendar, this.visibleEvents().map(toFullCalendarEvent));
   }
 
   createEvent(): void {
@@ -164,8 +171,12 @@ export class OmdCalendarView extends ItemView {
   private async commitChange(info: EventChangeInfo): Promise<void> {
     const existing = this.plugin.calendarEvents.find((event) => event.id === info.event.id);
     if (!existing) return info.revert();
-    const start = info.event.start?.toISOString() ?? existing.start;
-    const end = info.event.end?.toISOString() ?? info.event.start?.toISOString() ?? existing.end;
+    const start = info.event.allDay
+      ? info.event.startStr || existing.start
+      : info.event.start?.toISOString() ?? existing.start;
+    const end = info.event.allDay
+      ? info.event.endStr || info.event.startStr || existing.end
+      : info.event.end?.toISOString() ?? info.event.start?.toISOString() ?? existing.end;
     const validationError = validateCalendarEventRange(start, end);
     if (validationError) {
       info.revert();
@@ -194,6 +205,47 @@ export class OmdCalendarView extends ItemView {
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Could not sync calendars");
     }
+  }
+
+  private toggleSource(source: EventSource): void {
+    this.enabledSources = toggleSourceFilter(this.enabledSources, source);
+    if (!this.calendar) {
+      this.render();
+      return;
+    }
+    replaceCalendarEvents(this.calendar, this.visibleEvents().map(toFullCalendarEvent));
+    this.contentEl.querySelectorAll<HTMLButtonElement>(".omd-calendar-filter-button").forEach((button) => {
+      const buttonSource = button.dataset.source as EventSource | undefined;
+      if (!buttonSource) return;
+      const enabled = this.enabledSources.has(buttonSource);
+      button.setAttribute("aria-pressed", String(enabled));
+      button.title = `${enabled ? "Hide" : "Show"} ${sourceLabel(buttonSource)} events`;
+    });
+  }
+
+  private visibleEvents(): CalendarEventRecord[] {
+    return this.plugin.calendarEvents.filter((event) => eventMatchesSourceFilter(event.source, this.enabledSources));
+  }
+
+  private ensureShell(): void {
+    if (this.hostEl?.isConnected && this.calendar) return;
+    if (this.calendar && !this.hostEl?.isConnected) {
+      this.calendar.destroy();
+      this.calendar = undefined;
+    }
+    this.contentEl.empty();
+    this.contentEl.addClass("omd-calendar-view");
+    const shell = this.contentEl.createDiv({ cls: "omd-calendar-shell" });
+    const topbar = shell.createDiv({ cls: "omd-calendar-topbar" });
+    const legend = topbar.createDiv({ cls: "omd-calendar-legend" });
+    legendFilterButton(legend, this.enabledSources, "vault", "Vault", () => this.toggleSource("vault"));
+    legendFilterButton(legend, this.enabledSources, "external", "Calendar", () => this.toggleSource("external"));
+    legendFilterButton(legend, this.enabledSources, "linked", "Linked", () => this.toggleSource("linked"));
+    const sync = topbar.createEl("button", { cls: "omd-action-button", type: "button", text: "Sync" });
+    sync.addEventListener("click", () => void this.syncEvents());
+    const create = topbar.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "+ new event" });
+    create.addEventListener("click", () => this.createEvent());
+    this.hostEl = shell.createDiv({ cls: "omd-calendar-host" });
   }
 }
 
@@ -298,18 +350,21 @@ class EventEditorModal extends Modal {
       .setValue(this.draft.title)
       .setDisabled(fieldsReadOnly)
       .onChange((value) => { this.draft.title = value; }));
-    new Setting(this.contentEl).setName("Start").addText((text) => text
-      .setValue(this.draft.start)
-      .setDisabled(fieldsReadOnly)
-      .onChange((value) => { this.draft.start = value; }));
-    new Setting(this.contentEl).setName("End").addText((text) => text
-      .setValue(this.draft.end)
-      .setDisabled(fieldsReadOnly)
-      .onChange((value) => { this.draft.end = value; }));
-    new Setting(this.contentEl).setName("All day").addToggle((toggle) => toggle
+    this.renderBoundaryInput("Start", "Event start date and time in your local timezone.", fieldsReadOnly, "start");
+    this.renderBoundaryInput("End", "Event end date and time in your local timezone.", fieldsReadOnly, "end");
+    new Setting(this.contentEl).setName("All day").setDesc("Store this event as calendar dates instead of times.").addToggle((toggle) => toggle
       .setValue(this.draft.allDay)
       .setDisabled(fieldsReadOnly)
-      .onChange((value) => { this.draft.allDay = value; }));
+      .onChange((value) => {
+        const range = calendarEditorRangeForMode(this.draft.start, this.draft.end, value);
+        if (range) {
+          this.draft.start = range.start;
+          this.draft.end = range.end;
+        }
+        this.draft.allDay = value;
+        this.contentEl.empty();
+        this.onOpen();
+      }));
     new Setting(this.contentEl).setName("Location").addText((text) => text
       .setValue(this.draft.location ?? "")
       .setDisabled(fieldsReadOnly)
@@ -338,6 +393,31 @@ class EventEditorModal extends Modal {
   }
 
   onClose(): void { this.contentEl.empty(); }
+
+  private renderBoundaryInput(
+    label: "Start" | "End",
+    description: string,
+    readOnly: boolean,
+    key: "start" | "end",
+  ): void {
+    const setting = new Setting(this.contentEl).setName(label).setDesc(description);
+    const input = setting.controlEl.createEl("input", {
+      cls: "omd-calendar-boundary-input",
+      type: this.draft.allDay ? "date" : "datetime-local",
+    });
+    input.value = calendarEditorInputValue(this.draft[key], this.draft.allDay);
+    input.disabled = readOnly;
+    input.required = true;
+    if (!this.draft.allDay) input.step = "900";
+    input.ariaLabel = `${label} ${this.draft.allDay ? "date" : "date and time"}`;
+    input.title = this.draft.allDay
+      ? `${label} date`
+      : `${label} in your local timezone`;
+    input.addEventListener("change", () => {
+      const stored = calendarEditorStoredValue(input.value, this.draft.allDay);
+      this.draft[key] = stored ?? "";
+    });
+  }
 
   private renderActionHooks(): void {
     const syncState = this.draft.syncState as string | undefined;
@@ -620,8 +700,27 @@ export function requiresSyncBeforeEdit(
     || (event.syncState === "pending" && event.pendingDirection === "external");
 }
 
-function legendItem(container: HTMLElement, source: EventSource, label: string): void {
-  const item = container.createDiv({ cls: "omd-legend-item" });
-  item.createSpan({ cls: `omd-source-mark is-${source}` });
-  item.createSpan({ text: label });
+function legendFilterButton(
+  container: HTMLElement,
+  enabledSources: ReadonlySet<EventSource>,
+  source: EventSource,
+  label: string,
+  onClick: () => void,
+): void {
+  const button = container.createEl("button", {
+    cls: "omd-legend-item omd-calendar-filter-button",
+    text: label,
+    type: "button",
+  });
+  button.dataset.source = source;
+  button.prepend(createSpan({ cls: `omd-source-mark is-${source}` }));
+  button.ariaPressed = String(enabledSources.has(source));
+  button.title = `${enabledSources.has(source) ? "Hide" : "Show"} ${label.toLowerCase()} events`;
+  button.addEventListener("click", onClick);
+}
+
+function sourceLabel(source: EventSource): string {
+  if (source === "vault") return "vault";
+  if (source === "external") return "calendar";
+  return "linked";
 }

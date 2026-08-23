@@ -6,6 +6,33 @@ export const MIN_WIDGET_HEIGHT = 2;
 
 export const DEFAULT_LAYOUT: WidgetPlacement[] = [
   { id: "omnibox", x: 0, y: 0, w: 12, h: 2 },
+  { id: "today", x: 0, y: 2, w: 6, h: 6 },
+  { id: "inbox", x: 6, y: 2, w: 6, h: 6 },
+  { id: "processing", x: 0, y: 8, w: 6, h: 4 },
+  { id: "attention", x: 6, y: 8, w: 6, h: 4 },
+  { id: "recent", x: 0, y: 12, w: 6, h: 4 },
+  { id: "upcoming", x: 6, y: 12, w: 6, h: 4 },
+  { id: "pinned", x: 0, y: 16, w: 4, h: 4 },
+  { id: "tags", x: 4, y: 16, w: 4, h: 4 },
+  { id: "status", x: 8, y: 16, w: 4, h: 4 },
+];
+
+export const PREVIOUS_DEFAULT_LAYOUT: WidgetPlacement[] = [
+  { id: "omnibox", x: 0, y: 0, w: 12, h: 2 },
+  { id: "today", x: 0, y: 2, w: 6, h: 6 },
+  { id: "inbox", x: 6, y: 2, w: 6, h: 6 },
+  { id: "processing", x: 0, y: 8, w: 6, h: 4 },
+  { id: "attention", x: 6, y: 8, w: 6, h: 4 },
+  { id: "recent", x: 0, y: 12, w: 4, h: 4 },
+  { id: "upcoming", x: 4, y: 12, w: 4, h: 4 },
+  { id: "continue", x: 8, y: 12, w: 4, h: 4 },
+  { id: "pinned", x: 0, y: 16, w: 4, h: 4 },
+  { id: "tags", x: 4, y: 16, w: 4, h: 4 },
+  { id: "status", x: 8, y: 16, w: 4, h: 4 },
+];
+
+export const LEGACY_DEFAULT_LAYOUT: WidgetPlacement[] = [
+  { id: "omnibox", x: 0, y: 0, w: 12, h: 2 },
   { id: "today", x: 0, y: 2, w: 7, h: 7 },
   { id: "inbox", x: 7, y: 2, w: 5, h: 4 },
   { id: "processing", x: 7, y: 6, w: 5, h: 3 },
@@ -17,6 +44,23 @@ export const DEFAULT_LAYOUT: WidgetPlacement[] = [
   { id: "status", x: 9, y: 13, w: 3, h: 3 },
   { id: "tags", x: 0, y: 16, w: 12, h: 3 },
 ];
+
+export function migrateLegacyLayout(layout: WidgetPlacement[]): WidgetPlacement[] {
+  const normalized = normalizeLayout(layout);
+  const matchesKnownDefault = [LEGACY_DEFAULT_LAYOUT, PREVIOUS_DEFAULT_LAYOUT].some((knownDefault) => knownDefault.every((fallback) => {
+    const placement = normalized.find((item) => item.id === fallback.id);
+    return placement
+      && placement.x === fallback.x
+      && placement.y === fallback.y
+      && placement.w === fallback.w
+      && placement.h === fallback.h;
+  }));
+  if (!matchesKnownDefault) return normalized;
+  return DEFAULT_LAYOUT.map((placement) => ({
+    ...placement,
+    hidden: normalized.find((item) => item.id === placement.id)?.hidden ?? false,
+  }));
+}
 
 export function normalizeLayout(layout: WidgetPlacement[]): WidgetPlacement[] {
   const seen = new Set<WidgetId>();

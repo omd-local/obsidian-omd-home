@@ -1,8 +1,17 @@
 import { App, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
 import type OmdHomePlugin from "./main";
 import type { ExternalCalendarDescriptor } from "./model";
+import {
+  buildModelSelectorState,
+  describeReadinessCode,
+  isFresh,
+  modelHasRemoteMetadata,
+  modelIsKnownThinkingOnly,
+  providerMode,
+} from "./local-ai-readiness";
+import type { LocalAiWorkflowId, StoredAiProvider } from "./ollama-local-types";
 
-const AI_PROVIDERS = new Set<OmdHomeSettings["aiProvider"]>(["ollama", "openai", "anthropic", "deepseek"]);
+const AI_PROVIDERS = new Set<StoredAiProvider>(["ollama", "openai", "anthropic", "deepseek"]);
 
 export interface OmdHomeSettings {
   openOnLaunch: boolean;
@@ -12,12 +21,13 @@ export interface OmdHomeSettings {
   eventKitHelperPath: string;
   selectedCalendarIds: string[];
   defaultExternalCalendarId: string;
-  aiProvider: "ollama" | "openai" | "anthropic" | "deepseek";
+  aiProvider: StoredAiProvider;
   aiModel: string;
   enrichmentModel: string;
   ollamaHost: string;
   capturePolish: boolean;
   capturePolishModel: string;
+  captureSuggestLinksAndTags: boolean;
   pinnedNotes: string[];
 }
 
@@ -35,11 +45,14 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
   capturePolishModel: "qwen3:4b-instruct",
+  captureSuggestLinksAndTags: true,
   pinnedNotes: [],
 };
 
 export class OmdHomeSettingTab extends PluginSettingTab {
   private readonly plugin: OmdHomePlugin;
+  private readonly customModelModes = new Set<LocalAiWorkflowId>();
+  private catalogLoadInFlight = false;
 
   constructor(app: App, plugin: OmdHomePlugin) {
     super(app, plugin);
@@ -78,60 +91,41 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           this.display();
         }));
     this.pathSetting(containerEl, "Python executable", "Optional override. When blank, use the interpreter embedded in the OMD executable.", "pythonExecutable");
-    this.pathSetting(containerEl, "OMD Home bridge", "Absolute path to bridge/omd_home_bridge.py.", "pythonBridgePath");
-
-    new Setting(containerEl).setName("Local note enrichment").setHeading();
-
-    new Setting(containerEl)
-      .setName("Local content boundary")
+    const pythonBridgeSetting = new Setting(containerEl)
+      .setName("OMD Home bridge")
       .setDesc(
-        "Generate sends the current note (up to 64 kibibytes), ranked candidate metadata and evidence, and vault tags to the configured OMD executable and loopback Ollama. No vault file changes occur until you confirm the proposal.",
-      );
-
-    new Setting(containerEl)
-      .setName("Enrichment model")
-      .setDesc("Exact local Ollama model used by OMD's review-first link and tag suggestions.")
-      .addText((text) => text.setValue(this.plugin.settings.enrichmentModel).onChange(async (value) => {
-        this.plugin.settings.enrichmentModel = value.trim();
-        await this.plugin.saveSettings();
-      }));
-
-    new Setting(containerEl)
-      .setName("Ollama endpoint")
-      .setDesc("Phase 2 enrichment accepts only a loopback Ollama base URL and never enables remote access.")
-      .addText((text) => text.setValue(this.plugin.settings.ollamaHost).onChange(async (value) => {
-        this.plugin.settings.ollamaHost = value.trim();
-        await this.plugin.saveSettings();
-      }));
-
-    new Setting(containerEl).setName("Optional omnibox AI").setHeading();
-
-    new Setting(containerEl)
-      .setName("AI provider")
-      .setDesc("Hosted providers still require a task-specific disclosure and confirmation.")
-      .addDropdown((dropdown) => dropdown
-        .addOptions({ ollama: "Ollama", openai: "OpenAI API", anthropic: "Anthropic API", deepseek: "DeepSeek API" })
-        .setValue(this.plugin.settings.aiProvider)
+        this.plugin.settings.pythonBridgePath
+          ? "Using a custom Python bridge path. Clear it to use the bridge bundled inside OMD Home."
+          : "Using the bridge bundled inside OMD Home automatically. No bridge path is required.",
+      )
+      .addText((text) => text
+        .setPlaceholder("Optional custom /absolute/path/to/omd_home_bridge.py")
+        .setValue(this.plugin.settings.pythonBridgePath)
         .onChange(async (value) => {
-          this.plugin.settings.aiProvider = value as OmdHomeSettings["aiProvider"];
+          this.plugin.settings.pythonBridgePath = value.trim();
           await this.plugin.saveSettings();
         }));
+    if (this.plugin.settings.pythonBridgePath) {
+      pythonBridgeSetting.addButton((button) => button
+        .setButtonText("Use bundled")
+        .onClick(async () => {
+          this.plugin.settings.pythonBridgePath = "";
+          await this.plugin.saveSettings();
+          this.display();
+        }));
+    }
 
-    new Setting(containerEl)
-      .setName("AI model")
-      .setDesc("Exact model identifier. OMD validates availability before sending content.")
-      .addText((text) => text.setValue(this.plugin.settings.aiModel).onChange(async (value) => {
-        this.plugin.settings.aiModel = value.trim();
-        await this.plugin.saveSettings();
-      }));
-
-    new Setting(containerEl)
-      .setName("Capture polish model")
-      .setDesc("Local Ollama model used only when capture's optional Markdown polish is enabled.")
-      .addText((text) => text.setValue(this.plugin.settings.capturePolishModel).onChange(async (value) => {
-        this.plugin.settings.capturePolishModel = value.trim();
-        await this.plugin.saveSettings();
-      }));
+    const localAiSection = containerEl.createDiv({ cls: "omd-settings-section omd-settings-local-ai" });
+    this.renderLocalAiSection(localAiSection);
+    if (!isFresh(this.plugin.localAiState.catalogCheckedAt)
+      && !this.plugin.localAiState.activeAction
+      && !this.catalogLoadInFlight) {
+      this.catalogLoadInFlight = true;
+      void this.plugin.ensureLocalAiCatalog().finally(() => {
+        this.catalogLoadInFlight = false;
+        if (localAiSection.isConnected) this.renderLocalAiSection(localAiSection);
+      });
+    }
 
     new Setting(containerEl).setName("Calendar").setHeading();
     if (!Platform.isMacOS) {
@@ -141,15 +135,50 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       return;
     }
 
-    this.pathSetting(containerEl, "EventKit helper", "Absolute path to the separately installed omd-eventkit helper.", "eventKitHelperPath");
+    const resolvedEventKitPath = this.plugin.resolvedEventKitHelperPath();
+    const eventKitSetting = new Setting(containerEl)
+      .setName("EventKit helper")
+      .setDesc(
+        this.plugin.settings.eventKitHelperPath
+          ? "Using a custom helper path. Clear it to use the helper installed beside OMD Home."
+          : resolvedEventKitPath
+            ? `Using the installed helper automatically: ${resolvedEventKitPath}`
+            : "No installed helper was found. Build it or enter an absolute path.",
+      )
+      .addText((text) => text
+        .setPlaceholder(resolvedEventKitPath || "/absolute/path/to/omd-eventkit")
+        .setValue(this.plugin.settings.eventKitHelperPath)
+        .onChange(async (value) => {
+          this.plugin.settings.eventKitHelperPath = value.trim();
+          await this.plugin.saveSettings();
+        }));
+    if (this.plugin.settings.eventKitHelperPath) {
+      eventKitSetting.addButton((button) => button
+        .setButtonText("Use installed")
+        .onClick(async () => {
+          this.plugin.settings.eventKitHelperPath = "";
+          await this.plugin.saveSettings();
+          this.display();
+        }));
+    }
 
     new Setting(containerEl)
       .setName("Refresh calendars")
       .setDesc("Read available calendars from macOS EventKit, then select them below.")
-      .addButton((button) => button.setButtonText("Refresh").onClick(async () => {
-        await this.plugin.refreshExternalCalendars();
-        this.display();
-      }));
+      .addButton((button) => button
+        .setButtonText(this.plugin.calendarLoading ? "Loading…" : "Refresh calendars")
+        .setDisabled(this.plugin.calendarLoading)
+        .onClick(async () => {
+          button.setDisabled(true).setButtonText("Loading…");
+          await this.plugin.refreshExternalCalendars();
+          this.display();
+        }));
+
+    if (this.plugin.calendarFeedback) {
+      const feedback = containerEl.createDiv({ cls: `omd-settings-feedback is-${this.plugin.calendarFeedback.tone}` });
+      feedback.createEl("strong", { text: this.plugin.calendarFeedback.message });
+      feedback.createSpan({ text: new Date(this.plugin.calendarFeedback.at).toLocaleTimeString() });
+    }
 
     const calendars = this.plugin.externalCalendars;
     const reconciledSettings = reconcileCalendarSelection(this.plugin.settings, calendars);
@@ -162,7 +191,12 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     }
 
     if (!calendars.length) {
-      containerEl.createEl("p", { cls: "omd-settings-empty", text: "No EventKit calendars loaded." });
+      containerEl.createEl("p", {
+        cls: "omd-settings-empty",
+        text: this.plugin.calendarFeedback?.tone === "error"
+          ? "Calendars are unavailable. Use the error above to check the helper path or macOS Calendar permission."
+          : "No calendars loaded yet. Press Refresh calendars; macOS may ask for Calendar access.",
+      });
     }
     for (const calendar of calendars) {
       new Setting(containerEl)
@@ -202,6 +236,128 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       });
   }
 
+  private renderLocalAiSection(container: HTMLElement): void {
+    container.empty();
+    new Setting(container).setName("Local AI").setHeading();
+
+    const legacyProvider = providerMode(this.plugin.settings.aiProvider) === "legacy-disabled";
+    new Setting(container)
+      .setName("Provider")
+      .setDesc(
+        legacyProvider
+          ? `Saved provider ${this.plugin.settings.aiProvider} is preserved for Vault Q&A but disabled in Phase 1a. Select Ollama to re-enable local vault answers; enrichment and capture polish still use loopback Ollama.`
+          : "Phase 1a supports Ollama only. Hosted providers stay preserved in settings data, while enrichment and capture polish use loopback Ollama.",
+      )
+      .addButton((button) => button
+        .setButtonText(legacyProvider ? "Use Ollama" : "Ollama only")
+        .setDisabled(!legacyProvider)
+        .onClick(async () => {
+          this.plugin.settings.aiProvider = "ollama";
+          this.plugin.invalidateLocalAiState("provider");
+          await this.plugin.saveSettings();
+          this.renderLocalAiSection(container);
+        }));
+
+    new Setting(container)
+      .setName("Local content boundary")
+      .setDesc(
+        "Cloud availability does not mean your selected model is online. For a verifiable local-only boundary, OMD Home accepts only http://localhost:11434 or http://127.0.0.1:11434 and requires Ollama local-only mode before sending vault content.",
+      );
+
+    new Setting(container)
+      .setName("Ollama endpoint")
+      .setDesc("Only the default local Ollama endpoints are accepted in phase 1a.")
+      .addText((text) => text.setValue(this.plugin.settings.ollamaHost).onChange(async (value) => {
+        this.plugin.settings.ollamaHost = value.trim();
+        this.plugin.invalidateLocalAiState("host");
+        await this.plugin.saveSettings();
+      }));
+
+    const localAiStatusSetting = new Setting(container)
+      .setName("Local AI status")
+      .setDesc(this.plugin.localAiState.daemonDetail)
+      .addButton((button) => button
+        .setButtonText(this.plugin.localAiState.activeAction === "refresh-models" ? "Refreshing…" : "Refresh models")
+        .setDisabled(Boolean(this.plugin.localAiState.activeAction))
+        .onClick(async () => {
+          button.setDisabled(true).setButtonText("Refreshing…");
+          await this.plugin.refreshLocalAiCatalog(true);
+          if (container.isConnected) this.renderLocalAiSection(container);
+        }))
+      .addButton((button) => button
+        .setButtonText(this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check connection")
+        .setDisabled(Boolean(this.plugin.localAiState.activeAction))
+        .onClick(async () => {
+          button.setDisabled(true).setButtonText("Checking…");
+          await this.plugin.checkLocalAiConnection();
+          if (container.isConnected) this.renderLocalAiSection(container);
+        }));
+    if (this.plugin.localAiState.activeAction) {
+      localAiStatusSetting.addButton((button) => button
+        .setButtonText("Cancel")
+        .setWarning()
+        .onClick(() => {
+          this.plugin.cancelLocalAiAction();
+          this.renderLocalAiSection(container);
+        }));
+    }
+
+    if (this.plugin.localAiFeedback) {
+      const feedback = container.createDiv({ cls: `omd-settings-feedback is-${this.plugin.localAiFeedback.tone}` });
+      feedback.createEl("strong", { text: this.plugin.localAiFeedback.message });
+      feedback.createSpan({ text: new Date(this.plugin.localAiFeedback.at).toLocaleTimeString() });
+    }
+
+    if (
+      this.plugin.localAiState.daemonCode === "cloud_features_enabled"
+      || this.plugin.localAiState.daemonCode === "cloud_features_unknown"
+    ) {
+      new Setting(container)
+        .setName("Enable Ollama local-only mode")
+        .setDesc("Cloud availability does not mean your current model is online. To make the boundary verifiable, put {\"disable_ollama_cloud\": true} in ~/.ollama/server.json, quit and reopen Ollama, then press Check connection.")
+        .addButton((button) => button
+          .setButtonText("Copy settings")
+          .onClick(async () => {
+            try {
+              await navigator.clipboard.writeText('{"disable_ollama_cloud": true}');
+              new Notice("Copied Ollama local-only settings");
+            } catch {
+              new Notice("Could not copy settings. Add disable_ollama_cloud to ~/.ollama/server.json manually.");
+            }
+          }));
+    }
+
+    new Setting(container)
+      .setName("Daemon summary")
+      .setDesc(
+        [
+          describeReadinessCode(this.plugin.localAiState.daemonCode),
+          this.plugin.localAiState.version ? `Ollama ${this.plugin.localAiState.version}` : "",
+          this.plugin.localAiState.catalogCheckedAt ? `Checked ${new Date(this.plugin.localAiState.catalogCheckedAt).toLocaleString()}` : "",
+        ].filter(Boolean).join(" · ") || "Not checked yet",
+      );
+
+    this.modelSetting(container, "Vault Q&A model", "Used only for read-only `@` vault questions.", "aiModel", "qa");
+
+    new Setting(container)
+      .setName("Local note enrichment")
+      .setDesc("Generate sends the current note, ranked candidate metadata, and vault tags to the configured local OMD executable and local Ollama. No note changes occur until you confirm the proposal.");
+
+    this.modelSetting(container, "Enrichment model", "Used by OMD's review-first link and tag suggestions.", "enrichmentModel", "enrichment");
+
+    new Setting(container)
+      .setName("Suggest links and tags after capture")
+      .setDesc("Open a local, review-first proposal after a successful capture. No links or tags are written until you approve them.")
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.captureSuggestLinksAndTags)
+        .onChange(async (value) => {
+          this.plugin.settings.captureSuggestLinksAndTags = value;
+          await this.plugin.saveSettings();
+        }));
+
+    this.modelSetting(container, "Capture polish model", "Used only when capture's optional Markdown polish is enabled.", "capturePolishModel", "capture");
+  }
+
   private pathSetting(
     container: HTMLElement,
     name: string,
@@ -215,6 +371,80 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         if (key === "omdExecutable") this.plugin.resetEnrichmentCapability();
         await this.plugin.saveSettings();
       }));
+  }
+
+  private modelSetting(
+    container: HTMLElement,
+    name: string,
+    description: string,
+    key: "aiModel" | "enrichmentModel" | "capturePolishModel",
+    workflow: LocalAiWorkflowId,
+  ): void {
+    const workflowState = this.plugin.localAiState.workflows[workflow];
+    const selector = this.customModelModes.has(workflow)
+      ? {
+        optionValue: "__custom__",
+        useCustom: true,
+        stale: false,
+        customValue: this.plugin.localAiState.models.some((model) => model.name === this.plugin.settings[key]) ? "" : this.plugin.settings[key],
+      }
+      : buildModelSelectorState(this.plugin.settings[key], this.plugin.localAiState.models);
+    const options = this.plugin.localAiState.models
+      .reduce<Record<string, string>>((result, model) => {
+        const suffix = modelHasRemoteMetadata(model)
+          ? " (remote blocked)"
+          : modelIsKnownThinkingOnly(model)
+            ? " (thinking-only; use instruct)"
+          : model.capabilities.length > 0 && !model.supportsCompletion
+            ? " (not text-capable)"
+          : model.capabilities.length === 0
+            ? " (unchecked)"
+            : "";
+        result[model.name] = `${model.name}${suffix}`;
+        return result;
+      }, {});
+    options.__custom__ = "Custom…";
+    if (selector.stale) options.__stale__ = `${this.plugin.settings[key]} (saved, not installed)`;
+    const setting = new Setting(container)
+      .setName(name)
+      .setDesc(`${description} ${describeReadinessCode(workflowState.code)}. ${workflowState.detail}`)
+      .addDropdown((dropdown) => {
+        dropdown.addOptions(options);
+        dropdown.setValue(selector.optionValue);
+        dropdown.onChange(async (value) => {
+          if (value === "__custom__" || value === "__stale__") {
+            this.customModelModes.add(workflow);
+            this.renderLocalAiSection(container);
+            return;
+          }
+          this.customModelModes.delete(workflow);
+          this.plugin.settings[key] = value;
+          this.plugin.invalidateLocalAiState("model");
+          await this.plugin.saveSettings();
+          this.renderLocalAiSection(container);
+        });
+      })
+      .addText((text) => {
+        text.setPlaceholder("Custom Ollama model id");
+        text.setValue(selector.useCustom ? selector.customValue : "");
+        text.setDisabled(!selector.useCustom);
+        text.onChange(async (value) => {
+          if (!selector.useCustom) return;
+          this.customModelModes.add(workflow);
+          this.plugin.settings[key] = value.trim();
+          this.plugin.invalidateLocalAiState("model");
+          await this.plugin.saveSettings();
+        });
+      })
+      .addButton((button) => button
+        .setButtonText(this.plugin.localAiState.activeAction === `smoke:${workflow}` ? "Running…" : "Smoke")
+        .setDisabled(Boolean(this.plugin.localAiState.activeAction) || !this.plugin.settings[key].trim())
+        .onClick(async () => {
+          button.setDisabled(true).setButtonText("Running…");
+          await this.plugin.smokeLocalAiWorkflow(workflow);
+          if (container.isConnected) this.renderLocalAiSection(container);
+        }));
+    setting.settingEl.addClass("omd-settings-model");
   }
 }
 
@@ -238,6 +468,9 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
     ollamaHost: cleanString(input.ollamaHost, DEFAULT_SETTINGS.ollamaHost),
     capturePolish: typeof input.capturePolish === "boolean" ? input.capturePolish : DEFAULT_SETTINGS.capturePolish,
     capturePolishModel: cleanString(input.capturePolishModel, DEFAULT_SETTINGS.capturePolishModel),
+    captureSuggestLinksAndTags: typeof input.captureSuggestLinksAndTags === "boolean"
+      ? input.captureSuggestLinksAndTags
+      : DEFAULT_SETTINGS.captureSuggestLinksAndTags,
     pinnedNotes: uniqueStrings(input.pinnedNotes),
   };
 }

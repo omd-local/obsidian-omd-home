@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { eventKitErrorMessage, eventKitProcessErrorMessage } from "../src/eventkit-errors.ts";
-import { normalizeEventKitCalendar, normalizeEventKitEvent } from "../src/eventkit-bridge.ts";
+import { normalizeEventKitCalendar, normalizeEventKitEvent, resolveEventKitHelperPath } from "../src/eventkit-bridge.ts";
+
+test("EventKit helper path prefers an override and otherwise resolves beside the installed plugin", () => {
+  assert.equal(
+    resolveEventKitHelperPath(" /custom/omd-eventkit ", "/vault", ".obsidian/plugins/omd-home"),
+    "/custom/omd-eventkit",
+  );
+  assert.equal(
+    resolveEventKitHelperPath("", "/vault/", "/.obsidian/plugins/omd-home/"),
+    "/vault/.obsidian/plugins/omd-home/omd-eventkit",
+  );
+  assert.equal(resolveEventKitHelperPath("", "", ".obsidian/plugins/omd-home"), "");
+});
 
 test("sanitizes EventKit permission and writeability errors", () => {
   assert.equal(

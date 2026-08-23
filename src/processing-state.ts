@@ -12,10 +12,14 @@ export function summarizeProcessingEvents(
   events: OmdProgressEvent[],
   captureActive = inferCaptureActive(events),
 ): { active: ProcessingRow | null; recent: ProcessingRow[] } {
-  if (!events.length) return { active: null, recent: [] };
-  const active = captureActive ? summarizeActiveRun(events) : null;
+  if (!events.length) return { active: captureActive ? startingRow() : null, recent: [] };
+  const active = captureActive ? summarizeActiveRun(events) ?? startingRow() : null;
   const recent = summarizeHistoricalRuns(captureActive ? historyBeforeActiveRun(events) : events);
   return { active, recent: recent.slice(0, 4) };
+}
+
+function startingRow(): ProcessingRow {
+  return { label: "Starting OMD", value: "working", tone: "active" };
 }
 
 export function inferCaptureActive(events: OmdProgressEvent[]): boolean {

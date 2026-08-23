@@ -19,6 +19,7 @@ test("settings normalization trims strings, filters arrays, and falls back inval
     defaultExternalCalendarId: "  work  ",
     aiProvider: "bogus",
     aiModel: "  llama3  ",
+    captureSuggestLinksAndTags: false,
     pinnedNotes: [" Note.md ", null, "Note.md"],
   });
   assert.equal(normalized.openOnLaunch, false);
@@ -27,7 +28,13 @@ test("settings normalization trims strings, filters arrays, and falls back inval
   assert.equal(normalized.defaultExternalCalendarId, "work");
   assert.equal(normalized.aiProvider, "ollama");
   assert.equal(normalized.aiModel, "llama3");
+  assert.equal(normalized.captureSuggestLinksAndTags, false);
   assert.deepEqual(normalized.pinnedNotes, ["Note.md"]);
+});
+
+test("settings normalization preserves a saved hosted provider without enabling it", () => {
+  const normalized = helpers.normalizeOmdHomeSettings({ aiProvider: "openai" });
+  assert.equal(normalized.aiProvider, "openai");
 });
 
 test("calendar selection reconciliation clears stale and read-only defaults", () => {
@@ -48,6 +55,47 @@ test("default calendar normalization clears deselected defaults", () => {
 test("an unavailable calendar list does not erase persisted selections", () => {
   const settings = { ...helpers.DEFAULT_SETTINGS, selectedCalendarIds: ["work"], defaultExternalCalendarId: "work" };
   assert.deepEqual(helpers.reconcileCalendarSelection(settings, []), settings);
+});
+
+test("Phase 1a settings hide hosted provider choices and preserve legacy values explicitly", () => {
+  const providerStart = source.indexOf('.setName("Provider")');
+  const providerEnd = source.indexOf('.setName("Local content boundary")', providerStart);
+  const providerBlock = source.slice(providerStart, providerEnd);
+  assert.match(providerBlock, /legacy-disabled|preserved (?:but )?disabled|preserved for Vault Q&A/u);
+  assert.match(providerBlock, /Use Ollama/u);
+  assert.doesNotMatch(providerBlock, /addDropdown|addOption\([^)]*(?:openai|anthropic|deepseek)/u);
+});
+
+test("model selectors expose every installed model plus Custom and stale values", () => {
+  const optionsStart = source.indexOf("const options = this.plugin.localAiState.models");
+  const optionsEnd = source.indexOf("options.__custom__", optionsStart);
+  const optionsBlock = source.slice(optionsStart, optionsEnd);
+  assert.ok(optionsStart >= 0 && optionsEnd > optionsStart);
+  assert.doesNotMatch(optionsBlock, /\.filter\(/u);
+  assert.match(source, /options\.__custom__ = "Custom…"/u);
+  assert.match(source, /\(saved, not installed\)/u);
+  assert.match(source, /\(not text-capable\)/u);
+  assert.match(source, /\(remote blocked\)/u);
+  assert.match(source, /omd-settings-model/u);
+});
+
+test("Local AI settings rerender only their section and expose durable action feedback", () => {
+  assert.match(source, /omd-settings-local-ai/u);
+  assert.match(source, /renderLocalAiSection\(localAiSection\)/u);
+  assert.match(source, /localAiFeedback/u);
+  assert.match(source, /omd-settings-feedback/u);
+});
+
+test("Calendar settings explain the installed EventKit helper and actionable empty states", () => {
+  assert.match(source, /resolvedEventKitHelperPath/u);
+  assert.match(source, /Using the installed helper automatically/u);
+  assert.match(source, /macOS may ask for Calendar access/u);
+});
+
+test("Python bridge settings prefer the bundled bridge while retaining an explicit override", () => {
+  assert.match(source, /Using the bridge bundled inside OMD Home automatically/u);
+  assert.match(source, /When blank, use the interpreter embedded in the OMD executable/u);
+  assert.match(source, /setButtonText\("Use bundled"\)/u);
 });
 
 function loadSettingsHelpers(fileSource: string): {
