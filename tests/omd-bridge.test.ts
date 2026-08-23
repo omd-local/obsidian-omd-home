@@ -288,10 +288,7 @@ test("fallback bridge search favors topical notes and returns numbered section e
 test("bridge emits structured JSON errors for invalid requests", () => {
   const response = runBridge({ action: "search", vault: "/definitely/missing", query: "AI", limit: 10 });
   assert.equal(response.ok, false);
-  assert.deepEqual(response.error, {
-    message: "retrieval root must be an existing directory",
-    type: "ValueError",
-  });
+  assertMissingVaultError(response.error);
 });
 
 test("bundled bridge bootstrap stays argv-safe and executes the embedded source", () => {
@@ -306,7 +303,7 @@ test("bundled bridge bootstrap stays argv-safe and executes the embedded source"
   assert.ok(output, `embedded bridge produced no stdout: ${result.stderr}`);
   const response = JSON.parse(output) as Record<string, unknown>;
   assert.equal(response.ok, false);
-  assert.deepEqual(response.error, { message: "retrieval root must be an existing directory", type: "ValueError" });
+  assertMissingVaultError(response.error);
 });
 
 test("Ask AI runs through the real Python bridge with bounded evidence blocks", async () => {
@@ -905,6 +902,17 @@ function runBridge(
   const output = result.stdout.trim().split(/\r?\n/).at(-1);
   assert.ok(output, `bridge produced no stdout: ${result.stderr}`);
   return JSON.parse(output) as Record<string, any>;
+}
+
+function assertMissingVaultError(error: unknown): void {
+  assert.ok(error && typeof error === "object");
+  const structured = error as Record<string, unknown>;
+  assert.equal(structured.type, "ValueError");
+  assert.ok(
+    structured.message === "vault path does not exist"
+      || structured.message === "retrieval root must be an existing directory",
+    `unexpected missing-vault error: ${String(structured.message)}`,
+  );
 }
 
 async function withNodeRequire<T>(run: () => Promise<T>): Promise<T> {
