@@ -625,6 +625,82 @@ def build_answer_context(root, query, hit_limit=8, block_limit=8):
   }
 });
 
+test("Ask AI keeps hybrid disabled and reports a missing embedding model explicitly", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-bridge-missing-embed-"));
+  const vault = join(root, "vault");
+  const stubRoot = join(root, "stubs");
+  const packageRoot = join(stubRoot, "omd");
+  const pathDelimiter = process.platform === "win32" ? ";" : ":";
+  try {
+    await mkdir(vault, { recursive: true });
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "__init__.py"), "");
+    await writeFile(join(packageRoot, "retrieval.py"), `
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class SearchHit:
+    path: str
+    title: str
+    score: float
+    evidence: str
+
+@dataclass
+class EvidenceBlock:
+    path: str
+    title: str
+    heading: str
+    kind: str
+    score: float
+    text: str
+
+@dataclass
+class AnswerContext:
+    hits: list[SearchHit]
+    blocks: list[EvidenceBlock]
+    candidate_count: int
+    retrieval_mode: str = "sparse"
+    warnings: tuple[str, ...] = ()
+
+def search_notes(root, query, limit=10):
+    return [SearchHit(path="legacy.md", title="Legacy", score=1.0, evidence="legacy evidence")]
+
+def build_answer_context(root, query, hit_limit=8, block_limit=8, semantic_config=None):
+    if not Path(root).is_dir():
+        raise ValueError("retrieval root must be an existing directory")
+    assert semantic_config is None
+    hits = [SearchHit(path="legacy.md", title="Legacy", score=1.0, evidence="legacy evidence")]
+    blocks = [EvidenceBlock(path="legacy.md", title="Legacy", heading="Section 1", kind="note", score=1.0, text="legacy evidence")]
+    return AnswerContext(hits=hits[:hit_limit], blocks=blocks[:block_limit], candidate_count=1)
+`.trimStart());
+    const env = {
+      ...process.env,
+      PYTHONPATH: process.env.PYTHONPATH
+        ? `${stubRoot}${pathDelimiter}${process.env.PYTHONPATH}`
+        : stubRoot,
+    };
+    const response = runBridge({
+      action: "preview_ai",
+      vault,
+      query: "calendar workflows",
+      provider: "ollama",
+      model: "qwen3:4b-instruct",
+      endpoint: "http://localhost:11434",
+      limit: 8,
+      hybrid_retrieval_enabled: true,
+      embedding_model: "   ",
+      semantic_rerank_enabled: true,
+    }, env);
+    assert.equal(response.ok, true);
+    assert.equal(response.retrieval_mode, "sparse");
+    assert.equal(response.retrieval_model, null);
+    assert.deepEqual(response.warnings, ["hybrid_retrieval_model_missing"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("Ask AI restores exact wiki paths with spaces without rewriting block labels", () => {
   const code = [
     "from types import SimpleNamespace",
