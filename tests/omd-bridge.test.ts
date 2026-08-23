@@ -4,16 +4,31 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  appendCommonExecutableDirectoriesToPath,
   omdCaptureArgs,
   parsePythonShebang,
   prependExecutableDirectoryToPath,
 } from "../src/omd-events.ts";
-import { bridgeErrorMessage, captureErrorMessage, parseBridgeResponse, spawnProcess } from "../src/omd-bridge.ts";
+import {
+  bridgeErrorMessage,
+  bridgeProcessFailureMessage,
+  captureErrorMessage,
+  parseBridgeResponse,
+  pythonBridgeArgs,
+  spawnProcess,
+} from "../src/omd-bridge.ts";
 
 const bridgeScript = new URL("../bridge/omd_home_bridge.py", import.meta.url);
 const nodeRequire = createRequire(import.meta.url);
+
+test("Python bridge prefers an override and otherwise runs the bundled source", () => {
+  assert.deepEqual(pythonBridgeArgs(" /custom/bridge.py ", "embedded"), ["/custom/bridge.py"]);
+  assert.deepEqual(pythonBridgeArgs("", "print('embedded')"), ["-c", "print('embedded')"]);
+  assert.throws(() => pythonBridgeArgs("", ""), /bridge is unavailable/u);
+});
 
 test("uses OMD's vault-capture subcommand instead of standalone conversion", () => {
   assert.deepEqual(omdCaptureArgs("https://example.com", "/tmp/vault"), [
@@ -48,9 +63,44 @@ test("does not duplicate OMD's executable directory in PATH", () => {
   );
 });
 
+test("makes Homebrew OMD visible to Finder-launched Obsidian on macOS", () => {
+  assert.equal(
+    appendCommonExecutableDirectoriesToPath(
+      "/usr/bin:/bin:/usr/sbin:/sbin",
+      "/Users/example",
+      ":",
+      "darwin",
+    ),
+    "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/Users/example/.local/bin",
+  );
+});
+
+test("does not duplicate standard executable directories", () => {
+  assert.equal(
+    appendCommonExecutableDirectoriesToPath(
+      "/usr/bin:/opt/homebrew/bin:/Users/example/.local/bin",
+      "/Users/example/",
+      ":",
+      "darwin",
+    ),
+    "/usr/bin:/opt/homebrew/bin:/Users/example/.local/bin:/usr/local/bin:/opt/local/bin",
+  );
+});
+
+test("leaves Windows PATH discovery unchanged", () => {
+  assert.equal(
+    appendCommonExecutableDirectoriesToPath("C:\\Windows\\System32", "C:\\Users\\example", ";", "win32"),
+    "C:\\Windows\\System32",
+  );
+});
+
 test("preserves structured bridge error messages", () => {
   assert.equal(
     bridgeErrorMessage({ message: "vault path does not exist", type: "ValueError" }, "fallback"),
+    "The selected vault could not be read by OMD Home.",
+  );
+  assert.equal(
+    bridgeErrorMessage({ message: "retrieval root must be an existing directory", type: "ValueError" }, "fallback"),
     "The selected vault could not be read by OMD Home.",
   );
   assert.equal(
@@ -75,8 +125,36 @@ test("sanitizes structured bridge errors before surfacing them", () => {
     "Ollama rejected the request. Check the selected local model and try again.",
   );
   assert.equal(
+    bridgeErrorMessage(
+      { message: "ollama task exceeds OMD's 4096-token context budget", type: "AIServiceError" },
+      "fallback",
+    ),
+    "The retrieved vault evidence exceeded the local model context budget. OMD Home reduced the evidence selection; try again or ask a narrower question.",
+  );
+  assert.equal(
+    bridgeErrorMessage(
+      { message: "ollama returned an incomplete response", type: "AIServiceError" },
+      "fallback",
+    ),
+    "The local model ran out of answer space before finishing. Try again; if it repeats, ask a narrower question or choose a larger local model.",
+  );
+  assert.equal(
     bridgeErrorMessage("Traceback: /Users/shion/private/vault.md", "OMD Home bridge failed"),
     "OMD Home bridge failed. Check the local bridge setup and try again.",
+  );
+});
+
+test("surfaces actionable Python bridge startup failures without leaking local paths", () => {
+  assert.equal(
+    bridgeProcessFailureMessage(
+      "Traceback (most recent call last): ModuleNotFoundError: No module named 'omd'",
+      1,
+    ),
+    "The Python environment used by OMD Home is missing a required module. Point the OMD executable to the current OMD environment, then try again.",
+  );
+  assert.equal(
+    bridgeProcessFailureMessage("Traceback: /Users/example/private/vault.md", 7),
+    "OMD Home's Python bridge exited before returning a result (exit 7). Check the configured OMD executable and Python environment, then try again.",
   );
 });
 
@@ -92,6 +170,14 @@ test("sanitizes structured OMD capture error events", () => {
   assert.equal(
     captureErrorMessage("Traceback: /Users/shion/secrets.txt"),
     "OMD capture failed. Check the OMD setup and try again.",
+  );
+  assert.equal(
+    captureErrorMessage([
+      '{"v":1,"event":"stage_state","state":"failed","stage_id":"convert","ts":1}',
+      "markitdown._exceptions.FileConversionException: File conversion failed after 1 attempts:",
+      "PdfConverter threw MissingDependencyException. Install MarkItDown with [pdf].",
+    ].join("\n")),
+    "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the configured OMD environment, then retry.",
   );
 });
 
@@ -117,6 +203,64 @@ test("fallback bridge search keeps common short acronyms", async () => {
   }
 });
 
+test("fallback bridge search favors topical notes and returns numbered section evidence", async () => {
+  const vault = await mkdtemp(join(tmpdir(), "omd-home-rag-"));
+  try {
+    await writeFile(
+      join(vault, "noise.md"),
+      `# Survival analysis\n\n${"how many for you summarise and list them all ".repeat(200)}`,
+      "utf8",
+    );
+    await writeFile(join(vault, "partial.md"), "# Transfer learning\n\nA beginner tutorial.\n", "utf8");
+    const headings = [
+      "Strength comes with time",
+      "Learn efficient technique",
+      "Let your legs work",
+      "Keep long arms",
+      "Try harder problems",
+      "Warm up",
+      "Take breaks and eat",
+      "Choose smart gear",
+      "Manage your mindset",
+      "Follow safety rules",
+    ];
+    const sections = headings
+      .map((heading, index) => `## **${index + 1}. ${heading}**\n\nBeginner bouldering advice for ${heading.toLowerCase()}.`)
+      .join("\n\n");
+    await writeFile(
+      join(vault, "bouldering.md"),
+      `---\ntitle: Bouldering tips for beginners\n---\n\n# Bouldering tips for beginners\n\n> [Source](https://example.com/bouldering-tips-for-beginners)\n\nThis guide contains 10 tips.\n\n${sections}`,
+      "utf8",
+    );
+    const duplicate = "# Bouldering duplicate\n\nBeginner bouldering tips with duplicate context.\n";
+    await writeFile(join(vault, "z-copy-one.md"), duplicate, "utf8");
+    await writeFile(join(vault, "z-copy-two.md"), duplicate, "utf8");
+
+    const response = runBridge({
+      action: "search",
+      vault,
+      query: "how many beginner tips for bouldering, could you summarise and list them all",
+      limit: 10,
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.hits[0]?.path, "bouldering.md");
+    assert.equal(response.hits.some((hit: { path?: string }) => hit.path === "noise.md"), false);
+    assert.equal(
+      response.hits.filter((hit: { path?: string }) => hit.path?.startsWith("z-copy-")).length,
+      1,
+    );
+    const evidence = String(response.hits[0]?.evidence ?? "");
+    assert.doesNotMatch(evidence, /title:/u);
+    assert.doesNotMatch(evidence, /https:\/\//u);
+    for (const [index, heading] of headings.entries()) {
+      assert.match(evidence, new RegExp(`${index + 1}\\. ${heading}`, "u"));
+    }
+  } finally {
+    await rm(vault, { recursive: true, force: true });
+  }
+});
+
 test("bridge emits structured JSON errors for invalid requests", () => {
   const response = runBridge({ action: "search", vault: "/definitely/missing", query: "AI", limit: 10 });
   assert.equal(response.ok, false);
@@ -124,6 +268,302 @@ test("bridge emits structured JSON errors for invalid requests", () => {
     message: "vault path does not exist",
     type: "ValueError",
   });
+});
+
+test("bundled bridge source stays argv-safe and executes through Python -c", () => {
+  const source = readFileSync(bridgeScript, "utf8");
+  assert.ok(Buffer.byteLength(source, "utf8") < 24_000, "embedded bridge must stay below the portable argv budget");
+  const result = spawnSync("python3", pythonBridgeArgs("", source), {
+    encoding: "utf8",
+    input: JSON.stringify({ action: "search", vault: "/definitely/missing", query: "AI", limit: 10 }),
+  });
+  const output = result.stdout.trim().split(/\r?\n/u).at(-1);
+  assert.ok(output, `embedded bridge produced no stdout: ${result.stderr}`);
+  const response = JSON.parse(output) as Record<string, unknown>;
+  assert.equal(response.ok, false);
+  assert.deepEqual(response.error, { message: "vault path does not exist", type: "ValueError" });
+});
+
+test("Ask AI runs through the real Python bridge with bounded evidence blocks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-bridge-stub-"));
+  const vault = join(root, "vault");
+  const stubRoot = join(root, "stubs");
+  const packageRoot = join(stubRoot, "omd");
+  const pathDelimiter = process.platform === "win32" ? ";" : ":";
+  try {
+    await mkdir(vault, { recursive: true });
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "__init__.py"), "");
+    await writeFile(join(packageRoot, "retrieval.py"), `
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class SearchHit:
+    path: str
+    title: str
+    score: float
+    evidence: str
+
+@dataclass
+class EvidenceBlock:
+    path: str
+    title: str
+    heading: str
+    kind: str
+    score: float
+    text: str
+
+@dataclass
+class AnswerContext:
+    hits: list[SearchHit]
+    blocks: list[EvidenceBlock]
+    candidate_count: int
+
+def search_notes(root, query, limit=10):
+    return [SearchHit(path="legacy.md", title="Legacy", score=1.0, evidence="legacy evidence")]
+
+def build_answer_context(root, query, hit_limit=8, block_limit=8, **_kwargs):
+    if not Path(root).is_dir():
+        raise ValueError("retrieval root must be an existing directory")
+    hits = [
+        SearchHit(path="Sources/Web/bouldering-tips.md", title="Bouldering Tips", score=18.0, evidence="outline"),
+        SearchHit(path="Calendar/Events/linked-event.md", title="Linked Event", score=12.0, evidence="event"),
+    ]
+    blocks = [
+        EvidenceBlock(
+            path="Sources/Web/bouldering-tips.md" if index <= 6 else "Calendar/Events/linked-event.md",
+            title="Bouldering Tips" if index <= 6 else "Linked Event",
+            heading=f"Section {index}",
+            kind="outline" if index <= 6 else "detail",
+            score=float(100 - index),
+            text=f"Evidence block {index}",
+        )
+        for index in range(1, 13)
+    ]
+    return AnswerContext(hits=hits[:hit_limit], blocks=blocks[:block_limit], candidate_count=24)
+`.trimStart());
+    await writeFile(join(packageRoot, "ai_service.py"), `
+from dataclasses import dataclass
+
+@dataclass
+class AIConsentGrant:
+    approved: bool = True
+
+@dataclass
+class AITextTask:
+    provider: str
+    model: str
+    capability: str
+    operation: str
+    system_prompt: str
+    max_output_tokens: int
+    endpoint: str | None = None
+    temperature: float | None = None
+    timeout_seconds: float = 60.0
+    stream: bool = True
+
+@dataclass
+class Preview:
+    provider: str
+    model: str
+    privacy_mode: str
+    destination_domain: str
+    character_count: int
+    estimated_input_tokens: int
+    policy_url: str | None
+    data_handling_summary: str
+
+@dataclass
+class Result:
+    text: str
+    provider: str
+    actual_model: str
+    usage: dict[str, int]
+    timing: dict[str, int]
+
+def prepare_text_task(task, source_text):
+    return Preview(
+        provider=task.provider,
+        model=task.model,
+        privacy_mode="local_only",
+        destination_domain=task.endpoint or "local",
+        character_count=len(source_text),
+        estimated_input_tokens=max(1, len(source_text) // 4),
+        policy_url=None,
+        data_handling_summary=source_text,
+    )
+
+def create_text_task_consent(task, source_text):
+    return AIConsentGrant()
+
+def execute_text_task(task, source_text, consent_granted, consent_grant):
+    return Result(
+        text=source_text + "\\nValid [S1], valid [[S2]], blocks [E1] [[E8]], unknown [[S9]] [[E9]].",
+        provider=task.provider,
+        actual_model=f"{task.model}:stub",
+        usage={"input_tokens": 42, "output_tokens": 7},
+        timing={"total_ms": 3},
+    )
+`.trimStart());
+
+    const env = {
+      ...process.env,
+      PYTHONPATH: process.env.PYTHONPATH
+        ? `${stubRoot}${pathDelimiter}${process.env.PYTHONPATH}`
+        : stubRoot,
+    };
+    const payload = {
+      vault,
+      query: "what have I written about calendar workflows?",
+      provider: "ollama",
+      model: "qwen3:4b-instruct",
+      endpoint: "http://localhost:11434",
+      limit: 8,
+    };
+
+    const preview = runBridge({ action: "preview_ai", ...payload }, env);
+    const execute = runBridge({ action: "execute_ai", ...payload, consent_grant: null }, env);
+
+    assert.equal(preview.ok, true);
+    assert.equal(execute.ok, true);
+    assert.deepEqual(
+      preview.evidence.map((hit: { path: string }) => hit.path),
+      ["Sources/Web/bouldering-tips.md", "Calendar/Events/linked-event.md"],
+    );
+    assert.deepEqual(
+      execute.evidence.map((hit: { path: string }) => hit.path),
+      ["Sources/Web/bouldering-tips.md", "Calendar/Events/linked-event.md"],
+    );
+    assert.notEqual(preview.evidence[0]?.path, "legacy.md");
+
+    const previewContext = String(preview.preview?.data_handling_summary ?? "");
+    const executeContext = String(execute.text ?? "");
+    assert.match(previewContext, /EVIDENCE BLOCKS/u);
+    assert.match(previewContext, /BLOCK E1/u);
+    assert.match(previewContext, /BLOCK E8/u);
+    assert.doesNotMatch(previewContext, /BLOCK E9/u);
+    assert.match(previewContext, /SOURCE CATALOG/u);
+    assert.match(previewContext, /\[S1\] Sources\/Web\/bouldering-tips\.md/u);
+    assert.match(previewContext, /\[S2\] Calendar\/Events\/linked-event\.md/u);
+    assert.match(previewContext, /Source: \[S1\]/u);
+    assert.match(previewContext, /Source: \[S2\]/u);
+    assert.doesNotMatch(previewContext, /\[\[Sources\/Web\/bouldering-tips\.md\]\]/u);
+    assert.doesNotMatch(previewContext, /\[\[Calendar\/Events\/linked-event\.md\]\]/u);
+    assert.doesNotMatch(previewContext, /VAULT EVIDENCE/u);
+    assert.doesNotMatch(previewContext, /SOURCE \[\[/u);
+    assert.match(previewContext, /Kind: outline/u);
+    assert.match(previewContext, /Kind: detail/u);
+
+    assert.match(executeContext, /\[\[Sources\/Web\/bouldering-tips\.md\]\]/u);
+    assert.match(executeContext, /\[\[Calendar\/Events\/linked-event\.md\]\]/u);
+    assert.doesNotMatch(executeContext, /\[\[S1\]\]/u);
+    assert.doesNotMatch(executeContext, /\[\[S2\]\]/u);
+    assert.match(executeContext, /unknown \[S9\]/u);
+    assert.doesNotMatch(executeContext, /\[\[S9\]\]/u);
+    assert.match(executeContext, /blocks \[\[Sources\/Web\/bouldering-tips\.md\]\] \[\[Calendar\/Events\/linked-event\.md\]\]/u);
+    assert.match(executeContext, /\[E9\]/u);
+    assert.doesNotMatch(executeContext, /\[\[E9\]\]/u);
+    for (const context of [previewContext, executeContext]) {
+      assert.match(context, /EVIDENCE BLOCKS/u);
+      assert.match(context, /BLOCK E1/u);
+      assert.match(context, /BLOCK E8/u);
+      assert.doesNotMatch(context, /BLOCK E9/u);
+      assert.match(context, /Kind: outline/u);
+      assert.match(context, /Kind: detail/u);
+    }
+    assert.equal(execute.model, "qwen3:4b-instruct:stub");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Ask AI restores exact wiki paths with spaces without rewriting block labels", () => {
+  const code = [
+    "from types import SimpleNamespace",
+    "import bridge.omd_home_bridge as bridge",
+    "hit = SimpleNamespace(path='Sources/Web/3 Simple Bouldering Tips for Beginner to Intermediate Climbers.md')",
+    "source = 'BLOCK E1\\nSource: [S1]\\nContent:\\nBeta recall'",
+    "print(bridge._restore_exact_source_paths('BLOCK E1 cites [E1] and [S1].', [hit], source))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^BLOCK E1 cites /u);
+  assert.equal(
+    result.stdout.match(/\[\[Sources\/Web\/3 Simple Bouldering Tips for Beginner to Intermediate Climbers\.md\]\]/gu)?.length,
+    2,
+  );
+});
+
+test("fallback bridge keeps Ollama requests loopback-only, no-redirect, and bounded", () => {
+  const source = readFileSync(bridgeScript, "utf8");
+  assert.match(source, /OLLAMA_RESPONSE_LIMIT\s*=\s*1_000_000/u);
+  assert.match(source, /"think": False/u);
+  assert.match(source, /"temperature": 0\.0/u);
+  assert.match(source, /class _NoRedirectHandler\(urllib\.request\.HTTPRedirectHandler\)/u);
+  assert.match(source, /build_opener\(_NoRedirectHandler\(\)\)/u);
+  assert.match(source, /response\.read\(limit \+ 1\)/u);
+  assert.match(source, /Ollama returned too much data/u);
+});
+
+test("vault answer evidence is bounded before OMD applies its local context limit", () => {
+  const code = [
+    "from dataclasses import dataclass",
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "@dataclass",
+    "class Block:",
+    "    path: str",
+    "    title: str",
+    "    heading: str",
+    "    kind: str",
+    "    text: str",
+    "blocks = [Block(f'note-{i}.md', f'Note {i}', f'Section {i}', 'section', 'evidence ' * 900) for i in range(8)]",
+    "selected, source = bridge._bounded_block_context('summarise all evidence', blocks)",
+    "print(json.dumps({'selected': len(selected), 'tokens': bridge._task_input_tokens(source), 'limit': bridge.AI_INPUT_TOKEN_LIMIT}))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as { selected: number; tokens: number; limit: number };
+  assert.ok(value.selected > 0 && value.selected < 8);
+  assert.ok(value.tokens <= value.limit);
+});
+
+test("Ask AI scopes exhaustive questions and keeps evidence categories separate", () => {
+  const source = readFileSync(bridgeScript, "utf8");
+  assert.match(source, /Follow retrieval\s+response rules\/category\/count/u);
+  assert.match(source, /Give each item one supported\s+action\/detail/u);
+  assert.match(source, /compatible explicit actions in both sources/u);
+  assert.match(source, /mentions, negations,\s+or opposites do not count/u);
+  assert.match(source, /Keep each outline item/u);
+  assert.match(source, /never\s+merge\/omit it/u);
+  assert.match(source, /infer one corrective action per mistake/u);
+  assert.match(source, /Deduplicate\s+only details/u);
+  assert.match(source, /Discuss overlap only when asked/u);
+  assert.match(source, /Answer only what was asked/u);
+  assert.match(source, /Under 700 tokens/u);
+  assert.match(source, /AI_INPUT_TOKEN_LIMIT\s*=\s*2_600/u);
+  assert.match(source, /EVIDENCE CONTRACT/u);
+});
+
+test("Ask AI prefers OMD's bounded section-aware answer context without changing search", () => {
+  const source = readFileSync(bridgeScript, "utf8");
+  assert.match(source, /from omd\.retrieval import build_answer_context/u);
+  assert.match(source, /answer = build_answer_context\(/u);
+  assert.match(source, /block_limit=min\(limit, 8\)/u);
+  assert.match(source, /SOURCE CATALOG/u);
+  assert.match(source, /EVIDENCE BLOCKS/u);
+  assert.match(source, /f"BLOCK E\{index\}/u);
+  assert.match(source, /f"Source: \{source_id\}\\n"/u);
+  assert.match(source, /temperature=0\.0/u);
+  assert.match(source, /return search_notes\(vault, _string\(request, "query"\), limit=limit\)/u);
+});
+
+test("fallback bridge documents the exact local endpoint contract", () => {
+  const source = readFileSync(bridgeScript, "utf8");
+  assert.match(source, /http:\/\/localhost:11434/u);
+  assert.match(source, /http:\/\/127\.0\.0\.1:11434/u);
+  assert.match(source, /only permits a loopback Ollama endpoint/u);
 });
 
 test("spawnProcess times out runaway children", async () => {
@@ -155,10 +595,14 @@ test("spawnProcess enforces stdout bounds", async () => {
   });
 });
 
-function runBridge(request: Record<string, unknown>): Record<string, any> {
+function runBridge(
+  request: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, any> {
   const result = spawnSync("python3", [bridgeScript.pathname], {
     encoding: "utf8",
     input: JSON.stringify(request),
+    env,
   });
   const output = result.stdout.trim().split(/\r?\n/).at(-1);
   assert.ok(output, `bridge produced no stdout: ${result.stderr}`);

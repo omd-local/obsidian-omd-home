@@ -1,5 +1,7 @@
 import type { OmdProgressEvent, OmdSearchHit } from "./model.ts";
+import { guardSparseComparisonAnswer } from "./ai-answer.ts";
 import {
+  appendCommonExecutableDirectoriesToPath,
   type CapturePolishOptions,
   omdCaptureArgs,
   parseOmdEvent,
@@ -54,20 +56,32 @@ export interface AiAnswer {
   timing?: Record<string, number>;
 }
 
+export function pythonBridgeArgs(configuredPath: string, embeddedSource: string): string[] {
+  const configured = configuredPath.trim();
+  if (configured) return [configured];
+  if (!embeddedSource.trim()) {
+    throw new Error("The OMD Home Python bridge is unavailable. Choose a custom bridge path in settings.");
+  }
+  return ["-c", embeddedSource];
+}
+
 export class OmdBridge {
   private readonly omdExecutable: () => string;
   private readonly pythonExecutable: () => string;
   private readonly bridgePath: () => string;
+  private readonly embeddedBridgeSource: () => string;
   private readonly activeControllers = new Set<AbortController>();
 
   constructor(
     omdExecutable: () => string,
     pythonExecutable: () => string,
     bridgePath: () => string,
+    embeddedBridgeSource: () => string = () => "",
   ) {
     this.omdExecutable = omdExecutable;
     this.pythonExecutable = pythonExecutable;
     this.bridgePath = bridgePath;
+    this.embeddedBridgeSource = embeddedBridgeSource;
   }
 
   async capture(
@@ -126,19 +140,19 @@ export class OmdBridge {
     endpoint: string,
     consentGrant: Record<string, unknown> | null,
   ): Promise<AiAnswer> {
-    return await this.callPythonBridge({
+    const answer = await this.callPythonBridge({
       action: "execute_ai", vault: vaultPath, query, provider, model, endpoint,
       consent_grant: consentGrant, limit: 8,
     }) as unknown as AiAnswer;
+    return guardSparseComparisonAnswer(query, answer);
   }
 
   private async callPythonBridge(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     this.assertDesktop();
-    const path = this.bridgePath();
-    if (!path) throw new Error("Configure the OMD Home Python bridge path in settings");
+    const args = pythonBridgeArgs(this.bridgePath(), this.embeddedBridgeSource());
     let result: SpawnResult;
     try {
-      result = await this.spawnManagedProcess(await this.resolvePythonExecutable(), [path], {
+      result = await this.spawnManagedProcess(await this.resolvePythonExecutable(), args, {
         stdin: JSON.stringify(payload),
         timeoutMs: BRIDGE_TIMEOUT_MS,
         maxStdoutChars: DEFAULT_MAX_STDOUT_CHARS,
@@ -149,10 +163,8 @@ export class OmdBridge {
     }
     const response = parseBridgeResponse(result.stdout);
     if (result.code !== 0) {
-      throw bridgeError(
-        response?.ok === false ? response.error : undefined,
-        "OMD Home bridge failed",
-      );
+      if (response?.ok === false) throw bridgeError(response.error, "OMD Home bridge failed");
+      throw new Error(bridgeProcessFailureMessage(result.stderr, result.code));
     }
     if (!response) throw new Error("OMD Home bridge returned no response");
     if (response.ok !== true) throw bridgeError(response.error, "OMD Home bridge rejected the request");
@@ -212,9 +224,15 @@ export async function spawnProcess(
   if (!runtimeWindow.require) throw new Error("Desktop process APIs are unavailable");
   const { spawn } = runtimeWindow.require("node:child_process");
   const delimiter = process.platform === "win32" ? ";" : ":";
+  const configuredPath = prependExecutableDirectoryToPath(command, process.env.PATH ?? "", delimiter);
   const env = {
     ...process.env,
-    PATH: prependExecutableDirectoryToPath(command, process.env.PATH ?? "", delimiter),
+    PATH: appendCommonExecutableDirectoriesToPath(
+      configuredPath,
+      process.env.HOME ?? "",
+      delimiter,
+      process.platform,
+    ),
   };
   return await new Promise((resolve, reject) => {
     const {
@@ -356,12 +374,27 @@ function bridgeError(error: unknown, fallback: string): Error {
   return new Error(bridgeErrorMessage(error, fallback), { cause: error });
 }
 
+export function bridgeProcessFailureMessage(stderr: string, code: number): string {
+  const detail = extractBridgeErrorDetail(stderr);
+  const mapped = detail ? mapBridgeDetailToUserMessage(detail) : null;
+  if (mapped) return mapped;
+  const exitCode = Number.isInteger(code) && code >= 0 ? code : 1;
+  return `OMD Home's Python bridge exited before returning a result (exit ${exitCode}). Check the configured OMD executable and Python environment, then try again.`;
+}
+
 function isDesktopApp(): boolean {
   return typeof window !== "undefined"
     && typeof (window as Window & { require?: (id: string) => unknown }).require === "function";
 }
 
 export function captureErrorMessage(value: string): string {
+  const detail = normalize(value);
+  if (
+    detail.includes("missingdependencyexception")
+    && (detail.includes("pdfconverter") || detail.includes("markitdown[pdf]"))
+  ) {
+    return "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the configured OMD environment, then retry.";
+  }
   const lines = value.trim().split(/\r?\n/).filter(Boolean).reverse();
   for (const line of lines) {
     const event = parseOmdEvent(line);
@@ -399,6 +432,18 @@ function extractBridgeErrorDetail(error: unknown): BridgeErrorDetail | null {
 function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null {
   const tokens = normalize(`${detail.kind ?? ""} ${detail.message ?? ""}`);
   if (!tokens) return null;
+  if (tokens.includes("no module named") || tokens.includes("modulenotfounderror")) {
+    return "The Python environment used by OMD Home is missing a required module. Point the OMD executable to the current OMD environment, then try again.";
+  }
+  if (tokens.includes("can't open file") || tokens.includes("cannot open file")) {
+    return "The configured OMD Home bridge file could not be opened. Use the bundled bridge or choose an existing bridge file.";
+  }
+  if (tokens.includes("syntaxerror") || tokens.includes("unsupported python") || tokens.includes("requires python")) {
+    return "The configured Python version cannot run the OMD Home bridge. Point OMD Home to the Python used by the current OMD executable.";
+  }
+  if (tokens.includes("permission denied") || tokens.includes("eacces")) {
+    return "OMD Home could not start the configured Python bridge because of file permissions.";
+  }
   if (tokens.includes("loopback ollama endpoint")) {
     return "OMD Home v1 only permits a local Ollama endpoint.";
   }
@@ -417,10 +462,19 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   if (tokens.includes("ollama returned an empty answer")) {
     return "Ollama returned an empty answer. Try again or choose another local model.";
   }
+  if (tokens.includes("ollama returned an incomplete response")) {
+    return "The local model ran out of answer space before finishing. Try again; if it repeats, ask a narrower question or choose a larger local model.";
+  }
   if (tokens.includes("ollama returned an invalid response")) {
     return "Ollama returned an invalid response. Try again after the local service is ready.";
   }
+  if (tokens.includes("context budget") || tokens.includes("context_limit_exceeded")) {
+    return "The retrieved vault evidence exceeded the local model context budget. OMD Home reduced the evidence selection; try again or ask a narrower question.";
+  }
   if (tokens.includes("vault path does not exist")) {
+    return "The selected vault could not be read by OMD Home.";
+  }
+  if (tokens.includes("retrieval root must be an existing directory")) {
     return "The selected vault could not be read by OMD Home.";
   }
   if (

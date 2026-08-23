@@ -1,6 +1,19 @@
 import type { CalendarEventRecord, ExternalCalendarDescriptor } from "./model.ts";
 import { eventKitErrorMessage, eventKitProcessErrorMessage } from "./eventkit-errors.ts";
 
+export function resolveEventKitHelperPath(
+  configuredPath: string,
+  vaultBasePath: string,
+  manifestDirectory: string,
+): string {
+  const configured = configuredPath.trim();
+  if (configured) return configured;
+  const base = vaultBasePath.trim().replace(/\/+$/u, "");
+  const directory = manifestDirectory.trim().replace(/^\/+|\/+$/gu, "");
+  if (!base || !directory) return "";
+  return `${base}/${directory}/omd-eventkit`;
+}
+
 export class EventKitBridge {
   private readonly activeChildren = new Set<ReturnType<typeof import("node:child_process")["spawn"]>>();
   private readonly helperPath: () => string;

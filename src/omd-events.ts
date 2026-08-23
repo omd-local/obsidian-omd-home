@@ -42,6 +42,24 @@ export function prependExecutableDirectoryToPath(
   return [executableDirectory, ...entries].join(delimiter);
 }
 
+export function appendCommonExecutableDirectoriesToPath(
+  currentPath: string,
+  homeDirectory: string,
+  delimiter: string,
+  platform: NodeJS.Platform,
+): string {
+  if (platform === "win32") return currentPath;
+  const commonDirectories = platform === "darwin"
+    ? ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
+    : ["/usr/local/bin"];
+  if (homeDirectory.trim()) commonDirectories.push(`${homeDirectory.replace(/\/$/u, "")}/.local/bin`);
+  const entries = currentPath.split(delimiter).filter(Boolean);
+  for (const directory of commonDirectories) {
+    if (!entries.includes(directory)) entries.push(directory);
+  }
+  return entries.join(delimiter);
+}
+
 export function parseOmdEvent(line: string): OmdProgressEvent | null {
   const trimmed = line.trim();
   if (!trimmed.startsWith("{")) return null;
