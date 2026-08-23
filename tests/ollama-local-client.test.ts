@@ -18,7 +18,7 @@ test("normalizeLocalOllamaHost is shared with the client contract", () => {
   );
 });
 
-test("OllamaLocalClient parses version, status, tags, show, and smoke responses", async () => {
+test("OllamaLocalClient parses version, status, tags, show, smoke, and embed responses", async () => {
   const client = new OllamaLocalClient({
     requestJson: async ({ path, body }) => {
       switch (path) {
@@ -53,6 +53,13 @@ test("OllamaLocalClient parses version, status, tags, show, and smoke responses"
             headers: {},
             body: JSON.stringify({ model: "qwen3:4b-instruct", message: { content: "OK" } }),
           };
+        case "/api/embed":
+          assert.deepEqual(body, { model: "bge-m3", input: ["vault retrieval probe", "多语言检索探针"] });
+          return {
+            statusCode: 200,
+            headers: {},
+            body: JSON.stringify({ model: "bge-m3", embeddings: [[0.1, 0.2], [0.3, 0.4]] }),
+          };
         default:
           throw new Error(`Unexpected path ${path}`);
       }
@@ -77,6 +84,11 @@ test("OllamaLocalClient parses version, status, tags, show, and smoke responses"
   const smoke = await client.smoke("http://localhost:11434", "qwen3:4b-instruct");
   assert.equal(smoke.model, "qwen3:4b-instruct");
   assert.equal(smoke.responseText, "OK");
+  const embed = await client.embed("http://localhost:11434", "bge-m3", ["vault retrieval probe", "多语言检索探针"]);
+  assert.equal(embed.model, "bge-m3");
+  assert.equal(embed.vectorCount, 2);
+  assert.equal(embed.dimensions, 2);
+  assert.ok(embed.latencyMs >= 0);
 });
 
 test("OllamaLocalClient rejects redirect, bad HTTP status, and empty smoke output", async () => {
@@ -122,6 +134,20 @@ test("OllamaLocalClient maps missing models and preserves unknown cloud status",
   await assert.rejects(
     client.show("http://localhost:11434", "missing:model"),
     (error: unknown) => error instanceof LocalAiError && error.code === "selected_model_missing",
+  );
+});
+
+test("OllamaLocalClient rejects malformed embedding payloads", async () => {
+  const client = new OllamaLocalClient({
+    requestJson: async () => ({
+      statusCode: 200,
+      headers: {},
+      body: JSON.stringify({ model: "bge-m3", embeddings: [[0.1, 0.2], [0.3]] }),
+    }),
+  });
+  await assert.rejects(
+    client.embed("http://localhost:11434", "bge-m3", ["a", "b"]),
+    (error: unknown) => error instanceof LocalAiError && error.code === "smoke_failed",
   );
 });
 

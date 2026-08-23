@@ -12,6 +12,7 @@ import {
   modelHasRemoteMetadata,
   modelIsKnownThinkingOnly,
   modelSupportsCompletion,
+  modelSupportsEmbedding,
   normalizeLocalOllamaHost,
   providerMode,
   snapshotsMatch,
@@ -29,6 +30,9 @@ const DEFAULT_SETTINGS: OmdHomeSettings = {
   defaultExternalCalendarId: "",
   aiProvider: "ollama",
   aiModel: "qwen3:4b-instruct",
+  hybridRetrievalEnabled: true,
+  embeddingModel: "bge-m3",
+  semanticRerankEnabled: false,
   enrichmentModel: "qwen3:4b-instruct",
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
@@ -70,6 +74,8 @@ test("buildModelSelectorState keeps installed, custom, and stale selections dist
 test("model helpers classify completion support and remote metadata", () => {
   assert.equal(modelSupportsCompletion(localModel), true);
   assert.equal(modelSupportsCompletion(embedModel), false);
+  assert.equal(modelSupportsEmbedding(embedModel), true);
+  assert.equal(modelSupportsEmbedding(localModel), false);
   assert.equal(modelIsKnownThinkingOnly(thinkingOnlyModel), true);
   assert.equal(modelSupportsCompletion(thinkingOnlyModel), false);
   assert.equal(modelHasRemoteMetadata(remoteModel), true);

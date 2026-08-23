@@ -20,8 +20,9 @@ export function formatAiAnswerForClipboard(answer: Pick<AiAnswer, "text" | "evid
 
 export function guardSparseComparisonAnswer<T extends Pick<AiAnswer, "text" | "evidence">>(
   query: string,
-  answer: T,
+  answer: T & Partial<Pick<AiAnswer, "retrieval_mode">>,
 ): T {
+  if (answer.retrieval_mode === "hybrid") return answer;
   const paths = [...new Set(answer.evidence.map((hit) => hit.path.trim()).filter(Boolean))];
   if (!COMPARISON_QUERY.test(query) || paths.length < 2 || !REJECTED_COMPARISON.test(answer.text)) {
     return answer;

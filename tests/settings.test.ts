@@ -19,6 +19,9 @@ test("settings normalization trims strings, filters arrays, and falls back inval
     defaultExternalCalendarId: "  work  ",
     aiProvider: "bogus",
     aiModel: "  llama3  ",
+    hybridRetrievalEnabled: false,
+    embeddingModel: "  nomic-embed-text  ",
+    semanticRerankEnabled: true,
     captureSuggestLinksAndTags: false,
     pinnedNotes: [" Note.md ", null, "Note.md"],
   });
@@ -28,6 +31,9 @@ test("settings normalization trims strings, filters arrays, and falls back inval
   assert.equal(normalized.defaultExternalCalendarId, "work");
   assert.equal(normalized.aiProvider, "ollama");
   assert.equal(normalized.aiModel, "llama3");
+  assert.equal(normalized.hybridRetrievalEnabled, false);
+  assert.equal(normalized.embeddingModel, "nomic-embed-text");
+  assert.equal(normalized.semanticRerankEnabled, true);
   assert.equal(normalized.captureSuggestLinksAndTags, false);
   assert.deepEqual(normalized.pinnedNotes, ["Note.md"]);
 });
@@ -35,6 +41,9 @@ test("settings normalization trims strings, filters arrays, and falls back inval
 test("settings normalization preserves a saved hosted provider without enabling it", () => {
   const normalized = helpers.normalizeOmdHomeSettings({ aiProvider: "openai" });
   assert.equal(normalized.aiProvider, "openai");
+  assert.equal(normalized.hybridRetrievalEnabled, true);
+  assert.equal(normalized.embeddingModel, "bge-m3");
+  assert.equal(normalized.semanticRerankEnabled, false);
 });
 
 test("calendar selection reconciliation clears stale and read-only defaults", () => {
@@ -77,6 +86,17 @@ test("model selectors expose every installed model plus Custom and stale values"
   assert.match(source, /\(not text-capable\)/u);
   assert.match(source, /\(remote blocked\)/u);
   assert.match(source, /omd-settings-model/u);
+});
+
+test("hybrid retrieval settings keep embedding choices local and expose an embedding smoke check", () => {
+  assert.match(source, /hybridRetrievalEnabled:\s*true/u);
+  assert.match(source, /embeddingModel:\s*"bge-m3"/u);
+  assert.match(source, /semanticRerankEnabled:\s*false/u);
+  assert.match(source, /setName\("Hybrid retrieval"\)/u);
+  assert.match(source, /setName\("Embedding model"\)/u);
+  assert.match(source, /modelSupportsEmbedding\(model\)\s*&&\s*!modelHasRemoteMetadata\(model\)/u);
+  assert.match(source, /setButtonText\([^)]*"Test embeddings"/u);
+  assert.match(source, /testLocalEmbeddings\(\)/u);
 });
 
 test("Local AI settings rerender only their section and expose durable action feedback", () => {

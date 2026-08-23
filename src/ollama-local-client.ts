@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import {
   LocalAiError,
+  type LocalAiEmbedResult,
   type LocalAiModelEntry,
   type LocalAiModelInfo,
   type LocalAiSmokeResult,
@@ -109,6 +110,31 @@ export class OllamaLocalClient {
     };
   }
 
+  async embed(
+    host: string,
+    model: string,
+    input: string | string[],
+    signal?: AbortSignal,
+  ): Promise<LocalAiEmbedResult> {
+    const startedAt = Date.now();
+    const body = await this.postJson(host, "/api/embed", { model, input }, 30_000, signal);
+    const embeddings = Array.isArray(body.embeddings) ? body.embeddings : [];
+    const expectedCount = Array.isArray(input) ? input.length : 1;
+    if (embeddings.length !== expectedCount) {
+      throw new LocalAiError("smoke_failed", "Ollama replied, but `/api/embed` returned an unexpected number of vectors.");
+    }
+    const dimensions = validateEmbeddingVectors(embeddings);
+    if (dimensions === 0) {
+      throw new LocalAiError("smoke_failed", "Ollama replied, but `/api/embed` returned no usable vectors.");
+    }
+    return {
+      model: cleanString(body.model) || model,
+      latencyMs: Date.now() - startedAt,
+      vectorCount: embeddings.length,
+      dimensions,
+    };
+  }
+
   private async getJson(
     host: string,
     path: string,
@@ -168,6 +194,19 @@ function cleanString(value: unknown): string {
 
 function optionalString(value: unknown): string | undefined {
   return cleanString(value) || undefined;
+}
+
+function validateEmbeddingVectors(vectors: unknown[]): number {
+  let dimensions = 0;
+  for (const vector of vectors) {
+    if (!Array.isArray(vector) || vector.length === 0) return 0;
+    if (!vector.every((value) => typeof value === "number" && Number.isFinite(value))) return 0;
+    if (dimensions === 0) dimensions = vector.length;
+    if (vector.length !== dimensions) {
+      throw new LocalAiError("smoke_failed", "Ollama replied, but `/api/embed` returned mismatched vector dimensions.");
+    }
+  }
+  return dimensions;
 }
 
 function parseJsonResponse(response: HttpResponse): Record<string, unknown> {

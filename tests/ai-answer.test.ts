@@ -62,3 +62,15 @@ test("does not rewrite ordinary answers or supported comparison answers", () => 
   };
   assert.equal(guardSparseComparisonAnswer("What overlaps across both notes?", supported), supported);
 });
+
+test("does not rewrite hybrid answers even when the model says overlap is missing", () => {
+  const hybrid = {
+    text: "No overlap was verified.",
+    retrieval_mode: "hybrid" as const,
+    evidence: [
+      { path: "A.md", title: "A", score: 2, evidence: "Plan" },
+      { path: "B.md", title: "B", score: 1, evidence: "Read" },
+    ],
+  };
+  assert.equal(guardSparseComparisonAnswer("What overlaps across both notes?", hybrid), hybrid);
+});

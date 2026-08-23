@@ -56,6 +56,13 @@ export interface LocalAiSmokeResult {
   remoteHost?: string;
 }
 
+export interface LocalAiEmbedResult {
+  model: string;
+  latencyMs: number;
+  vectorCount: number;
+  dimensions: number;
+}
+
 export interface LocalAiIssue {
   code: LocalAiReadinessCode;
   message: string;
@@ -111,7 +118,7 @@ export interface LocalAiRuntimeState {
   workflows: Record<LocalAiWorkflowId, LocalAiWorkflowDisplayState>;
   models: LocalAiModelEntry[];
   modelChecks: Record<string, LocalAiCheckedModel>;
-  activeAction: "" | "refresh-models" | "check-connection" | `smoke:${LocalAiWorkflowId}`;
+  activeAction: "" | "refresh-models" | "check-connection" | "test-embeddings" | `smoke:${LocalAiWorkflowId}`;
 }
 
 export interface LocalAiActionFeedback {

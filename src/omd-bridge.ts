@@ -45,6 +45,9 @@ export interface AiPreview {
   };
   evidence: OmdSearchHit[];
   consent_grant?: Record<string, unknown> | null;
+  retrieval_mode?: "sparse" | "hybrid";
+  retrieval_model?: string | null;
+  warnings?: string[];
 }
 
 export interface AiAnswer {
@@ -52,9 +55,20 @@ export interface AiAnswer {
   evidence: OmdSearchHit[];
   provider: string;
   model: string;
+  retrieval_mode?: "sparse" | "hybrid";
+  retrieval_model?: string | null;
+  warnings?: string[];
   usage?: Record<string, number>;
   timing?: Record<string, number>;
 }
+
+export interface HybridRetrievalOptions {
+  hybridRetrievalEnabled: boolean;
+  embeddingModel: string;
+  semanticRerankEnabled: boolean;
+}
+
+const BUNDLED_BRIDGE_BOOTSTRAP = "import json,sys\ns=json.loads(sys.stdin.readline())['source']\nexec(compile(s,'<omd-home-bridge>','exec'))";
 
 export function pythonBridgeArgs(configuredPath: string, embeddedSource: string): string[] {
   const configured = configuredPath.trim();
@@ -62,7 +76,16 @@ export function pythonBridgeArgs(configuredPath: string, embeddedSource: string)
   if (!embeddedSource.trim()) {
     throw new Error("The OMD Home Python bridge is unavailable. Choose a custom bridge path in settings.");
   }
-  return ["-c", embeddedSource];
+  return ["-c", BUNDLED_BRIDGE_BOOTSTRAP];
+}
+
+export function pythonBridgeStdin(
+  configuredPath: string,
+  embeddedSource: string,
+  payload: Record<string, unknown>,
+): string {
+  if (configuredPath.trim()) return JSON.stringify(payload);
+  return `${JSON.stringify({ source: embeddedSource })}\n${JSON.stringify(payload)}`;
 }
 
 export class OmdBridge {
@@ -126,9 +149,19 @@ export class OmdBridge {
     provider: string,
     model: string,
     endpoint: string,
+    retrieval: HybridRetrievalOptions,
   ): Promise<AiPreview> {
     return await this.callPythonBridge({
-      action: "preview_ai", vault: vaultPath, query, provider, model, endpoint, limit: 8,
+      action: "preview_ai",
+      vault: vaultPath,
+      query,
+      provider,
+      model,
+      endpoint,
+      limit: 8,
+      hybrid_retrieval_enabled: retrieval.hybridRetrievalEnabled,
+      embedding_model: retrieval.embeddingModel,
+      semantic_rerank_enabled: retrieval.semanticRerankEnabled,
     }) as unknown as AiPreview;
   }
 
@@ -139,21 +172,33 @@ export class OmdBridge {
     model: string,
     endpoint: string,
     consentGrant: Record<string, unknown> | null,
+    retrieval: HybridRetrievalOptions,
   ): Promise<AiAnswer> {
     const answer = await this.callPythonBridge({
-      action: "execute_ai", vault: vaultPath, query, provider, model, endpoint,
-      consent_grant: consentGrant, limit: 8,
+      action: "execute_ai",
+      vault: vaultPath,
+      query,
+      provider,
+      model,
+      endpoint,
+      consent_grant: consentGrant,
+      limit: 8,
+      hybrid_retrieval_enabled: retrieval.hybridRetrievalEnabled,
+      embedding_model: retrieval.embeddingModel,
+      semantic_rerank_enabled: retrieval.semanticRerankEnabled,
     }) as unknown as AiAnswer;
     return guardSparseComparisonAnswer(query, answer);
   }
 
   private async callPythonBridge(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     this.assertDesktop();
-    const args = pythonBridgeArgs(this.bridgePath(), this.embeddedBridgeSource());
+    const configuredBridgePath = this.bridgePath();
+    const embeddedBridgeSource = this.embeddedBridgeSource();
+    const args = pythonBridgeArgs(configuredBridgePath, embeddedBridgeSource);
     let result: SpawnResult;
     try {
       result = await this.spawnManagedProcess(await this.resolvePythonExecutable(), args, {
-        stdin: JSON.stringify(payload),
+        stdin: pythonBridgeStdin(configuredBridgePath, embeddedBridgeSource, payload),
         timeoutMs: BRIDGE_TIMEOUT_MS,
         maxStdoutChars: DEFAULT_MAX_STDOUT_CHARS,
         maxStderrChars: DEFAULT_MAX_STDERR_CHARS,

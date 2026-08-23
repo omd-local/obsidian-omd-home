@@ -82,6 +82,12 @@ export function modelSupportsCompletion(model: Pick<LocalAiModelEntry, "name" | 
   return model.capabilities.includes("completion") && !modelIsKnownThinkingOnly(model);
 }
 
+export function modelSupportsEmbedding(model: Pick<LocalAiModelEntry, "name" | "capabilities">): boolean {
+  if (model.capabilities.includes("embedding")) return true;
+  const normalized = model.name.trim().toLowerCase();
+  return normalized === "bge-m3" || normalized.includes("embed") || normalized.includes("embedding");
+}
+
 export function modelHasRemoteMetadata(model: Pick<LocalAiModelEntry, "remoteModel" | "remoteHost">): boolean {
   return Boolean(model.remoteModel || model.remoteHost);
 }
@@ -142,7 +148,7 @@ export function describeModelReadiness(model: string, info: LocalAiModelInfo): s
   }
   if (!modelSupportsCompletion(info)) {
     if (modelIsKnownThinkingOnly(info)) {
-      return `${model} can spend the entire bounded answer budget on reasoning. Choose qwen3:4b-instruct for Vault Q&A and other bounded text tasks.`;
+      return `${model} is not a bounded instruction model for Vault Q&A. Choose qwen3:4b-instruct or another completion-capable local model.`;
     }
     return `${model} does not advertise text completion support. Choose a completion-capable local model.`;
   }

@@ -30,6 +30,10 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] **Refresh models** repopulates locally installed Ollama models without rewriting an unknown/stale selection behind the user's back.
 - [ ] **Refresh models** keeps the settings page stable and reports progress, installed-model count, completion, and a timestamp.
 - [ ] **Check connection** distinguishes invalid host, unreachable daemon, missing `/api/status`, cloud-enabled Ollama, no installed models, and missing/incompatible selected models.
+- [ ] **Test embeddings** validates the selected local embedding model with English and Chinese probes, reports vector dimensions, and rejects remote, malformed, or dimension-mismatched responses.
+- [ ] Hybrid retrieval can be disabled without making an embedding request; when enabled it labels answers as Hybrid or Sparse and exposes any fallback warning.
+- [ ] D01 (`这些抱石笔记给初学者哪些建议？`) recalls both English bouldering fixtures with `bge-m3`, excludes distractors, and fails closed in the sparse-only control.
+- [ ] Optional semantic reranking uses the selected loopback embedding model, stays off by default, and cannot hide a fallback or change an evidence-grounded abstention into an unsupported answer.
 - [ ] Smoke checks exist for vault Q&A, enrichment, and capture polish, send no vault content, and fail closed when the selected model is missing or incompatible.
 - [ ] Blank Python and bridge overrides resolve OMD's embedded interpreter and the bridge bundled in `main.js`; the Settings-row Vault Q&A Smoke remains clearly distinct from a real `@` vault question.
 - [ ] A blank EventKit helper override resolves the helper installed beside OMD Home; missing helpers and Calendar permission failures remain actionable.

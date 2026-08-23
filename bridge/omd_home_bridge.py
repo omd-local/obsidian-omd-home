@@ -31,9 +31,14 @@ try:
         from omd.retrieval import build_answer_context
     except ImportError:
         build_answer_context = None
+    try:
+        from omd.retrieval import SemanticRecallConfig
+    except ImportError:
+        SemanticRecallConfig = None
 except ModuleNotFoundError:
     HAS_OMD_RETRIEVAL = False
     build_answer_context = None
+    SemanticRecallConfig = None
 
     @dataclass
     class SearchHit:
@@ -81,9 +86,11 @@ def main() -> int:
             hits = _hits(request)
             return _send({"ok": True, "hits": [_hit_dict(hit) for hit in hits]})
         if action == "preview_ai":
-            hits, source = _answer_material(request)
+            hits, source, retrieval_mode, retrieval_model, warnings = _answer_material(request)
             if not HAS_OMD_AI_SERVICE:
-                return _send(_fallback_preview(request, hits, source))
+                return _send(_fallback_preview(
+                    request, hits, source, retrieval_mode, retrieval_model, warnings
+                ))
             task = _task(request)
             preview = prepare_text_task(task, source_text=source)
             grant = (
@@ -96,11 +103,16 @@ def main() -> int:
                 "preview": asdict(preview),
                 "evidence": [_hit_dict(hit) for hit in hits],
                 "consent_grant": grant,
+                "retrieval_mode": retrieval_mode,
+                "retrieval_model": retrieval_model,
+                "warnings": warnings,
             })
         if action == "execute_ai":
-            hits, source = _answer_material(request)
+            hits, source, retrieval_mode, retrieval_model, warnings = _answer_material(request)
             if not HAS_OMD_AI_SERVICE:
-                return _send(_fallback_execute(request, hits, source))
+                return _send(_fallback_execute(
+                    request, hits, source, retrieval_mode, retrieval_model, warnings
+                ))
             task = _task(request)
             grant_value = request.get("consent_grant")
             grant = AIConsentGrant(**grant_value) if isinstance(grant_value, dict) else None
@@ -118,6 +130,9 @@ def main() -> int:
                 "evidence": [_hit_dict(hit) for hit in hits],
                 "provider": result.provider,
                 "model": result.actual_model,
+                "retrieval_mode": retrieval_mode,
+                "retrieval_model": retrieval_model,
+                "warnings": warnings,
                 "usage": result.usage,
                 "timing": result.timing,
             })
@@ -149,22 +164,99 @@ def _limit(request: dict[str, Any]) -> int:
     return limit
 
 
-def _answer_material(request: dict[str, Any]) -> tuple[list[SearchHit], str]:
+def _answer_material(
+    request: dict[str, Any],
+) -> tuple[list[SearchHit], str, str, str | None, list[str]]:
     query = _string(request, "query")
     limit = _limit(request)
+    hybrid_enabled = _boolean(request.get("hybrid_retrieval_enabled"), False)
+    embedding_model = _optional_string(request.get("embedding_model"))
+    if hybrid_enabled:
+        _validate_local_endpoint(_string(request, "endpoint").rstrip("/"))
     if build_answer_context is not None:
-        answer = build_answer_context(
-            Path(_string(request, "vault")).expanduser(),
-            query,
-            hit_limit=limit,
-            block_limit=min(limit, 8),
-        )
+        semantic_config = _semantic_config(request)
+        warnings = []
+        if hybrid_enabled and not embedding_model:
+            warnings.append("hybrid_retrieval_model_missing")
+        if hybrid_enabled and embedding_model and SemanticRecallConfig is None:
+            warnings.append("hybrid_retrieval_unsupported_by_omd")
+        kwargs = {
+            "hit_limit": limit,
+            "block_limit": min(limit, 8),
+            "semantic_config": semantic_config,
+        }
+        accepted_semantic_config = True
+        try:
+            answer = build_answer_context(
+                Path(_string(request, "vault")).expanduser(),
+                query,
+                **kwargs,
+            )
+        except TypeError as exc:
+            if "unexpected keyword argument 'semantic_config'" not in str(exc):
+                raise
+            accepted_semantic_config = False
+            if hybrid_enabled and embedding_model:
+                warnings.append("hybrid_retrieval_unsupported_by_omd")
+            answer = build_answer_context(
+                Path(_string(request, "vault")).expanduser(),
+                query,
+                hit_limit=limit,
+                block_limit=min(limit, 8),
+            )
         blocks, source = _bounded_block_context(query, answer.blocks)
         selected_paths = {block.path for block in blocks}
         hits = [hit for hit in answer.hits if hit.path in selected_paths]
-        return hits, source
+        warnings.extend(_answer_warnings(answer))
+        warnings = _unique_strings(warnings)
+        reported_mode = getattr(answer, "retrieval_mode", None)
+        if reported_mode in {"sparse", "hybrid"}:
+            retrieval_mode = reported_mode
+        elif (
+            semantic_config is not None
+            and accepted_semantic_config
+            and "semantic_recall_unavailable" not in warnings
+        ):
+            retrieval_mode = "hybrid"
+        else:
+            retrieval_mode = "sparse"
+        retrieval_model = embedding_model if retrieval_mode == "hybrid" else None
+        return hits, source, retrieval_mode, retrieval_model, warnings
     hits = _hits(request)
-    return _bounded_hit_context(query, hits)
+    hits, source = _bounded_hit_context(query, hits)
+    warnings = []
+    if hybrid_enabled:
+        warnings.append("hybrid_retrieval_unsupported_by_omd")
+    return hits, source, "sparse", None, warnings
+
+
+def _semantic_config(request: dict[str, Any]) -> Any | None:
+    enabled = _boolean(request.get("hybrid_retrieval_enabled"), False)
+    model = _optional_string(request.get("embedding_model"))
+    if not enabled:
+        return None
+    endpoint = _string(request, "endpoint").rstrip("/")
+    _validate_local_endpoint(endpoint)
+    if not model or SemanticRecallConfig is None:
+        return None
+    return SemanticRecallConfig(
+        host=endpoint,
+        model=model,
+        rerank=_boolean(request.get("semantic_rerank_enabled"), False),
+    )
+
+
+def _answer_warnings(answer: Any) -> list[str]:
+    value = getattr(answer, "warnings", ())
+    return list(value) if isinstance(value, (list, tuple)) else []
+
+
+def _unique_strings(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        if isinstance(value, str) and value and value not in result:
+            result.append(value)
+    return result[:8]
 
 
 def _fallback_search(vault: Path, query: str, limit: int) -> list[SearchHit]:
@@ -325,7 +417,14 @@ def _source_identity(path: Path, text: str) -> str:
     return "content-sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def _fallback_preview(request: dict[str, Any], hits: list[SearchHit], source: str) -> dict[str, Any]:
+def _fallback_preview(
+    request: dict[str, Any],
+    hits: list[SearchHit],
+    source: str,
+    retrieval_mode: str,
+    retrieval_model: str | None,
+    warnings: list[str],
+) -> dict[str, Any]:
     provider = _string(request, "provider").lower()
     if provider != "ollama":
         raise ValueError(
@@ -348,10 +447,20 @@ def _fallback_preview(request: dict[str, Any], hits: list[SearchHit], source: st
         },
         "evidence": [_hit_dict(hit) for hit in hits],
         "consent_grant": None,
+        "retrieval_mode": retrieval_mode,
+        "retrieval_model": retrieval_model,
+        "warnings": warnings,
     }
 
 
-def _fallback_execute(request: dict[str, Any], hits: list[SearchHit], source: str) -> dict[str, Any]:
+def _fallback_execute(
+    request: dict[str, Any],
+    hits: list[SearchHit],
+    source: str,
+    retrieval_mode: str,
+    retrieval_model: str | None,
+    warnings: list[str],
+) -> dict[str, Any]:
     provider = _string(request, "provider").lower()
     if provider != "ollama":
         raise ValueError("This OMD build supports fallback execution only through local Ollama.")
@@ -381,6 +490,9 @@ def _fallback_execute(request: dict[str, Any], hits: list[SearchHit], source: st
         "evidence": [_hit_dict(hit) for hit in hits],
         "provider": "ollama",
         "model": response.get("model", model),
+        "retrieval_mode": retrieval_mode,
+        "retrieval_model": retrieval_model,
+        "warnings": warnings,
         "usage": {
             "input_tokens": int(response.get("prompt_eval_count", 0)),
             "output_tokens": int(response.get("eval_count", 0)),
@@ -581,6 +693,14 @@ def _string(value: dict[str, Any], key: str) -> str:
     if not isinstance(item, str) or not item.strip():
         raise ValueError(f"{key} must be a non-empty string")
     return item.strip()
+
+
+def _optional_string(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _boolean(value: Any, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
 
 
 def _error_payload(exc: Exception) -> dict[str, Any]:

@@ -18,16 +18,31 @@ import {
   captureErrorMessage,
   parseBridgeResponse,
   pythonBridgeArgs,
+  pythonBridgeStdin,
   spawnProcess,
 } from "../src/omd-bridge.ts";
 
 const bridgeScript = new URL("../bridge/omd_home_bridge.py", import.meta.url);
 const nodeRequire = createRequire(import.meta.url);
 
-test("Python bridge prefers an override and otherwise runs the bundled source", () => {
+test("Python bridge prefers an override and otherwise runs the bundled bootstrap", () => {
   assert.deepEqual(pythonBridgeArgs(" /custom/bridge.py ", "embedded"), ["/custom/bridge.py"]);
-  assert.deepEqual(pythonBridgeArgs("", "print('embedded')"), ["-c", "print('embedded')"]);
+  const bundled = pythonBridgeArgs("", "print('embedded')");
+  assert.equal(bundled[0], "-c");
+  assert.match(bundled[1] ?? "", /json\.loads\(sys\.stdin\.readline\(\)\)/u);
+  assert.match(bundled[1] ?? "", /compile\(s,'<omd-home-bridge>'/u);
   assert.throws(() => pythonBridgeArgs("", ""), /bridge is unavailable/u);
+});
+
+test("bundled bridge stdin carries source separately from the request payload", () => {
+  const stdin = pythonBridgeStdin("", "print('embedded')", { action: "search", query: "calendar" });
+  const [sourceEnvelope, payload] = stdin.split("\n", 2);
+  assert.deepEqual(JSON.parse(sourceEnvelope), { source: "print('embedded')" });
+  assert.deepEqual(JSON.parse(payload), { action: "search", query: "calendar" });
+  assert.equal(
+    pythonBridgeStdin("/custom/bridge.py", "ignored", { action: "search" }),
+    JSON.stringify({ action: "search" }),
+  );
 });
 
 test("uses OMD's vault-capture subcommand instead of standalone conversion", () => {
@@ -270,12 +285,13 @@ test("bridge emits structured JSON errors for invalid requests", () => {
   });
 });
 
-test("bundled bridge source stays argv-safe and executes through Python -c", () => {
+test("bundled bridge bootstrap stays argv-safe and executes the embedded source", () => {
   const source = readFileSync(bridgeScript, "utf8");
-  assert.ok(Buffer.byteLength(source, "utf8") < 24_000, "embedded bridge must stay below the portable argv budget");
-  const result = spawnSync("python3", pythonBridgeArgs("", source), {
+  const args = pythonBridgeArgs("", source);
+  assert.ok(Buffer.byteLength(args[1] ?? "", "utf8") < 1_024, "bridge bootstrap must stay below the portable argv budget");
+  const result = spawnSync("python3", args, {
     encoding: "utf8",
-    input: JSON.stringify({ action: "search", vault: "/definitely/missing", query: "AI", limit: 10 }),
+    input: pythonBridgeStdin("", source, { action: "search", vault: "/definitely/missing", query: "AI", limit: 10 }),
   });
   const output = result.stdout.trim().split(/\r?\n/u).at(-1);
   assert.ok(output, `embedded bridge produced no stdout: ${result.stderr}`);
@@ -319,13 +335,29 @@ class AnswerContext:
     hits: list[SearchHit]
     blocks: list[EvidenceBlock]
     candidate_count: int
+    retrieval_mode: str = "hybrid"
+    warnings: tuple[str, ...] = ()
+
+@dataclass
+class SemanticRecallConfig:
+    host: str
+    model: str
+    rerank: bool = False
 
 def search_notes(root, query, limit=10):
     return [SearchHit(path="legacy.md", title="Legacy", score=1.0, evidence="legacy evidence")]
 
-def build_answer_context(root, query, hit_limit=8, block_limit=8, **_kwargs):
+def build_answer_context(root, query, hit_limit=8, block_limit=8, semantic_config=None):
     if not Path(root).is_dir():
         raise ValueError("retrieval root must be an existing directory")
+    if query == "sparse only":
+        assert semantic_config is None
+    else:
+        assert semantic_config == SemanticRecallConfig(
+            host="http://localhost:11434",
+            model="bge-m3",
+            rerank=True,
+        )
     hits = [
         SearchHit(path="Sources/Web/bouldering-tips.md", title="Bouldering Tips", score=18.0, evidence="outline"),
         SearchHit(path="Calendar/Events/linked-event.md", title="Linked Event", score=12.0, evidence="event"),
@@ -341,7 +373,12 @@ def build_answer_context(root, query, hit_limit=8, block_limit=8, **_kwargs):
         )
         for index in range(1, 13)
     ]
-    return AnswerContext(hits=hits[:hit_limit], blocks=blocks[:block_limit], candidate_count=24)
+    return AnswerContext(
+        hits=hits[:hit_limit],
+        blocks=blocks[:block_limit],
+        candidate_count=24,
+        retrieval_mode="sparse" if query == "sparse only" else "hybrid",
+    )
 `.trimStart());
     await writeFile(join(packageRoot, "ai_service.py"), `
 from dataclasses import dataclass
@@ -420,6 +457,9 @@ def execute_text_task(task, source_text, consent_granted, consent_grant):
       model: "qwen3:4b-instruct",
       endpoint: "http://localhost:11434",
       limit: 8,
+      hybrid_retrieval_enabled: true,
+      embedding_model: "bge-m3",
+      semantic_rerank_enabled: true,
     };
 
     const preview = runBridge({ action: "preview_ai", ...payload }, env);
@@ -427,6 +467,12 @@ def execute_text_task(task, source_text, consent_granted, consent_grant):
 
     assert.equal(preview.ok, true);
     assert.equal(execute.ok, true);
+    assert.equal(preview.retrieval_mode, "hybrid");
+    assert.equal(preview.retrieval_model, "bge-m3");
+    assert.deepEqual(preview.warnings, []);
+    assert.equal(execute.retrieval_mode, "hybrid");
+    assert.equal(execute.retrieval_model, "bge-m3");
+    assert.deepEqual(execute.warnings, []);
     assert.deepEqual(
       preview.evidence.map((hit: { path: string }) => hit.path),
       ["Sources/Web/bouldering-tips.md", "Calendar/Events/linked-event.md"],
@@ -473,6 +519,107 @@ def execute_text_task(task, source_text, consent_granted, consent_grant):
       assert.match(context, /Kind: detail/u);
     }
     assert.equal(execute.model, "qwen3:4b-instruct:stub");
+
+    const sparse = runBridge({
+      action: "preview_ai",
+      ...payload,
+      query: "sparse only",
+      hybrid_retrieval_enabled: false,
+    }, env);
+    assert.equal(sparse.ok, true);
+    assert.equal(sparse.retrieval_mode, "sparse");
+    assert.equal(sparse.retrieval_model, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Ask AI validates the local hybrid endpoint before retrieval starts", () => {
+  const response = runBridge({
+    action: "preview_ai",
+    vault: "/definitely/missing",
+    query: "calendar workflows",
+    provider: "ollama",
+    model: "qwen3:4b-instruct",
+    endpoint: "http://localhost:9999",
+    limit: 8,
+    hybrid_retrieval_enabled: true,
+    embedding_model: "bge-m3",
+    semantic_rerank_enabled: false,
+  });
+  assert.equal(response.ok, false);
+  assert.match(String(response.error?.message ?? ""), /loopback Ollama endpoint/u);
+});
+
+test("Ask AI reports sparse fallback when the connected OMD build cannot accept semantic retrieval", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-bridge-legacy-"));
+  const vault = join(root, "vault");
+  const stubRoot = join(root, "stubs");
+  const packageRoot = join(stubRoot, "omd");
+  const pathDelimiter = process.platform === "win32" ? ";" : ":";
+  try {
+    await mkdir(vault, { recursive: true });
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "__init__.py"), "");
+    await writeFile(join(packageRoot, "retrieval.py"), `
+from dataclasses import dataclass
+
+@dataclass
+class SearchHit:
+    path: str
+    title: str
+    score: float
+    evidence: str
+
+@dataclass
+class EvidenceBlock:
+    path: str
+    title: str
+    heading: str
+    kind: str
+    score: float
+    text: str
+
+@dataclass
+class AnswerContext:
+    hits: list[SearchHit]
+    blocks: list[EvidenceBlock]
+    candidate_count: int
+    warnings: tuple[str, ...] = ("semantic_recall_unavailable", "semantic_recall_unavailable")
+
+def search_notes(root, query, limit=10):
+    return [SearchHit(path="legacy.md", title="Legacy", score=1.0, evidence="legacy evidence")]
+
+def build_answer_context(root, query, hit_limit=8, block_limit=8):
+    hits = [SearchHit(path="legacy.md", title="Legacy", score=1.0, evidence="legacy evidence")]
+    blocks = [EvidenceBlock(path="legacy.md", title="Legacy", heading="Section 1", kind="note", score=1.0, text="legacy evidence")]
+    return AnswerContext(hits=hits[:hit_limit], blocks=blocks[:block_limit], candidate_count=1)
+`.trimStart());
+    const env = {
+      ...process.env,
+      PYTHONPATH: process.env.PYTHONPATH
+        ? `${stubRoot}${pathDelimiter}${process.env.PYTHONPATH}`
+        : stubRoot,
+    };
+    const response = runBridge({
+      action: "preview_ai",
+      vault,
+      query: "calendar workflows",
+      provider: "ollama",
+      model: "qwen3:4b-instruct",
+      endpoint: "http://localhost:11434",
+      limit: 8,
+      hybrid_retrieval_enabled: true,
+      embedding_model: "bge-m3",
+      semantic_rerank_enabled: true,
+    }, env);
+    assert.equal(response.ok, true);
+    assert.equal(response.retrieval_mode, "sparse");
+    assert.equal(response.retrieval_model, null);
+    assert.deepEqual(response.warnings, [
+      "hybrid_retrieval_unsupported_by_omd",
+      "semantic_recall_unavailable",
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

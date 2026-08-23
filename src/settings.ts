@@ -7,6 +7,7 @@ import {
   isFresh,
   modelHasRemoteMetadata,
   modelIsKnownThinkingOnly,
+  modelSupportsEmbedding,
   providerMode,
 } from "./local-ai-readiness";
 import type { LocalAiWorkflowId, StoredAiProvider } from "./ollama-local-types";
@@ -23,6 +24,9 @@ export interface OmdHomeSettings {
   defaultExternalCalendarId: string;
   aiProvider: StoredAiProvider;
   aiModel: string;
+  hybridRetrievalEnabled: boolean;
+  embeddingModel: string;
+  semanticRerankEnabled: boolean;
   enrichmentModel: string;
   ollamaHost: string;
   capturePolish: boolean;
@@ -41,6 +45,9 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
   defaultExternalCalendarId: "",
   aiProvider: "ollama",
   aiModel: "qwen3:4b-instruct",
+  hybridRetrievalEnabled: true,
+  embeddingModel: "bge-m3",
+  semanticRerankEnabled: false,
   enrichmentModel: "qwen3:4b-instruct",
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
@@ -338,6 +345,18 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       );
 
     this.modelSetting(container, "Vault Q&A model", "Used only for read-only `@` vault questions.", "aiModel", "qa");
+    this.hybridRetrievalSetting(container);
+    this.embeddingModelSetting(container);
+    new Setting(container)
+      .setName("Semantic rerank")
+      .setDesc("Optionally re-order retrieved evidence blocks with the local embedding model. If reranking fails, sparse-first order is kept.")
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.semanticRerankEnabled)
+        .setDisabled(!this.plugin.settings.hybridRetrievalEnabled)
+        .onChange(async (value) => {
+          this.plugin.settings.semanticRerankEnabled = value;
+          await this.plugin.saveSettings();
+        }));
 
     new Setting(container)
       .setName("Local note enrichment")
@@ -446,6 +465,55 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         }));
     setting.settingEl.addClass("omd-settings-model");
   }
+
+  private hybridRetrievalSetting(container: HTMLElement): void {
+    new Setting(container)
+      .setName("Hybrid retrieval")
+      .setDesc("Fuse sparse note recall with optional local multilingual embeddings for vault questions. Disable this to stay sparse-only.")
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.hybridRetrievalEnabled)
+        .onChange(async (value) => {
+          this.plugin.settings.hybridRetrievalEnabled = value;
+          await this.plugin.saveSettings();
+          this.renderLocalAiSection(container);
+        }));
+  }
+
+  private embeddingModelSetting(container: HTMLElement): void {
+    const embeddingModels = this.plugin.localAiState.models
+      .filter((model) => modelSupportsEmbedding(model) && !modelHasRemoteMetadata(model));
+    const options = embeddingModels.reduce<Record<string, string>>((result, model) => {
+      result[model.name] = model.name;
+      return result;
+    }, {});
+    if (!options[this.plugin.settings.embeddingModel]) {
+      options.__saved__ = `${this.plugin.settings.embeddingModel} (saved, not installed)`;
+    }
+    const selected = options[this.plugin.settings.embeddingModel] ? this.plugin.settings.embeddingModel : "__saved__";
+    const setting = new Setting(container)
+      .setName("Embedding model")
+      .setDesc("Used only for local multilingual retrieval and optional reranking during vault questions.")
+      .addDropdown((dropdown) => {
+        if (!Object.keys(options).length) dropdown.addOption("__saved__", this.plugin.settings.embeddingModel || "No local embedding model found");
+        else dropdown.addOptions(options);
+        dropdown.setValue(selected);
+        dropdown.onChange(async (value) => {
+          if (value === "__saved__") return;
+          this.plugin.settings.embeddingModel = value;
+          await this.plugin.saveSettings();
+          this.renderLocalAiSection(container);
+        });
+      })
+      .addButton((button) => button
+        .setButtonText(this.plugin.localAiState.activeAction === "test-embeddings" ? "Testing…" : "Test embeddings")
+        .setDisabled(Boolean(this.plugin.localAiState.activeAction) || !this.plugin.settings.embeddingModel.trim())
+        .onClick(async () => {
+          button.setDisabled(true).setButtonText("Testing…");
+          await this.plugin.testLocalEmbeddings();
+          if (container.isConnected) this.renderLocalAiSection(container);
+        }));
+    setting.settingEl.addClass("omd-settings-model");
+  }
 }
 
 export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
@@ -464,6 +532,13 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
     defaultExternalCalendarId: cleanString(input.defaultExternalCalendarId, DEFAULT_SETTINGS.defaultExternalCalendarId),
     aiProvider,
     aiModel: cleanString(input.aiModel, DEFAULT_SETTINGS.aiModel),
+    hybridRetrievalEnabled: typeof input.hybridRetrievalEnabled === "boolean"
+      ? input.hybridRetrievalEnabled
+      : DEFAULT_SETTINGS.hybridRetrievalEnabled,
+    embeddingModel: cleanString(input.embeddingModel, DEFAULT_SETTINGS.embeddingModel),
+    semanticRerankEnabled: typeof input.semanticRerankEnabled === "boolean"
+      ? input.semanticRerankEnabled
+      : DEFAULT_SETTINGS.semanticRerankEnabled,
     enrichmentModel: cleanString(input.enrichmentModel, DEFAULT_SETTINGS.enrichmentModel),
     ollamaHost: cleanString(input.ollamaHost, DEFAULT_SETTINGS.ollamaHost),
     capturePolish: typeof input.capturePolish === "boolean" ? input.capturePolish : DEFAULT_SETTINGS.capturePolish,

@@ -55,6 +55,9 @@ The plugin never downloads these tools and never self-updates.
 - Before local AI sends note or vault content, OMD Home checks the reachable Ollama daemon,
   requires the selected model to exist locally, and requires Ollama Cloud to be disabled.
 - OMD Home does not auto-pull, auto-install, or auto-select models for you.
+- Optional hybrid Vault Q&A sends bounded note representations to the selected
+  local embedding model through the same loopback Ollama endpoint. OMD keeps a
+  bounded derived-vector cache outside the vault; query vectors are not persisted.
 - Hosted providers are preserved only as legacy-disabled settings in Phase 1a and do not run
   until you explicitly switch back to Ollama.
 
@@ -110,6 +113,16 @@ The plugin never downloads these tools and never self-updates.
 
 - Type `@` in the omnibox to ask a vault question.
 - The current omnibox AI path is optional and read-only.
+- For multilingual retrieval, install a local embedding model yourself, for example
+  `ollama pull bge-m3`, then use **Refresh models** and **Test embeddings** in
+  **Settings > OMD Home > Local AI**.
+- **Hybrid retrieval** fuses OMD's BM25-style sparse recall with the selected local
+  multilingual embedding model. Turn it off for deterministic sparse-only recall.
+- **Semantic rerank** is optional and off by default. It uses the same embedding model
+  to reorder the bounded evidence blocks; it is not a separate cross-encoder reranker.
+- The first hybrid question can be slower while OMD embeds uncached note representations.
+  Later questions reuse the bounded local cache. If embeddings fail, the answer remains
+  sparse-only and shows the fallback reason instead of silently claiming hybrid retrieval.
 - Phase 1a exposes Ollama-only controls for:
   - model selection per workflow
   - **Refresh** model discovery

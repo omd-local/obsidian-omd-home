@@ -218,9 +218,10 @@ bouldering fixture notes under `Sources/Web`, and complete AI-02 with local-only
 8. **B08 mixed language:** ask `@summarise 这两篇 bouldering notes 里的 beginner mistakes and tips`
    three times. Confirm both sources appear, all 10 explicit headings remain separate, all three
    mistakes keep their role, and summaries do not invent details for a heading.
-9. **D01 cross-language boundary:** ask `@这些抱石笔记给初学者哪些建议？`. Phase 1a sparse retrieval
-   is expected to return no matching English evidence. It must fail closed rather than inject an
-   unrelated outline; cross-language semantic recall remains a hybrid-retrieval test.
+9. **D01 sparse control:** turn **Hybrid retrieval** off, then ask
+   `@这些抱石笔记给初学者哪些建议？`. Sparse retrieval is expected to return no matching English
+   evidence. It must fail closed rather than inject an unrelated outline. Restore the setting before
+   AI-11.
 10. Across B01, B3, B5, B6, and B08, compare three consecutive runs. Record source paths, item counts,
     unsupported claims, input/output tokens, and elapsed time. No answer may expose `[S#]`/`[E#]`
     placeholders; exact Obsidian wiki paths must be restored.
@@ -231,8 +232,42 @@ for exhaustive questions, pairs each multi-source outline with a source-local it
 compact overview per source only for comparisons. It rejects weak distractors, footer navigation, and
 comparison operator words, preserves exact source paths, and fails closed when a small local model
 cannot establish a reliable cross-source comparison. Ordinary Vault Search remains note-based.
-Cross-language semantic recall, implicit follow-up source memory, and a semantic reranker remain
-deferred to the hybrid retrieval phase.
+Cross-language semantic recall and optional semantic evidence reranking are covered by AI-11.
+Implicit follow-up source memory remains deferred.
+
+### AI-11: hybrid multilingual retrieval and optional semantic reranking
+
+Prerequisite: use an OMD build with `SemanticRecallConfig`, keep Ollama in verified local-only mode,
+and keep the two bouldering fixtures plus the survival-analysis and transfer-learning distractors in
+the vault.
+
+1. In Terminal, run `ollama pull bge-m3`. In **Settings > OMD Home > Local AI**, press
+   **Refresh models**, enable **Hybrid retrieval**, choose `bge-m3` under **Embedding model**, leave
+   **Semantic rerank** off, and press **Test embeddings**.
+2. Confirm the test reports two vectors with one shared non-zero dimension count. It must not send
+   vault text, auto-pull a model, accept a remote model, or pass when vector dimensions differ.
+3. Ask `@这些抱石笔记给初学者哪些建议？` three times. The first run may be slower while note
+   representations are embedded; record all three end-to-end durations.
+4. Confirm every result header says **Hybrid · bge-m3**, both bouldering fixture paths appear, and
+   the survival-analysis and transfer-learning distractors do not appear. The answer must distinguish
+   the 10 explicit tips from the separate three-mistakes note and must not invent Chinese source text.
+5. Enable **Semantic rerank**, repeat D01 and B4, then compare sources and claims with reranking off.
+   The setting may change evidence order but may not introduce a weak distractor, remove the exact
+   beta-recall evidence, or change an abstention into an unsupported answer.
+6. Turn **Hybrid retrieval** off and repeat D01. Confirm the header says **Sparse**, no embedding
+   request is made, and the query fails closed as in AI-10. Turn Hybrid retrieval back on afterward.
+7. Optional fallback exercise: with the generation model still installed, temporarily make the saved
+   embedding model unavailable, then ask D01. Confirm the result says **Sparse** and shows an explicit
+   semantic-recall fallback warning. Restore `bge-m3` and press **Test embeddings** again.
+8. Edit one fixture note, ask D01 again, then restore the edit. Confirm changed content is re-embedded;
+   unchanged notes reuse their cached vectors. Neither the note nor its frontmatter gains vector data.
+
+Expected: OMD fuses BM25-style sparse note ranking with multilingual embedding ranking, recalls no
+more than 24 candidate notes and selects no more than eight evidence blocks, while keeping source paths deterministic. Embedding
+traffic stays on the configured default loopback Ollama endpoint. The derived-vector cache is outside
+the vault and bounded; query embeddings are not persisted. Missing, unreachable, malformed, or
+dimension-mismatched embeddings degrade to sparse retrieval with a visible warning. Semantic reranking
+uses the selected embedding model only and is optional; it is not a separately installed cross-encoder.
 
 ### CMD-01: Obsidian and community commands
 

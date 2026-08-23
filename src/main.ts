@@ -20,7 +20,7 @@ import {
   reconcileCalendarSelection,
   type OmdHomeSettings,
 } from "./settings";
-import { OmdBridge, type AiAnswer } from "./omd-bridge";
+import { OmdBridge, type AiAnswer, type HybridRetrievalOptions } from "./omd-bridge";
 import { EventKitBridge, normalizeEventKitEvent, resolveEventKitHelperPath } from "./eventkit-bridge";
 import { eventNotePath, recordFromFrontmatter, serializeEventNote, updateEventNote } from "./event-note";
 import { AiConsentModal, CaptureModal } from "./modals";
@@ -43,6 +43,8 @@ import {
   describeModelReadiness,
   getActiveWorkflowModels,
   isFresh,
+  modelHasRemoteMetadata,
+  modelSupportsEmbedding,
   normalizeLocalOllamaHost,
   providerMode,
 } from "./local-ai-readiness";
@@ -138,6 +140,7 @@ export default class OmdHomePlugin extends Plugin {
     this.addCommand({ id: "suggest-links-and-tags", name: "Suggest links and tags", callback: () => void this.suggestLinksAndTags() });
     this.addCommand({ id: "refresh-local-models", name: "Refresh local AI models", callback: () => void this.refreshLocalAiCatalog(true) });
     this.addCommand({ id: "check-local-ai", name: "Check local AI connection", callback: () => void this.checkLocalAiConnection() });
+    this.addCommand({ id: "test-local-ai-embeddings", name: "Test local AI embeddings", callback: () => void this.testLocalEmbeddings() });
     this.addCommand({ id: "refresh-calendars", name: "Refresh macOS calendars", callback: () => void this.refreshExternalCalendars() });
     this.addCommand({
       id: "focus-omnibox",
@@ -410,13 +413,14 @@ export default class OmdHomePlugin extends Plugin {
     output.empty();
     output.createDiv({ cls: "omd-answer-loading", text: "Retrieving local evidence..." });
     const startedAt = performance.now();
+    const retrievalOptions = this.qaRetrievalOptions();
     try {
       const snapshot = createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama");
       const preview = await this.runLocalAiGated(
         snapshot,
         () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
         async (gatedSnapshot) => await this.omdBridge.previewAi(
-          this.vaultPath(), query, gatedSnapshot.provider, gatedSnapshot.model, gatedSnapshot.host,
+          this.vaultPath(), query, gatedSnapshot.provider, gatedSnapshot.model, gatedSnapshot.host, retrievalOptions,
         ),
       );
       const execute = async (): Promise<void> => {
@@ -427,7 +431,7 @@ export default class OmdHomePlugin extends Plugin {
           () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
           async (gatedSnapshot) => await this.omdBridge.executeAi(
             this.vaultPath(), query, gatedSnapshot.provider, gatedSnapshot.model,
-            gatedSnapshot.host, preview.consent_grant ?? null,
+            gatedSnapshot.host, preview.consent_grant ?? null, retrievalOptions,
           ),
         );
         this.clearIssue("ai");
@@ -673,6 +677,59 @@ export default class OmdHomePlugin extends Plugin {
       if (!isAbortError(error)) {
         this.reportLocalAiWorkflowIssue(error);
         this.setLocalAiFeedback("error", `${localAiWorkflowLabel(workflow)} smoke failed. ${message(error)}`);
+        new Notice(message(error));
+      }
+    } finally {
+      this.finishLocalAiAction(actionToken);
+    }
+  }
+
+  async testLocalEmbeddings(): Promise<void> {
+    this.clearIssue("ai");
+    this.setLocalAiFeedback("neutral", "Testing local embedding retrieval model…");
+    const actionToken = this.beginLocalAiAction("test-embeddings");
+    try {
+      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      const model = this.settings.embeddingModel.trim();
+      if (!model) throw new LocalAiError("selected_model_missing", "Choose a local embedding model before testing embeddings.");
+      const result = await this.withLocalAiSignal(async (signal) => {
+        const version = await this.ollamaLocalClient.version(host, signal);
+        const status = await this.ollamaLocalClient.status(host, signal)
+          .catch((error) => {
+            throw remapLocalAiError(error, "status_unavailable", "OMD Home could not verify /api/status from the local Ollama daemon.");
+          });
+        const models = await this.ollamaLocalClient.tags(host, signal);
+        const daemonCode = deriveLocalAiDaemonCode(status, models);
+        if (daemonCode !== "ready") throw new LocalAiError(daemonCode, describeDaemonReadiness(daemonCode));
+        const selected = await this.safeShowModel(host, model, signal);
+        const selectedEntry = buildModelEntry(selected);
+        const mergedModels = new Map(models.map((entry) => [entry.name, entry]));
+        mergedModels.set(model, { ...selectedEntry, name: model });
+        this.localAiSummaries.set(host, buildConnectionSummary({
+          host,
+          checkedAt: Date.now(),
+          version: version.version,
+          daemonCode,
+          daemonDetail: describeDaemonReadiness(daemonCode),
+          models: [...mergedModels.values()].sort((left, right) => left.name.localeCompare(right.name)),
+          modelChecks: this.localAiSummaries.get(host)?.modelChecks ?? {},
+        }));
+        if (modelHasRemoteMetadata(selectedEntry)) {
+          throw new LocalAiError("selected_model_remote_blocked", `${model} reported remote Ollama metadata and was blocked.`);
+        }
+        if (!modelSupportsEmbedding(selectedEntry)) {
+          throw new LocalAiError("selected_model_incompatible", `${model} does not advertise embedding support. Choose a local embedding-capable model.`);
+        }
+        return await this.ollamaLocalClient.embed(host, model, ["vault retrieval probe", "多语言检索探针"], signal);
+      });
+      this.syncLocalAiState(this.localAiState.activeAction);
+      const feedback = `Embedding test passed in ${result.latencyMs}ms: ${result.vectorCount} vectors × ${result.dimensions} dims.`;
+      this.setLocalAiFeedback("success", feedback);
+      new Notice(feedback);
+    } catch (error) {
+      if (!isAbortError(error)) {
+        this.reportLocalAiWorkflowIssue(error);
+        this.setLocalAiFeedback("error", `Embedding test failed. ${message(error)}`);
         new Notice(message(error));
       }
     } finally {
@@ -1031,6 +1088,13 @@ export default class OmdHomePlugin extends Plugin {
     header.createSpan({ text: `${answer.provider} / ${answer.model}` });
     const actions = header.createDiv({ cls: "omd-answer-actions" });
     actions.createSpan({ text: `${answer.evidence.length} sources` });
+    if (answer.retrieval_mode) {
+      const retrievalLabel = answer.retrieval_mode === "hybrid" ? "Hybrid" : "Sparse";
+      actions.createSpan({
+        cls: "omd-answer-retrieval",
+        text: answer.retrieval_model ? `${retrievalLabel} · ${answer.retrieval_model}` : retrievalLabel,
+      });
+    }
     actions.createSpan({
       cls: "omd-answer-timing",
       text: `Returned in ${formatAnswerElapsedTime(elapsedMs)}`,
@@ -1043,6 +1107,12 @@ export default class OmdHomePlugin extends Plugin {
       attr: { "aria-label": "Copy OMD result and source links" },
     });
     copy.addEventListener("click", () => void this.copyAiAnswer(copy, answer));
+    if (answer.warnings?.length) {
+      const diagnostics = output.createDiv({ cls: "omd-answer-diagnostics" });
+      for (const warning of answer.warnings) {
+        diagnostics.createSpan({ cls: "omd-answer-warning", text: humanizeRetrievalWarning(warning) });
+      }
+    }
     output.createEl("p", { cls: "omd-answer-text", text: answer.text });
     const sources = output.createDiv({ cls: "omd-answer-sources" });
     for (const hit of answer.evidence) {
@@ -1161,6 +1231,14 @@ export default class OmdHomePlugin extends Plugin {
 
   private activeLocalAiModels(): string[] {
     return [...new Set(getActiveWorkflowModels(this.settings).map((workflow) => workflow.model.trim()).filter(Boolean))];
+  }
+
+  private qaRetrievalOptions(): HybridRetrievalOptions {
+    return {
+      hybridRetrievalEnabled: this.settings.hybridRetrievalEnabled,
+      embeddingModel: this.settings.embeddingModel.trim(),
+      semanticRerankEnabled: this.settings.semanticRerankEnabled,
+    };
   }
 
   private syncLocalAiState(activeAction: LocalAiRuntimeState["activeAction"]): void {
@@ -1373,6 +1451,25 @@ function ownsLocalAiConnectionState(code: LocalAiError["code"]): boolean {
 function summarizeSmokeResponse(value: string): string {
   const compact = value.replace(/\s+/gu, " ").trim();
   return compact.length > 80 ? `${compact.slice(0, 77)}…` : compact;
+}
+
+function humanizeRetrievalWarning(value: string): string {
+  if (value === "hybrid_retrieval_unsupported_by_omd") {
+    return "This OMD build does not support hybrid retrieval yet, so the answer used sparse retrieval only.";
+  }
+  if (value === "hybrid_retrieval_model_missing") {
+    return "No local embedding model is selected, so the answer used sparse retrieval only.";
+  }
+  if (value === "hybrid_retrieval_failed") {
+    return "Hybrid retrieval fell back to sparse retrieval for this answer.";
+  }
+  if (value === "semantic_recall_unavailable") {
+    return "Semantic recall was unavailable for this answer, so sparse retrieval stayed in effect.";
+  }
+  if (value === "semantic_rerank_unavailable") {
+    return "Semantic reranking was unavailable for this answer, so the sparse-first evidence order was kept.";
+  }
+  return value.replaceAll("_", " ");
 }
 
 function localAiWorkflowLabel(workflow: LocalAiWorkflowId): string {
