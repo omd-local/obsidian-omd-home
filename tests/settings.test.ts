@@ -97,6 +97,7 @@ test("hybrid retrieval settings keep embedding choices local and expose an embed
   assert.match(source, /modelSupportsEmbedding\(model\)\s*&&\s*!modelHasRemoteMetadata\(model\)/u);
   assert.match(source, /setButtonText\([^)]*"Test embeddings"/u);
   assert.match(source, /testLocalEmbeddings\(\)/u);
+  assert.equal([...source.matchAll(/invalidateLocalAiState\("retrieval"\)/gu)].length, 3);
 });
 
 test("Local AI settings rerender only their section and expose durable action feedback", () => {

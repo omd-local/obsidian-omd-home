@@ -17,6 +17,7 @@ import {
   bridgeProcessFailureMessage,
   bridgeTimeoutMs,
   captureErrorMessage,
+  OmdBridge,
   parseBridgeResponse,
   pythonBridgeArgs,
   pythonBridgeStdin,
@@ -288,7 +289,7 @@ test("bridge emits structured JSON errors for invalid requests", () => {
   const response = runBridge({ action: "search", vault: "/definitely/missing", query: "AI", limit: 10 });
   assert.equal(response.ok, false);
   assert.deepEqual(response.error, {
-    message: "vault path does not exist",
+    message: "retrieval root must be an existing directory",
     type: "ValueError",
   });
 });
@@ -305,7 +306,7 @@ test("bundled bridge bootstrap stays argv-safe and executes the embedded source"
   assert.ok(output, `embedded bridge produced no stdout: ${result.stderr}`);
   const response = JSON.parse(output) as Record<string, unknown>;
   assert.equal(response.ok, false);
-  assert.deepEqual(response.error, { message: "vault path does not exist", type: "ValueError" });
+  assert.deepEqual(response.error, { message: "retrieval root must be an existing directory", type: "ValueError" });
 });
 
 test("Ask AI runs through the real Python bridge with bounded evidence blocks", async () => {
@@ -847,6 +848,40 @@ test("spawnProcess aborts when the signal is cancelled", async () => {
     controller.abort();
     await assert.rejects(pending, /aborted/);
   });
+});
+
+test("OmdBridge relays caller cancellation to a running hybrid bridge", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-cancel-bridge-"));
+  const script = join(root, "slow_bridge.py");
+  try {
+    await writeFile(script, "import time\ntime.sleep(30)\n");
+    await withNodeRequire(async () => {
+      const bridge = new OmdBridge(() => "omd", () => "python3", () => script);
+      const controller = new AbortController();
+      const pending = bridge.previewAi(
+        root,
+        "test",
+        "ollama",
+        "qwen3:4b-instruct",
+        "http://localhost:11434",
+        {
+          hybridRetrievalEnabled: true,
+          embeddingModel: "bge-m3",
+          embeddingModelRevision: "sha256:current",
+          semanticRerankEnabled: false,
+        },
+        controller.signal,
+      );
+      controller.abort();
+      await assert.rejects(
+        pending,
+        (error: unknown) => error instanceof Error && error.name === "AbortError",
+      );
+      bridge.dispose();
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("spawnProcess enforces stdout bounds", async () => {

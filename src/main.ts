@@ -520,13 +520,13 @@ export default class OmdHomePlugin extends Plugin {
     this.refreshHomeViews();
   }
 
-  invalidateLocalAiState(reason: "provider" | "host" | "model" | "capture-polish" = "model"): void {
+  invalidateLocalAiState(reason: "provider" | "host" | "model" | "capture-polish" | "retrieval" = "model"): void {
     this.localAiActionToken += 1;
     this.cancelLocalAiRequests();
     this.localAiFailure = null;
     const host = this.currentLocalAiHost();
     const summary = host ? this.localAiSummaries.get(host) : null;
-    if (reason !== "host" && reason !== "provider" && host && summary) {
+    if ((reason === "model" || reason === "capture-polish") && host && summary) {
       this.localAiSummaries.set(host, {
         ...summary,
         modelChecks: {},

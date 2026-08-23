@@ -355,6 +355,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setDisabled(!this.plugin.settings.hybridRetrievalEnabled)
         .onChange(async (value) => {
           this.plugin.settings.semanticRerankEnabled = value;
+          this.plugin.invalidateLocalAiState("retrieval");
           await this.plugin.saveSettings();
         }));
 
@@ -474,6 +475,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.hybridRetrievalEnabled)
         .onChange(async (value) => {
           this.plugin.settings.hybridRetrievalEnabled = value;
+          this.plugin.invalidateLocalAiState("retrieval");
           await this.plugin.saveSettings();
           this.renderLocalAiSection(container);
         }));
@@ -500,6 +502,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         dropdown.onChange(async (value) => {
           if (value === "__saved__") return;
           this.plugin.settings.embeddingModel = value;
+          this.plugin.invalidateLocalAiState("retrieval");
           await this.plugin.saveSettings();
           this.renderLocalAiSection(container);
         });
