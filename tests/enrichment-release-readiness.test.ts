@@ -44,15 +44,22 @@ test("build config externalizes Obsidian and node builtins for release bundles",
   assert.match(esbuild, /external:\s*\[[\s\S]*"obsidian"/u);
   assert.match(esbuild, /external:\s*\[[\s\S]*"electron"/u);
   assert.match(esbuild, /external:\s*\[[\s\S]*"node:\*"/u);
+  assert.match(esbuild, /loader:\s*\{\s*"\.py":\s*"text"\s*\}/u);
+  assert.match(readText("src/main.ts"), /import embeddedPythonBridge from "\.\.\/bridge\/omd_home_bridge\.py"/u);
 });
 
-test("README keeps privacy, dependency, and calendar disclosures aligned with Phase 2 boundaries", () => {
+test("README keeps privacy, dependency, and Phase 1a local AI disclosures aligned", () => {
   const readme = readText("README.md");
   assert.match(readme, /desktop-only/iu);
   assert.match(readme, /does not install, update,\s*or bundle OMD, Python, Ollama, or the EventKit helper/iu);
   assert.match(readme, /Google Calendar and Outlook Calendar can participate when they have already been added to\s*macOS Calendar/iu);
   assert.match(readme, /Review-first note enrichment sends only bounded note content/iu);
-  assert.match(readme, /loopback Ollama endpoint/iu);
+  assert.match(readme, /Phase 1a local AI allows only the default local Ollama endpoints/iu);
+  assert.match(readme, /requires Ollama Cloud to be disabled/iu);
+  assert.match(readme, /\*\*Refresh\*\* model discovery/iu);
+  assert.match(readme, /\*\*Check\*\* connection, version, and cloud-disabled readiness/iu);
+  assert.match(readme, /\*\*Smoke\*\* checks that do not send vault content/iu);
+  assert.match(readme, /does not auto-pull, auto-install, or auto-select models/iu);
   assert.match(readme, /Nothing is written until you explicitly press \*\*Apply\*\*/u);
 });
 

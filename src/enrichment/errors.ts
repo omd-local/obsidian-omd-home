@@ -1,3 +1,5 @@
+import { LocalAiError } from "../ollama-local-types.ts";
+
 export type EnrichmentErrorCode =
   | "desktop_only"
   | "missing_executable"
@@ -38,6 +40,7 @@ export function isEnrichmentError(value: unknown): value is OmdEnrichmentError {
 
 export function toUserFacingEnrichmentMessage(error: unknown): string {
   if (error instanceof OmdEnrichmentError) return error.message;
+  if (error instanceof LocalAiError) return error.message;
   if (error instanceof Error && error.name === "AbortError") return "OMD enrichment was cancelled.";
   return "OMD enrichment failed. Check the OMD setup and try again.";
 }

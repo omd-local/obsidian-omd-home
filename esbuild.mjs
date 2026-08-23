@@ -8,6 +8,7 @@ const context = await esbuild.context({
   external: ["obsidian", "electron", "node:*"],
   format: "cjs",
   platform: "browser",
+  loader: { ".py": "text" },
   target: "es2022",
   minify: production,
   legalComments: production ? "eof" : "none",

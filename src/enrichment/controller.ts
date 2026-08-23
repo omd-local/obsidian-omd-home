@@ -13,6 +13,7 @@ import { isEnrichmentError, toUserFacingEnrichmentMessage } from "./errors.ts";
 import { createObsidianApplyServices, desktopVaultRoot } from "./obsidian-adapter.ts";
 import { EnrichmentReviewModal, type EnrichmentApplyPayload } from "./review-modal.ts";
 import { emptyReviewState, type EnrichmentReviewState } from "./workflow.ts";
+import { createWorkflowSnapshot } from "../local-ai-readiness.ts";
 
 interface ActiveEnrichment {
   token: number;
@@ -63,6 +64,7 @@ export class EnrichmentWorkflowController {
     });
     Object.assign(active, { token, file, modal, state });
     this.active = active;
+    this.plugin.clearEnrichmentIssue();
     this.setBusy(true);
     modal.open();
 
@@ -70,41 +72,54 @@ export class EnrichmentWorkflowController {
       await this.plugin.omdCapabilityService.requireEnrichNote(this.plugin.settings.omdExecutable);
       if (!this.isCurrent(active)) return;
 
-      this.update(active, {
-        phase: "catalog",
-        statusText: "Inspecting safe Markdown paths and ranking related vault notes.",
-      });
-      const { request, catalogById } = await buildEnrichmentRequest(
-        this.plugin.app,
-        file,
-        model,
-        endpoint,
-      );
-      if (!this.isCurrent(active)) return;
-      active.request = request;
-      active.catalogById = catalogById;
-
-      this.update(active, {
-        phase: "generating",
-        statusText: "OMD is asking the configured local model for a read-only proposal.",
-      });
-      const { response } = await this.plugin.omdEnrichmentRunner.run({
-        executable: this.plugin.settings.omdExecutable,
-        request,
-        onEvent: (event) => {
-          if (!this.isCurrent(active)) return;
-          this.pushEvent(event);
-          this.update(active, { statusText: progressText(event) });
+      const snapshot = createWorkflowSnapshot("enrichment", this.plugin.settings);
+      const { response, request, catalogById } = await this.plugin.runLocalAiGated(
+        snapshot,
+        () => createWorkflowSnapshot("enrichment", this.plugin.settings),
+        async (gatedSnapshot) => {
+          this.update(active, {
+            phase: "catalog",
+            statusText: "Inspecting safe Markdown paths and ranking related vault notes.",
+          });
+          const built = await buildEnrichmentRequest(
+            this.plugin.app,
+            file,
+            gatedSnapshot.model,
+            gatedSnapshot.host,
+          );
+          if (!this.isCurrent(active)) throw new Error("Enrichment workflow changed while preparing the request.");
+          active.request = built.request;
+          active.catalogById = built.catalogById;
+          this.update(active, {
+            phase: "generating",
+            statusText: "OMD is asking the configured local model for a read-only proposal.",
+          });
+          const generated = await this.plugin.omdEnrichmentRunner.run({
+            executable: this.plugin.settings.omdExecutable,
+            request: built.request,
+            onEvent: (event) => {
+              if (!this.isCurrent(active)) return;
+              this.pushEvent(event);
+              this.update(active, { statusText: progressText(event) });
+            },
+          });
+          return {
+            response: generated.response,
+            request: built.request,
+            catalogById: built.catalogById,
+          };
         },
-      });
+      );
       if (!this.isCurrent(active)) return;
 
       active.state = reviewState(request, response, catalogById);
       active.modal.setState(active.state);
+      this.plugin.clearEnrichmentIssue();
       this.setBusy(false);
     } catch (error) {
       if (!this.isCurrent(active)) return;
-      const cancelled = isEnrichmentError(error) && error.code === "cancelled";
+      const cancelled = (isEnrichmentError(error) && error.code === "cancelled")
+        || (error instanceof Error && error.name === "AbortError");
       const detail = toUserFacingEnrichmentMessage(error);
       this.update(active, {
         phase: cancelled ? "cancelled" : "error",
@@ -115,7 +130,17 @@ export class EnrichmentWorkflowController {
       });
       this.active = null;
       this.setBusy(false);
-      if (!cancelled) new Notice(detail);
+      this.pushEvent({
+        v: 1,
+        event: cancelled ? "cancelled" : "error",
+        kind: cancelled ? "cancelled" : isEnrichmentError(error) ? error.code : "error",
+        ts: Date.now() / 1000,
+        message: detail,
+      });
+      if (!cancelled) {
+        this.plugin.reportEnrichmentIssue(error, file.path);
+        new Notice(detail);
+      }
     }
   }
 
@@ -126,6 +151,7 @@ export class EnrichmentWorkflowController {
       return false;
     }
     this.active = null;
+    this.plugin.cancelLocalAiRequests();
     this.plugin.omdEnrichmentRunner.cancel();
     this.plugin.omdCapabilityService.cancelActive(this.plugin.settings.omdExecutable);
     this.setBusy(false);
@@ -183,6 +209,7 @@ export class EnrichmentWorkflowController {
       this.update(active, { phase, statusText });
       this.active = null;
       this.setBusy(false);
+      this.plugin.clearEnrichmentIssue();
       this.plugin.refreshHomeViews();
       new Notice(statusText);
     } catch (error) {
@@ -191,6 +218,14 @@ export class EnrichmentWorkflowController {
       this.update(active, { phase: "error", statusText: detail });
       this.active = null;
       this.setBusy(false);
+      this.pushEvent({
+        v: 1,
+        event: "error",
+        kind: isEnrichmentError(error) ? error.code : "error",
+        ts: Date.now() / 1000,
+        message: detail,
+      });
+      this.plugin.reportEnrichmentIssue(detail, active.file.path);
       new Notice(detail);
     }
   }
@@ -273,9 +308,19 @@ function toProgressEvent(event: OmdEnrichEvent | OmdProgressEvent): OmdProgressE
     message: typeof raw.message === "string" ? raw.message : undefined,
     kind: typeof raw.kind === "string" ? raw.kind : undefined,
     percent: typeof raw.percent === "number" ? raw.percent : undefined,
-    label: typeof raw.label === "string" ? raw.label : undefined,
+    label: typeof raw.label === "string" ? raw.label : enrichmentProgressLabel(raw),
     name: typeof raw.name === "string" ? raw.name : undefined,
   };
+}
+
+function enrichmentProgressLabel(event: Record<string, unknown>): string {
+  const stage = [event.stage_id, event.stage, event.name, event.event]
+    .find((value): value is string => typeof value === "string" && Boolean(value.trim())) ?? "stage";
+  const token = stage.toLowerCase();
+  if (token.includes("llm") || token.includes("generat")) return "Local AI proposal";
+  if (token.includes("catalog") || token.includes("inspect") || token.includes("rank")) return "Inspect vault";
+  if (token.includes("valid") || token.includes("parse")) return "Validate proposal";
+  return humanize(stage);
 }
 
 function progressText(event: OmdEnrichEvent): string {
