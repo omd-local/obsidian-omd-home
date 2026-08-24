@@ -302,11 +302,13 @@ Settings first, and their results still appear in the relevant status surface.
    refresh fails, open **System Settings > Privacy & Security > Calendars** and allow Obsidian.
 5. Confirm the calendars already visible in the macOS Calendar app are listed. Google and Outlook
    calendars appear only after those accounts have been added to macOS Calendar.
-6. Enter an invalid custom helper path, refresh, confirm the specific helper error, then press
-   **Use installed** and refresh again.
+6. Enter an invalid custom helper path and confirm Settings immediately reports that it is missing
+   or not executable. Refresh, confirm the specific helper error, then press **Clear override** and
+   refresh again.
 
-Expected: blank means use the installed helper automatically; success reports a calendar count and
-timestamp; permission, missing-helper, and genuinely empty-calendar states have different guidance.
+Expected: blank means use the executable helper installed automatically; a missing or non-executable
+file is never labeled installed. Success reports a calendar count and timestamp; permission,
+missing-helper, and genuinely empty-calendar states have different guidance.
 
 ### CAL-01: readable boundaries
 

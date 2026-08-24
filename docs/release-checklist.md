@@ -37,7 +37,7 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] Optional semantic reranking uses the selected loopback embedding model, stays off by default, and cannot hide a fallback or change an evidence-grounded abstention into an unsupported answer.
 - [ ] Smoke checks exist for vault Q&A, enrichment, and capture polish, send no vault content, and fail closed when the selected model is missing or incompatible.
 - [ ] Blank Python and bridge overrides resolve OMD's embedded interpreter and the bridge bundled in `main.js`; the Settings-row Vault Q&A Smoke remains clearly distinct from a real `@` vault question.
-- [ ] A blank EventKit helper override resolves the helper installed beside OMD Home; missing helpers and Calendar permission failures remain actionable.
+- [ ] A blank EventKit helper override resolves only an executable regular file beside OMD Home; missing helpers and Calendar permission failures remain actionable.
 - [ ] Local AI rejects any Ollama host outside `http://localhost:11434` and `http://127.0.0.1:11434` in Phase 1a.
 - [ ] macOS Calendar lists only explicitly selected calendars; Google and Outlook are accessed only through accounts already added to Apple Calendar.
 - [ ] Vault, Calendar, and Linked filters update events without resetting the current Calendar date/view, and at least one source stays enabled.

@@ -109,13 +109,15 @@ test("Local AI settings rerender only their section and expose durable action fe
 
 test("Calendar settings explain the installed EventKit helper and actionable empty states", () => {
   assert.match(source, /resolvedEventKitHelperPath/u);
+  assert.match(source, /hasEventKitHelper/u);
   assert.match(source, /Using the installed helper automatically/u);
+  assert.match(source, /not found or is not executable/u);
   assert.match(source, /macOS may ask for Calendar access/u);
 });
 
 test("Python bridge settings prefer the bundled bridge while retaining an explicit override", () => {
   assert.match(source, /Using the bridge bundled inside OMD Home automatically/u);
-  assert.match(source, /When blank, use the interpreter embedded in the OMD executable/u);
+  assert.match(source, /When blank, read the interpreter from the OMD launcher's Python shebang/u);
   assert.match(source, /setButtonText\("Use bundled"\)/u);
 });
 

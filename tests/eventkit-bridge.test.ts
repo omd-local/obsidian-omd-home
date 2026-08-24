@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { eventKitErrorMessage, eventKitProcessErrorMessage } from "../src/eventkit-errors.ts";
-import { normalizeEventKitCalendar, normalizeEventKitEvent, resolveEventKitHelperPath } from "../src/eventkit-bridge.ts";
+import {
+  isEventKitHelperAvailable,
+  normalizeEventKitCalendar,
+  normalizeEventKitEvent,
+  resolveEventKitHelperPath,
+} from "../src/eventkit-bridge.ts";
 
 test("EventKit helper path prefers an override and otherwise resolves beside the installed plugin", () => {
   assert.equal(
@@ -13,6 +18,19 @@ test("EventKit helper path prefers an override and otherwise resolves beside the
     "/vault/.obsidian/plugins/omd-home/omd-eventkit",
   );
   assert.equal(resolveEventKitHelperPath("", "", ".obsidian/plugins/omd-home"), "");
+});
+
+test("EventKit helper availability requires an executable regular file", () => {
+  const fileSystem = {
+    constants: { X_OK: 1 },
+    statSync: (path: string) => ({ isFile: () => path === "/plugin/omd-eventkit" }),
+    accessSync: (path: string) => {
+      if (path !== "/plugin/omd-eventkit") throw new Error("not executable");
+    },
+  };
+  assert.equal(isEventKitHelperAvailable("/plugin/omd-eventkit", fileSystem), true);
+  assert.equal(isEventKitHelperAvailable("/plugin", fileSystem), false);
+  assert.equal(isEventKitHelperAvailable("", fileSystem), false);
 });
 
 test("sanitizes EventKit permission and writeability errors", () => {

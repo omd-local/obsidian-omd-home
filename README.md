@@ -31,9 +31,16 @@ you configure yourself in settings.
 - Ollama: used for Phase 1a local AI checks, smoke tests, and local vault Q&A.
 - Python bridge: used by the existing vault retrieval bridge behind omnibox AI. Its source is
   bundled into `main.js`, so the normal path needs no bridge-file setting; advanced installs can
-  still override it. When the Python executable override is blank, OMD Home derives Python from
-  the configured OMD executable's launcher.
+  still override it. When the Python executable override is blank, OMD Home reads the Python
+  interpreter from the configured OMD launcher's shebang. Launchers without a direct Python
+  shebang require an explicit Python executable override.
 - EventKit helper: used only for macOS Calendar read/write.
+
+For local development, `npm run build:eventkit` builds `dist/omd-eventkit`, and
+`npm run install:test-vault` installs it beside the plugin in the test vault. For a Marketplace
+install, build the helper from this repository and copy the executable to
+`.obsidian/plugins/omd-home/omd-eventkit`, or select its absolute path in OMD Home settings. The
+automatic path is considered ready only when it contains an executable regular file.
 
 The plugin never downloads these tools and never self-updates.
 

@@ -14,7 +14,11 @@ export function resolveEventKitHelperPath(
   return `${base}/${directory}/omd-eventkit`;
 }
 
-type EventKitFileSystem = Pick<typeof import("node:fs"), "accessSync" | "constants" | "statSync">;
+interface EventKitFileSystem {
+  constants: { X_OK: number };
+  statSync: (path: string) => { isFile: () => boolean };
+  accessSync: (path: string, mode: number) => void;
+}
 
 export function isEventKitHelperAvailable(
   helperPath: string,
