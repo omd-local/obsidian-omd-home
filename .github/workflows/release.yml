@@ -25,7 +25,7 @@ jobs:
       - name: Validate tag matches manifest version
         run: |
           tag="${GITHUB_REF#refs/tags/}"
-          manifest_version="$(node -p \"require('./manifest.json').version\")"
+          manifest_version="$(node -p 'require("./manifest.json").version')"
           test "$tag" = "$manifest_version"
 
       - name: Install dependencies

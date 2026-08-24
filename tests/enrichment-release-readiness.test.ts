@@ -33,6 +33,8 @@ test("release artifacts are ignored in git and emitted exactly by the release wo
 
   const workflow = readText(".github/workflows/release.yml");
   assert.match(workflow, /tags:\s*\n\s*-\s*"\*"/u);
+  assert.match(workflow, /manifest_version="\$\(node -p 'require\("\.\/manifest\.json"\)\.version'\)"/u);
+  assert.doesNotMatch(workflow, /node -p \\"/u);
   assert.match(workflow, /test "\$tag" = "\$manifest_version"/u);
   assert.match(workflow, /subject-path:\s*\|\s*\n\s*main\.js\s*\n\s*manifest\.json\s*\n\s*styles\.css/u);
   assert.match(workflow, /gh release create "\$tag"[\s\S]*main\.js manifest\.json styles\.css/u);
