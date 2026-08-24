@@ -97,7 +97,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           new Notice(ready ? "OMD note enrichment is ready" : this.plugin.enrichmentCapability.message);
           this.display();
         }));
-    this.pathSetting(containerEl, "Python executable", "Optional override. When blank, use the interpreter embedded in the OMD executable.", "pythonExecutable");
+    this.pathSetting(containerEl, "Python executable", "Optional override. When blank, read the interpreter from the OMD launcher's Python shebang.", "pythonExecutable");
     const pythonBridgeSetting = new Setting(containerEl)
       .setName("OMD Home bridge")
       .setDesc(
@@ -143,14 +143,17 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     }
 
     const resolvedEventKitPath = this.plugin.resolvedEventKitHelperPath();
+    const eventKitAvailable = this.plugin.hasEventKitHelper();
     const eventKitSetting = new Setting(containerEl)
       .setName("EventKit helper")
       .setDesc(
         this.plugin.settings.eventKitHelperPath
-          ? "Using a custom helper path. Clear it to use the helper installed beside OMD Home."
-          : resolvedEventKitPath
+          ? eventKitAvailable
+            ? "Using the executable helper at the custom path."
+            : "The custom helper was not found or is not executable. Choose a working binary or clear the override."
+          : eventKitAvailable
             ? `Using the installed helper automatically: ${resolvedEventKitPath}`
-            : "No installed helper was found. Build it or enter an absolute path.",
+            : `No executable helper was found at ${resolvedEventKitPath || "the automatic plugin path"}. Build it or enter an absolute path.`,
       )
       .addText((text) => text
         .setPlaceholder(resolvedEventKitPath || "/absolute/path/to/omd-eventkit")
@@ -161,7 +164,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         }));
     if (this.plugin.settings.eventKitHelperPath) {
       eventKitSetting.addButton((button) => button
-        .setButtonText("Use installed")
+        .setButtonText("Clear override")
         .onClick(async () => {
           this.plugin.settings.eventKitHelperPath = "";
           await this.plugin.saveSettings();

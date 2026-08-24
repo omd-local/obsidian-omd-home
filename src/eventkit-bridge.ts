@@ -14,6 +14,31 @@ export function resolveEventKitHelperPath(
   return `${base}/${directory}/omd-eventkit`;
 }
 
+type EventKitFileSystem = Pick<typeof import("node:fs"), "accessSync" | "constants" | "statSync">;
+
+export function isEventKitHelperAvailable(
+  helperPath: string,
+  fileSystem?: EventKitFileSystem,
+): boolean {
+  const candidate = helperPath.trim();
+  if (!candidate) return false;
+  const fs = fileSystem ?? desktopFileSystem();
+  if (!fs) return false;
+  try {
+    if (!fs.statSync(candidate).isFile()) return false;
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function desktopFileSystem(): EventKitFileSystem | null {
+  if (typeof window === "undefined") return null;
+  const runtimeWindow = window as Window & { require?: (id: string) => typeof import("node:fs") };
+  return runtimeWindow.require?.("node:fs") ?? null;
+}
+
 export class EventKitBridge {
   private readonly activeChildren = new Set<ReturnType<typeof import("node:child_process")["spawn"]>>();
   private readonly helperPath: () => string;

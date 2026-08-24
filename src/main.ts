@@ -21,7 +21,12 @@ import {
   type OmdHomeSettings,
 } from "./settings";
 import { OmdBridge, type AiAnswer, type HybridRetrievalOptions } from "./omd-bridge";
-import { EventKitBridge, normalizeEventKitEvent, resolveEventKitHelperPath } from "./eventkit-bridge";
+import {
+  EventKitBridge,
+  isEventKitHelperAvailable,
+  normalizeEventKitEvent,
+  resolveEventKitHelperPath,
+} from "./eventkit-bridge";
 import { eventNotePath, recordFromFrontmatter, serializeEventNote, updateEventNote } from "./event-note";
 import { AiConsentModal, CaptureModal } from "./modals";
 import { OmdCapabilityService } from "./enrichment/capability";
@@ -182,7 +187,7 @@ export default class OmdHomePlugin extends Plugin {
       void this.refreshCalendarEvents();
       void this.checkEnrichmentCapability();
       void this.ensureLocalAiCatalog();
-      if (Platform.isMacOS && this.resolvedEventKitHelperPath()) void this.refreshExternalCalendars(false);
+      if (Platform.isMacOS && this.hasEventKitHelper()) void this.refreshExternalCalendars(false);
       if (this.settings.openOnLaunch) void this.openHome(false);
     });
   }
@@ -779,7 +784,7 @@ export default class OmdHomePlugin extends Plugin {
     this.calendarLoading = true;
     this.setCalendarFeedback("neutral", "Loading calendars from macOS EventKit…");
     try {
-      if (!this.resolvedEventKitHelperPath()) {
+      if (!this.hasEventKitHelper()) {
         throw new Error("EventKit helper is unavailable. Build the helper or choose an absolute helper path in settings.");
       }
       this.externalCalendars = await this.eventKitBridge.calendars();
@@ -837,7 +842,7 @@ export default class OmdHomePlugin extends Plugin {
       });
     let external: CalendarEventRecord[] = [];
     let externalFetchFailed = false;
-    if (Platform.isMacOS && this.resolvedEventKitHelperPath() && this.settings.selectedCalendarIds.length) {
+    if (Platform.isMacOS && this.hasEventKitHelper() && this.settings.selectedCalendarIds.length) {
       const { start, end } = calendarFetchWindow(vaultEvents);
       try {
         external = await this.eventKitBridge.events(this.settings.selectedCalendarIds, start, end);
@@ -1234,6 +1239,10 @@ export default class OmdHomePlugin extends Plugin {
       vaultBasePath,
       this.manifest.dir ?? "",
     );
+  }
+
+  hasEventKitHelper(): boolean {
+    return isEventKitHelperAvailable(this.resolvedEventKitHelperPath());
   }
 
   private recordIssue(context: "capture" | "calendar" | "ai" | "inbox", error: unknown, source = ""): void {
