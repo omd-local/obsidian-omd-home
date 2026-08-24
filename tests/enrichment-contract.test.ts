@@ -136,7 +136,7 @@ test("fixture manifest stays in sync with copied OMD contract fixtures", () => {
   };
 
   assert.equal(manifest.source_version, "0.3.0b2");
-  assert.equal(manifest.source_commit, "a4c7aa7209de66844bc5c23e5ad341ecc05f2a9a");
+  assert.equal(manifest.source_commit, "d9829166c15d4590a90fb3bd733c21ad51345092");
 
   for (const [name, expectedHash] of Object.entries(manifest.files)) {
     const bytes = readFileSync(path.join(fixtureDir, name));

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "source": "OMD tests/fixtures/enrich_note/v1",
   "source_version": "0.3.0b2",
-  "source_commit": "a4c7aa7209de66844bc5c23e5ad341ecc05f2a9a",
+  "source_commit": "d9829166c15d4590a90fb3bd733c21ad51345092",
   "files": {
     "generation-timeout.json": "6f992ce694bfb539d6e2b75e43cf666bee1cf47d3c9d46e90c9055033eb910a2",
     "request-too-large.json": "92c36326945f678b25a1cee0a65c526042598d134e007cbf1890e2c24a65adc3",
