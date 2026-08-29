@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">OMD Home // One Doorway, Four Rooms</title>
+  <desc id="desc">System overview for OMD Home showing one controlled entrance, four rooms inside the plugin, and the local tools it coordinates.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>
+    </pattern>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#202124"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="900" fill="#202124"/>
+  <rect width="1600" height="900" fill="url(#grid)" opacity="0.8"/>
+
+  <rect x="42" y="38" width="1516" height="824" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="42" y="38" width="1516" height="82" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+  <text x="76" y="89" font-family="Courier New, monospace" font-size="26" font-weight="700" fill="#F4F1E8">ONE DOORWAY // FOUR ROOMS</text>
+  <text x="1504" y="89" text-anchor="end" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#F4F1E8">LOCAL FIRST</text>
+
+  <rect x="76" y="154" width="246" height="624" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="76" y="154" width="246" height="54" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="96" y="190" font-family="Courier New, monospace" font-size="23" font-weight="700" fill="#202124">THE DOORWAY</text>
+  <path d="M126 266H242V608H126Z" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <path d="M242 266H270V294H298V322H270V350H242Z" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+  <path d="M168 526H214V368H242V526H252V578H168Z" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+  <path d="M152 352H230V526H152Z" fill="#202124" opacity="0.16"/>
+  <path d="M164 374H196V520H164Z" fill="#202124" stroke="#202124" stroke-width="4"/>
+  <rect x="176" y="438" width="10" height="10" fill="#F4F1E8"/>
+  <text x="96" y="654" font-family="Courier New, monospace" font-size="18" font-weight="700" fill="#202124">ONE CONTROLLED ENTRY</text>
+  <text x="96" y="686" font-family="Courier New, monospace" font-size="16" fill="#202124">Capture, calendar, review,</text>
+  <text x="96" y="708" font-family="Courier New, monospace" font-size="16" fill="#202124">and local questions pass</text>
+  <text x="96" y="730" font-family="Courier New, monospace" font-size="16" fill="#202124">through one surface.</text>
+
+  <line x1="322" y1="466" x2="362" y2="466" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <rect x="364" y="154" width="760" height="624" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="364" y="154" width="760" height="54" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="388" y="190" font-family="Courier New, monospace" font-size="23" font-weight="700" fill="#202124">OMD HOME</text>
+
+  <rect x="396" y="236" width="332" height="194" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="760" y="236" width="332" height="194" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="396" y="462" width="332" height="194" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="760" y="462" width="332" height="194" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="396" y="682" width="696" height="62" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+
+  <text x="420" y="272" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">HOME</text>
+  <text x="420" y="308" font-family="Courier New, monospace" font-size="18" fill="#202124">Today, recent notes,</text>
+  <text x="420" y="332" font-family="Courier New, monospace" font-size="18" fill="#202124">health, and active work.</text>
+
+  <text x="784" y="272" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">OMNIBOX</text>
+  <text x="784" y="308" font-family="Courier New, monospace" font-size="18" fill="#202124">Search, commands, quick notes,</text>
+  <text x="784" y="332" font-family="Courier New, monospace" font-size="18" fill="#202124">capture, events, and @ ask.</text>
+
+  <text x="420" y="498" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">INBOX</text>
+  <text x="420" y="534" font-family="Courier New, monospace" font-size="18" fill="#202124">Captures, proposals, retries,</text>
+  <text x="420" y="558" font-family="Courier New, monospace" font-size="18" fill="#202124">timestamps, and failures.</text>
+
+  <text x="784" y="498" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">CALENDAR</text>
+  <text x="784" y="534" font-family="Courier New, monospace" font-size="18" fill="#202124">Vault events plus selected</text>
+  <text x="784" y="558" font-family="Courier New, monospace" font-size="18" fill="#202124">macOS calendars.</text>
+
+  <text x="744" y="720" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#F4F1E8">WIDGETS REMEMBER EACH DEVICE VIEWPORT</text>
+
+  <rect x="1166" y="154" width="350" height="624" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="1166" y="154" width="350" height="54" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="1190" y="190" font-family="Courier New, monospace" font-size="23" font-weight="700" fill="#202124">LOCAL BOUNDARIES</text>
+
+  <rect x="1196" y="232" width="290" height="78" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="1196" y="332" width="290" height="78" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="1196" y="432" width="290" height="78" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="1196" y="532" width="290" height="78" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="1196" y="632" width="290" height="78" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+
+  <text x="1218" y="264" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#8064F4">OBSIDIAN VAULT</text>
+  <text x="1218" y="286" font-family="Courier New, monospace" font-size="16" fill="#202124">Source-of-truth notes.</text>
+
+  <text x="1218" y="364" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#8064F4">OMD EXECUTABLE</text>
+  <text x="1218" y="386" font-family="Courier New, monospace" font-size="16" fill="#202124">Capture process.</text>
+
+  <text x="1218" y="464" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#8064F4">PYTHON BRIDGE</text>
+  <text x="1218" y="486" font-family="Courier New, monospace" font-size="16" fill="#202124">Local vault ask.</text>
+
+  <text x="1218" y="564" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#8064F4">OLLAMA</text>
+  <text x="1218" y="586" font-family="Courier New, monospace" font-size="16" fill="#202124">Loopback models.</text>
+
+  <text x="1218" y="664" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#8064F4">EVENTKIT + CALENDARS</text>
+  <text x="1218" y="686" font-family="Courier New, monospace" font-size="16" fill="#202124">Selected calendars.</text>
+
+  <line x1="1124" y1="270" x2="1196" y2="270" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1092" y1="370" x2="1196" y2="370" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1092" y1="470" x2="1196" y2="470" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1092" y1="570" x2="1196" y2="570" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1092" y1="670" x2="1196" y2="670" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+</svg>

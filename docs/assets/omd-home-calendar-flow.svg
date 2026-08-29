@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1080" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">OMD Home // Calendar Sync With No Silent Winner</title>
+  <desc id="desc">Calendar workflow showing live source filters, two event creation choices, comparison of linked versions, safe one-sided updates, and explicit conflict resolution.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>
+    </pattern>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#202124"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="1080" fill="#202124"/>
+  <rect width="1600" height="1080" fill="url(#grid)" opacity="0.8"/>
+  <rect x="42" y="38" width="1516" height="1004" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="42" y="38" width="1516" height="82" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+  <text x="76" y="89" font-family="Courier New, monospace" font-size="26" font-weight="700" fill="#F4F1E8">CALENDAR SYNC // NO SILENT WINNER</text>
+  <text x="1504" y="89" text-anchor="end" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#F4F1E8">MACOS EVENTKIT</text>
+  <path d="M1516 55H1536L1546 65V101H1516Z" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <path d="M1536 55V65H1546" fill="none" stroke="#202124" stroke-width="3"/>
+  <path d="M1522 95V75H1538V95H1542V99H1519V95Z" fill="#202124"/>
+  <rect x="1526" y="83" width="4" height="4" fill="#F4F1E8"/>
+  <rect x="80" y="150" width="1440" height="130" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="104" y="190" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">LIVE SOURCE FILTERS</text>
+  <text x="104" y="230" font-family="Courier New, monospace" font-size="18" fill="#202124">At least one source stays visible.</text>
+  <rect x="660" y="176" width="220" height="66" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="900" y="176" width="220" height="66" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="1140" y="176" width="220" height="66" fill="#8064F4" stroke="#202124" stroke-width="3"/>
+  <text x="770" y="217" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">VAULT</text>
+  <text x="1010" y="217" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">CALENDAR</text>
+  <text x="1250" y="217" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#F4F1E8">LINKED</text>
+  <line x1="800" y1="280" x2="800" y2="310" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <rect x="80" y="320" width="1440" height="210" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="80" y="320" width="1440" height="48" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="104" y="352" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">CREATE EVENT // CHOOSE WHERE THE WRITABLE COPY LIVES</text>
+  <rect x="112" y="398" width="600" height="96" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="888" y="398" width="600" height="96" fill="#8064F4" stroke="#202124" stroke-width="3"/>
+  <text x="142" y="435" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#8064F4">VAULT NOTE ONLY</text>
+  <text x="142" y="468" font-family="Courier New, monospace" font-size="18" fill="#202124">Markdown event. No external copy.</text>
+  <text x="918" y="435" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#F4F1E8">VAULT + DEFAULT CALENDAR</text>
+  <text x="918" y="468" font-family="Courier New, monospace" font-size="18" fill="#F4F1E8">Linked Markdown and selected calendar event.</text>
+  <line x1="800" y1="530" x2="800" y2="560" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <rect x="80" y="570" width="1440" height="350" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="80" y="570" width="1440" height="48" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="104" y="602" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">COMPARE LINKED VERSIONS</text>
+  <rect x="112" y="652" width="380" height="100" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="610" y="652" width="380" height="100" fill="#8064F4" stroke="#202124" stroke-width="3"/>
+  <rect x="1108" y="652" width="380" height="100" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <text x="302" y="693" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#8064F4">MARKDOWN EVENT NOTE</text>
+  <text x="302" y="724" text-anchor="middle" font-family="Courier New, monospace" font-size="18" fill="#202124">Vault copy and local edit time</text>
+  <text x="800" y="712" text-anchor="middle" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#F4F1E8">COMPARE</text>
+  <text x="1298" y="693" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#8064F4">SELECTED CALENDAR EVENT</text>
+  <text x="1298" y="724" text-anchor="middle" font-family="Courier New, monospace" font-size="18" fill="#202124">iCloud / Google / Outlook</text>
+  <line x1="492" y1="702" x2="610" y2="702" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1108" y1="702" x2="990" y2="702" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <rect x="112" y="800" width="300" height="78" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="474" y="800" width="240" height="78" fill="#8064F4" stroke="#202124" stroke-width="3"/>
+  <rect x="830" y="800" width="300" height="78" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="1192" y="786" width="296" height="106" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <text x="262" y="847" text-anchor="middle" font-family="Courier New, monospace" font-size="19" font-weight="700" fill="#202124">ONE SIDE CHANGED</text>
+  <text x="594" y="847" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#F4F1E8">SAFE UPDATE</text>
+  <text x="980" y="847" text-anchor="middle" font-family="Courier New, monospace" font-size="19" font-weight="700" fill="#202124">BOTH SIDES CHANGED</text>
+  <text x="1340" y="824" text-anchor="middle" font-family="Courier New, monospace" font-size="19" font-weight="700" fill="#8064F4">CONFLICT CHOICE</text>
+  <text x="1340" y="857" text-anchor="middle" font-family="Courier New, monospace" font-size="17" font-weight="700" fill="#202124">KEEP MARKDOWN</text>
+  <text x="1340" y="880" text-anchor="middle" font-family="Courier New, monospace" font-size="17" font-weight="700" fill="#202124">OR KEEP CALENDAR</text>
+  <line x1="412" y1="839" x2="474" y2="839" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1130" y1="839" x2="1192" y2="839" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <rect x="80" y="950" width="1440" height="62" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+  <text x="800" y="989" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#F4F1E8">ONLY EXPLICITLY SELECTED CALENDARS PARTICIPATE</text>
+  <text x="800" y="1031" text-anchor="middle" font-family="Courier New, monospace" font-size="18" fill="#202124">EventKit reads calendars already available in macOS Calendar.app.</text>
+</svg>

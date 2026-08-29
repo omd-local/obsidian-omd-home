@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">OMD Home // Bring Sources In, Decide What Changes</title>
+  <desc id="desc">Capture workflow showing a submitted URL or local file entering OMD Home, becoming recoverable Markdown, and optionally going through a review-first proposal path.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>
+    </pattern>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#202124"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="980" fill="#202124"/>
+  <rect width="1600" height="980" fill="url(#grid)" opacity="0.8"/>
+
+  <rect x="42" y="38" width="1516" height="904" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="42" y="38" width="1516" height="82" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+  <text x="76" y="89" font-family="Courier New, monospace" font-size="26" font-weight="700" fill="#F4F1E8">BRING SOURCES IN // DECIDE WHAT CHANGES</text>
+  <text x="1504" y="89" text-anchor="end" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#F4F1E8">LOCAL OMD</text>
+  <path d="M1516 55H1536L1546 65V101H1516Z" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <path d="M1536 55V65H1546" fill="none" stroke="#202124" stroke-width="3"/>
+  <path d="M1522 95V75H1538V95H1542V99H1519V95Z" fill="#202124"/>
+  <rect x="1526" y="83" width="4" height="4" fill="#F4F1E8"/>
+
+  <rect x="80" y="150" width="1440" height="286" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="80" y="150" width="1440" height="48" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="104" y="182" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">CAPTURE PATH</text>
+
+  <rect x="106" y="244" width="250" height="118" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="402" y="244" width="250" height="118" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="698" y="244" width="302" height="118" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="1046" y="244" width="250" height="118" fill="#8064F4" stroke="#202124" stroke-width="3"/>
+  <rect x="1342" y="244" width="150" height="118" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+
+  <text x="231" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">URL OR</text>
+  <text x="231" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">LOCAL FILE</text>
+
+  <text x="527" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">OMD HOME</text>
+  <text x="527" y="318" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Normalize path.</text>
+  <text x="527" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Start owned process.</text>
+
+  <text x="849" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">MANAGED LOCAL</text>
+  <text x="849" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">OMD CAPTURE</text>
+  <text x="849" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Home tab may close.</text>
+
+  <text x="1171" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#F4F1E8">MARKDOWN +</text>
+  <text x="1171" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#F4F1E8">RECOVERY</text>
+  <text x="1171" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="16" fill="#F4F1E8">Readable output + trace.</text>
+
+  <text x="1417" y="294" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">VAULT</text>
+  <text x="1417" y="324" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Saved note</text>
+
+  <line x1="356" y1="303" x2="402" y2="303" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="652" y1="303" x2="698" y2="303" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1000" y1="303" x2="1046" y2="303" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1296" y1="303" x2="1342" y2="303" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <line x1="800" y1="436" x2="800" y2="468" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <rect x="80" y="478" width="1440" height="302" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="80" y="478" width="1440" height="48" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <text x="104" y="510" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">OPTIONAL PROPOSAL PATH</text>
+
+  <rect x="106" y="576" width="250" height="120" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="402" y="576" width="250" height="120" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="698" y="576" width="250" height="120" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="994" y="576" width="190" height="120" fill="#8064F4" stroke="#202124" stroke-width="3"/>
+  <rect x="1230" y="576" width="262" height="120" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+
+  <text x="231" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">SUGGEST</text>
+  <text x="231" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">LINKS + TAGS</text>
+
+  <text x="527" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">BOUNDED</text>
+  <text x="527" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">PROPOSAL</text>
+
+  <text x="823" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">REVIEW</text>
+  <text x="823" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">SCREEN</text>
+
+  <text x="1089" y="632" text-anchor="middle" font-family="Courier New, monospace" font-size="26" font-weight="700" fill="#F4F1E8">APPLY</text>
+
+  <text x="1361" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">VALIDATED</text>
+  <text x="1361" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">VAULT WRITE</text>
+
+  <line x1="356" y1="636" x2="402" y2="636" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="652" y1="636" x2="698" y2="636" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="948" y1="636" x2="994" y2="636" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+  <line x1="1184" y1="636" x2="1230" y2="636" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <rect x="106" y="820" width="620" height="72" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <rect x="874" y="820" width="618" height="72" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
+  <text x="416" y="864" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">NO APPLY = NO WRITE</text>
+  <text x="1183" y="864" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">FAILURE KEEPS CAPTURED MARKDOWN</text>
+</svg>
