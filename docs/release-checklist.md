@@ -69,3 +69,15 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] README and release notes do not promise auto-install, auto-pull, alternate ports, or hosted-provider fallback for local AI.
 - [ ] The locally verified asset hashes match the published release assets.
 - [ ] The Community Plugins submission/reviewer feedback is complete before claiming Marketplace availability.
+
+## Community directory submission
+
+Submit only after the manual release-candidate pass is complete and the release artifact checks
+above are green.
+
+- [ ] Sign in to `community.obsidian.md` with the Obsidian account that owns the plugin.
+- [ ] Connect the GitHub account used for the repository.
+- [ ] Open **Plugins** and choose **New plugin**.
+- [ ] Enter the GitHub repository URL for OMD Home.
+- [ ] Review and agree to the current Developer policies and continue-support prompt.
+- [ ] Wait for the directory review to pass before describing the plugin as ready for the Community directory.

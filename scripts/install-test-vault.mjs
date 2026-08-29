@@ -9,7 +9,14 @@ await mkdir(plugin, { recursive: true });
 for (const file of ["main.js", "styles.css", "manifest.json"]) {
   await copyFile(path.join(root, file), path.join(plugin, file));
 }
-await copyFile(path.join(root, "dist", "omd-eventkit"), path.join(plugin, "omd-eventkit"));
+const eventKitSource = path.join(root, "dist", "omd-eventkit");
+const eventKitDestination = path.join(plugin, "omd-eventkit");
+if (await isExecutableFile(eventKitSource)) {
+  await copyFile(eventKitSource, eventKitDestination);
+  console.log(`Installed optional EventKit helper into ${eventKitDestination}`);
+} else {
+  console.log("Optional EventKit helper not found or not executable; skipping helper install.");
+}
 
 const dataPath = path.join(plugin, "data.json");
 const siblingOmd = path.resolve(root, "..", "omd", ".venv", "bin", "omd");
@@ -32,3 +39,16 @@ if (!enabled.includes("omd-home")) enabled.push("omd-home");
 await writeFile(enabledPath, `${JSON.stringify(enabled, null, 2)}\n`);
 await writeFile(path.join(config, "app.json"), "{}\n", { flag: "wx" }).catch(() => {});
 console.log(`Installed OMD Home into ${plugin}`);
+
+async function isExecutableFile(targetPath) {
+  try {
+    const { constants } = await import("node:fs");
+    const { stat } = await import("node:fs/promises");
+    const details = await stat(targetPath);
+    if (!details.isFile()) return false;
+    await access(targetPath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}

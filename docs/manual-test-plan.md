@@ -4,6 +4,19 @@ Use a disposable vault. Install the current build with `npm run install:test-vau
 OMD Home, and configure the OMD executable, loopback Ollama endpoint/model, and optional
 EventKit helper. Keep Obsidian's developer console open for unexpected errors.
 
+## Release-candidate pass
+
+Run the core cases first. Use the extended cases when you want deeper local AI and retrieval
+coverage before release.
+
+| Pass | Case IDs | Result | Notes |
+| --- | --- | --- | --- |
+| Core | `Install-00`, `HOME-01`, `HOME-02`, `AI-01`, `AI-02`, `AI-04`, `AI-05`, `AI-07`, `AI-08`, `CMD-01`, `CAL-00`, `CAL-01`, `CAL-02`, `CAP-01`, `CAP-02`, `CAP-03`, `CAP-06`, `REL-01` |  | User-facing install, layout, local AI, command, calendar, capture, and bundle checks. |
+| Extended | `AI-03`, `AI-06`, `AI-09`, `AI-10`, `AI-11` |  | Local AI privacy gates, provider preservation, and retrieval quality checks. |
+
+Record each run as pass/fail with a short note, a screenshot when the UI is involved, and the
+exact build or release asset set under test.
+
 ## Home and omnibox
 
 ### Install-00: clean install and community release sanity
@@ -21,21 +34,23 @@ EventKit helper. Keep Obsidian's developer console open for unexpected errors.
    - no startup crash
    - no missing plugin warning in Needs attention
    - Home and command palette actions are available
-7. Run these minimum checks (no helper dependencies needed):
-   - AI-01
+7. Run these minimum checks before optional helpers are installed:
    - HOME-01
    - HOME-02
-   - AI-02 step 1 and step 2 (connection/unreachability)
+   - CMD-01
+   - CAP-03 step 1 and step 2
 8. Install optional helpers if used:
    - OMD executable
    - Python bridge auto-discover path (or explicit override)
    - EventKit helper (macOS only)
    - Ollama + local models
-9. Run AI-03, AI-04, and AI-07 using the installed dependencies.
-10. Remove local plugin folder again and repeat steps 4–9 to validate clean-reinstall behavior.
+9. Run AI-01, AI-02, AI-03, AI-04, and AI-07 using the installed dependencies.
+10. Without deleting `data.json`, reinstall the same plugin assets into the same folder and repeat
+    steps 6-9 to validate clean-reinstall behavior.
 
 Expected: clean install and clean reinstall both produce identical behavior; all failures are surfaced in
-Needs attention and can be retried; no data or layout file is required in a location outside the target vault.
+Needs attention and can be retried; no data or layout file is required in a location outside the target vault;
+reinstalling plugin assets does not overwrite the vault's existing `data.json`.
 
 ### HOME-01: default layout and note alignment
 
@@ -115,8 +130,8 @@ fail-closed until Ollama explicitly reports local-only mode.
 
 ### AI-03: per-workflow smoke tests
 
-Prerequisite: complete AI-02 with `cloud.disabled: true`. While Cloud availability is still enabled,
-all three Smoke buttons are expected to stop at the same privacy gate without sending content.
+Prerequisite: complete AI-02 and restore verified local-only mode with `cloud.disabled: true`.
+The shared cloud-enabled privacy gate is covered separately by AI-06.
 
 1. In **Settings > OMD Home > Local AI**, find **Vault Q&A model** and press the **Smoke**
    button on that same row. Do not type `@` in Home for this step: `@` starts the real
