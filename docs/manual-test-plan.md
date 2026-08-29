@@ -11,7 +11,7 @@ EventKit helper. Keep Obsidian's developer console open for unexpected errors.
 1. Close Obsidian.
 2. Remove any existing local install copies you want to force-clean:
    - `<vault>/.obsidian/plugins/omd-home` for each tested vault.
-   - Optional manual cleanup: `rm -rf ~/.obsidian/plugins/omd-home` if you keep a global sandbox folder.
+   - Optional manual cleanup only if you know a custom global plugin test vault path, remove that same plugin folder directly.
 3. Download release assets from GitHub (`main.js`, `manifest.json`, `styles.css`) or checkout the
    branch commit you want to test.
 4. Copy only those three files into the target vault plugin folder.
