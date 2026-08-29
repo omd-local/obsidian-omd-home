@@ -11,8 +11,8 @@ coverage before release.
 
 | Pass | Case IDs | Result | Notes |
 | --- | --- | --- | --- |
-| Core | `Install-00`, `HOME-01`, `HOME-02`, `AI-01`, `AI-02`, `AI-04`, `AI-05`, `AI-07`, `AI-08`, `CMD-01`, `CAL-00`, `CAL-01`, `CAL-02`, `CAP-01`, `CAP-02`, `CAP-03`, `CAP-06`, `REL-01` |  | User-facing install, layout, local AI, command, calendar, capture, and bundle checks. |
-| Extended | `AI-03`, `AI-06`, `AI-09`, `AI-10`, `AI-11` |  | Local AI privacy gates, provider preservation, and retrieval quality checks. |
+| Core | `Install-00`, `HOME-01`, `HOME-02`, `AI-01`, `AI-02`, `AI-03`, `AI-04`, `AI-05`, `AI-07`, `AI-08`, `CMD-01`, `CAL-00`, `CAL-01`, `CAL-02`, `CAP-01`, `CAP-02`, `CAP-03`, `CAP-06`, `REL-01` |  | User-facing install, layout, local AI, command, calendar, capture, and bundle checks. |
+| Extended | `AI-06`, `AI-09`, `AI-10`, `AI-11` |  | Local AI privacy gates, provider preservation, and retrieval quality checks. |
 
 Record each run as pass/fail with a short note, a screenshot when the UI is involved, and the
 exact build or release asset set under test.
@@ -431,7 +431,7 @@ cancellation.
 ### REL-01: clean-vault install and bundle acceptance
 
 1. Start from a clean disposable vault with no prior OMD Home files in `.obsidian/plugins/`.
-2. Run `npm run build`, copy the released `manifest.json`, `main.js`, and `styles.css` into a
+2. Run `npm run build`, copy the release-candidate `manifest.json`, `main.js`, and `styles.css` into a
    fresh `omd-home` plugin directory, then enable the plugin from Community plugins.
 3. Disable and re-enable the plugin once, then fully quit and reopen Obsidian.
 4. Open Settings and confirm the plugin name, description, version, and settings screen render

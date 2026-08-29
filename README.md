@@ -2,7 +2,7 @@
 
 <img src="docs/assets/omd-home-icon.png" alt="OMD Home pixel icon: a doorway inside a Markdown note" width="144">
 
-<sub>OMD HOME // PUBLIC BETA 0.1.0</sub>
+<sub>OMD HOME // PUBLIC BETA 0.1.1</sub>
 
 # OMD Home
 
@@ -150,9 +150,9 @@ npm run build:eventkit
 npm run install:test-vault
 ```
 
-`npm run install:test-vault` copies `main.js`, `manifest.json`, `styles.css`,
-and the built `dist/omd-eventkit` helper into this repository's disposable
-`test-vault/`.
+`npm run install:test-vault` always copies `main.js`, `manifest.json`, and
+`styles.css` into this repository's disposable `test-vault/`. It also copies
+`dist/omd-eventkit` when a built executable helper is present.
 
 ## Choose your setup
 
@@ -213,9 +213,9 @@ Build the helper on macOS:
 npm run build:eventkit
 ```
 
-For a development vault, `npm run install:test-vault` installs
-`dist/omd-eventkit` beside the plugin. For another vault, build the helper
-first, then copy the executable
+For the repository test vault, `npm run install:test-vault` installs
+`dist/omd-eventkit` beside the plugin when the built helper is present and
+executable. For another vault, build the helper first, then copy the executable
 to `.obsidian/plugins/omd-home/omd-eventkit` or select its absolute path in OMD
 Home settings.
 
