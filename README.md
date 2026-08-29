@@ -48,7 +48,7 @@ local Q&A share one controlled entrance while Obsidian remains the source of tru
 | **Home** | A centered dashboard for Today, Upcoming, Recent notes, Pinned notes, Vault tags, system health, and the work that needs attention. |
 | **Omnibox** | Vault search, Obsidian and community commands, quick notes, URL or file capture, event creation, recording commands, and read-only `@` vault questions. |
 | **Calendar** | Month, week, day, and list views for Markdown events plus explicitly selected macOS calendars. |
-| **Inbox** | Recent OMD captures, review-first link and tag suggestions, current work, failures, timestamps, details, retry, and cancellation. |
+| **Inbox** | Recent OMD captures plus review-first link and tag suggestions for notes that are still in the Inbox flow. |
 
 Widgets use a 12-column grid, move occupied cards out of the way, and keep their
 layout per device viewport. Standard sizes are always available from each
@@ -258,8 +258,9 @@ Start and Stop commands; OMD Home does not create a second recorder.
 
 **Current task** shows only active work and its Cancel action. **Needs
 attention** owns unresolved failures with a timestamp, safe source label,
-details, and Retry. Missing or incompatible OMD, Ollama, model, bridge, and
-EventKit states surface there instead of failing silently.
+details, and the right recovery action for that failure, such as capture retry,
+Local AI checks, or Calendar follow-up. Missing or incompatible OMD, Ollama,
+model, bridge, and EventKit states surface there instead of failing silently.
 
 ## Privacy and failure boundaries
 
