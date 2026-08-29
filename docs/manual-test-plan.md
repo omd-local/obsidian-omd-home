@@ -6,6 +6,37 @@ EventKit helper. Keep Obsidian's developer console open for unexpected errors.
 
 ## Home and omnibox
 
+### Install-00: clean install and community release sanity
+
+1. Close Obsidian.
+2. Remove any existing local install copies you want to force-clean:
+   - `<vault>/.obsidian/plugins/omd-home` for each tested vault.
+   - Optional manual cleanup: `rm -rf ~/.obsidian/plugins/omd-home` if you keep a global sandbox folder.
+3. Download release assets from GitHub (`main.js`, `manifest.json`, `styles.css`) or checkout the
+   branch commit you want to test.
+4. Copy only those three files into the target vault plugin folder.
+5. Launch Obsidian, open **Settings > Community plugins**, and disable then re-enable OMD Home once
+   before first open.
+6. Run **OMD Home: Open home** and confirm:
+   - no startup crash
+   - no missing plugin warning in Needs attention
+   - Home and command palette actions are available
+7. Run these minimum checks (no helper dependencies needed):
+   - AI-01
+   - HOME-01
+   - HOME-02
+   - AI-02 step 1 and step 2 (connection/unreachability)
+8. Install optional helpers if used:
+   - OMD executable
+   - Python bridge auto-discover path (or explicit override)
+   - EventKit helper (macOS only)
+   - Ollama + local models
+9. Run AI-03, AI-04, and AI-07 using the installed dependencies.
+10. Remove local plugin folder again and repeat steps 4–9 to validate clean-reinstall behavior.
+
+Expected: clean install and clean reinstall both produce identical behavior; all failures are surfaced in
+Needs attention and can be retried; no data or layout file is required in a location outside the target vault.
+
 ### HOME-01: default layout and note alignment
 
 1. Reset the widget layout from the Home header.
