@@ -99,6 +99,13 @@ test("Phase 2 settings expose an explicit provider choice and destination bounda
   assert.doesNotMatch(source, /Refresh models/u);
 });
 
+test("answer model labels stay plain and keep the instruct guidance in the description", () => {
+  const answerModelBlock = extractFunctionBody(source, "private answerModelSetting");
+  assert.doesNotMatch(answerModelBlock, /use an instruct model/iu);
+  assert.match(answerModelBlock, /Prefer a chat or instruct model/iu);
+  assert.match(answerModelBlock, /Custom model id saved\. Run Check setup to verify it is installed\./u);
+});
+
 test("model selectors expose every installed model plus Custom and stale values", () => {
   const optionsStart = source.indexOf("const options = this.plugin.localAiState.models");
   const optionsEnd = source.indexOf("options.__custom__", optionsStart);
@@ -134,6 +141,7 @@ test("AI answer settings rerender only their section and expose durable action f
   assert.match(source, /setButtonText\("Open Ollama app"\)/u);
   assert.match(source, /this\.plugin\.openOllamaApp\(\)/u);
   assert.match(source, /"Advanced AI controls"/u);
+  assert.match(source, /Enrichment and capture polish are separate local passes/iu);
   assert.doesNotMatch(source, /setButtonText\("Cancel"\)/u);
   assert.equal([...source.matchAll(/settingsDisclosure\(\s*container,\s*"(?:Search quality|Local capture and links|Ollama troubleshooting)"/gu)].length, 0);
 });

@@ -289,7 +289,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
 
     new Setting(advanced)
       .setName("Local capture and links")
-      .setDesc("Enrichment, capture polish, links, and tags always use loopback Ollama.")
+      .setDesc("Enrichment and capture polish are separate local passes. Both use loopback Ollama; keep the two model selectors the same if you want one model for both.")
       .setHeading();
     this.modelSetting(advanced, "Enrichment model", "Review-first link and tag suggestions.", "enrichmentModel", "enrichment");
     new Setting(advanced)
@@ -396,9 +396,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         : this.plugin.hostedAiState?.provider === provider ? this.plugin.hostedAiState.models : [];
     const current = this.plugin.settings.aiModel.trim();
     const options = models.reduce<Record<string, string>>((result, model) => {
-      const suffix = provider === "ollama" && modelIsKnownThinkingOnly(model)
-        ? " (use an instruct model)"
-        : provider === "ollama" && model.capabilities.length > 0 && !model.supportsCompletion
+      const suffix = provider === "ollama" && model.capabilities.length > 0 && !model.supportsCompletion
           ? " (not text-capable)"
           : "";
       result[model.name] = `${model.name}${suffix}`;
@@ -415,7 +413,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .setDesc(provider === "ollama-cloud"
         ? "Cloud-backed models detected by the local Ollama app. This selection is remembered for setup only in this build."
         : provider === "ollama"
-          ? "The local model used for read-only @ questions."
+          ? "The local model used for read-only @ questions. Prefer a chat or instruct model."
           : "The provider model validated by Check setup. This selection is remembered for setup only in this build.")
       .addDropdown((dropdown) => {
         dropdown.addOptions(options);
@@ -424,6 +422,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           if (value === "__empty__" || value === "__saved__") return;
           if (value === "__custom__") {
             this.customModelModes.add("qa");
+            new Notice("Enter the exact model id, then run Check setup to verify it.");
             this.renderLocalAiSection(container);
             return;
           }
@@ -433,10 +432,16 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         });
       });
     if (custom) {
-      setting.addText((text) => text
-        .setPlaceholder("Exact provider model id")
-        .setValue(current)
-        .onChange(async (value) => await this.saveAnswerModel(provider, value)));
+      setting.addText((text) => {
+        text
+          .setPlaceholder("Exact provider model id")
+          .setValue(current)
+          .onChange(async (value) => await this.saveAnswerModel(provider, value));
+        text.inputEl.addEventListener("blur", () => {
+          if (!text.getValue().trim()) return;
+          new Notice("Custom model id saved. Run Check setup to verify it is installed.");
+        });
+      });
     }
     setting.settingEl.addClass("omd-settings-model", "omd-settings-answer-model");
   }
@@ -648,7 +653,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         const suffix = modelHasRemoteMetadata(model)
           ? " (remote blocked)"
           : modelIsKnownThinkingOnly(model)
-            ? " (thinking-only; use instruct)"
+            ? ""
           : model.capabilities.length > 0 && !model.supportsCompletion
             ? " (not text-capable)"
           : model.capabilities.length === 0
