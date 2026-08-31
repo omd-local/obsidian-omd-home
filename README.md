@@ -6,11 +6,11 @@
 
 # OMD Home
 
-**One front door for capture, calendars, review, and questions grounded in your vault.**
+**A single doorway for capture, calendars, review, and vault-grounded questions.**
 
-The paper-with-a-door icon is the product in miniature: one controlled entrance into work you already own.
+The note is your vault. The doorway is the controlled working surface around it.
 
-Bring sources in. See the day. Ask with evidence. Review every proposed write.
+Bring sources in. See the day. Ask with evidence. Review every write before it lands.
 Your Markdown files remain the source of truth.
 
 [![CI](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml/badge.svg)](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml)
@@ -27,17 +27,20 @@ Your Markdown files remain the source of truth.
 </div>
 
 > [!IMPORTANT]
-> OMD Home is a desktop-only plugin. Home, Markdown events, capture, and local
-> AI work on supported desktop platforms. Apple Calendar integration requires
-> macOS 14 or newer and the separately built EventKit helper. Until OMD Home is
-> listed in Obsidian Community Plugins, install it from GitHub Releases.
+> OMD Home requires Obsidian desktop 1.11.4 or newer. It is a desktop-only plugin.
+> Home, Markdown events, capture, and local AI work on supported desktop
+> platforms. Apple Calendar integration requires macOS 14 or newer and the
+> separately built EventKit helper. Until OMD Home is listed in Obsidian
+> Community Plugins, install it from GitHub Releases.
 >
 > OMD Home does not install, update, or bundle OMD, Python, Ollama, or the EventKit helper.
+> When OMD is missing, the plugin can copy the official install commands or
+> open the official guide. It never executes those commands for you.
 
 ## One doorway, four rooms
 
 OMD Home is a doorway, not a second vault. Capture, calendar, review, and
-local Q&A share one controlled entrance while Obsidian remains the source of truth.
+vault Q&A share one controlled entrance while Obsidian remains the source of truth.
 
 <img src="docs/assets/omd-home-system-overview.svg" alt="OMD Home system overview" />
 
@@ -48,7 +51,7 @@ local Q&A share one controlled entrance while Obsidian remains the source of tru
 | **Home** | A centered dashboard for Today, Upcoming, Recent notes, Pinned notes, Vault tags, system health, and the work that needs attention. |
 | **Omnibox** | Vault search, Obsidian and community commands, quick notes, URL or file capture, event creation, recording commands, and read-only `@` vault questions. |
 | **Calendar** | Month, week, day, and list views for Markdown events plus explicitly selected macOS calendars. |
-| **Inbox** | Recent OMD captures plus review-first link and tag suggestions for notes that are still in the Inbox flow. |
+| **Inbox** | Recent OMD captures, review-first link and tag suggestions, current work, failures, timestamps, details, retry, and cancellation. |
 
 Widgets use a 12-column grid, move occupied cards out of the way, and keep their
 layout per device viewport. Standard sizes are always available from each
@@ -96,8 +99,8 @@ Type `@` in the omnibox to ask a question. Vault Q&A is read-only and renders
 its answer in an owned result panel with evidence chips, retrieval mode,
 elapsed time, and **Copy result**.
 
-This room is intentionally conservative. The answer can inspect local evidence,
-but it does not get to silently rewrite the vault.
+This room is intentionally conservative. It can inspect bounded evidence, but it
+does not get to silently rewrite the vault.
 
 <img src="docs/assets/omd-home-vault-ai.svg" alt="OMD Home vault Q&A flow" />
 
@@ -105,17 +108,33 @@ Hybrid retrieval can combine sparse recall with a locally installed embedding
 model. If semantic recall fails, OMD Home labels the sparse fallback instead of
 claiming a hybrid result. Optional semantic reranking is off by default.
 
-Phase 1a local AI allows only the default local Ollama endpoints:
-`http://localhost:11434` and `http://127.0.0.1:11434`. Before any vault content
-is sent, OMD Home verifies that Ollama is reachable, the selected model exists
-locally, and requires Ollama Cloud to be disabled. It does not silently switch
-models or fall back to a hosted provider.
+OMD Home supports explicit answer-provider setup for local Ollama on this computer,
+Ollama Cloud through the local Ollama app, OpenAI API, Anthropic API, and
+DeepSeek API.
+
+This beta keeps one live answer path: local Ollama on this computer. Hosted provider
+setup can read credentials, discover models, and verify model availability, but
+real hosted Vault Q&A stays fail-closed before any vault evidence is sent. A future
+hosted path should add explicit per-question evidence preview and consent, but
+that send step is not enabled in this beta.
+
+Local-first rules still apply where they matter:
+
+- The live local Ollama answer path accepts only `http://localhost:11434` and
+  `http://127.0.0.1:11434`.
+- Local answer mode, note enrichment, capture polish, and local embedding-based
+  retrieval require Ollama to prove that Cloud is disabled before vault content
+  is sent over loopback.
+- Hosted provider setup never silently falls back across providers.
+- If local hybrid retrieval cannot be verified safely, Vault Q&A falls back to
+  sparse retrieval and labels that fallback instead of pretending it stayed hybrid.
 
 Settings provide:
 
-- **Refresh** model discovery from the live local daemon.
-- **Check** connection, version, and cloud-disabled readiness.
-- **Smoke** checks that do not send vault content.
+- **Check setup** for the selected provider, model, and safety boundary.
+- **Test embeddings** for local hybrid retrieval.
+- `OMD Home: Refresh local AI models` from the command palette when you want to
+  rescan local Ollama models without changing the saved selection.
 
 ## Install
 
@@ -159,39 +178,84 @@ npm run install:test-vault
 OMD Home starts with useful vault-only features. Add local tools only for the
 workflows you want.
 
+### Connect OMD
+
+On startup, OMD Home checks the app executable path and safe common locations
+used by Homebrew, MacPorts, user installs, and local Python environments. It
+probes candidates for the compatible OMD capability contract and can continue
+past a missing or outdated candidate to find a current one.
+
+If no compatible install is found, **Settings > OMD Home > OMD** and the Home
+**Needs attention** widget provide **Copy install commands**, **Install guide**,
+and **Check again** actions. On macOS, the copied commands are:
+
+```bash
+brew install omd-local/omd/omd
+omd doctor
+```
+
+Windows and Linux receive the official source-install steps instead. OMD Home
+only copies the text or opens the
+[Markdown Everything quick start](https://github.com/omd-local/markdown-everything#quick-start);
+it does not download a release, run a shell, request administrator access, or
+change a Python environment.
+
+Most users should leave **Advanced OMD paths** closed. Open it only to select a
+specific OMD or Python environment when automatic discovery cannot reach the
+right one. Clearing the OMD override restores automatic discovery.
+
 | Capability | Minimum setup | Boundary |
 |---|---|---|
 | Home, search, commands, quick notes, Markdown events | Obsidian desktop | Current vault only |
-| URL and file capture | A configured or discoverable OMD executable | Submitted URL or file; URLs contact their source |
+| URL and file capture | A compatible local OMD install, discovered automatically when possible | Submitted URL or file; URLs contact their source |
 | Link and tag proposals | A compatible OMD executable and local Ollama | Review-first; no write before Apply |
 | Vault Q&A | OMD with retrieval support, a Python interpreter, and local Ollama | Bounded evidence over loopback; read-only |
+| Hosted answer-provider setup | OMD with `ai_service`, provider-model discovery, and credential support | Setup only in this beta; no vault evidence egress |
 | Hybrid retrieval | A local embedding model selected in settings | Derived vectors stay local; query vectors are not persisted |
 | Apple Calendar sync | macOS 14+, EventKit helper, Calendar permission | Explicitly selected calendars only |
 | Google or Outlook calendar sync | Account already added to macOS Calendar | Uses the same selected EventKit calendars |
 
 <details>
-<summary><strong>LOCAL AI SETUP // Ollama, models, and readiness</strong></summary>
+<summary><strong>ASK VAULT SETUP // local answers first, hosted providers staged</strong></summary>
 
 1. Install and start Ollama.
-2. Install a completion model yourself. For example:
+2. If you want local Vault Q&A, enrichment, or capture polish, install a
+   completion model yourself. For example:
 
    ```bash
    ollama pull qwen3:4b-instruct
    ```
 
 3. To use hybrid retrieval, install a local embedding model such as `bge-m3`.
-4. In **Settings > OMD Home > Local AI**, press **Refresh models** and choose
-   a model for each workflow.
-5. Press **Check connection**, then use the row-level **Smoke** actions. Smoke
-   tests send no vault content.
+4. In **Settings > OMD Home > AI answers**, choose an answer provider.
+   - For **Ollama on this computer**, choose a local model and press **Check setup**.
+   - For **Ollama Cloud**, sign in to the Ollama app, choose one of the detected
+     cloud-backed models, and press **Check setup**. This confirms setup only.
+   - For **OpenAI API**, **Anthropic API**, or **DeepSeek API**, configure a
+     developer API key, press **Check setup** to load models, then choose one.
+     On macOS, OMD Home can save the key to macOS Keychain. On Windows and
+     Linux, set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`
+     before starting Obsidian. Keys never enter notes or plugin settings. OpenAI API billing
+     stays separate from ChatGPT subscriptions, and Anthropic API billing stays
+     separate from Claude subscriptions.
+5. If local models changed on disk, run **OMD Home: Refresh local AI models**
+   from the command palette, then return to **Check setup**.
 6. Leave the Python bridge override blank to use the bridge bundled in
-   `main.js`. OMD Home derives the Python interpreter from the configured OMD
+   `main.js`. OMD Home derives the Python interpreter from the detected OMD
    launcher when that launcher has a direct Python shebang. Otherwise, set an
    explicit Python executable.
 
-OMD Home requires a verifiable local-only Ollama daemon. Put the following in
-`~/.ollama/server.json`, preserve any unrelated keys, fully quit and reopen
-Ollama, then run **Check connection** again:
+Official provider references:
+
+- [Ollama API introduction](https://docs.ollama.com/api/introduction)
+- [OpenAI API model docs](https://developers.openai.com/api/docs/models)
+- [Anthropic API overview](https://platform.claude.com/docs/en/api/overview)
+- [DeepSeek API docs](https://api-docs.deepseek.com/api/deepseek-api)
+
+OMD Home requires a verifiable local-only Ollama daemon for local answer mode,
+note enrichment, capture polish, and local embedding retrieval. Put the
+following in `~/.ollama/server.json`, preserve any unrelated keys, fully quit
+and reopen Ollama, then run **Check setup** again:
 
 ```json
 {
@@ -199,8 +263,9 @@ Ollama, then run **Check connection** again:
 }
 ```
 
-OMD Home does not auto-pull, auto-install, or auto-select models. Incompatible
-and stale saved models remain visible with an actionable status.
+OMD Home does not auto-pull, auto-install, auto-select models, or silently send
+vault content to a hosted provider. Incompatible and stale saved models remain
+visible with an actionable status.
 
 </details>
 
@@ -247,6 +312,7 @@ to be open:
 - **Open home** and **Focus omnibox**
 - **Open calendar**, **Create event**, and **Sync linked calendar events**
 - **Capture URL or file** and **Cancel active OMD action**
+- **Check OMD setup** and **Open OMD install guide**
 - **Suggest links and tags**
 - **Refresh local AI models**, **Check local AI connection**, and
   **Test local AI embeddings**
@@ -266,16 +332,21 @@ model, bridge, and EventKit states surface there instead of failing silently.
 
 - No OMD Home telemetry, ads, account creation, or payment flow.
 - No automatic helper install, executable update, model pull, or model switch.
-- No hosted-provider fallback in Phase 1a.
+- OMD setup actions copy official text or open an external guide. They never
+  execute an installer or mutate a Python environment.
+- Cloud answer providers are explicit BYOK setup choices. In this beta, OMD
+  Home can read credentials, discover models, and validate availability, but
+  hosted Vault Q&A stops before any vault evidence leaves your device.
 - OMD Home reads and writes only the current vault, except when it launches a
   local executable you configured or discovered.
 - Optional EventKit integration uses local macOS permissions and only the
   calendars selected in OMD Home.
 - URL conversion is local-first, not offline: OMD contacts the URL you submit.
-- Review-first note enrichment sends only bounded note content, ranked candidate metadata, and bounded vault tags to the configured local OMD executable.
-- Local AI receives bounded note content and metadata over an accepted loopback
-  Ollama endpoint. Review generated answers, links, and tags before relying on
-  them.
+- Review-first note enrichment sends only bounded note content, ranked candidate metadata, and bounded vault tags to the detected local OMD installation.
+- Local Ollama receives bounded note content and metadata only over an accepted
+  loopback endpoint. Retrieval, capture, enrichment, and embedding work remain
+  local in this beta. Review generated answers, links, and tags before relying
+  on them.
 - Disabling or reloading the plugin and quitting Obsidian cancel plugin-owned
   child work. Closing only the Home tab does not.
 
@@ -330,7 +401,7 @@ components remain under their own licences; see
 
 <div align="center">
 
-**BRING SOURCES IN -> SEE THE DAY -> ASK WITH EVIDENCE -> KEEP CONTROL**
+**ONE DOORWAY -> LOCAL EVIDENCE -> REVIEW BEFORE WRITE -> KEEP THE VAULT YOURS**
 
 [Download](https://github.com/omd-local/obsidian-omd-home/releases/latest) ·
 [Read about OMD](https://github.com/omd-local/markdown-everything) ·

@@ -75,6 +75,9 @@ test("executeWithLocalAiGate rechecks the snapshot after the awaited gate", asyn
 test("askOmd and enrichment controller are wired to the gate seam", () => {
   assert.match(mainSource, /executeWithLocalAiGate\(/u);
   assert.match(enrichmentControllerSource, /this\.plugin\.runLocalAiGated\(/u);
+  assert.match(mainSource, /await this\.requireReadyOmdExecutable\(\)/u);
+  assert.match(enrichmentControllerSource, /const executable = await this\.plugin\.requireReadyOmdExecutable\(\)/u);
+  assert.doesNotMatch(enrichmentControllerSource, /executable: this\.plugin\.settings\.omdExecutable/u);
   assert.match(mainSource, /createWorkflowSnapshot\("qa"/u);
   assert.match(enrichmentControllerSource, /createWorkflowSnapshot\("enrichment"/u);
 });
@@ -85,4 +88,31 @@ test("capture always uses the shared gate seam and binds the invocation polish f
   assert.match(mainSource, /enabled: gatedSnapshot\.enabled/u);
   assert.match(mainSource, /model: gatedSnapshot\.model/u);
   assert.match(mainSource, /host: gatedSnapshot\.host/u);
+});
+
+test("Vault Q&A stays fail-closed for cloud providers in this build", () => {
+  assert.match(mainSource, /if \(this\.settings\.aiProvider !== "ollama"\) \{/u);
+  assert.match(mainSource, /const provider = aiProviderLabel\(this\.settings\.aiProvider\);/u);
+  assert.match(mainSource, /sending vault evidence to a cloud answer provider is not enabled in this build/u);
+  assert.match(mainSource, /Select Ollama on this computer to answer locally\./u);
+  assert.match(mainSource, /const preview = await this\.previewLocalAnswer\(query\);/u);
+  assert.doesNotMatch(mainSource, /previewCloudAnswer\(query/u);
+  assert.doesNotMatch(mainSource, /executeCloudAnswer\(query/u);
+});
+
+test("cloud answers stay pinned to the selected provider and never fall back across providers", () => {
+  assert.match(mainSource, /async checkHostedAiConnection\(\): Promise<boolean>/u);
+  assert.match(mainSource, /async checkOllamaCloudConnection\(\): Promise<boolean>/u);
+  assert.doesNotMatch(mainSource, /provider === "openai"[\s\S]{0,160}anthropic|provider === "anthropic"[\s\S]{0,160}openai|provider === "deepseek"[\s\S]{0,160}openai/su);
+});
+
+test("hybrid retrieval falls back to sparse search when local embedding safety cannot be verified", () => {
+  assert.match(mainSource, /const status = await this\.ollamaLocalClient\.status\(host, signal\)/u);
+  assert.match(mainSource, /const models = await this\.ollamaLocalClient\.tags\(host, signal\)/u);
+  assert.match(mainSource, /const inspected = buildModelEntry\(await this\.safeShowModel\(host, embeddingModel, signal\)\)/u);
+  assert.match(mainSource, /if \(modelHasRemoteMetadata\(inspected\)\)/u);
+  assert.match(mainSource, /if \(!modelSupportsEmbedding\(inspected\)\)/u);
+  assert.match(mainSource, /hybridRetrievalEnabled:\s*false/u);
+  assert.match(mainSource, /semanticRerankEnabled:\s*false/u);
+  assert.match(mainSource, /warning:\s*"hybrid_retrieval_local_safety_fallback"/u);
 });

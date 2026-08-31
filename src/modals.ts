@@ -1,5 +1,4 @@
 import { App, Modal, Setting } from "obsidian";
-import type { AiPreview } from "./omd-bridge";
 import { captureSourceFromDrop, normalizeCaptureSource } from "./omnibox-utils";
 
 export class CaptureModal extends Modal {
@@ -101,29 +100,6 @@ export class CaptureModal extends Modal {
   }
 }
 
-export class ConfirmModal extends Modal {
-  constructor(
-    app: App,
-    private readonly title: string,
-    private readonly body: string,
-    private readonly confirmLabel: string,
-    private readonly onConfirm: () => void | Promise<void>,
-  ) { super(app); }
-
-  onOpen(): void {
-    this.titleEl.setText(this.title);
-    this.contentEl.createEl("p", { text: this.body });
-    new Setting(this.contentEl)
-      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((button) => button.setCta().setButtonText(this.confirmLabel).onClick(async () => {
-        this.close();
-        await this.onConfirm();
-      }));
-  }
-
-  onClose(): void { this.contentEl.empty(); }
-}
-
 function captureSourceFromDataTransfer(dataTransfer: DataTransfer | null): string {
   const file = dataTransfer?.files?.[0];
   const filePath = file && "path" in file && typeof file.path === "string" ? file.path : "";
@@ -132,33 +108,4 @@ function captureSourceFromDataTransfer(dataTransfer: DataTransfer | null): strin
     dataTransfer?.getData("text/uri-list") ?? "",
     dataTransfer?.getData("text/plain") ?? "",
   );
-}
-
-export class AiConsentModal extends Modal {
-  constructor(app: App, private readonly value: AiPreview, private readonly onConfirm: () => Promise<void>) {
-    super(app);
-  }
-
-  onOpen(): void {
-    const { preview, evidence } = this.value;
-    this.titleEl.setText("Cloud for this task");
-    this.contentEl.createEl("p", {
-      text: `${preview.provider} / ${preview.model} at ${preview.destination_domain}. ${preview.estimated_input_tokens} estimated input tokens.`,
-    });
-    this.contentEl.createEl("p", { text: preview.data_handling_summary });
-    this.contentEl.createEl("p", { text: "Selected vault evidence:" });
-    const list = this.contentEl.createEl("ul", { cls: "omd-consent-evidence" });
-    for (const hit of evidence) list.createEl("li", { text: `${hit.path}: ${hit.evidence}` });
-    if (preview.policy_url) {
-      this.contentEl.createEl("a", { text: "Current provider policy", href: preview.policy_url, attr: { target: "_blank", rel: "noopener" } });
-    }
-    new Setting(this.contentEl)
-      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((button) => button.setCta().setButtonText("Send this context").onClick(async () => {
-        this.close();
-        await this.onConfirm();
-      }));
-  }
-
-  onClose(): void { this.contentEl.empty(); }
 }

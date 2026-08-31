@@ -307,7 +307,7 @@ function mapTransportError(error: unknown): Error {
   const detail = error instanceof Error ? error.message : String(error);
   return new LocalAiError(
     "daemon_unreachable",
-    "Ollama is not reachable at the configured local endpoint. Start the Ollama app or run `ollama serve`.",
+    "Ollama is not reachable at the configured local endpoint. Open the Ollama app or start its local service, then check the connection again.",
     detail,
   );
 }

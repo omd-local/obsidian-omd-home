@@ -8,6 +8,14 @@ import {
   type WorkspaceLeaf,
 } from "obsidian";
 import embeddedPythonBridge from "../bridge/omd_home_bridge.py";
+import {
+  aiProviderDestination,
+  aiProviderLabel,
+  isHostedApiProvider,
+  isOllamaCloudModel,
+  isStoredAiProvider,
+  selectedAiModel,
+} from "./ai-provider.ts";
 import { formatAiAnswerForClipboard, formatAnswerElapsedTime } from "./ai-answer";
 import { HOME_VIEW_TYPE, OmdHomeView } from "./home-view";
 import { CALENDAR_VIEW_TYPE, OmdCalendarView } from "./calendar-view";
@@ -28,14 +36,27 @@ import {
   resolveEventKitHelperPath,
 } from "./eventkit-bridge";
 import { eventNotePath, recordFromFrontmatter, serializeEventNote, updateEventNote } from "./event-note";
-import { AiConsentModal, CaptureModal } from "./modals";
+import { CaptureModal } from "./modals";
 import { OmdCapabilityService } from "./enrichment/capability";
 import { EnrichmentWorkflowController } from "./enrichment/controller.ts";
 import { OmdEnrichmentRunner } from "./enrichment/runner";
-import { toUserFacingEnrichmentMessage } from "./enrichment/errors.ts";
+import {
+  isEnrichmentError,
+  OmdEnrichmentError,
+  toUserFacingEnrichmentMessage,
+  type EnrichmentErrorCode,
+} from "./enrichment/errors.ts";
 import { inspectVaultRelativeMarkdownPath } from "./enrichment/path-safety.ts";
 import { capturedOutputVaultPath, isOmdInboxNote } from "./inbox";
 import { normalizeCaptureSource } from "./omnibox-utils";
+import { isPinnedNote, setPinnedNote } from "./pinned-notes";
+import {
+  discoverOmdExecutable,
+  isAutomaticOmdExecutable,
+  OMD_INSTALL_GUIDE_URL,
+  omdInstallInstructions,
+  type OmdDiscoveryMode,
+} from "./omd-discovery.ts";
 import { executeWithLocalAiGate } from "./local-ai-execution";
 import {
   aggregateLocalAiState,
@@ -56,9 +77,12 @@ import {
   resolveEmbeddingModelRevision,
 } from "./local-ai-readiness";
 import { OllamaLocalClient } from "./ollama-local-client";
+import { canOpenOllamaDesktopApp, openOllamaDesktopApp } from "./ollama-app";
 import {
   LocalAiError,
   type LocalAiActionFeedback,
+  type HostedAiRuntimeState,
+  type HostedAiProvider,
   type LocalAiConnectionSummary,
   type LocalAiModelInfo,
   type LocalAiRuntimeState,
@@ -91,11 +115,15 @@ export default class OmdHomePlugin extends Plugin {
     status: "unchecked" | "checking" | "ready" | "unavailable";
     message: string;
     checkedAt?: number;
+    code?: EnrichmentErrorCode;
+    resolvedExecutable?: string;
+    mode?: OmdDiscoveryMode;
   } = {
     status: "unchecked",
     message: "Not checked this session",
   };
   localAiState: LocalAiRuntimeState = aggregateLocalAiState(this.settings, null, [], "");
+  hostedAiState: HostedAiRuntimeState | null = null;
   localAiFeedback: LocalAiActionFeedback | null = null;
   calendarFeedback: LocalAiActionFeedback | null = null;
   lastError = "";
@@ -110,18 +138,23 @@ export default class OmdHomePlugin extends Plugin {
   private enrichmentWorkflowController!: EnrichmentWorkflowController;
   private readonly localAiSummaries = new Map<string, LocalAiConnectionSummary>();
   private localAiFailure: LocalAiConnectionSummary | null = null;
+  private hostedCredentialHydration: Promise<void> | null = null;
+  private hostedCredentialHydrationProvider: HostedAiProvider | null = null;
   private calendarRefresh: Promise<void> | null = null;
   calendarLoading = false;
   private calendarRefreshTimer: number | null = null;
   private readonly calendarWriteOverrides = new Map<string, CalendarWriteOverride>();
   private readonly localAiControllers = new Set<AbortController>();
   private localAiActionToken = 0;
+  private discoveredOmdExecutable = "";
+  private omdCapabilityCheck: Promise<boolean> | null = null;
+  private omdCapabilityGeneration = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.deviceLayout = this.loadDeviceLayout();
     this.omdBridge = new OmdBridge(
-      () => this.settings.omdExecutable,
+      () => this.resolvedOmdExecutable(),
       () => this.settings.pythonExecutable,
       () => this.settings.pythonBridgePath,
       () => embeddedPythonBridge,
@@ -144,9 +177,27 @@ export default class OmdHomePlugin extends Plugin {
     });
     this.addCommand({ id: "capture-with-omd", name: "Capture URL or file", callback: () => this.openCaptureModal() });
     this.addCommand({ id: "cancel-omd", name: "Cancel active OMD action", callback: () => this.cancelActiveOmd() });
+    this.addCommand({
+      id: "check-omd-setup",
+      name: "Check OMD setup",
+      callback: () => void this.checkEnrichmentCapability(true).then((ready) => {
+        new Notice(ready ? "OMD is ready." : this.enrichmentCapability.message);
+      }),
+    });
+    this.addCommand({
+      id: "open-omd-install-guide",
+      name: "Open OMD install guide",
+      callback: () => this.openOmdInstallGuide(),
+    });
     this.addCommand({ id: "suggest-links-and-tags", name: "Suggest links and tags", callback: () => void this.suggestLinksAndTags() });
     this.addCommand({ id: "refresh-local-models", name: "Refresh local AI models", callback: () => void this.refreshLocalAiCatalog(true) });
     this.addCommand({ id: "check-local-ai", name: "Check local AI connection", callback: () => void this.checkLocalAiConnection() });
+    this.addCommand({ id: "smoke-local-ai-qa", name: "Smoke local AI: Vault question", callback: () => void this.smokeLocalAiWorkflow("qa") });
+    this.addCommand({ id: "smoke-local-ai-enrichment", name: "Smoke local AI: Note enrichment", callback: () => void this.smokeLocalAiWorkflow("enrichment") });
+    this.addCommand({ id: "smoke-local-ai-capture", name: "Smoke local AI: Capture polish", callback: () => void this.smokeLocalAiWorkflow("capture") });
+    if (canOpenOllamaDesktopApp()) {
+      this.addCommand({ id: "open-ollama-app", name: "Open Ollama", callback: () => void this.openOllamaApp() });
+    }
     this.addCommand({ id: "test-local-ai-embeddings", name: "Test local AI embeddings", callback: () => void this.testLocalEmbeddings() });
     this.addCommand({ id: "refresh-calendars", name: "Refresh macOS calendars", callback: () => void this.refreshExternalCalendars() });
     this.addCommand({
@@ -164,17 +215,11 @@ export default class OmdHomePlugin extends Plugin {
     }));
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
       if (!(file instanceof TFile)) return;
-      const pinned = this.settings.pinnedNotes.includes(file.path);
+      const pinned = this.isNotePinned(file.path);
       menu.addItem((item) => item
         .setTitle(pinned ? "Unpin from OMD Home" : "Pin to OMD Home")
         .setIcon("pin")
-        .onClick(async () => {
-          this.settings.pinnedNotes = pinned
-            ? this.settings.pinnedNotes.filter((path) => path !== file.path)
-            : [...this.settings.pinnedNotes, file.path];
-          await this.saveSettings();
-          this.refreshHomeViews();
-        }));
+        .onClick(() => void this.toggleNotePinned(file.path)));
       if (file.extension === "md") {
         menu.addItem((item) => item
           .setTitle("Suggest links and tags")
@@ -186,7 +231,12 @@ export default class OmdHomePlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       void this.refreshCalendarEvents();
       void this.checkEnrichmentCapability();
-      void this.ensureLocalAiCatalog();
+      if (this.settings.aiProvider === "ollama" || this.settings.aiProvider === "ollama-cloud") {
+        void this.ensureLocalAiCatalog();
+      }
+      if (isHostedApiProvider(this.settings.aiProvider)) {
+        void this.ensureHostedCredentialState(this.settings.aiProvider);
+      }
       if (Platform.isMacOS && this.hasEventKitHelper()) void this.refreshExternalCalendars(false);
       if (this.settings.openOnLaunch) void this.openHome(false);
     });
@@ -208,11 +258,317 @@ export default class OmdHomePlugin extends Plugin {
   async loadSettings(): Promise<void> {
     this.settings = normalizeOmdHomeSettings(await this.loadData());
     this.syncLocalAiState("");
+    this.syncHostedAiState("");
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     this.syncLocalAiState(this.localAiState.activeAction);
+    this.syncHostedAiState(this.hostedAiState?.activeAction ?? "");
+  }
+
+  usesAutomaticOmdDiscovery(): boolean {
+    return isAutomaticOmdExecutable(this.settings.omdExecutable);
+  }
+
+  resolvedOmdExecutable(): string {
+    if (!this.usesAutomaticOmdDiscovery()) return this.settings.omdExecutable.trim();
+    return this.discoveredOmdExecutable || "omd";
+  }
+
+  async copyOmdInstallInstructions(): Promise<boolean> {
+    const instructions = omdInstallInstructions(process.platform);
+    try {
+      await navigator.clipboard.writeText(instructions.commands);
+      new Notice(instructions.notice);
+      return true;
+    } catch {
+      new Notice("Could not copy the install steps. Open the OMD install guide instead.");
+      return false;
+    }
+  }
+
+  openOmdInstallGuide(): void {
+    window.open(OMD_INSTALL_GUIDE_URL, "_blank", "noopener,noreferrer");
+  }
+
+  async openOllamaApp(): Promise<boolean> {
+    this.setLocalAiFeedback("neutral", "Opening Ollama…");
+    try {
+      await openOllamaDesktopApp();
+      const feedback = "Ollama opened. Wait for its local service to finish starting, then select Check setup.";
+      this.setLocalAiFeedback("success", feedback);
+      new Notice(feedback);
+      return true;
+    } catch {
+      const feedback = "OMD Home could not open Ollama automatically. Open the installed app manually, or install it if missing, then check the connection again.";
+      this.setLocalAiFeedback("error", feedback);
+      new Notice(feedback);
+      return false;
+    }
+  }
+
+  async checkHostedAiConnection(): Promise<boolean> {
+    const provider = this.currentHostedProvider();
+    if (!provider) return false;
+    this.clearIssue("ai");
+    this.setLocalAiFeedback("neutral", `Checking ${providerLabel(provider)} credentials and the selected model…`);
+    const action = this.beginHostedAiAction("check-connection");
+    try {
+      await this.requireReadyOmdExecutable();
+      const model = selectedAiModel(this.settings);
+      const { catalog, checked } = await this.withLocalAiSignal(async (signal) => {
+        const catalog = await this.omdBridge.discoverProviderModels(provider, signal);
+        if (!model) return { catalog, checked: null };
+        return {
+          catalog,
+          checked: await this.omdBridge.checkProviderModel(provider, model, signal),
+        };
+      });
+      const catalogModels = catalog.models.map((name) => ({
+        name,
+        capabilities: ["completion"],
+        supportsCompletion: true,
+      }));
+      if (!checked) {
+        this.hostedAiState = {
+          provider,
+          checkedAt: Date.now(),
+          code: "selected_model_missing",
+          detail: catalog.models.length
+            ? `${providerLabel(provider)} models are loaded. Choose an answer model, then check setup again.`
+            : `${providerLabel(provider)} returned an empty model catalog.`,
+          models: catalogModels,
+          activeAction: "check-connection",
+          credential: catalog.credential ?? null,
+          destinationDomain: catalog.destinationDomain,
+        };
+        const feedback = catalog.models.length
+          ? `Models loaded. Choose a ${providerLabel(provider)} answer model.`
+          : `Connection checked, but ${providerLabel(provider)} returned no models.`;
+        this.setLocalAiFeedback(catalog.models.length ? "neutral" : "error", feedback);
+        new Notice(feedback);
+        return false;
+      }
+      const modelNames = [...new Set([
+        ...catalog.models,
+        ...checked.models,
+        ...checked.alternativeModels,
+      ])];
+      this.hostedAiState = {
+        provider,
+        checkedAt: Date.now(),
+        code: checked.available ? "ready" : "model_unavailable",
+        detail: checked.available
+          ? `${checked.model} is available on ${checked.destinationDomain}. Hosted Vault Q&A stays disabled in this beta.`
+          : `${checked.model} is not available on ${checked.destinationDomain}.`,
+        models: modelNames.map((name) => ({
+          name,
+          capabilities: ["completion"],
+          supportsCompletion: true,
+        })),
+        activeAction: "check-connection",
+        credential: checked.credential ?? catalog.credential ?? null,
+        destinationDomain: checked.destinationDomain,
+      };
+      const ok = checked.available;
+      const feedback = ok
+        ? `Setup ready. ${providerLabel(provider)} can use ${checked.model}. Hosted Vault Q&A remains disabled in this build.`
+        : `Connection checked. ${checked.model} is unavailable for ${providerLabel(provider)}.`;
+      this.setLocalAiFeedback(ok ? "success" : "error", feedback);
+      new Notice(feedback);
+      return ok;
+    } catch (error) {
+      this.recordIssue("ai", error);
+      this.hostedAiState = {
+        provider,
+        checkedAt: Date.now(),
+        code: mapHostedErrorCode(error),
+        detail: message(error),
+        models: this.hostedAiState?.provider === provider ? this.hostedAiState.models : [],
+        activeAction: "check-connection",
+        credential: this.hostedAiState?.provider === provider ? this.hostedAiState.credential : null,
+        destinationDomain: this.hostedAiState?.provider === provider ? this.hostedAiState.destinationDomain : providerDomain(provider),
+      };
+      this.setLocalAiFeedback("error", `Connection failed. ${message(error)}`);
+      new Notice(this.lastError);
+      return false;
+    } finally {
+      this.finishHostedAiAction(action);
+    }
+  }
+
+  async checkOllamaCloudConnection(): Promise<boolean> {
+    this.clearIssue("ai");
+    this.setLocalAiFeedback("neutral", "Checking the Ollama app, Cloud availability, and selected cloud model…");
+    const actionToken = this.beginLocalAiAction("check-connection");
+    try {
+      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      const checkedAt = Date.now();
+      const model = selectedAiModel(this.settings);
+      const checked = await this.withLocalAiSignal(async (signal) => {
+        const version = await this.ollamaLocalClient.version(host, signal);
+        const status = await this.ollamaLocalClient.status(host, signal);
+        const catalog = await this.ollamaLocalClient.tags(host, signal);
+        if (status.cloud?.disabled !== false) {
+          throw new LocalAiError(
+            "cloud_features_unknown",
+            "Ollama Cloud is not available. Sign in to the Ollama app and enable Cloud, then check setup again.",
+          );
+        }
+        const cloudModels = catalog.filter(isOllamaCloudModel);
+        if (!cloudModels.length) {
+          throw new LocalAiError(
+            "no_models_installed",
+            "No Ollama Cloud model was detected. Run a cloud model once in Ollama, then check setup again.",
+          );
+        }
+        if (!model) {
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+          };
+        }
+        const info = await this.ollamaLocalClient.show(host, model, signal);
+        const inspected = buildModelEntry(info);
+        if (!isOllamaCloudModel(inspected)) {
+          throw new LocalAiError("selected_model_incompatible", `${model} is not identified as an Ollama Cloud model.`);
+        }
+        const merged = new Map(catalog.map((entry) => [entry.name, entry]));
+        merged.set(model, mergeInspectedModelEntry(merged.get(model), inspected, model));
+        return {
+          version,
+          models: [...merged.values()].sort((left, right) => left.name.localeCompare(right.name)),
+          selectedModelReady: true,
+        };
+      });
+      this.localAiSummaries.set(host, buildConnectionSummary({
+        host,
+        checkedAt,
+        version: checked.version.version,
+        daemonCode: "cloud_features_enabled",
+        daemonDetail: "Ollama Cloud is available. Local Ask Vault remains disabled until Ollama returns to local-only mode.",
+        models: checked.models,
+        modelChecks: this.localAiSummaries.get(host)?.modelChecks ?? {},
+      }));
+      this.localAiFailure = null;
+      this.syncLocalAiState(this.localAiState.activeAction);
+      if (!checked.selectedModelReady) {
+        const feedback = "Ollama Cloud models loaded. Choose an answer model, then check setup again.";
+        this.setLocalAiFeedback("neutral", feedback);
+        new Notice(feedback);
+        return false;
+      }
+      const feedback = `Ollama Cloud setup ready. ${model} is available through the local Ollama app, and hosted Vault Q&A remains disabled in this beta.`;
+      this.setLocalAiFeedback("success", feedback);
+      new Notice(feedback);
+      return true;
+    } catch (error) {
+      if (!isAbortError(error)) {
+        this.setLocalAiFailure(error);
+        this.setLocalAiFeedback("error", `Ollama Cloud setup failed. ${message(error)}`);
+        new Notice(message(error));
+      }
+      return false;
+    } finally {
+      this.finishLocalAiAction(actionToken);
+    }
+  }
+
+  async saveHostedApiKey(apiKey: string): Promise<void> {
+    const provider = this.currentHostedProvider();
+    if (!provider) throw new Error("Select a hosted provider first.");
+    this.setLocalAiFeedback("neutral", `Saving the ${providerLabel(provider)} API key…`);
+    const action = this.beginHostedAiAction("save-key");
+    try {
+      await this.requireReadyOmdExecutable();
+      const credential = await this.omdBridge.storeHostedApiKey(provider, apiKey);
+      this.hostedAiState = {
+        ...(this.hostedAiState ?? buildHostedState(provider)),
+        provider,
+        credential,
+        checkedAt: Date.now(),
+        code: "unchecked",
+        detail: `${providerLabel(provider)} key saved. Choose a model or check setup next.`,
+        activeAction: "save-key",
+      };
+      if (credential.source === "missing") throw new Error("OMD did not confirm that the API key was saved.");
+      this.setLocalAiFeedback(
+        "success",
+        credential.source === "keychain"
+          ? `${providerLabel(provider)} key saved to macOS Keychain.`
+          : `${providerLabel(provider)} key available from ${credential.envVar}.`,
+      );
+      new Notice(this.localAiFeedback?.message ?? "Key saved.");
+    } catch (error) {
+      this.recordIssue("ai", error);
+      this.setLocalAiFeedback("error", `Could not save the API key. ${message(error)}`);
+      new Notice(this.lastError);
+      throw error;
+    } finally {
+      this.finishHostedAiAction(action);
+    }
+  }
+
+  async deleteHostedApiKey(): Promise<void> {
+    const provider = this.currentHostedProvider();
+    if (!provider) return;
+    this.setLocalAiFeedback("neutral", `Removing the ${providerLabel(provider)} API key…`);
+    const action = this.beginHostedAiAction("delete-key");
+    try {
+      await this.requireReadyOmdExecutable();
+      const credential = await this.omdBridge.deleteHostedApiKey(provider);
+      this.hostedAiState = {
+        ...(this.hostedAiState ?? buildHostedState(provider)),
+        provider,
+        credential,
+        checkedAt: Date.now(),
+        code: "credentials_missing",
+        detail: `${providerLabel(provider)} key removed. Add a key before checking this provider again.`,
+        activeAction: "delete-key",
+      };
+      this.setLocalAiFeedback("success", `${providerLabel(provider)} key removed.`);
+      new Notice(this.localAiFeedback?.message ?? "Key removed.");
+    } catch (error) {
+      this.recordIssue("ai", error);
+      this.setLocalAiFeedback("error", `Could not remove the API key. ${message(error)}`);
+      new Notice(this.lastError);
+    } finally {
+      this.finishHostedAiAction(action);
+    }
+  }
+
+  async useAutomaticOmdDiscovery(): Promise<boolean> {
+    this.settings.omdExecutable = DEFAULT_SETTINGS.omdExecutable;
+    await this.saveSettings();
+    this.resetEnrichmentCapability();
+    return await this.checkEnrichmentCapability(true);
+  }
+
+  async requireReadyOmdExecutable(): Promise<string> {
+    const force = this.enrichmentCapability.status === "unavailable";
+    const ready = await this.checkEnrichmentCapability(force);
+    if (!ready) {
+      throw new OmdEnrichmentError(
+        this.enrichmentCapability.code ?? "omd_failed",
+        this.enrichmentCapability.message,
+      );
+    }
+    return this.resolvedOmdExecutable();
+  }
+
+  isNotePinned(path: string): boolean {
+    return isPinnedNote(this.settings.pinnedNotes, path);
+  }
+
+  async toggleNotePinned(path: string): Promise<boolean> {
+    const pinned = !this.isNotePinned(path);
+    this.settings.pinnedNotes = setPinnedNote(this.settings.pinnedNotes, path, pinned);
+    await this.saveSettings();
+    this.refreshHomeViews();
+    new Notice(pinned ? "Pinned to OMD Home." : "Unpinned from OMD Home.");
+    return pinned;
   }
 
   async openHome(focus = true): Promise<WorkspaceLeaf> {
@@ -299,6 +655,7 @@ export default class OmdHomePlugin extends Plugin {
     let completed = false;
     try {
       this.clearIssue("capture");
+      await this.requireReadyOmdExecutable();
       const vault = this.vaultPath();
       const snapshot = createWorkflowSnapshot("capture", this.settings, polish);
       const outputPath = await this.runLocalAiGated(
@@ -391,6 +748,7 @@ export default class OmdHomePlugin extends Plugin {
 
   async searchWithOmd(query: string, output: HTMLElement): Promise<void> {
     try {
+      await this.requireReadyOmdExecutable();
       const hits = await this.omdBridge.search(this.vaultPath(), query);
       output.empty();
       output.hidden = false;
@@ -406,14 +764,14 @@ export default class OmdHomePlugin extends Plugin {
 
   async askOmd(query: string, output: HTMLElement): Promise<void> {
     if (!query) return void new Notice("Enter a question after @");
-    if (providerMode(this.settings.aiProvider) !== "ollama") {
-      const detail = `Saved provider ${this.settings.aiProvider} is disabled in Phase 1a. Select Ollama in OMD Home settings before using vault AI.`;
+    if (this.settings.aiProvider !== "ollama") {
+      const provider = aiProviderLabel(this.settings.aiProvider);
+      const detail = `${provider} setup is available, but sending vault evidence to a cloud answer provider is not enabled in this build. Select Ollama on this computer to answer locally.`;
       this.recordIssue("ai", new Error(detail));
       output.hidden = false;
       output.empty();
       output.createDiv({ cls: "omd-answer-error", text: detail });
       new Notice(detail);
-      this.refreshHomeViews();
       return;
     }
     output.hidden = false;
@@ -421,52 +779,20 @@ export default class OmdHomePlugin extends Plugin {
     let retrievalOptions = this.qaRetrievalOptions();
     output.createDiv({
       cls: "omd-answer-loading",
-      text: retrievalOptions.hybridRetrievalEnabled
+      text: this.settings.hybridRetrievalEnabled
         ? "Preparing local hybrid evidence. First use can take longer..."
         : "Retrieving local evidence...",
     });
     const startedAt = performance.now();
     try {
-      const snapshot = createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama");
-      const preview = await this.runLocalAiGated(
-        snapshot,
-        () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
-        async (gatedSnapshot, signal) => {
-          retrievalOptions = this.qaRetrievalOptions();
-          return await this.omdBridge.previewAi(
-            this.vaultPath(),
-            query,
-            gatedSnapshot.provider,
-            gatedSnapshot.model,
-            gatedSnapshot.host,
-            retrievalOptions,
-            signal,
-          );
-        },
-      );
-      const execute = async (): Promise<void> => {
-        output.empty();
-        output.createDiv({ cls: "omd-answer-loading", text: "OMD is reading the selected evidence..." });
-        const answer = await this.runLocalAiGated(
-          snapshot,
-          () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
-          async (gatedSnapshot, signal) => await this.omdBridge.executeAi(
-            this.vaultPath(),
-            query,
-            gatedSnapshot.provider,
-            gatedSnapshot.model,
-            gatedSnapshot.host,
-            preview.consent_grant ?? null,
-            retrievalOptions,
-            signal,
-          ),
-        );
-        this.clearIssue("ai");
-        this.renderAiAnswer(output, answer, performance.now() - startedAt);
-      };
-      if (preview.preview.privacy_mode === "cloud_for_this_task") {
-        new AiConsentModal(this.app, preview, execute).open();
-      } else await execute();
+      await this.requireReadyOmdExecutable();
+      const preview = await this.previewLocalAnswer(query);
+      retrievalOptions = preview.retrieval;
+      output.empty();
+      output.createDiv({ cls: "omd-answer-loading", text: "OMD is reading the selected evidence..." });
+      const answer = await this.executeLocalAnswer(query, preview.preview, retrievalOptions);
+      this.clearIssue("ai");
+      this.renderAiAnswer(output, answer, performance.now() - startedAt);
     } catch (error) {
       this.reportLocalAiWorkflowIssue(error);
       output.empty();
@@ -493,45 +819,102 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async checkEnrichmentCapability(force = false): Promise<boolean> {
-    if (force) this.omdCapabilityService.clear(this.settings.omdExecutable);
-    this.enrichmentCapability = {
-      status: "checking",
-      message: "Checking the configured OMD executable…",
-      checkedAt: Date.now(),
-    };
+    if (this.omdCapabilityCheck && !force) return await this.omdCapabilityCheck;
+    if (!force && this.enrichmentCapability.status === "ready") return true;
+    if (force) {
+      this.omdCapabilityGeneration += 1;
+      this.omdCapabilityService.cancelActive();
+      this.omdCapabilityService.clear();
+    }
+    const generation = ++this.omdCapabilityGeneration;
+    const pending = this.runOmdCapabilityCheck(generation);
+    this.omdCapabilityCheck = pending;
     try {
-      await this.omdCapabilityService.requireEnrichNote(this.settings.omdExecutable);
-      this.enrichmentCapability = {
-        status: "ready",
-        message: "OMD enrich-note schema v1 is available.",
-        checkedAt: Date.now(),
-      };
-      return true;
-    } catch (error) {
-      this.enrichmentCapability = {
-        status: "unavailable",
-        message: toUserFacingEnrichmentMessage(error),
-        checkedAt: Date.now(),
-      };
-      return false;
+      return await pending;
     } finally {
-      this.refreshHomeViews();
+      if (this.omdCapabilityCheck === pending) this.omdCapabilityCheck = null;
     }
   }
 
   resetEnrichmentCapability(): void {
+    this.omdCapabilityGeneration += 1;
+    this.discoveredOmdExecutable = "";
+    this.omdCapabilityCheck = null;
+    this.omdCapabilityService.cancelActive();
     this.omdCapabilityService.clear();
     this.enrichmentCapability = { status: "unchecked", message: "Not checked since the executable changed" };
     this.refreshHomeViews();
   }
 
-  invalidateLocalAiState(reason: "provider" | "host" | "model" | "capture-polish" | "retrieval" = "model"): void {
+  private async runOmdCapabilityCheck(generation: number): Promise<boolean> {
+    const automatic = this.usesAutomaticOmdDiscovery();
+    this.enrichmentCapability = {
+      status: "checking",
+      message: automatic ? "Looking for OMD in common install locations..." : "Checking the custom OMD executable...",
+      checkedAt: Date.now(),
+      mode: automatic ? "automatic" : "custom",
+    };
+    this.refreshHomeViews();
+    try {
+      const result = await discoverOmdExecutable(
+        this.settings.omdExecutable,
+        {
+          platform: process.platform,
+          homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
+          condaPrefix: process.env.CONDA_PREFIX,
+          virtualEnvironment: process.env.VIRTUAL_ENV,
+        },
+        async (executable) => await this.omdCapabilityService.requireEnrichNote(executable),
+      );
+      if (generation !== this.omdCapabilityGeneration) return false;
+      this.discoveredOmdExecutable = result.executable;
+      this.enrichmentCapability = {
+        status: "ready",
+        message: omdReadyMessage(result.executable, result.mode),
+        checkedAt: Date.now(),
+        resolvedExecutable: result.executable,
+        mode: result.mode,
+      };
+      return true;
+    } catch (error) {
+      if (generation !== this.omdCapabilityGeneration) return false;
+      this.discoveredOmdExecutable = "";
+      const code = isEnrichmentError(error) ? error.code : "omd_failed";
+      this.enrichmentCapability = {
+        status: "unavailable",
+        message: omdUnavailableMessage(error, automatic),
+        checkedAt: Date.now(),
+        code,
+        mode: automatic ? "automatic" : "custom",
+      };
+      return false;
+    } finally {
+      if (generation === this.omdCapabilityGeneration) this.refreshHomeViews();
+    }
+  }
+
+  invalidateLocalAiState(
+    reason: "provider" | "host" | "answer-model" | "model" | "capture-polish" | "retrieval" = "model",
+  ): void {
     this.localAiActionToken += 1;
     this.cancelLocalAiRequests();
     this.localAiFailure = null;
+    if (reason === "provider" || reason === "answer-model") {
+      this.localAiFeedback = null;
+      this.clearIssue("ai");
+    }
+    if (reason === "answer-model" && this.hostedAiState?.provider === this.currentHostedProvider()) {
+      this.hostedAiState = {
+        ...this.hostedAiState,
+        checkedAt: undefined,
+        code: "unchecked",
+        detail: `Run Check setup to validate ${providerLabel(this.hostedAiState.provider)} and the selected model.`,
+        activeAction: "",
+      };
+    }
     const host = this.currentLocalAiHost();
     const summary = host ? this.localAiSummaries.get(host) : null;
-    if ((reason === "model" || reason === "capture-polish") && host && summary) {
+    if ((reason === "answer-model" || reason === "model" || reason === "capture-polish") && host && summary) {
       this.localAiSummaries.set(host, {
         ...summary,
         modelChecks: {},
@@ -575,7 +958,7 @@ export default class OmdHomePlugin extends Plugin {
         checkedAt,
         version: version.version,
         daemonCode: previous?.daemonCode ?? "unchecked",
-        daemonDetail: previous?.daemonDetail ?? "Run Check connection to validate the local daemon and selected models.",
+        daemonDetail: previous?.daemonDetail ?? "Run Check setup to validate the local daemon and selected models.",
         models,
         modelChecks: previous?.modelChecks ?? {},
       }));
@@ -1112,7 +1495,8 @@ export default class OmdHomePlugin extends Plugin {
     output.empty();
     output.hidden = false;
     const header = output.createDiv({ cls: "omd-answer-meta" });
-    header.createSpan({ text: `${answer.provider} / ${answer.model}` });
+    const provider = isStoredAiProvider(answer.provider) ? aiProviderLabel(answer.provider) : answer.provider;
+    header.createSpan({ text: `${provider} / ${answer.model}` });
     const actions = header.createDiv({ cls: "omd-answer-actions" });
     actions.createSpan({ text: `${answer.evidence.length} sources` });
     if (answer.retrieval_mode) {
@@ -1272,6 +1656,103 @@ export default class OmdHomePlugin extends Plugin {
       embeddingModelRevision: resolveEmbeddingModelRevision(embeddingModel, this.localAiState.models),
       semanticRerankEnabled: this.settings.semanticRerankEnabled,
     };
+  }
+
+  private async prepareQaRetrieval(signal?: AbortSignal): Promise<{
+    options: HybridRetrievalOptions;
+    warning: string | null;
+  }> {
+    const requested = this.qaRetrievalOptions();
+    if (!requested.hybridRetrievalEnabled) return { options: requested, warning: null };
+    try {
+      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      const status = await this.ollamaLocalClient.status(host, signal);
+      const models = await this.ollamaLocalClient.tags(host, signal);
+      const daemonCode = deriveLocalAiDaemonCode(status, models);
+      if (daemonCode !== "ready") throw new LocalAiError(daemonCode, describeDaemonReadiness(daemonCode));
+      const embeddingModel = requested.embeddingModel.trim();
+      if (!embeddingModel) throw new LocalAiError("selected_model_missing", "Choose a local embedding model.");
+      const inspected = buildModelEntry(await this.safeShowModel(host, embeddingModel, signal));
+      if (modelHasRemoteMetadata(inspected)) {
+        throw new LocalAiError("selected_model_remote_blocked", `${embeddingModel} reported remote Ollama metadata.`);
+      }
+      if (!modelSupportsEmbedding(inspected)) {
+        throw new LocalAiError("selected_model_incompatible", `${embeddingModel} does not advertise embedding support.`);
+      }
+      const catalogEntry = models.find((model) => model.name === embeddingModel);
+      return {
+        options: {
+          ...requested,
+          embeddingModelRevision: inspected.digest ?? catalogEntry?.digest ?? requested.embeddingModelRevision,
+        },
+        warning: null,
+      };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      return {
+        options: {
+          ...requested,
+          hybridRetrievalEnabled: false,
+          semanticRerankEnabled: false,
+          embeddingModelRevision: undefined,
+        },
+        warning: "hybrid_retrieval_local_safety_fallback",
+      };
+    }
+  }
+
+  private async previewLocalAnswer(query: string): Promise<{
+    preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
+    retrieval: HybridRetrievalOptions;
+  }> {
+    const snapshot = createWorkflowSnapshot("qa", this.settings, true);
+    let retrieval = this.qaRetrievalOptions();
+    let retrievalWarning: string | null = null;
+    const preview = await this.runLocalAiGated(
+      snapshot,
+      () => createWorkflowSnapshot("qa", this.settings, true),
+      async (gatedSnapshot, signal) => {
+        const prepared = await this.prepareQaRetrieval(signal);
+        retrieval = prepared.options;
+        retrievalWarning = prepared.warning;
+        return await this.omdBridge.previewAi(
+          this.vaultPath(),
+          query,
+          gatedSnapshot.provider,
+          gatedSnapshot.model,
+          gatedSnapshot.host,
+          retrieval,
+          signal,
+        );
+      },
+    );
+    return {
+      preview: retrievalWarning ? mergeRetrievalWarnings(preview, [retrievalWarning]) : preview,
+      retrieval,
+    };
+  }
+
+  private async executeLocalAnswer(
+    query: string,
+    preview: Awaited<ReturnType<OmdBridge["previewAi"]>>,
+    retrieval: HybridRetrievalOptions,
+  ): Promise<AiAnswer> {
+    const snapshot = createWorkflowSnapshot("qa", this.settings, true);
+    const answer = await this.runLocalAiGated(
+      snapshot,
+      () => createWorkflowSnapshot("qa", this.settings, true),
+      async (gatedSnapshot, signal) => await this.omdBridge.executeAi(
+        this.vaultPath(),
+        query,
+        gatedSnapshot.provider,
+        gatedSnapshot.model,
+        gatedSnapshot.host,
+        preview.consent_grant ?? null,
+        retrieval,
+        signal,
+      ),
+    );
+    return mergeRetrievalWarnings(answer, preview.warnings ?? []);
   }
 
   private syncLocalAiState(activeAction: LocalAiRuntimeState["activeAction"]): void {
@@ -1454,6 +1935,135 @@ export default class OmdHomePlugin extends Plugin {
     this.localAiFailure = null;
     this.syncLocalAiState(this.localAiState.activeAction);
   }
+
+  private currentHostedProvider(): HostedAiProvider | null {
+    return isHostedApiProvider(this.settings.aiProvider) ? this.settings.aiProvider : null;
+  }
+
+  async ensureHostedCredentialState(provider: HostedAiProvider, force = false): Promise<void> {
+    if (!force && this.hostedAiState?.provider === provider && this.hostedAiState.credential) return;
+    if (!force && this.hostedCredentialHydration && this.hostedCredentialHydrationProvider === provider) {
+      return await this.hostedCredentialHydration;
+    }
+    const pending = this.loadHostedCredentialState(provider);
+    this.hostedCredentialHydration = pending;
+    this.hostedCredentialHydrationProvider = provider;
+    try {
+      await pending;
+    } finally {
+      if (this.hostedCredentialHydration === pending) {
+        this.hostedCredentialHydration = null;
+        this.hostedCredentialHydrationProvider = null;
+      }
+    }
+  }
+
+  private async loadHostedCredentialState(provider: HostedAiProvider): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      await this.requireReadyOmdExecutable();
+      const credential = await this.omdBridge.hostedCredentialState(provider);
+      if (this.currentHostedProvider() !== provider) return;
+      const existing = this.hostedAiState?.provider === provider ? this.hostedAiState : null;
+      if (existing?.activeAction) return;
+      if (existing?.checkedAt && existing.checkedAt > startedAt) return;
+      const model = selectedAiModel(this.settings);
+      this.hostedAiState = {
+        ...(existing ?? buildHostedState(provider)),
+        provider,
+        checkedAt: Date.now(),
+        code: credential.source === "missing"
+          ? "credentials_missing"
+          : model ? "unchecked" : "selected_model_missing",
+        detail: credential.source === "missing"
+          ? `Add or confirm a ${providerLabel(provider)} API key, then check setup. Hosted Vault Q&A stays disabled in this beta.`
+          : model
+            ? `Run Check setup to validate ${providerLabel(provider)} and the selected model.`
+            : `Choose a ${providerLabel(provider)} answer model, then check setup.`,
+        credential,
+        destinationDomain: providerDomain(provider),
+      };
+      this.refreshHomeViews();
+    } catch {
+      if (this.currentHostedProvider() !== provider) return;
+    }
+  }
+
+  private syncHostedAiState(activeAction: HostedAiRuntimeState["activeAction"]): void {
+    const provider = this.currentHostedProvider();
+    if (!provider) {
+      this.hostedAiState = null;
+      return;
+    }
+    if (!this.hostedAiState || this.hostedAiState.provider !== provider) {
+      this.hostedAiState = { ...buildHostedState(provider), activeAction };
+      return;
+    }
+    this.hostedAiState = { ...this.hostedAiState, activeAction };
+  }
+
+  private beginHostedAiAction(action: Exclude<HostedAiRuntimeState["activeAction"], "">): number {
+    const token = ++this.localAiActionToken;
+    this.syncHostedAiState(action);
+    return token;
+  }
+
+  private finishHostedAiAction(token: number): void {
+    if (token !== this.localAiActionToken) return;
+    this.syncHostedAiState("");
+  }
+}
+
+function omdReadyMessage(executable: string, mode: OmdDiscoveryMode): string {
+  if (mode === "custom") return `OMD is ready at the custom path: ${executable}`;
+  if (executable === "omd" || executable === "omd.exe") {
+    return "OMD is ready. It was found automatically on the app executable path.";
+  }
+  return `OMD is ready. It was found automatically at ${executable}`;
+}
+
+function omdUnavailableMessage(error: unknown, automatic: boolean): string {
+  if (isEnrichmentError(error) && error.code === "missing_executable") {
+    return automatic
+      ? "OMD was not found in the app path or common install locations. Install OMD, then check again."
+      : "The custom OMD executable could not be found. Use automatic discovery or update the override in Advanced OMD paths.";
+  }
+  if (isEnrichmentError(error)
+    && (error.code === "unsupported_capability" || error.code === "unsupported_schema")) {
+    return automatic
+      ? "An OMD installation was found, but it is too old for this OMD Home build. Update OMD, then check again."
+      : "The custom OMD installation is too old for this OMD Home build. Update it or use automatic discovery.";
+  }
+  return toUserFacingEnrichmentMessage(error);
+}
+
+function providerLabel(provider: HostedAiProvider): string {
+  return aiProviderLabel(provider);
+}
+
+function providerDomain(provider: HostedAiProvider): string {
+  return aiProviderDestination(provider);
+}
+
+function buildHostedState(provider: HostedAiProvider): HostedAiRuntimeState {
+  return {
+    provider,
+    code: "unchecked",
+    detail: `Add or confirm a ${aiProviderLabel(provider)} API key, then check setup. Hosted Vault Q&A stays disabled in this beta.`,
+    models: [],
+    activeAction: "",
+    credential: null,
+    destinationDomain: aiProviderDestination(provider),
+  };
+}
+
+function mapHostedErrorCode(error: unknown): HostedAiRuntimeState["code"] {
+  const detail = message(error).toLowerCase();
+  if (/credential|api key|keychain/u.test(detail)) return "credentials_missing";
+  if (/model.+(?:unavailable|missing|not found)/u.test(detail)) return "model_unavailable";
+  if (/catalog|validate provider models|model check/u.test(detail)) return "provider_catalog_unavailable";
+  if (/connect|network|transport|timeout|http/u.test(detail)) return "provider_unreachable";
+  return "provider_catalog_unavailable";
 }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -1488,6 +2098,12 @@ function summarizeSmokeResponse(value: string): string {
   return compact.length > 80 ? `${compact.slice(0, 77)}…` : compact;
 }
 
+function mergeRetrievalWarnings<T extends { warnings?: string[] }>(value: T, warnings: string[]): T {
+  if (!warnings.length) return value;
+  const unique = [...new Set([...(value.warnings ?? []), ...warnings])];
+  return { ...value, warnings: unique };
+}
+
 function humanizeRetrievalWarning(value: string): string {
   if (value === "hybrid_retrieval_unsupported_by_omd") {
     return "This OMD build does not support hybrid retrieval yet, so the answer used sparse retrieval only.";
@@ -1497,6 +2113,9 @@ function humanizeRetrievalWarning(value: string): string {
   }
   if (value === "hybrid_retrieval_failed") {
     return "Hybrid retrieval fell back to sparse retrieval for this answer.";
+  }
+  if (value === "hybrid_retrieval_local_safety_fallback") {
+    return "The local embedding setup could not be verified, so this answer used sparse vault search only.";
   }
   if (value === "semantic_recall_unavailable") {
     return "Semantic recall was unavailable for this answer, so sparse retrieval stayed in effect.";

@@ -43,7 +43,7 @@ export interface EnrichmentPhaseCopy {
 
 export function describeEnrichmentPhase(phase: EnrichmentPhase): EnrichmentPhaseCopy {
   switch (phase) {
-    case "capability": return phaseCopy("Checking OMD", "Verifying that the configured OMD executable supports enrichment.", "busy");
+    case "capability": return phaseCopy("Checking OMD", "Verifying that the detected OMD installation supports enrichment.", "busy");
     case "catalog": return phaseCopy("Building catalog", "Ranking safe vault notes and tags for this request.", "busy");
     case "generating": return phaseCopy("Generating proposal", "The local model is preparing links and tags for review.", "busy");
     case "review": return phaseCopy("Review proposal", "Choose exactly which suggestions OMD Home may write.", "idle", false, true);

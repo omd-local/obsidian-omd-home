@@ -55,7 +55,7 @@ export class EnrichmentWorkflowController {
       },
       onApply: async (payload) => await this.apply(active, payload),
       onRetry: async () => {
-        this.plugin.omdCapabilityService.clear(this.plugin.settings.omdExecutable);
+        await this.plugin.checkEnrichmentCapability(true);
         await this.start(file);
       },
       onOpenPath: (path) => {
@@ -69,7 +69,8 @@ export class EnrichmentWorkflowController {
     modal.open();
 
     try {
-      await this.plugin.omdCapabilityService.requireEnrichNote(this.plugin.settings.omdExecutable);
+      const executable = await this.plugin.requireReadyOmdExecutable();
+      await this.plugin.omdCapabilityService.requireEnrichNote(executable);
       if (!this.isCurrent(active)) return;
 
       const snapshot = createWorkflowSnapshot("enrichment", this.plugin.settings);
@@ -95,7 +96,7 @@ export class EnrichmentWorkflowController {
             statusText: "OMD is asking the configured local model for a read-only proposal.",
           });
           const generated = await this.plugin.omdEnrichmentRunner.run({
-            executable: this.plugin.settings.omdExecutable,
+            executable,
             request: built.request,
             onEvent: (event) => {
               if (!this.isCurrent(active)) return;
@@ -153,7 +154,7 @@ export class EnrichmentWorkflowController {
     this.active = null;
     this.plugin.cancelLocalAiRequests();
     this.plugin.omdEnrichmentRunner.cancel();
-    this.plugin.omdCapabilityService.cancelActive(this.plugin.settings.omdExecutable);
+    this.plugin.omdCapabilityService.cancelActive(this.plugin.resolvedOmdExecutable());
     this.setBusy(false);
     this.pushEvent({
       v: 1,

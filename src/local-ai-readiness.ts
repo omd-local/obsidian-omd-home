@@ -29,13 +29,13 @@ export function normalizeLocalOllamaHost(input: string): string {
   if (LOCAL_OLLAMA_HOSTS.includes(trimmed as (typeof LOCAL_OLLAMA_HOSTS)[number])) return trimmed;
   throw new LocalAiError(
     "invalid_host",
-    "OMD Home Phase 1a accepts only http://localhost:11434 or http://127.0.0.1:11434.",
+    "OMD Home local mode accepts only http://localhost:11434 or http://127.0.0.1:11434.",
     "Use the default Ollama port and disable Ollama Cloud before retrying.",
   );
 }
 
 export function providerMode(provider: OmdHomeSettings["aiProvider"]): LocalAiProviderMode {
-  return provider === "ollama" ? "ollama" : "legacy-disabled";
+  return provider === "ollama" ? "ollama" : "cloud";
 }
 
 export function createWorkflowSnapshot(
@@ -208,8 +208,8 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Checking";
     case "partial":
       return "Partial";
-    case "legacy-disabled":
-      return "Legacy provider disabled";
+    case "cloud-provider":
+      return "Cloud setup only";
     case "invalid_host":
       return "Invalid host";
     case "daemon_unreachable":
@@ -224,6 +224,14 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Cloud status unknown";
     case "no_models_installed":
       return "No models installed";
+    case "credentials_missing":
+      return "API key missing";
+    case "provider_unreachable":
+      return "Provider unreachable";
+    case "provider_catalog_unavailable":
+      return "Model catalog unavailable";
+    case "model_unavailable":
+      return "Model unavailable";
     case "selected_model_missing":
       return "Model missing";
     case "selected_model_incompatible":
@@ -261,8 +269,8 @@ export function buildWorkflowDisplayState(
       label: WORKFLOW_LABELS[workflow],
       model,
       enabled,
-      code: "legacy-disabled",
-      detail: "Select Ollama in OMD Home settings before using vault AI.",
+      code: "cloud-provider",
+      detail: "Cloud credentials and models can be checked, but Vault Q&A is disabled for this provider in this build.",
     };
   }
   if (!summary) {
@@ -272,7 +280,7 @@ export function buildWorkflowDisplayState(
       model,
       enabled,
       code: "unchecked",
-      detail: "Run Check connection to validate Ollama and the configured model.",
+      detail: "Run Check setup to validate Ollama and the configured model.",
     };
   }
   if (summary.daemonCode !== "ready") {
@@ -305,7 +313,7 @@ export function buildWorkflowDisplayState(
       model,
       enabled,
       code: "unchecked",
-      detail: "Run Check connection after changing the selected model.",
+      detail: "Run Check setup after changing the selected model.",
       checkedAt: summary.checkedAt,
     };
   }
@@ -333,12 +341,10 @@ export function aggregateLocalAiState(
   const capture = buildWorkflowDisplayState("capture", settings, activeSummary, currentProviderMode, settings.capturePolish);
   const workflows = { qa, enrichment, capture };
   const workflowCodes = Object.values(workflows)
-    .filter((state) => state.enabled && state.code !== "legacy-disabled")
+    .filter((state) => state.enabled && state.code !== "cloud-provider")
     .map((state) => state.code);
-  let daemonCode: LocalAiDisplayState = currentProviderMode === "legacy-disabled" ? "legacy-disabled" : "unchecked";
-  let daemonDetail = currentProviderMode === "legacy-disabled"
-    ? "Hosted provider settings are preserved for Vault Q&A, but local Ollama still powers note enrichment and capture polish."
-    : "Run Check connection to validate the local Ollama daemon.";
+  let daemonCode: LocalAiDisplayState = "unchecked";
+  let daemonDetail = "Run Check setup to validate the local Ollama daemon.";
   if (activeSummary) {
     daemonCode = activeSummary.daemonCode;
     daemonDetail = activeSummary.daemonDetail;
@@ -395,7 +401,7 @@ export function buildConnectionSummary(input: {
 export function getActiveWorkflowModels(settings: OmdHomeSettings): LocalAiWorkflowDisplayState[] {
   const summary = aggregateLocalAiState(settings, null, [], "");
   return Object.values(summary.workflows).filter(
-    (workflow) => workflow.enabled && workflow.code !== "legacy-disabled",
+    (workflow) => workflow.enabled && workflow.code !== "cloud-provider",
   );
 }
 

@@ -9,7 +9,7 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] `manifest.json`, `package.json`, the lockfile, and `versions.json` contain the same exact semantic version.
 - [ ] `node scripts/sync-omd-contract-fixtures.mjs /path/to/omd` reports that fixtures are current.
 - [ ] Any fixture update was reviewed against OMD's v1 contract before using `--accept`.
-- [ ] The configured OMD executable reports `enrich_note.supported: true` and schema version `1` from `capabilities --json`.
+- [ ] The OMD executable resolved by automatic discovery reports `enrich_note.supported: true` and schema version `1` from `capabilities --json`.
 
 ## Automated gates
 
@@ -24,21 +24,26 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 ## Desktop behavior
 
 - [ ] OMD Home loads with OMD, Python, Ollama, and EventKit absent; unrelated modules remain usable.
+- [ ] First-use OMD setup checks the app path and documented common locations automatically; a manual executable is available only under **Advanced OMD paths**.
+- [ ] Missing OMD exposes Copy install steps, the official install guide, and Check again in Settings and Needs attention without executing a shell, installer, package manager, or privilege prompt.
+- [ ] Automatic discovery can skip a missing or outdated earlier candidate and retain the compatible resolved executable for capture, Vault Q&A, and enrichment.
 - [ ] Home, Inbox, Markdown events, capture entry points, tags, drag/push layout, visible resizing, standard-size reset, light/dark themes, narrow windows, and keyboard focus work.
 - [ ] Recent-note titles and paths share one left edge; an expanded omnibox result reflows the grid and never overlays another widget.
-- [ ] Phase 1a local AI settings expose only Ollama as an active provider and preserve any old hosted provider value as disabled until the user explicitly selects Ollama.
-- [ ] **Refresh models** repopulates locally installed Ollama models without rewriting an unknown/stale selection behind the user's back.
-- [ ] **Refresh models** keeps the settings page stable and reports progress, installed-model count, completion, and a timestamp.
-- [ ] **Check connection** distinguishes invalid host, unreachable daemon, missing `/api/status`, cloud-enabled Ollama, no installed models, and missing/incompatible selected models.
+- [ ] AI answers expose explicit provider choices for local Ollama, Ollama Cloud, OpenAI API, Anthropic API, and DeepSeek API without hiding the local-only boundary for enrichment and capture.
+- [ ] Local Ollama remains the only live Vault Q&A answer path in this beta; hosted providers appear as BYOK setup surfaces only.
+- [ ] `OMD Home: Refresh local AI models` repopulates local Ollama catalogs without rewriting an unknown or stale saved selection behind the user's back.
+- [ ] **Check setup** distinguishes invalid host, unreachable daemon, missing `/api/status`, cloud-enabled Ollama, no installed models, missing credentials, provider catalog failures, and missing/incompatible selected models.
 - [ ] **Test embeddings** validates the selected local embedding model with English and Chinese probes, reports vector dimensions, and rejects remote, malformed, or dimension-mismatched responses.
 - [ ] Hybrid retrieval can be disabled without making an embedding request; when enabled it labels answers as Hybrid or Sparse and exposes any fallback warning.
 - [ ] First-use hybrid indexing has a longer bounded timeout, remains cancellable, and namespaces cached vectors by the installed Ollama model digest when available.
-- [ ] D01 (`这些抱石笔记给初学者哪些建议？`) recalls both English bouldering fixtures with `bge-m3`, excludes distractors, and fails closed in the sparse-only control.
+- [ ] D01 (`这些阳台番茄笔记给新手哪些建议？`) recalls both benchmark fixture notes with `bge-m3`, excludes distractors, and fails closed in the sparse-only control.
 - [ ] Optional semantic reranking uses the selected loopback embedding model, stays off by default, and cannot hide a fallback or change an evidence-grounded abstention into an unsupported answer.
-- [ ] Smoke checks exist for vault Q&A, enrichment, and capture polish, send no vault content, and fail closed when the selected model is missing or incompatible.
-- [ ] Blank Python and bridge overrides resolve OMD's embedded interpreter and the bridge bundled in `main.js`; the Settings-row Vault Q&A Smoke remains clearly distinct from a real `@` vault question.
+- [ ] Blank Python and bridge overrides resolve OMD's embedded interpreter and the bridge bundled in `main.js`.
 - [ ] A blank EventKit helper override resolves only an executable regular file beside OMD Home; missing helpers and Calendar permission failures remain actionable.
-- [ ] Local AI rejects any Ollama host outside `http://localhost:11434` and `http://127.0.0.1:11434` in Phase 1a.
+- [ ] Local Ollama mode rejects any host outside `http://localhost:11434` and `http://127.0.0.1:11434`. Hosted answer providers never inherit an arbitrary loopback override.
+- [ ] Ollama Cloud and hosted APIs can validate model availability, but real hosted Vault Q&A still fails closed before any vault evidence is sent in this beta.
+- [ ] On macOS, hosted API keys can be saved to Keychain. On Windows/Linux, Settings shows the exact provider environment variable and no unsupported Save/Remove action.
+- [ ] Hosted developer credentials never appear in plugin settings, notes, copied release assets, logs, or error details.
 - [ ] macOS Calendar lists only explicitly selected calendars; Google and Outlook are accessed only through accounts already added to Apple Calendar.
 - [ ] Vault, Calendar, and Linked filters update events without resetting the current Calendar date/view, and at least one source stays enabled.
 - [ ] Event Start/End use local native controls; timed-to-all-day conversion preserves a valid exclusive End date.
@@ -65,8 +70,8 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] The public GitHub release contains exactly `main.js`, `manifest.json`, and `styles.css` as plugin assets.
 - [ ] A clean vault installs and loads those exact assets without a sibling source checkout.
 - [ ] Installing/reinstalling does not overwrite the vault's plugin `data.json`.
-- [ ] README, license, third-party notices, security policy, privacy boundaries, desktop-only scope, Phase 1a Ollama-only behavior, cloud-disabled gate, and optional local prerequisites are current.
-- [ ] README and release notes do not promise auto-install, auto-pull, alternate ports, or hosted-provider fallback for local AI.
+- [ ] README, license, third-party notices, security policy, privacy boundaries, desktop-only scope, explicit provider choices, local-only gates, and optional local prerequisites are current.
+- [ ] README and release notes do not promise auto-install, auto-pull, alternate ports, automatic hosted failover, silent evidence egress, or a hosted evidence-preview flow before that flow actually ships.
 - [ ] The locally verified asset hashes match the published release assets.
 - [ ] The Community Plugins submission/reviewer feedback is complete before claiming Marketplace availability.
 

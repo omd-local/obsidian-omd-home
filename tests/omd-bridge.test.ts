@@ -54,6 +54,105 @@ test("hybrid Vault Q&A gets a longer bounded bridge timeout", () => {
   assert.equal(bridgeTimeoutMs({ action: "execute_ai", hybrid_retrieval_enabled: true }), 5 * 60_000);
 });
 
+test("hosted provider setup uses OMD credentials and a bounded model catalog without echoing keys", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-hosted-setup-"));
+  const stubRoot = join(root, "stubs");
+  const packageRoot = join(stubRoot, "omd");
+  const pathDelimiter = process.platform === "win32" ? ";" : ":";
+  try {
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "__init__.py"), "");
+    await writeFile(join(packageRoot, "credentials.py"), `
+import os
+
+class CredentialCapabilityError(RuntimeError):
+    pass
+
+class CredentialNotFoundError(RuntimeError):
+    pass
+
+_keys = {}
+
+def api_key_env_var(provider):
+    return {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY"}[provider]
+
+def store_api_key(provider, value):
+    if not value.strip():
+        raise ValueError("empty key")
+    _keys[provider] = value
+
+def load_api_key(provider):
+    value = os.environ.get(api_key_env_var(provider), "") or _keys.get(provider, "")
+    if not value:
+        raise CredentialNotFoundError("missing")
+    return value
+
+def delete_api_key(provider):
+    _keys.pop(provider, None)
+`.trimStart());
+    await writeFile(join(packageRoot, "provider_models.py"), `
+from dataclasses import dataclass
+
+@dataclass
+class Catalog:
+    provider: str
+    destination_domain: str
+    models: tuple[str, ...]
+    elapsed_seconds: float
+
+@dataclass
+class Availability:
+    provider: str
+    destination_domain: str
+    selected_model: str
+    available: bool
+    alternative_models: tuple[str, ...]
+    elapsed_seconds: float
+
+def discover_provider_models(provider, api_key, timeout_seconds):
+    assert api_key == "env-secret-value"
+    assert timeout_seconds == 5.0
+    return Catalog(provider, "api.openai.com", ("gpt-test-a", "gpt-test-b"), 0.01)
+
+def validate_selected_model(provider, model, api_key, timeout_seconds):
+    assert api_key == "env-secret-value"
+    return Availability(provider, "api.openai.com", model, model == "gpt-test-a", ("gpt-test-a", "gpt-test-b"), 0.02)
+`.trimStart());
+    const baseEnv = {
+      ...process.env,
+      PYTHONPATH: process.env.PYTHONPATH
+        ? `${stubRoot}${pathDelimiter}${process.env.PYTHONPATH}`
+        : stubRoot,
+    };
+    const saved = runBridge({
+      action: "store_hosted_api_key",
+      provider: "openai",
+      api_key: "stdin-secret-value",
+    }, baseEnv);
+    assert.equal(saved.ok, true);
+    assert.equal(saved.credential?.source, "keychain");
+    assert.doesNotMatch(JSON.stringify(saved), /stdin-secret-value/u);
+
+    const env = { ...baseEnv, OPENAI_API_KEY: "env-secret-value" };
+    const catalog = runBridge({ action: "discover_provider_models", provider: "openai" }, env);
+    assert.deepEqual(catalog.models, ["gpt-test-a", "gpt-test-b"]);
+    assert.equal(catalog.destination_domain, "api.openai.com");
+    assert.equal(catalog.credential?.source, "env");
+    assert.doesNotMatch(JSON.stringify(catalog), /env-secret-value/u);
+
+    const checked = runBridge({
+      action: "check_provider_model",
+      provider: "openai",
+      model: "gpt-test-a",
+    }, env);
+    assert.equal(checked.available, true);
+    assert.equal(checked.model, "gpt-test-a");
+    assert.doesNotMatch(JSON.stringify(checked), /env-secret-value/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("uses OMD's vault-capture subcommand instead of standalone conversion", () => {
   assert.deepEqual(omdCaptureArgs("https://example.com", "/tmp/vault"), [
     "capture", "https://example.com", "--vault", "/tmp/vault", "--json-events",
@@ -139,7 +238,7 @@ test("sanitizes structured bridge errors before surfacing them", () => {
       { message: "Ollama is not reachable at http://localhost:11434. Start the Ollama app or run `ollama serve`. ([Errno 61] Connection refused)" },
       "fallback",
     ),
-    "Ollama is not reachable at the configured local endpoint. Start Ollama and try again.",
+    "Ollama is not reachable at the configured local endpoint. Open the Ollama app or start its local service, then try again.",
   );
   assert.equal(
     bridgeErrorMessage(
@@ -174,11 +273,11 @@ test("surfaces actionable Python bridge startup failures without leaking local p
       "Traceback (most recent call last): ModuleNotFoundError: No module named 'omd'",
       1,
     ),
-    "The Python environment used by OMD Home is missing a required module. Point the OMD executable to the current OMD environment, then try again.",
+    "The Python environment used by OMD Home is missing a required module. Use Advanced OMD paths to select the current OMD environment, then try again.",
   );
   assert.equal(
     bridgeProcessFailureMessage("Traceback: /Users/example/private/vault.md", 7),
-    "OMD Home's Python bridge exited before returning a result (exit 7). Check the configured OMD executable and Python environment, then try again.",
+    "OMD Home's Python bridge exited before returning a result (exit 7). Check the detected OMD and Python environment, then try again.",
   );
 });
 
@@ -201,7 +300,7 @@ test("sanitizes structured OMD capture error events", () => {
       "markitdown._exceptions.FileConversionException: File conversion failed after 1 attempts:",
       "PdfConverter threw MissingDependencyException. Install MarkItDown with [pdf].",
     ].join("\n")),
-    "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the configured OMD environment, then retry.",
+    "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the detected OMD environment, then retry.",
   );
 });
 
@@ -765,6 +864,14 @@ test("fallback bridge keeps Ollama requests loopback-only, no-redirect, and boun
   assert.match(source, /build_opener\(_NoRedirectHandler\(\)\)/u);
   assert.match(source, /response\.read\(limit \+ 1\)/u);
   assert.match(source, /Ollama returned too much data/u);
+});
+
+test("bundled bridge rejects Ollama Cloud Vault Q&A before retrieval or model execution", () => {
+  const source = readFileSync(bridgeScript, "utf8");
+  assert.match(source, /if _provider\(request\) != "ollama":\s+raise ValueError\("cloud Vault Q&A is not enabled in this build"\)/u);
+  assert.doesNotMatch(source, /def _is_ollama_cloud_request\(request\):/u);
+  assert.doesNotMatch(source, /privacy_mode="cloud_for_this_task"/u);
+  assert.doesNotMatch(source, /destination_domain="ollama\.com"/u);
 });
 
 test("vault answer evidence is bounded before OMD applies its local context limit", () => {

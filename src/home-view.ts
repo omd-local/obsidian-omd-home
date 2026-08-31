@@ -1,4 +1,6 @@
 import { ItemView, Menu, Notice, WorkspaceLeaf, getAllTags, setIcon, type TFile } from "obsidian";
+import { aiProviderLabel } from "./ai-provider.ts";
+import { canOpenOllamaDesktopApp } from "./ollama-app";
 import type OmdHomePlugin from "./main";
 import type { CalendarEventRecord, WidgetId, WidgetPlacement } from "./model";
 import { DEFAULT_LAYOUT, GRID_COLUMNS, movePlacement } from "./layout";
@@ -199,7 +201,7 @@ export class OmdHomeView extends ItemView {
     }
     if (id === "pinned") {
       const files = this.plugin.settings.pinnedNotes.map((path) => this.app.vault.getFileByPath(path)).filter((file): file is TFile => Boolean(file));
-      return this.renderFileList(body, files, "Right-click a note, then choose Pin to OMD Home");
+      return this.renderFileList(body, files, "Use a Pin button on a note to keep it here");
     }
     if (id === "processing") {
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
@@ -219,12 +221,16 @@ export class OmdHomeView extends ItemView {
       const capabilityIssue = this.plugin.enrichmentCapability.status === "unavailable";
       const localAiNeedsAttention = this.plugin.localAiState.daemonCode !== "ready"
         && !this.plugin.localAiState.activeAction;
+      const hostedAnswerNeedsAttention = this.plugin.hostedAiState
+        && this.plugin.hostedAiState.code !== "ready"
+        && !this.plugin.hostedAiState.activeAction;
       const localAiOwnsLastError = localAiNeedsAttention && this.plugin.lastErrorContext === "ai";
-      if (!attention.length && !this.plugin.lastError && !capabilityIssue && !localAiNeedsAttention) {
+      if (!attention.length && !this.plugin.lastError && !capabilityIssue && !localAiNeedsAttention && !hostedAnswerNeedsAttention) {
         return emptyState(body, "Nothing needs attention", "Sync and processing are healthy.");
       }
       if (this.plugin.lastError && !localAiOwnsLastError) this.renderLastIssue(body);
       if (localAiNeedsAttention) this.renderLocalAiAttention(body);
+      if (hostedAnswerNeedsAttention) this.renderHostedAiAttention(body);
       if (capabilityIssue) {
         const item = body.createDiv({ cls: "omd-attention-item" });
         const header = item.createDiv({ cls: "omd-attention-header" });
@@ -233,6 +239,39 @@ export class OmdHomeView extends ItemView {
           header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(this.plugin.enrichmentCapability.checkedAt) });
         }
         item.createDiv({ cls: "omd-attention-detail", text: this.plugin.enrichmentCapability.message });
+        const controls = item.createDiv({ cls: "omd-process-actions" });
+        if (!this.plugin.usesAutomaticOmdDiscovery()) {
+          const automatic = controls.createEl("button", {
+            cls: "omd-inline-action",
+            type: "button",
+            text: "Use automatic",
+          });
+          automatic.addEventListener("click", () => void this.plugin.useAutomaticOmdDiscovery().then((ready) => {
+            new Notice(ready ? "OMD was found automatically." : this.plugin.enrichmentCapability.message);
+          }));
+        }
+        if (this.plugin.enrichmentCapability.code === "missing_executable") {
+          const copy = controls.createEl("button", {
+            cls: "omd-inline-action",
+            type: "button",
+            text: "Copy install steps",
+          });
+          copy.addEventListener("click", () => void this.plugin.copyOmdInstallInstructions());
+        }
+        const guide = controls.createEl("button", {
+          cls: "omd-inline-action",
+          type: "button",
+          text: this.plugin.enrichmentCapability.code === "missing_executable" ? "Install guide" : "Update guide",
+        });
+        guide.addEventListener("click", () => this.plugin.openOmdInstallGuide());
+        const check = controls.createEl("button", {
+          cls: "omd-inline-action",
+          type: "button",
+          text: "Check again",
+        });
+        check.addEventListener("click", () => void this.plugin.checkEnrichmentCapability(true).then((ready) => {
+          new Notice(ready ? "OMD is ready." : this.plugin.enrichmentCapability.message);
+        }));
       }
       for (const event of attention.slice(0, 5)) {
         const row = body.createEl("button", { cls: "omd-attention-item", type: "button" });
@@ -274,6 +313,8 @@ export class OmdHomeView extends ItemView {
       if (activity.recent[0]) statusLine(body, "Last run", activity.recent[0].value);
       statusLine(body, "Calendar", this.plugin.externalCalendars.length ? "connected" : "vault only");
       statusLine(body, "Local AI", this.plugin.localAiState.daemonCode);
+      statusLine(body, "Answer provider", aiProviderLabel(this.plugin.settings.aiProvider));
+      if (this.plugin.hostedAiState) statusLine(body, "Answer setup", this.plugin.hostedAiState.code);
       if (this.plugin.localAiState.version) statusLine(body, "Ollama", this.plugin.localAiState.version);
       if (this.plugin.localAiFeedback) {
         statusLine(body, "AI last action", `${this.plugin.localAiFeedback.tone} ${formatIssueTime(this.plugin.localAiFeedback.at)}`);
@@ -287,7 +328,7 @@ export class OmdHomeView extends ItemView {
         const check = controls.createEl("button", {
           cls: "omd-inline-action",
           type: "button",
-          text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check connection",
+          text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check setup",
         });
         check.disabled = Boolean(this.plugin.localAiState.activeAction);
         check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
@@ -311,6 +352,7 @@ export class OmdHomeView extends ItemView {
       open.createSpan({ cls: "omd-note-title", text: file.basename });
       open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
       open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
+      this.createPinButton(row, file);
       const suggest = row.createEl("button", {
         cls: "clickable-icon omd-inbox-suggest",
         type: "button",
@@ -338,11 +380,31 @@ export class OmdHomeView extends ItemView {
   private renderFileList(body: HTMLElement, files: TFile[], empty: string): void {
     if (!files.length) return emptyState(body, empty, "This panel fills itself as you work.");
     for (const file of files) {
-      const row = body.createEl("button", { cls: "omd-note-row", type: "button" });
-      row.createSpan({ cls: "omd-note-title", text: file.basename });
-      row.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
-      row.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
+      const row = body.createDiv({ cls: "omd-note-action-row" });
+      const open = row.createEl("button", { cls: "omd-note-row", type: "button" });
+      open.createSpan({ cls: "omd-note-title", text: file.basename });
+      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
+      open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
+      this.createPinButton(row, file);
     }
+  }
+
+  private createPinButton(parent: HTMLElement, file: TFile): HTMLButtonElement {
+    const pinned = this.plugin.isNotePinned(file.path);
+    const label = pinned ? "Unpin" : "Pin";
+    const button = parent.createEl("button", {
+      cls: `omd-pin-action${pinned ? " is-active" : ""}`,
+      type: "button",
+      attr: {
+        title: `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`,
+        "aria-label": `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`,
+        "aria-pressed": String(pinned),
+      },
+    });
+    setIcon(button, "pin");
+    button.createSpan({ text: label });
+    button.addEventListener("click", () => void this.plugin.toggleNotePinned(file.path));
+    return button;
   }
 
   private openWidgetMenu(event: MouseEvent, id: WidgetId): void {
@@ -546,20 +608,45 @@ export class OmdHomeView extends ItemView {
       });
     }
     const controls = item.createDiv({ cls: "omd-process-actions" });
+    const ollamaCanBeOpened = canOpenOllamaDesktopApp()
+      && this.plugin.localAiState.daemonCode === "daemon_unreachable";
+    if (ollamaCanBeOpened) {
+      const open = controls.createEl("button", {
+        cls: "omd-inline-action mod-cta",
+        type: "button",
+        text: "Open Ollama",
+      });
+      open.addEventListener("click", () => void this.plugin.openOllamaApp());
+    }
     const check = controls.createEl("button", {
       cls: "omd-inline-action",
       type: "button",
-      text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check connection",
+      text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check setup",
     });
     check.disabled = Boolean(this.plugin.localAiState.activeAction);
     check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
-    const refresh = controls.createEl("button", {
+  }
+
+  private renderHostedAiAttention(body: HTMLElement): void {
+    const state = this.plugin.hostedAiState;
+    if (!state) return;
+    const item = body.createDiv({ cls: "omd-attention-item" });
+    const header = item.createDiv({ cls: "omd-attention-header" });
+    header.createEl("strong", { text: "AI answers need attention" });
+    if (state.checkedAt) {
+      header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(state.checkedAt) });
+    }
+    item.createDiv({
+      cls: "omd-attention-detail",
+      text: `${aiProviderLabel(state.provider)}: ${state.detail}`,
+    });
+    const controls = item.createDiv({ cls: "omd-process-actions" });
+    const check = controls.createEl("button", {
       cls: "omd-inline-action",
       type: "button",
-      text: this.plugin.localAiState.activeAction === "refresh-models" ? "Refreshing…" : "Refresh models",
+      text: "Check setup",
     });
-    refresh.disabled = Boolean(this.plugin.localAiState.activeAction);
-    refresh.addEventListener("click", () => void this.plugin.refreshLocalAiCatalog(true));
+    check.addEventListener("click", () => void this.plugin.checkHostedAiConnection());
   }
 }
 

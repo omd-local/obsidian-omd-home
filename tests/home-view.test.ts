@@ -6,6 +6,7 @@ import { inferCaptureActive, summarizeProcessingEvents } from "../src/processing
 
 const homeSource = readFileSync(resolve("src/home-view.ts"), "utf8");
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
+const omniboxSource = readFileSync(resolve("src/omnibox.ts"), "utf8");
 const enrichmentControllerSource = readFileSync(resolve("src/enrichment/controller.ts"), "utf8");
 const stylesSource = readFileSync(resolve("src/styles.css"), "utf8");
 
@@ -86,17 +87,35 @@ test("Current task and Needs attention do not render the same terminal capture e
 
 test("Home exposes unchecked Local AI recovery without duplicating owned AI failures", () => {
   assert.match(homeSource, /statusLine\(body, "Local AI", this\.plugin\.localAiState\.daemonCode\)/u);
-  assert.match(homeSource, /text: "Check connection"|\? "Checking…" : "Check connection"/u);
+  assert.match(homeSource, /text: "Check setup"|\? "Checking…" : "Check setup"/u);
   assert.match(homeSource, /const localAiOwnsLastError = localAiNeedsAttention && this\.plugin\.lastErrorContext === "ai"/u);
   assert.match(homeSource, /if \(this\.plugin\.lastError && !localAiOwnsLastError\) this\.renderLastIssue\(body\)/u);
   assert.match(homeSource, /formatIssueTime\(this\.plugin\.localAiState\.catalogCheckedAt\)/u);
   assert.match(homeSource, /workflow\.code === this\.plugin\.localAiState\.daemonCode/u);
+  assert.match(homeSource, /canOpenOllamaDesktopApp\(\)/u);
+  assert.match(homeSource, /text: "Open Ollama"/u);
+  assert.match(homeSource, /this\.plugin\.openOllamaApp\(\)/u);
 });
 
 test("maintenance actions are available through Obsidian commands", () => {
+  assert.match(mainSource, /id: "check-omd-setup"/u);
+  assert.match(mainSource, /id: "open-omd-install-guide"/u);
   assert.match(mainSource, /id: "refresh-local-models"/u);
   assert.match(mainSource, /id: "check-local-ai"/u);
+  assert.match(mainSource, /id: "smoke-local-ai-qa"/u);
+  assert.match(mainSource, /id: "smoke-local-ai-enrichment"/u);
+  assert.match(mainSource, /id: "smoke-local-ai-capture"/u);
+  assert.match(mainSource, /id: "open-ollama-app"/u);
   assert.match(mainSource, /id: "refresh-calendars"/u);
+});
+
+test("missing OMD has guided recovery on Home without running an installer", () => {
+  assert.match(homeSource, /text: "Copy install steps"/u);
+  assert.match(homeSource, /text: this\.plugin\.enrichmentCapability\.code === "missing_executable" \? "Install guide" : "Update guide"/u);
+  assert.match(homeSource, /text: "Check again"/u);
+  assert.match(mainSource, /navigator\.clipboard\.writeText\(instructions\.commands\)/u);
+  assert.match(mainSource, /window\.open\(OMD_INSTALL_GUIDE_URL/u);
+  assert.doesNotMatch(mainSource, /brew install[\s\S]{0,120}spawnProcess|spawnProcess[\s\S]{0,120}brew install/u);
 });
 
 test("omnibox answers reserve an owned surface and note rows stay left aligned", () => {
@@ -107,6 +126,17 @@ test("omnibox answers reserve an owned surface and note rows stay left aligned",
   assert.match(stylesSource, /\.has-omnibox-results \.omd-widget-omnibox[^}]*min-height/su);
 });
 
+test("Home note surfaces and vault search results expose the shared pin action", () => {
+  assert.match(extractMethodBody(homeSource, "private renderInbox("), /this\.createPinButton\(row, file\)/u);
+  assert.match(extractMethodBody(homeSource, "private renderFileList("), /this\.createPinButton\(row, file\)/u);
+  assert.match(omniboxSource, /action: \(\) => void this\.app\.workspace\.openLinkText\(file\.path,[\s\S]{0,100}file,/u);
+  assert.match(extractMethodBody(omniboxSource, "private showRows("), /if \(row\.file\) this\.createPinButton\(parent, row\.file\)/u);
+  assert.match(mainSource, /onClick\(\(\) => void this\.toggleNotePinned\(file\.path\)\)/u);
+  assert.match(stylesSource, /\.omd-inbox-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 64px 82px/su);
+  assert.match(stylesSource, /\.omd-pin-action\s*\{[^}]*border-left:\s*1px solid var\(--omd-line\)/su);
+  assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
+});
+
 test("widget move and resize are locked while omnibox results temporarily own the layout", () => {
   assert.match(homeSource, /private allowLayoutEditing\(\): boolean/u);
   assert.match(extractMethodBody(homeSource, "private bindPointerTransform("), /if \(!this\.allowLayoutEditing\(\)\) return;/u);
@@ -115,7 +145,8 @@ test("widget move and resize are locked while omnibox results temporarily own th
 
 test("model settings keep labels stable while their controls reflow", () => {
   assert.match(stylesSource, /\.omd-settings-model\s*\{[^}]*grid-template-columns:/su);
-  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control\s*\{[^}]*grid-template-columns:/su);
+  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/su);
+  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control :is\(select, input\)\s*\{[^}]*flex:\s*1 1 210px/su);
   assert.match(stylesSource, /@media \(max-width: 900px\)[\s\S]*\.omd-settings-model\s*\{[^}]*grid-template-columns:\s*1fr/su);
 });
 

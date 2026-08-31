@@ -18,6 +18,13 @@ interface CommandRegistry {
   executeCommandById(id: string): boolean;
 }
 
+interface OmniboxRow {
+  title: string;
+  detail: string;
+  action: () => void;
+  file?: TFile;
+}
+
 const RECORDING_ACTION_REFRESH_MS = 180;
 
 export class Omnibox {
@@ -174,6 +181,7 @@ export class Omnibox {
       title: file.basename,
       detail: file.path,
       action: () => void this.app.workspace.openLinkText(file.path, "", false),
+      file,
     })));
   }
 
@@ -233,18 +241,45 @@ export class Omnibox {
     new Notice("Saved to inbox");
   }
 
-  private showRows(rows: Array<{ title: string; detail: string; action: () => void }>): void {
+  private showRows(rows: OmniboxRow[]): void {
     this.results.empty();
     this.setResultsVisible(rows.length > 0);
     for (const row of rows) {
-      const button = this.results.createEl("button", { cls: "omd-result-row", type: "button" });
+      const parent = row.file
+        ? this.results.createDiv({ cls: "omd-result-action-row" })
+        : this.results;
+      const button = parent.createEl("button", { cls: "omd-result-row", type: "button" });
       button.createSpan({ cls: "omd-result-title", text: row.title });
       button.createSpan({ cls: "omd-result-detail", text: row.detail });
       button.addEventListener("click", () => {
         this.setResultsVisible(false);
         row.action();
       });
+      if (row.file) this.createPinButton(parent, row.file);
     }
+  }
+
+  private createPinButton(parent: HTMLElement, file: TFile): void {
+    const button = parent.createEl("button", { cls: "omd-pin-action", type: "button" });
+    const syncState = (pinned: boolean) => {
+      const label = pinned ? "Unpin" : "Pin";
+      button.empty();
+      button.toggleClass("is-active", pinned);
+      button.setAttribute("title", `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`);
+      button.setAttribute("aria-label", `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`);
+      button.setAttribute("aria-pressed", String(pinned));
+      setIcon(button, "pin");
+      button.createSpan({ text: label });
+    };
+    syncState(this.plugin.isNotePinned(file.path));
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void this.plugin.toggleNotePinned(file.path).then((pinned) => {
+        syncState(pinned);
+      }).finally(() => {
+        button.disabled = false;
+      });
+    });
   }
 
   private setResultsVisible(visible: boolean): void {

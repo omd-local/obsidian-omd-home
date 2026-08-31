@@ -1,8 +1,9 @@
 export const LOCAL_OLLAMA_HOSTS = ["http://localhost:11434", "http://127.0.0.1:11434"] as const;
 
 export type SupportedLocalAiProvider = "ollama";
-export type StoredAiProvider = SupportedLocalAiProvider | "openai" | "anthropic" | "deepseek";
-export type LocalAiProviderMode = "ollama" | "legacy-disabled";
+export type HostedAiProvider = "openai" | "anthropic" | "deepseek";
+export type StoredAiProvider = SupportedLocalAiProvider | "ollama-cloud" | HostedAiProvider;
+export type LocalAiProviderMode = "ollama" | "cloud";
 export type LocalAiWorkflowId = "qa" | "enrichment" | "capture";
 export type LocalAiReadinessCode =
   | "invalid_host"
@@ -12,6 +13,10 @@ export type LocalAiReadinessCode =
   | "cloud_features_enabled"
   | "cloud_features_unknown"
   | "no_models_installed"
+  | "credentials_missing"
+  | "provider_unreachable"
+  | "provider_catalog_unavailable"
+  | "model_unavailable"
   | "selected_model_missing"
   | "selected_model_incompatible"
   | "selected_model_remote_blocked"
@@ -20,7 +25,7 @@ export type LocalAiReadinessCode =
   | "unchecked"
   | "ready";
 
-export type LocalAiDisplayState = LocalAiReadinessCode | "checking" | "partial" | "legacy-disabled";
+export type LocalAiDisplayState = LocalAiReadinessCode | "checking" | "partial" | "cloud-provider";
 
 export interface LocalAiModelEntry {
   name: string;
@@ -125,6 +130,38 @@ export interface LocalAiActionFeedback {
   tone: "neutral" | "success" | "error";
   message: string;
   at: number;
+}
+
+export interface HostedAiCredentialState {
+  provider: HostedAiProvider;
+  envVar: string;
+  source: "missing" | "env" | "keychain";
+  keychainSupported: boolean;
+}
+
+export interface HostedAiCatalog {
+  provider: StoredAiProvider;
+  destinationDomain: string;
+  models: string[];
+  credential?: HostedAiCredentialState;
+  elapsedSeconds?: number;
+}
+
+export interface HostedAiCheckResult extends HostedAiCatalog {
+  model: string;
+  available: boolean;
+  alternativeModels: string[];
+}
+
+export interface HostedAiRuntimeState {
+  provider: HostedAiProvider;
+  checkedAt?: number;
+  code: LocalAiDisplayState;
+  detail: string;
+  models: LocalAiModelEntry[];
+  activeAction: "" | "refresh-models" | "check-connection" | "save-key" | "delete-key";
+  credential: HostedAiCredentialState | null;
+  destinationDomain: string;
 }
 
 export class LocalAiError extends Error {

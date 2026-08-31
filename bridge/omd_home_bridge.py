@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -14,15 +15,34 @@ from typing import Any
 
 try:
     from omd.ai_service import (
-        AIConsentGrant,
         AITextTask,
-        create_text_task_consent,
         execute_text_task,
         prepare_text_task,
     )
     HAS_OMD_AI_SERVICE = True
 except ModuleNotFoundError:
     HAS_OMD_AI_SERVICE = False
+
+try:
+    from omd.credentials import (
+        CredentialCapabilityError,
+        CredentialNotFoundError,
+        api_key_env_var,
+        delete_api_key,
+        load_api_key,
+        store_api_key,
+    )
+    HAS_OMD_CREDENTIALS = True
+except ModuleNotFoundError:
+    HAS_OMD_CREDENTIALS = False
+    CredentialCapabilityError = RuntimeError
+    CredentialNotFoundError = RuntimeError
+
+try:
+    from omd.provider_models import discover_provider_models, validate_selected_model
+    HAS_OMD_PROVIDER_MODELS = True
+except ModuleNotFoundError:
+    HAS_OMD_PROVIDER_MODELS = False
 
 try:
     from omd.retrieval import SearchHit, search_notes
@@ -71,6 +91,7 @@ OLLAMA_RESPONSE_LIMIT = 1_000_000
 OLLAMA_ERROR_LIMIT = 300
 AI_OPERATION = "answer a vault question with cited evidence"
 AI_INPUT_TOKEN_LIMIT = 2_600
+HOSTED_PROVIDERS = {"openai", "anthropic", "deepseek"}
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -85,43 +106,77 @@ def main() -> int:
         if action == "search":
             hits = _hits(request)
             return _send({"ok": True, "hits": [_hit_dict(hit) for hit in hits]})
+        if action == "hosted_credential_state":
+            provider = _hosted_provider(request)
+            return _send({"ok": True, "credential": _credential_state(provider)})
+        if action == "store_hosted_api_key":
+            provider = _hosted_provider(request)
+            _require_credentials()
+            store_api_key(provider, _string(request, "api_key"))
+            return _send({"ok": True, "credential": _credential_state(provider)})
+        if action == "delete_hosted_api_key":
+            provider = _hosted_provider(request)
+            _require_credentials()
+            delete_api_key(provider)
+            return _send({"ok": True, "credential": _credential_state(provider)})
+        if action == "discover_provider_models":
+            provider = _provider(request)
+            catalog = _provider_catalog(provider)
+            return _send({
+                "ok": True,
+                "provider": catalog.provider,
+                "destination_domain": catalog.destination_domain,
+                "models": list(catalog.models),
+                "elapsed_seconds": catalog.elapsed_seconds,
+                "credential": _credential_state(provider) if provider in HOSTED_PROVIDERS else None,
+            })
+        if action == "check_provider_model":
+            provider = _provider(request)
+            availability = _provider_availability(provider, _string(request, "model"))
+            return _send({
+                "ok": True,
+                "provider": availability.provider,
+                "destination_domain": availability.destination_domain,
+                "models": list(availability.alternative_models if not availability.available else (availability.selected_model,)),
+                "model": availability.selected_model,
+                "available": availability.available,
+                "alternative_models": list(availability.alternative_models),
+                "elapsed_seconds": availability.elapsed_seconds,
+                "credential": _credential_state(provider) if provider in HOSTED_PROVIDERS else None,
+            })
         if action == "preview_ai":
+            if _provider(request) != "ollama":
+                raise ValueError("cloud Vault Q&A is not enabled in this build")
             hits, source, retrieval_mode, retrieval_model, warnings = _answer_material(request)
             if not HAS_OMD_AI_SERVICE:
                 return _send(_fallback_preview(
                     request, hits, source, retrieval_mode, retrieval_model, warnings
                 ))
             task = _task(request)
-            preview = prepare_text_task(task, source_text=source)
-            grant = (
-                asdict(create_text_task_consent(task, source_text=source))
-                if task.provider in {"openai", "anthropic", "deepseek"}
-                else None
-            )
+            preview = asdict(prepare_text_task(task, source_text=source))
             return _send({
                 "ok": True,
-                "preview": asdict(preview),
+                "preview": preview,
                 "evidence": [_hit_dict(hit) for hit in hits],
-                "consent_grant": grant,
+                "consent_grant": None,
                 "retrieval_mode": retrieval_mode,
                 "retrieval_model": retrieval_model,
                 "warnings": warnings,
             })
         if action == "execute_ai":
+            if _provider(request) != "ollama":
+                raise ValueError("cloud Vault Q&A is not enabled in this build")
             hits, source, retrieval_mode, retrieval_model, warnings = _answer_material(request)
             if not HAS_OMD_AI_SERVICE:
                 return _send(_fallback_execute(
                     request, hits, source, retrieval_mode, retrieval_model, warnings
                 ))
             task = _task(request)
-            grant_value = request.get("consent_grant")
-            grant = AIConsentGrant(**grant_value) if isinstance(grant_value, dict) else None
-            hosted = task.provider in {"openai", "anthropic", "deepseek"}
             result = execute_text_task(
                 task,
                 source_text=source,
-                consent_granted=hosted,
-                consent_grant=grant,
+                consent_granted=False,
+                consent_grant=None,
             )
             text = _restore_exact_source_paths(result.text, hits, source)
             return _send({
@@ -147,6 +202,73 @@ def _request() -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("request must be a JSON object")
     return value
+
+
+def _require_credentials() -> None:
+    if not HAS_OMD_CREDENTIALS:
+        raise ValueError("This OMD build cannot access provider credentials yet. Update OMD and try again.")
+
+
+def _require_provider_models() -> None:
+    if not HAS_OMD_PROVIDER_MODELS:
+        raise ValueError("This OMD build cannot validate provider models yet. Update OMD and try again.")
+
+
+def _provider(request: dict[str, Any]) -> str:
+    provider = _string(request, "provider").strip().lower()
+    if provider not in {"ollama", "ollama-cloud", *HOSTED_PROVIDERS}:
+        raise ValueError("unsupported provider")
+    return provider
+
+
+def _hosted_provider(request: dict[str, Any]) -> str:
+    provider = _provider(request)
+    if provider not in HOSTED_PROVIDERS:
+        raise ValueError("this action supports OpenAI, Anthropic, and DeepSeek only")
+    return provider
+
+
+def _credential_state(provider: str) -> dict[str, Any]:
+    _require_credentials()
+    env_var = api_key_env_var(provider)
+    try:
+        load_api_key(provider)
+        source = "env" if env_var in os.environ and os.environ.get(env_var, "").strip() else "keychain"
+    except CredentialNotFoundError:
+        source = "missing"
+    except CredentialCapabilityError:
+        source = "missing"
+    return {
+        "provider": provider,
+        "envVar": env_var,
+        "source": source,
+        "keychainSupported": sys.platform == "darwin",
+    }
+
+
+def _provider_catalog(provider: str):
+    _require_provider_models()
+    if provider not in HOSTED_PROVIDERS:
+        raise ValueError("provider catalog is available for hosted providers only")
+    _require_credentials()
+    return discover_provider_models(
+        provider,
+        api_key=load_api_key(provider),
+        timeout_seconds=5.0,
+    )
+
+
+def _provider_availability(provider: str, model: str):
+    _require_provider_models()
+    if provider not in HOSTED_PROVIDERS:
+        raise ValueError("provider availability is available for hosted providers only")
+    _require_credentials()
+    return validate_selected_model(
+        provider,
+        model,
+        api_key=load_api_key(provider),
+        timeout_seconds=5.0,
+    )
 
 
 def _hits(request: dict[str, Any]) -> list[SearchHit]:
@@ -439,24 +561,23 @@ def _fallback_preview(
 ) -> dict[str, Any]:
     provider = _string(request, "provider").lower()
     if provider != "ollama":
-        raise ValueError(
-            "This OMD build lacks omd.ai_service. Local Ollama still works; hosted providers need it."
-        )
+        raise ValueError("cloud Vault Q&A is not enabled in this build")
     endpoint = _string(request, "endpoint").rstrip("/")
     model = _string(request, "model")
     _validate_local_endpoint(endpoint)
+    preview = {
+        "provider": provider,
+        "model": model,
+        "privacy_mode": "local_only",
+        "destination_domain": endpoint,
+        "character_count": len(source),
+        "estimated_input_tokens": max(1, len(source) // 4),
+        "policy_url": None,
+        "data_handling_summary": "Vault evidence stays on the configured local Ollama endpoint.",
+    }
     return {
         "ok": True,
-        "preview": {
-            "provider": "ollama",
-            "model": model,
-            "privacy_mode": "local_only",
-            "destination_domain": endpoint,
-            "character_count": len(source),
-            "estimated_input_tokens": max(1, len(source) // 4),
-            "policy_url": None,
-            "data_handling_summary": "Vault evidence stays on the configured local Ollama endpoint.",
-        },
+        "preview": preview,
         "evidence": [_hit_dict(hit) for hit in hits],
         "consent_grant": None,
         "retrieval_mode": retrieval_mode,
@@ -475,7 +596,7 @@ def _fallback_execute(
 ) -> dict[str, Any]:
     provider = _string(request, "provider").lower()
     if provider != "ollama":
-        raise ValueError("This OMD build supports fallback execution only through local Ollama.")
+        raise ValueError("cloud Vault Q&A is not enabled in this build")
     endpoint = _string(request, "endpoint").rstrip("/")
     model = _string(request, "model")
     _validate_local_endpoint(endpoint)
@@ -500,7 +621,7 @@ def _fallback_execute(
         "ok": True,
         "text": text,
         "evidence": [_hit_dict(hit) for hit in hits],
-        "provider": "ollama",
+        "provider": provider,
         "model": response.get("model", model),
         "retrieval_mode": retrieval_mode,
         "retrieval_model": retrieval_model,
@@ -534,7 +655,7 @@ def _ollama_request(endpoint: str, route: str, payload: dict[str, Any]) -> dict[
         raise ValueError(f"Ollama rejected the request: {detail}") from exc
     except urllib.error.URLError as exc:
         raise ValueError(
-            f"Ollama is not reachable at {endpoint}. Start Ollama or run `ollama serve`. ({exc.reason})"
+            f"Ollama is not reachable at {endpoint}. Open the Ollama app or start its local service, then try again. ({exc.reason})"
         ) from exc
     if not isinstance(value, dict):
         raise ValueError("Ollama returned an invalid response")
@@ -549,18 +670,16 @@ def _read_limited_bytes(response: Any, limit: int) -> bytes:
 
 
 def _task(request: dict[str, Any]) -> AITextTask:
-    provider = _string(request, "provider").lower()
-    endpoint = _string(request, "endpoint") if provider == "ollama" else None
     return AITextTask(
-        provider=provider,
+        provider="ollama",
         model=_string(request, "model"),
         capability="note_organisation",
         operation=AI_OPERATION,
         system_prompt=SYSTEM_PROMPT,
         max_output_tokens=1200,
         temperature=0.0,
-        endpoint=endpoint,
-        timeout_seconds=90.0 if provider == "ollama" else 60.0,
+        endpoint=_string(request, "endpoint"),
+        timeout_seconds=90.0,
         stream=True,
     )
 

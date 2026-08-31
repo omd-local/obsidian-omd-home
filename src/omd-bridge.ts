@@ -1,5 +1,10 @@
 import type { OmdProgressEvent, OmdSearchHit } from "./model.ts";
 import { guardSparseComparisonAnswer } from "./ai-answer.ts";
+import type {
+  HostedAiCatalog,
+  HostedAiCheckResult,
+  HostedAiCredentialState,
+} from "./ollama-local-types.ts";
 import {
   appendCommonExecutableDirectoriesToPath,
   type CapturePolishOptions,
@@ -68,6 +73,23 @@ export interface HybridRetrievalOptions {
   embeddingModel: string;
   embeddingModelRevision?: string;
   semanticRerankEnabled: boolean;
+}
+
+function normalizeCredential(value: Record<string, unknown> | undefined): HostedAiCredentialState | null {
+  if (!value) return null;
+  const provider = typeof value.provider === "string" ? value.provider : "";
+  const envVar = typeof value.envVar === "string" ? value.envVar : "";
+  const source = value.source;
+  const keychainSupported = value.keychainSupported;
+  if (!provider || !envVar) return null;
+  if (source !== "missing" && source !== "env" && source !== "keychain") return null;
+  if (typeof keychainSupported !== "boolean") return null;
+  return {
+    provider: provider as HostedAiCredentialState["provider"],
+    envVar,
+    source,
+    keychainSupported,
+  };
 }
 
 const BUNDLED_BRIDGE_BOOTSTRAP = "import json,sys\ns=json.loads(sys.stdin.readline())['source']\nexec(compile(s,'<omd-home-bridge>','exec'))";
@@ -145,6 +167,64 @@ export class OmdBridge {
     return Array.isArray(response.hits) ? response.hits as OmdSearchHit[] : [];
   }
 
+  async storeHostedApiKey(provider: HostedAiCredentialState["provider"], apiKey: string): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge({ action: "store_hosted_api_key", provider, api_key: apiKey });
+    const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
+    if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
+    return credential;
+  }
+
+  async hostedCredentialState(
+    provider: HostedAiCredentialState["provider"],
+    signal?: AbortSignal,
+  ): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge({ action: "hosted_credential_state", provider }, { signal });
+    const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
+    if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
+    return credential;
+  }
+
+  async deleteHostedApiKey(provider: HostedAiCredentialState["provider"]): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge({ action: "delete_hosted_api_key", provider });
+    const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
+    if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
+    return credential;
+  }
+
+  async discoverProviderModels(
+    provider: HostedAiCredentialState["provider"],
+    signal?: AbortSignal,
+  ): Promise<HostedAiCatalog> {
+    const response = await this.callPythonBridge({ action: "discover_provider_models", provider }, { signal });
+    return {
+      provider,
+      destinationDomain: typeof response.destination_domain === "string" ? response.destination_domain : "",
+      models: Array.isArray(response.models) ? response.models.filter((value): value is string => typeof value === "string") : [],
+      elapsedSeconds: typeof response.elapsed_seconds === "number" ? response.elapsed_seconds : undefined,
+      credential: normalizeCredential(response.credential as Record<string, unknown> | undefined) ?? undefined,
+    };
+  }
+
+  async checkProviderModel(
+    provider: HostedAiCredentialState["provider"],
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<HostedAiCheckResult> {
+    const response = await this.callPythonBridge({ action: "check_provider_model", provider, model }, { signal });
+    return {
+      provider,
+      destinationDomain: typeof response.destination_domain === "string" ? response.destination_domain : "",
+      models: Array.isArray(response.models) ? response.models.filter((value): value is string => typeof value === "string") : [],
+      elapsedSeconds: typeof response.elapsed_seconds === "number" ? response.elapsed_seconds : undefined,
+      credential: normalizeCredential(response.credential as Record<string, unknown> | undefined) ?? undefined,
+      model: typeof response.model === "string" ? response.model : model,
+      available: response.available === true,
+      alternativeModels: Array.isArray(response.alternative_models)
+        ? response.alternative_models.filter((value): value is string => typeof value === "string")
+        : [],
+    };
+  }
+
   async previewAi(
     vaultPath: string,
     query: string,
@@ -154,6 +234,9 @@ export class OmdBridge {
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiPreview> {
+    if (provider !== "ollama") {
+      throw new Error("Cloud Vault Q&A is not enabled in this build");
+    }
     return await this.callPythonBridge({
       action: "preview_ai",
       vault: vaultPath,
@@ -179,6 +262,9 @@ export class OmdBridge {
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiAnswer> {
+    if (provider !== "ollama") {
+      throw new Error("Cloud Vault Q&A is not enabled in this build");
+    }
     const answer = await this.callPythonBridge({
       action: "execute_ai",
       vault: vaultPath,
@@ -240,12 +326,12 @@ export class OmdBridge {
         maxStdoutChars: 16_000,
         maxStderrChars: 16_000,
       })).stdout.trim().split(/\r?\n/u).find(Boolean) ?? "";
-    if (!executable) throw new Error("Could not find the configured OMD executable");
+    if (!executable) throw new Error("Could not find the detected OMD executable");
     const runtimeWindow = window as Window & { require?: (id: string) => typeof import("node:fs") };
     if (!runtimeWindow.require) throw new Error("Desktop file APIs are unavailable");
     const firstLine = runtimeWindow.require("node:fs").readFileSync(executable, "utf8").slice(0, 256);
     const interpreter = parsePythonShebang(firstLine);
-    if (!interpreter) throw new Error("Could not determine OMD's Python interpreter. Set it in OMD Home settings.");
+    if (!interpreter) throw new Error("Could not determine OMD's Python interpreter. Open Advanced OMD paths to choose it.");
     return interpreter;
   }
 
@@ -452,7 +538,7 @@ export function bridgeProcessFailureMessage(stderr: string, code: number): strin
   const mapped = detail ? mapBridgeDetailToUserMessage(detail) : null;
   if (mapped) return mapped;
   const exitCode = Number.isInteger(code) && code >= 0 ? code : 1;
-  return `OMD Home's Python bridge exited before returning a result (exit ${exitCode}). Check the configured OMD executable and Python environment, then try again.`;
+  return `OMD Home's Python bridge exited before returning a result (exit ${exitCode}). Check the detected OMD and Python environment, then try again.`;
 }
 
 function isDesktopApp(): boolean {
@@ -466,7 +552,7 @@ export function captureErrorMessage(value: string): string {
     detail.includes("missingdependencyexception")
     && (detail.includes("pdfconverter") || detail.includes("markitdown[pdf]"))
   ) {
-    return "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the configured OMD environment, then retry.";
+    return "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the detected OMD environment, then retry.";
   }
   const lines = value.trim().split(/\r?\n/).filter(Boolean).reverse();
   for (const line of lines) {
@@ -506,13 +592,13 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   const tokens = normalize(`${detail.kind ?? ""} ${detail.message ?? ""}`);
   if (!tokens) return null;
   if (tokens.includes("no module named") || tokens.includes("modulenotfounderror")) {
-    return "The Python environment used by OMD Home is missing a required module. Point the OMD executable to the current OMD environment, then try again.";
+    return "The Python environment used by OMD Home is missing a required module. Use Advanced OMD paths to select the current OMD environment, then try again.";
   }
   if (tokens.includes("can't open file") || tokens.includes("cannot open file")) {
     return "The configured OMD Home bridge file could not be opened. Use the bundled bridge or choose an existing bridge file.";
   }
   if (tokens.includes("syntaxerror") || tokens.includes("unsupported python") || tokens.includes("requires python")) {
-    return "The configured Python version cannot run the OMD Home bridge. Point OMD Home to the Python used by the current OMD executable.";
+    return "The selected Python version cannot run the OMD Home bridge. Use Advanced OMD paths to select the Python used by the detected OMD executable.";
   }
   if (tokens.includes("permission denied") || tokens.includes("eacces")) {
     return "OMD Home could not start the configured Python bridge because of file permissions.";
@@ -527,7 +613,7 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
     return "This OMD build only supports local Ollama for vault questions.";
   }
   if (tokens.includes("ollama is not reachable at")) {
-    return "Ollama is not reachable at the configured local endpoint. Start Ollama and try again.";
+    return "Ollama is not reachable at the configured local endpoint. Open the Ollama app or start its local service, then try again.";
   }
   if (tokens.includes("ollama rejected the request")) {
     return "Ollama rejected the request. Check the selected local model and try again.";
@@ -577,10 +663,10 @@ function bridgeProcessErrorMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   const tokens = normalize(detail);
   if (tokens.includes("could not find the configured omd executable") || tokens.includes("spawn enoent")) {
-    return "The configured OMD executable could not be found.";
+    return "The detected OMD executable could not be found. Run Check OMD setup and try again.";
   }
   if (tokens.includes("could not determine omd's python interpreter")) {
-    return "OMD Home could not determine OMD's Python interpreter. Set it in settings.";
+    return "OMD Home could not determine OMD's Python interpreter. Open Advanced OMD paths to choose it.";
   }
   if (tokens.includes("timed out")) return "OMD Home bridge timed out. Try again.";
   if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {
@@ -594,7 +680,7 @@ function captureProcessErrorMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   const tokens = normalize(detail);
   if (tokens.includes("spawn enoent") || tokens.includes("could not find the configured omd executable")) {
-    return "The configured OMD executable could not be found.";
+    return "The detected OMD executable could not be found. Run Check OMD setup and try again.";
   }
   if (tokens.includes("timed out")) return "OMD capture timed out. Try again.";
   if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {

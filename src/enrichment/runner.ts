@@ -121,7 +121,7 @@ export class OmdEnrichmentRunner {
         throw new OmdEnrichmentError("output_overflow", "OMD enrichment output exceeded its safety limit.", { cause: error as Error });
       }
       if (/ENOENT|not found|could not find/iu.test(detail)) {
-        throw new OmdEnrichmentError("missing_executable", "The configured OMD executable could not be found.", { cause: error as Error });
+        throw new OmdEnrichmentError("missing_executable", "The detected OMD executable could not be found. Run Check OMD setup and try again.", { cause: error as Error });
       }
       throw new OmdEnrichmentError("omd_failed", "OMD enrichment failed. Check the OMD setup and try again.", { cause: error as Error });
     } finally {

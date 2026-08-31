@@ -32,6 +32,13 @@ const DEFAULT_SETTINGS: OmdHomeSettings = {
   defaultExternalCalendarId: "",
   aiProvider: "ollama",
   aiModel: "qwen3:4b-instruct",
+  aiModels: {
+    ollama: "qwen3:4b-instruct",
+    "ollama-cloud": "",
+    openai: "",
+    anthropic: "",
+    deepseek: "",
+  },
   hybridRetrievalEnabled: true,
   embeddingModel: "bge-m3",
   semanticRerankEnabled: false,
@@ -48,7 +55,7 @@ const embedModel = buildModelEntry({ name: "nomic-embed", capabilities: ["embedd
 const remoteModel = buildModelEntry({ name: "cloudy", capabilities: ["completion"], remoteModel: "cloudy", remoteHost: "https://example.com" });
 const thinkingOnlyModel = buildModelEntry({ name: "qwen3:4b", capabilities: ["completion", "thinking", "tools"] });
 
-test("normalizeLocalOllamaHost enforces the Phase 1a loopback host contract", () => {
+test("normalizeLocalOllamaHost enforces the loopback host contract", () => {
   assert.equal(normalizeLocalOllamaHost("http://localhost:11434/"), "http://localhost:11434");
   assert.equal(normalizeLocalOllamaHost("http://127.0.0.1:11434"), "http://127.0.0.1:11434");
   assert.throws(
@@ -57,9 +64,10 @@ test("normalizeLocalOllamaHost enforces the Phase 1a loopback host contract", ()
   );
 });
 
-test("providerMode keeps hosted providers as legacy-disabled in Phase 1a", () => {
+test("providerMode separates local Ollama from cloud answer providers", () => {
   assert.equal(providerMode("ollama"), "ollama");
-  assert.equal(providerMode("openai"), "legacy-disabled");
+  assert.equal(providerMode("openai"), "cloud");
+  assert.equal(providerMode("ollama-cloud"), "cloud");
 });
 
 test("buildModelSelectorState keeps installed, custom, and stale selections distinct", () => {
@@ -164,17 +172,17 @@ test("aggregateLocalAiState surfaces daemon and model failures distinctly", () =
   assert.equal(partialState.workflows.enrichment.code, "selected_model_incompatible");
 });
 
-test("aggregateLocalAiState keeps hosted provider QA disabled without rewriting stored settings", () => {
+test("aggregateLocalAiState marks hosted QA separately without hiding local workflows", () => {
   const state = aggregateLocalAiState({
     ...DEFAULT_SETTINGS,
     aiProvider: "deepseek",
   }, null, [localModel], "");
-  assert.equal(state.providerMode, "legacy-disabled");
-  assert.equal(state.workflows.qa.code, "legacy-disabled");
+  assert.equal(state.providerMode, "cloud");
+  assert.equal(state.workflows.qa.code, "cloud-provider");
   assert.equal(state.workflows.enrichment.code, "unchecked");
 });
 
-test("aggregateLocalAiState keeps local enrichment and capture readiness visible under a preserved hosted provider", () => {
+test("aggregateLocalAiState keeps local enrichment and capture readiness visible under a hosted answer provider", () => {
   const ready = buildConnectionSummary({
     host: "http://localhost:11434",
     checkedAt: 1,
@@ -204,9 +212,9 @@ test("aggregateLocalAiState keeps local enrichment and capture readiness visible
     aiProvider: "openai",
     capturePolish: true,
   }, ready, [localModel], "");
-  assert.equal(state.providerMode, "legacy-disabled");
+  assert.equal(state.providerMode, "cloud");
   assert.equal(state.daemonCode, "ready");
-  assert.equal(state.workflows.qa.code, "legacy-disabled");
+  assert.equal(state.workflows.qa.code, "cloud-provider");
   assert.equal(state.workflows.enrichment.code, "ready");
   assert.equal(state.workflows.capture.code, "ready");
 });
