@@ -91,30 +91,34 @@ node -p 'require("./manifest.json").version'
 
 | 字段 | 值 |
 | --- | --- |
-| 日期与时间 | 2026-09-07 21:23 NZST |
+| 日期与时间 | 2026-09-09 02:12 NZST |
 | 测试者 | shion |
 | 上一轮已记录 baseline commit | `6adac24442caa450a76184c728284ca26bdb086f` |
-| 当前安装候选来源 | branch `agent/omd-home-baseline`；HEAD `3819e7039c2579e272e3414b44e540621732437a` 加当前未提交 working tree；准确 bundle 身份以下方 SHA-256 为准 |
+| 当前安装候选来源 | branch `agent/omd-home-baseline`；reviewed code commit `1a577e880beaeb04deec71694d02a3369ecb4eb2`；2026-09-09 02:12 NZST 从该 commit 重新构建并安装到 test-vault；准确 bundle 身份以下方 SHA-256 为准 |
 | manifest 版本 | `0.1.1` |
 | Obsidian 版本 | `1.13.7` |
 | macOS 版本 | `26.5.2` |
 | vault 绝对路径 | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
 | OMD 版本/commit | `0.3.0b2` / `d9829166c15d4590a90fb3bd733c21ad51345092`；`/opt/homebrew/bin/omd` 是不兼容的旧 Homebrew launcher，兼容候选为 `/opt/homebrew/Caskroom/miniconda/base/bin/omd` 与源码 `.venv/bin/omd`；人工测试时仍以 Settings 实际解析路径为准 |
-| Ollama 版本 | client `0.33.3`；daemon 在本轮干净基线中暂未启动，进入 AI 阶段后再启动并重新记录 `/api/version`；Cloud 状态仅作环境记录，本地模型测试不要求 `cloud.disabled: true` |
-| Completion model | `qwen3:4b-instruct`（已安装）；另有 `qwen3:4b`（已安装） |
+| Ollama 版本 | client / daemon `0.33.3`；`/api/status` 为 `cloud.disabled: false`、`source: none`；Cloud 状态仅作环境记录，本地模型测试不要求 `cloud.disabled: true` |
+| Completion model | `qwen3:4b-instruct` 与 `qwen3:0.6b`（本地已安装）；另有 cloud-backed `gpt-oss:20b-cloud`，不得出现在 local-only model 路径 |
 | Embedding model | Settings 已保存 `bge-m3`，但尚未安装；执行 AI-09 前再运行 `ollama pull bge-m3` |
+| 自动化门禁 | TypeScript、ESLint、production build、`git diff --check` 均通过；自动测试 `407/407`；production dependency audit 为 0 vulnerabilities |
 
 不要只写“最新版本”；commit SHA 才能准确复现。
 
-上一轮安装到 test-vault 的 working-tree 候选资产 SHA-256（2026-09-07 21:23 NZST 重新执行
-`npm run check` 与 `npm run install:test-vault`；最终 Release 仍需用 clean commit 重新构建并更新记录）：
+当前安装到 test-vault 的 code-commit 候选资产 SHA-256（2026-09-09 02:12 NZST 重新执行
+`npm run build` 与 `npm run install:test-vault`；source 与 test-vault 安装副本已逐项核对一致）：
 
 | 资产 | SHA-256 |
 | --- | --- |
-| `main.js` | `0a4a31eb2a6510d2f97a6ebf2311052c0cd27cc0a80d5276c54c8901274f0fc2` |
+| `main.js` | `aec4135e9480f1f270b38f07c4acc0ff5ac3ba01baacd950f9fd7132072d3e64` |
 | `manifest.json` | `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
-| `styles.css` | `58aeeacecab42c7bedd02f242df03e2d2de9342e8958f053ceadb99a7feaf607` |
+| `styles.css` | `06b1d27bdc10a53eeeb5a64bc16a3fb38a567bd6ce11d75c5f5c4642379936ce` |
 | `omd-eventkit` | `78db9fd4c4df14602adcbc5d888406f4ac51185b3bc798697551ed580444a33c` |
+
+`data.json` 仍保留既有测试身份与设置，未作为发布资产重新生成；当前 SHA-256 为
+`6f1deb4e7030a342c9942fe7719c478636b6d760aa9525528ffaa486af589fe1`。
 
 2026-09-07 的首次安装曾准备到 **Install-00 第 4 步完成**：当时插件目录只有三项基础资产，
 尚无 `data.json`。这是历史基线，不是当前目录应满足的清理条件。当前测试已推进到
@@ -126,7 +130,7 @@ node -p 'require("./manifest.json").version'
 测试素材，不是从用户 vault 恢复的数据。上一轮完整 test-vault 没有永久删除，保存在：
 
 ```text
-/Volumes/Transcend_q/APPS/AI/omd-home-test-vault-backups/20260907-212321-NZST-pre-manual-plan
+/Volumes/Transcend_q/APPS/AI/omd-home-test-vault-backups/20260909-004952-NZST-pre-final-resume
 ```
 
 不要为恢复测试而把旧备份覆盖回活动 vault。`npm run install:test-vault` 会保留现有
@@ -548,7 +552,7 @@ AI-04 的无 key、opt-in 关闭和 preview/cancel 边界，真实网络分支�
 10. 再配置需要的依赖：
     - OMD：先不要填写路径；等待主状态卡自动发现，再完成 `OMD-01`。
     - Advanced OMD paths：默认保持折叠；只有自动发现失败的诊断测试才打开。
-    - Python executable override：先留空，测试从检测到的 OMD shebang 自动发现。
+    - Python executable override：先留空；macOS/Linux 测试从检测到的 OMD shebang 自动发现，Windows 测试从 OMD launcher 所在的虚拟环境自动发现 `python.exe`。
     - OMD Home bridge override：先留空，使用打包在 `main.js` 内的 bridge。
     - EventKit helper：只在 Calendar 阶段安装。
     - Ollama 与模型：只在 Local AI 阶段启动。
@@ -1156,29 +1160,45 @@ process 或跨 provider 反馈；Capture 后的 link/tag enrichment 不会把自
 1. 选择一个 hosted provider，等待 credential 状态加载结束。保持 Settings 打开 30 秒，再展开
    Advanced、滚动、切走并切回 provider。状态检查应在完成后停止：无持续 loading、重复进程、
    按钮闪烁或 Console 报错循环；成功或缺少凭证均不得触发无限 hydration/re-render。
-2. 在 provider A 的 **Check setup** 或 **Save key** 仍运行时切到 provider B，再执行 B 的检查。
-   A 的迟到成功、失败或取消不得覆盖 B 的 model、credential 来源、反馈或按钮状态。回到 A 时，
-   如需再次确认可显式 Check setup，不得显示属于 B 的 ready。
-3. 发起较慢的本地诊断并取消，立即开启新检查；旧请求的 abort/收尾不得清除新任务或把新结果
+2. 不点击 **Save key**，在 provider A 的 **Developer key** 输入一个明确的非真实测试草稿，例如
+   `not-a-real-key-a`。点击 **Check setup**，再切到 provider B 输入 `not-a-real-key-b`，最后切回 A；
+   每次重绘后 password 输入仍应保留该 provider 自己的草稿，不能串到另一个 provider，也不能因
+   hydration 或 Check setup 被清空。删除这些测试草稿，不要保存。之后如用真实测试 key 验证保存，
+   只有 Keychain 明确确认成功后才清空刚提交且未被替换的输入；失败或较新的草稿必须保留。
+3. 在 provider A 的 **Check setup** 或 **Save key** 仍运行时切到 provider B。此时 B 的
+   **Check setup**、credential 保存/删除、embedding 检查等共用 AI setup 动作必须清楚显示为
+   busy/disabled，不能并行启动第二项。等待 A 完成后再执行 B 的检查。A 的迟到成功、失败或取消
+   不得覆盖 B 的 model、credential 来源、反馈或按钮状态；回到 A 时不得显示属于 B 的 ready。
+   若 provider/model 变更取消了正在运行的 Keychain 操作，所有 setup 控件必须保持 disabled，直到
+   被取消的子进程真正结束；中间点击不得启动重叠的 Save、Remove 或 Check setup。
+4. 发起较慢的本地诊断并取消，立即开启新检查；旧请求的 abort/收尾不得清除新任务或把新结果
    标为 cancelled。修改 provider/model 时也应取消失效任务，且不向另一个 provider 自动发送。
-4. 用至少两个可检索的 synthetic notes 发起 hosted 问题。批准前确认 preview 显示准确的 question、
+5. 连续提交两个本地问题：先提交一个预计较慢的 `@` 问题 Q1，在结果返回前立即提交不同的 Q2。
+   最终结果区只能显示 Q2 的回答、来源与 elapsed time；Q1 必须被取消，不能在稍后覆盖 Q2，也不能
+   在 **Needs attention** 留下 cancelled/status unavailable 等旧错误。再用普通 OMD 搜索作为 Q1、
+   `@` 问题作为 Q2 重复一次，迟到的搜索不得清空或覆盖 Q2。
+6. 用至少两个可检索的 synthetic notes 发起 hosted 问题。批准前确认 preview 显示准确的 question、
    provider、model、destination，以及**完整的本次已选有界证据片段**和 vault-relative source paths；
    不是只显示标题、source count、摘要或再次截短的片段。此处“完整”指将发送的选定片段，不是整篇笔记。
    对照本轮 synthetic 预览/测试请求记录，确认批准后的请求只使用该次批准的 question 和 evidence，
    不重新检索并替换为未预览的证据；不要在日志中保存真实凭证或私人正文。
-5. 分别用 **Cancel**、Escape 和关闭 modal 取消预览。每次都不得发送云请求；再次提问必须重新
+7. hosted Q1 的 preview 保持打开时提交 Q2。Q1 preview 必须立即关闭或失效；只有 Q2 可以被批准
+   和发送。然后分别用 **Cancel**、Escape 和关闭 modal 取消预览。每次都不得发送云请求；再次提问必须重新
    preview。更改 provider/model、撤销该 provider 的 Allow answers 或启动替代问题后，旧预览不能
    批准新设置的请求，也不能复用旧 consent。
-6. 保持 preview 打开且尚未批准，disable/reload 插件；再重复一次并完全退出 Obsidian。待批准
+8. 保持 preview 打开且尚未批准，disable/reload 插件；再重复一次并完全退出 Obsidian。待批准
    modal 应关闭或失效，等待中的 decision/request 应结束，不向云端发送，不留下 orphan task 或
    未处理 rejection。重新启用后新问题必须获得新的 preview 和明确批准。
-7. 运行本地 `@` fixture 问题，在等待回答时只更改 **Recognition defaults** 中的 OCR/ASR 语言。
+9. 运行本地 `@` fixture 问题，在等待回答时依次输入 `+`、普通 capture 路径和 `>` command。
+   每种切换都必须取消旧回答并收起空的 **OMD result** 壳；新的 capture/command 动作仍可正常完成。
+10. 运行本地 `@` fixture 问题，在等待回答时只更改 **Recognition defaults** 中的 OCR/ASR 语言。
    问答应继续，不因仅影响 capture 的语言默认值被取消、失去 ready 或报缺少 OCR/ASR capability。
    更改后的默认值只在新 Capture 中生效；旧版 OMD 缺少可选 recognition override 能力时，仍可
    使用其已支持的 Q&A 功能。恢复默认语言后再次确认 Capture 使用新值。
 
-通过条件：credential 状态无刷新循环；provider 切换和 abort 只影响所属请求；云端发送严格绑定
-本次批准的证据；待批准时 unload 零发送；OCR/ASR 默认值不阻断无关 Vault Q&A。
+通过条件：credential 状态无刷新循环；AI setup 动作不会重叠；provider 切换和 abort 只影响所属
+请求；所有异步结果遵守 latest-submission-wins；云端发送严格绑定本次批准的证据；待批准时 unload
+零发送；OCR/ASR 默认值不阻断无关 Vault Q&A。
 
 ## 7. Commands
 
