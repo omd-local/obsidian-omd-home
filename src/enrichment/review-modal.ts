@@ -247,6 +247,10 @@ export class EnrichmentReviewModal extends Modal {
       retry.disabled = !this.callbacks.onRetry;
       return;
     }
+    if (phase === "unavailable") {
+      this.button(parent, "Close", false, () => this.closeWithoutCallback());
+      return;
+    }
     if (phase === "applying") {
       const applying = this.button(parent, "Applying", false, () => undefined);
       applying.disabled = true;
@@ -298,6 +302,7 @@ function isActiveDismissal(phase: EnrichmentReviewState["phase"]): boolean {
 function footerNote(phase: EnrichmentReviewState["phase"]): string {
   if (phase === "review") return "Recommended existing items start checked. New tags start unchecked.";
   if (phase === "conflict") return "The old proposal cannot be applied. Generate again from the current note.";
+  if (phase === "unavailable") return "Close this view, then start again from an available Markdown note.";
   if (phase === "partial-failure") return "Open the target note and review the managed Related notes block before retrying.";
   if (phase === "applied") return "The Inbox status changes to reviewed only after every selected write succeeds.";
   return "Proposal generation does not write to the vault.";

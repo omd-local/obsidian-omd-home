@@ -8,7 +8,10 @@ import {
   createWorkflowSnapshot,
   deriveLocalAiDaemonCode,
   deriveLocalAiModelCode,
+  describeLocalCompletionCatalog,
   describeModelReadiness,
+  localWritingModelIsSelectable,
+  localWritingModelOptionLabel,
   mergeInspectedModelEntry,
   modelHasRemoteMetadata,
   modelIsKnownThinkingOnly,
@@ -39,14 +42,16 @@ const DEFAULT_SETTINGS: OmdHomeSettings = {
     anthropic: "",
     deepseek: "",
   },
+  allowedCloudAnswerProviders: [],
   hybridRetrievalEnabled: true,
   embeddingModel: "bge-m3",
   semanticRerankEnabled: false,
-  enrichmentModel: "qwen3:4b-instruct",
+  localWritingModel: "qwen3:4b-instruct",
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
-  capturePolishModel: "qwen3:4b-instruct",
   captureSuggestLinksAndTags: true,
+  captureOcrLanguage: "",
+  captureAsrLanguage: "inherit-adapter-default",
   pinnedNotes: [],
 };
 
@@ -122,24 +127,12 @@ test("createWorkflowSnapshot and snapshotsMatch bind the workflow tuple", () => 
   const qa = createWorkflowSnapshot("qa", DEFAULT_SETTINGS);
   const enrichment = createWorkflowSnapshot("enrichment", DEFAULT_SETTINGS);
   assert.equal(qa.workflow, "qa");
-  assert.equal(enrichment.model, DEFAULT_SETTINGS.enrichmentModel);
+  assert.equal(enrichment.model, DEFAULT_SETTINGS.localWritingModel);
   assert.equal(snapshotsMatch(qa, { ...qa }), true);
   assert.equal(snapshotsMatch(qa, { ...qa, model: "qwen3:4b" }), false);
 });
 
-test("aggregateLocalAiState surfaces daemon and model failures distinctly", () => {
-  const cloudEnabled = buildConnectionSummary({
-    host: "http://localhost:11434",
-    checkedAt: 1,
-    version: "0.32.5",
-    daemonCode: "cloud_features_enabled",
-    daemonDetail: "disable cloud",
-    models: [localModel],
-    modelChecks: {},
-  });
-  const cloudState = aggregateLocalAiState(DEFAULT_SETTINGS, cloudEnabled, [localModel], "");
-  assert.equal(cloudState.daemonCode, "cloud_features_enabled");
-
+test("aggregateLocalAiState surfaces partial readiness without blocking on daemon cloud availability", () => {
   const partial = buildConnectionSummary({
     host: "http://localhost:11434",
     checkedAt: 1,
@@ -166,7 +159,7 @@ test("aggregateLocalAiState surfaces daemon and model failures distinctly", () =
   });
   const partialState = aggregateLocalAiState({
     ...DEFAULT_SETTINGS,
-    enrichmentModel: embedModel.name,
+    localWritingModel: embedModel.name,
   }, partial, [localModel, embedModel], "");
   assert.equal(partialState.daemonCode, "partial");
   assert.equal(partialState.workflows.enrichment.code, "selected_model_incompatible");
@@ -191,15 +184,15 @@ test("aggregateLocalAiState keeps local enrichment and capture readiness visible
     daemonDetail: "ready",
     models: [localModel],
     modelChecks: {
-      [DEFAULT_SETTINGS.enrichmentModel]: {
-        model: DEFAULT_SETTINGS.enrichmentModel,
+      [DEFAULT_SETTINGS.localWritingModel]: {
+        model: DEFAULT_SETTINGS.localWritingModel,
         checkedAt: 1,
         code: "ready",
         detail: "ready",
         supportsCompletion: true,
       },
-      [DEFAULT_SETTINGS.capturePolishModel]: {
-        model: DEFAULT_SETTINGS.capturePolishModel,
+      [DEFAULT_SETTINGS.localWritingModel]: {
+        model: DEFAULT_SETTINGS.localWritingModel,
         checkedAt: 1,
         code: "ready",
         detail: "ready",
@@ -221,9 +214,9 @@ test("aggregateLocalAiState keeps local enrichment and capture readiness visible
 
 test("daemon policy accepts only the exact cloud-disabled status shape", () => {
   assert.equal(deriveLocalAiDaemonCode({ cloud: { disabled: true } }, [localModel]), "ready");
-  assert.equal(deriveLocalAiDaemonCode({ cloud: { disabled: false } }, [localModel]), "cloud_features_enabled");
-  assert.equal(deriveLocalAiDaemonCode({ cloud: {} }, [localModel]), "cloud_features_unknown");
-  assert.equal(deriveLocalAiDaemonCode({ cloud: null }, [localModel]), "cloud_features_unknown");
+  assert.equal(deriveLocalAiDaemonCode({ cloud: { disabled: false } }, [localModel]), "ready");
+  assert.equal(deriveLocalAiDaemonCode({ cloud: {} }, [localModel]), "ready");
+  assert.equal(deriveLocalAiDaemonCode({ cloud: null }, [localModel]), "ready");
   assert.equal(deriveLocalAiDaemonCode({ cloud: { disabled: true } }, []), "no_models_installed");
 });
 
@@ -235,8 +228,27 @@ test("model policy distinguishes local completion, incompatible, and remote-back
   assert.equal(deriveLocalAiModelCode(remoteModel), "selected_model_remote_blocked");
 });
 
+test("local completion catalog keeps every downloaded model explainable without making unsafe models selectable", () => {
+  const unknownLocalModel = buildModelEntry({ name: "future-text:latest" });
+  const models = [localModel, thinkingOnlyModel, embedModel, remoteModel, unknownLocalModel];
+
+  assert.equal(localWritingModelIsSelectable(localModel), true);
+  assert.equal(localWritingModelIsSelectable(unknownLocalModel), true);
+  assert.equal(localWritingModelIsSelectable(thinkingOnlyModel), false);
+  assert.equal(localWritingModelIsSelectable(embedModel), false);
+  assert.equal(localWritingModelIsSelectable(remoteModel), false);
+  assert.equal(localWritingModelOptionLabel(thinkingOnlyModel), "qwen3:4b (thinking-only; unavailable for text answers)");
+  assert.equal(localWritingModelOptionLabel(embedModel), "nomic-embed (embedding model; unavailable for text answers)");
+  assert.equal(localWritingModelOptionLabel(unknownLocalModel), "future-text:latest (completion support unverified)");
+  assert.equal(describeLocalCompletionCatalog(models, false), "");
+  assert.equal(
+    describeLocalCompletionCatalog(models, true),
+    "4 local models found. 2 can answer text questions. qwen3:4b and nomic-embed are shown but unavailable for text answers. 1 cloud-backed model is not shown in this local list.",
+  );
+});
+
 test("disabled capture snapshots preserve the invocation flag without requiring a model", () => {
-  const settings = { ...DEFAULT_SETTINGS, capturePolishModel: "" };
+  const settings = { ...DEFAULT_SETTINGS, localWritingModel: "" };
   assert.equal(createWorkflowSnapshot("capture", settings, false).enabled, false);
   assert.throws(
     () => createWorkflowSnapshot("capture", settings, true),
@@ -245,7 +257,7 @@ test("disabled capture snapshots preserve the invocation flag without requiring 
 });
 
 test("disabled capture snapshots do not require a valid Ollama host", () => {
-  const settings = { ...DEFAULT_SETTINGS, ollamaHost: "http://localhost:9999", capturePolishModel: "" };
+  const settings = { ...DEFAULT_SETTINGS, ollamaHost: "http://localhost:9999", localWritingModel: "" };
   const snapshot = createWorkflowSnapshot("capture", settings, false);
   assert.equal(snapshot.enabled, false);
   assert.equal(snapshot.host, "http://localhost:9999");

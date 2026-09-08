@@ -108,6 +108,39 @@ export interface EnrichmentResponse {
 }
 
 export interface CapabilityResponse {
+  package_version?: string;
+  protocol_version?: number;
+  build_revision?: string | null;
+  config_schema?: {
+    current_version: number;
+    supported_versions: number[];
+  };
+  capture_language_options?: {
+    supported: boolean;
+    ocr: {
+      argument: string;
+      aliases: string[];
+      composite: boolean;
+      separator: string;
+      presets: Array<{
+        id: string;
+        label: string;
+        value: string;
+      }>;
+      readiness?: {
+        available: boolean;
+        ready: boolean;
+        installed_packs: string[];
+        effective_language: string | null;
+        missing_packs: string[];
+        error: string | null;
+      };
+    };
+    asr: {
+      argument: string;
+      modes: string[];
+    };
+  };
   enrich_note: {
     schema_versions: number[];
     supported: boolean;
@@ -183,17 +216,110 @@ export function validateCapabilityResponse(value: unknown): CapabilityResponse {
     throw new EnrichmentError("invalid_response", "OMD returned invalid enrichment schema versions.");
   }
   const supported = expectBoolean(enrich.supported, "capabilities.enrich_note.supported");
-  return {
+  const capability: CapabilityResponse = {
     enrich_note: {
       schema_versions,
       supported,
     },
   };
+  if (record.package_version !== undefined) {
+    capability.package_version = expectBoundedString(record.package_version, 128, "capabilities.package_version");
+  }
+  if (record.protocol_version !== undefined) {
+    capability.protocol_version = expectPositiveInteger(record.protocol_version, "capabilities.protocol_version");
+  }
+  if (record.build_revision !== undefined) {
+    capability.build_revision = record.build_revision === null
+      ? null
+      : expectBoundedString(record.build_revision, 256, "capabilities.build_revision");
+  }
+  if (record.config_schema !== undefined) {
+    const config = expectRecord(record.config_schema, "capabilities.config_schema");
+    capability.config_schema = {
+      current_version: expectPositiveInteger(config.current_version, "capabilities.config_schema.current_version"),
+      supported_versions: expectVersionArray(
+        config.supported_versions,
+        "capabilities.config_schema.supported_versions",
+      ),
+    };
+  }
+  if (record.capture_language_options !== undefined) {
+    capability.capture_language_options = validateCaptureLanguageOptions(record.capture_language_options);
+  }
+  return capability;
 }
 
 export function capabilitySupportsEnrichNote(value: unknown): boolean {
   const capability = validateCapabilityResponse(value);
   return capability.enrich_note.supported && capability.enrich_note.schema_versions.includes(ENRICHMENT_SCHEMA_VERSION);
+}
+
+function validateCaptureLanguageOptions(value: unknown): NonNullable<CapabilityResponse["capture_language_options"]> {
+  const record = expectRecord(value, "capabilities.capture_language_options");
+  const ocr = expectRecord(record.ocr, "capabilities.capture_language_options.ocr");
+  const asr = expectRecord(record.asr, "capabilities.capture_language_options.asr");
+  const aliases = ocr.aliases === undefined
+    ? []
+    : expectBoundedStringArray(ocr.aliases, 16, 64, "capabilities.capture_language_options.ocr.aliases");
+  const presets = expectArray(ocr.presets, "capabilities.capture_language_options.ocr.presets");
+  if (presets.length > 32) {
+    throw new EnrichmentError("invalid_response", "OMD returned too many OCR language presets.");
+  }
+  const readiness = ocr.readiness === undefined
+    ? undefined
+    : validateOcrReadiness(ocr.readiness);
+  return {
+    supported: record.supported === undefined
+      ? true
+      : expectBoolean(record.supported, "capabilities.capture_language_options.supported"),
+    ocr: {
+      argument: expectBoundedString(ocr.argument, 64, "capabilities.capture_language_options.ocr.argument"),
+      aliases,
+      composite: expectBoolean(ocr.composite, "capabilities.capture_language_options.ocr.composite"),
+      separator: expectBoundedString(ocr.separator, 4, "capabilities.capture_language_options.ocr.separator"),
+      presets: presets.map((entry, index) => {
+        const preset = expectRecord(entry, `capabilities.capture_language_options.ocr.presets[${index}]`);
+        return {
+          id: expectBoundedString(preset.id, 64, `capabilities.capture_language_options.ocr.presets[${index}].id`),
+          label: expectBoundedString(preset.label, 128, `capabilities.capture_language_options.ocr.presets[${index}].label`),
+          value: expectBoundedString(preset.value, 64, `capabilities.capture_language_options.ocr.presets[${index}].value`),
+        };
+      }),
+      ...(readiness ? { readiness } : {}),
+    },
+    asr: {
+      argument: expectBoundedString(asr.argument, 64, "capabilities.capture_language_options.asr.argument"),
+      modes: expectBoundedStringArray(asr.modes, 16, 64, "capabilities.capture_language_options.asr.modes"),
+    },
+  };
+}
+
+function validateOcrReadiness(
+  value: unknown,
+): NonNullable<NonNullable<CapabilityResponse["capture_language_options"]>["ocr"]["readiness"]> {
+  const record = expectRecord(value, "capabilities.capture_language_options.ocr.readiness");
+  return {
+    available: expectBoolean(record.available, "capabilities.capture_language_options.ocr.readiness.available"),
+    ready: expectBoolean(record.ready, "capabilities.capture_language_options.ocr.readiness.ready"),
+    installed_packs: expectBoundedStringArray(
+      record.installed_packs,
+      256,
+      64,
+      "capabilities.capture_language_options.ocr.readiness.installed_packs",
+    ),
+    effective_language: record.effective_language === null
+      ? null
+      : expectBoundedString(record.effective_language, 256, "capabilities.capture_language_options.ocr.readiness.effective_language"),
+    missing_packs: expectBoundedStringArray(
+      record.missing_packs,
+      8,
+      64,
+      "capabilities.capture_language_options.ocr.readiness.missing_packs",
+    ),
+    error: record.error === null
+      ? null
+      : expectBoundedString(record.error, 512, "capabilities.capture_language_options.ocr.readiness.error"),
+  };
 }
 
 export function validateEnrichmentEvent(value: unknown): EnrichmentEvent {
@@ -495,6 +621,30 @@ function expectBoolean(value: unknown, path: string): boolean {
     throw new EnrichmentError("invalid_response", `Expected ${path} to be a boolean.`);
   }
   return value;
+}
+
+function expectPositiveInteger(value: unknown, path: string): number {
+  const number = expectNumber(value, path);
+  if (!Number.isInteger(number) || number < 1) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a positive integer.`);
+  }
+  return number;
+}
+
+function expectVersionArray(value: unknown, path: string): number[] {
+  const versions = expectArray(value, path).map((entry, index) => expectPositiveInteger(entry, `${path}[${index}]`));
+  if (versions.length > 16) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to contain at most 16 versions.`);
+  }
+  return versions;
+}
+
+function expectBoundedStringArray(value: unknown, maxItems: number, maxChars: number, path: string): string[] {
+  const entries = expectArray(value, path);
+  if (entries.length > maxItems) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to contain at most ${maxItems} entries.`);
+  }
+  return entries.map((entry, index) => expectBoundedString(entry, maxChars, `${path}[${index}]`));
 }
 
 function expectSha256(value: unknown, path: string): string {

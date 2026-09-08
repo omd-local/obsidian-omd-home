@@ -1,0 +1,4 @@
+Retry fixture is now available.
+
+Expected stable phrase: green compass restored after retry.
+

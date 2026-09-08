@@ -5,6 +5,7 @@ import {
   isAutomaticOmdExecutable,
   omdExecutableCandidates,
   omdInstallInstructions,
+  resolveOmdExecutablePath,
 } from "../src/omd-discovery.ts";
 import { OmdEnrichmentError } from "../src/enrichment/errors.ts";
 
@@ -55,6 +56,78 @@ test("automatic discovery skips missing and legacy candidates to find a compatib
   assert.equal(result.executable, "/Users/example/active-conda/bin/omd");
   assert.equal(result.mode, "automatic");
   assert.deepEqual(result.candidatesTried, attempts);
+});
+
+test("automatic discovery probes and returns the same resolved absolute PATH executable", async () => {
+  const probed: string[] = [];
+  const result = await discoverOmdExecutable(
+    "omd",
+    macEnvironment,
+    async (executable) => { probed.push(executable); },
+    async (candidate) => candidate === "omd" ? "/opt/homebrew/bin/omd" : candidate,
+  );
+
+  assert.equal(result.executable, "/opt/homebrew/bin/omd");
+  assert.deepEqual(probed, ["/opt/homebrew/bin/omd"]);
+  assert.deepEqual(result.candidatesTried, ["omd"]);
+});
+
+test("bare executable resolution uses a shell-free bounded locator on macOS and Windows", async () => {
+  const calls: Array<{ command: string; args: string[]; shell?: boolean }> = [];
+  const execute = async (command: string, args: string[], options?: { shell?: boolean }) => {
+    calls.push({ command, args, shell: options?.shell });
+    return {
+      stdout: command === "where.exe" ? "C:\\Tools\\omd.exe\r\n" : "/opt/homebrew/bin/omd\n",
+      stderr: "",
+      code: 0,
+    };
+  };
+
+  assert.equal(await resolveOmdExecutablePath("omd", "darwin", execute), "/opt/homebrew/bin/omd");
+  assert.equal(await resolveOmdExecutablePath("omd.exe", "win32", execute), "C:\\Tools\\omd.exe");
+  assert.deepEqual(calls, [
+    { command: "which", args: ["omd"], shell: false },
+    { command: "where.exe", args: ["omd.exe"], shell: false },
+  ]);
+});
+
+test("executable resolution preserves an already absolute custom path without spawning", async () => {
+  let calls = 0;
+  const resolved = await resolveOmdExecutablePath(" /custom/bin/omd ", "linux", async () => {
+    calls += 1;
+    throw new Error("should not run");
+  });
+  assert.equal(resolved, "/custom/bin/omd");
+  assert.equal(calls, 0);
+});
+
+test("cancelling automatic discovery during PATH resolution prevents the capability probe", async () => {
+  const controller = new AbortController();
+  let probes = 0;
+  const discovery = discoverOmdExecutable(
+    "omd",
+    { platform: "linux", homeDirectory: "" },
+    async () => { probes += 1; },
+    async (candidate) => await resolveOmdExecutablePath(
+      candidate,
+      "linux",
+      async (_command, _args, options) => await new Promise((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        }, { once: true });
+      }),
+      controller.signal,
+    ),
+  );
+
+  controller.abort();
+  await assert.rejects(
+    discovery,
+    (error: unknown) => error instanceof OmdEnrichmentError && error.code === "cancelled",
+  );
+  assert.equal(probes, 0);
 });
 
 test("automatic discovery reports the most actionable failure after trying every candidate", async () => {

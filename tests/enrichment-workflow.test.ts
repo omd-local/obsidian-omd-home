@@ -34,6 +34,13 @@ test("phase copy labels review and generating states distinctly", () => {
   assert.equal(describeEnrichmentPhase("generating").tone, "busy");
   assert.equal(describeEnrichmentPhase("review").canApply, true);
   assert.equal(describeEnrichmentPhase("applied").terminal, true);
+  assert.deepEqual(describeEnrichmentPhase("unavailable"), {
+    title: "Note unavailable",
+    detail: "The target note or one of its candidates can no longer be read safely.",
+    tone: "warning",
+    terminal: true,
+    canApply: false,
+  });
 });
 
 test("selection defaults existing suggestions on and new tags off", () => {

@@ -74,9 +74,17 @@ new is written back without review.
   evaluating a shell command.
 - Capture continues when the Home tab is backgrounded or closed. Cancel,
   plugin unload, or quitting Obsidian stops plugin-owned child work.
-- **Suggest links and tags** is proposal-only. Nothing is written until you explicitly press **Apply**.
+- Capture keeps OCR and speech recognition separate. On first use, both controls
+  begin with **No language preference**. Vault-wide defaults live under
+  **Recognition defaults** in Settings. OCR can also use `eng`, `chi_sim+eng`,
+  or `chi_tra+eng`; speech can use explicit **Auto-detect**, `en`, or `zh`.
+  Recognition changes in the Capture dialog apply only to that capture, while
+  Retry preserves them without changing the vault defaults.
+- **Review links and tags** is proposal-only. Nothing is written until you explicitly press **Apply**.
   New concepts stay display-only, and new tags start unchecked.
-- Optional capture polish is remembered per device and is off by default.
+- The **Polish Markdown** and **Review links and tags** capture toggles appear
+  only in the Capture dialog. New captures remember the last submitted choices. Cancelling the
+  dialog does not change them. Polish Markdown is off by default.
 
 ## Calendar sync with no silent winner
 
@@ -112,22 +120,33 @@ OMD Home supports explicit answer-provider setup for local Ollama on this comput
 Ollama Cloud through the local Ollama app, OpenAI API, Anthropic API, and
 DeepSeek API.
 
-This beta keeps one live answer path: local Ollama on this computer. Hosted provider
-setup can read credentials, discover models, and verify model availability, but
-real hosted Vault Q&A stays fail-closed before any vault evidence is sent. A future
-hosted path should add explicit per-question evidence preview and consent, but
-that send step is not enabled in this beta.
+Local Ollama remains the default answer path. Hosted providers are explicit
+opt-ins: every cloud answer request shows a preview with the selected provider,
+model, and bounded evidence excerpts before anything leaves the device. OMD Home sends only the question plus the selected local evidence snippets; it never sends the whole vault. The UI uses that preview only for the immediately approved request; there is no silent fallback across providers or auto-switch to another provider.
 
 Local-first rules still apply where they matter:
 
 - The live local Ollama answer path accepts only `http://localhost:11434` and
   `http://127.0.0.1:11434`.
-- Local answer mode, note enrichment, capture polish, and local embedding-based
-  retrieval require Ollama to prove that Cloud is disabled before vault content
-  is sent over loopback.
-- Hosted provider setup never silently falls back across providers.
+- Local answer mode, note enrichment, Polish Markdown, and local embedding-based
+  retrieval stay on loopback Ollama. Cloud availability does not block local
+  model selection.
+- Hosted answer providers only receive the question plus bounded evidence
+  excerpts after the preview and your explicit approval. They never receive
+  your whole vault.
 - If local hybrid retrieval cannot be verified safely, Vault Q&A falls back to
   sparse retrieval and labels that fallback instead of pretending it stayed hybrid.
+
+Cloud access is provider-scoped and explicit:
+
+- Ollama Cloud sends the question plus bounded evidence excerpts to Ollama's
+  cloud service after preview approval.
+- OpenAI, Anthropic, and DeepSeek send the question plus bounded evidence
+  excerpts to their own APIs after preview approval.
+- OMD Home does not auto-switch providers or send the full vault.
+- Ollama Cloud requires an Ollama account/sign-in; OpenAI, Anthropic, and
+  DeepSeek require separate developer API access, and consumer subscriptions
+  are separate from API billing.
 
 Settings provide:
 
@@ -170,8 +189,9 @@ npm run install:test-vault
 ```
 
 `npm run install:test-vault` always copies `main.js`, `manifest.json`, and
-`styles.css` into this repository's disposable `test-vault/`. It also copies
-`dist/omd-eventkit` when a built executable helper is present.
+`styles.css` into this repository's disposable `test-vault/`, preserving an
+existing plugin `data.json`. It also copies `dist/omd-eventkit` when a built
+executable helper is present. Settings and this optional helper are not release assets.
 
 ## Choose your setup
 
@@ -204,46 +224,97 @@ Most users should leave **Advanced OMD paths** closed. Open it only to select a
 specific OMD or Python environment when automatic discovery cannot reach the
 right one. Clearing the OMD override restores automatic discovery.
 
+If Terminal and OMD Home appear to use different installs, run `omd --version`
+and `omd capabilities --json` against the executable path shown by OMD Home.
+OMD keeps persistent defaults in versioned JSON; `omd config path` locates the
+file and `omd config show --json` shows the resolved settings. Explicit capture
+arguments override environment, then config, then adapter or built-in defaults.
+
+Capture language scope is deliberately narrow. OCR applies to images,
+screenshots, and enabled article-image OCR, not ordinary webpage text or
+ordinary/scanned PDF pages. OMD Home does not promise automatic OCR-language
+detection. **No language preference** sends no explicit language flag, so the
+lower-priority converter setting remains in control. **Auto-detect** explicitly
+requests speech-language detection. Polish Markdown is a post-conversion
+cleanup step; it is neither OCR nor translation. If an OCR
+preset fails, install the named Tesseract language pack and check
+`tesseract --list-langs` before retrying.
+
 | Capability | Minimum setup | Boundary |
 |---|---|---|
 | Home, search, commands, quick notes, Markdown events | Obsidian desktop | Current vault only |
 | URL and file capture | A compatible local OMD install, discovered automatically when possible | Submitted URL or file; URLs contact their source |
 | Link and tag proposals | A compatible OMD executable and local Ollama | Review-first; no write before Apply |
-| Vault Q&A | OMD with retrieval support, a Python interpreter, and local Ollama | Bounded evidence over loopback; read-only |
-| Hosted answer-provider setup | OMD with `ai_service`, provider-model discovery, and credential support | Setup only in this beta; no vault evidence egress |
+| Local Vault Q&A | OMD with retrieval support, a Python interpreter, and local Ollama | Bounded evidence over loopback; read-only |
+| Hosted answer providers | OMD with `ai_service`, provider-model discovery, credential support, and per-question consent grants | Retrieval stays local; only the question and bounded selected evidence are sent after approval |
 | Hybrid retrieval | A local embedding model selected in settings | Derived vectors stay local; query vectors are not persisted |
 | Apple Calendar sync | macOS 14+, EventKit helper, Calendar permission | Explicitly selected calendars only |
 | Google or Outlook calendar sync | Account already added to macOS Calendar | Uses the same selected EventKit calendars |
 
 <details>
-<summary><strong>ASK VAULT SETUP // local answers first, hosted providers staged</strong></summary>
+<summary><strong>ASK VAULT SETUP // local by default, cloud by per-request approval</strong></summary>
 
 1. Install and start Ollama.
-2. If you want local Vault Q&A, enrichment, or capture polish, install a
+2. If you want local Vault Q&A, enrichment, or Polish Markdown, install a
    completion model yourself. For example:
 
    ```bash
    ollama pull qwen3:4b-instruct
    ```
 
-3. To use hybrid retrieval, install a local embedding model such as `bge-m3`.
+3. To use hybrid retrieval, install a local embedding model such as `bge-m3`:
+
+   ```bash
+   ollama pull bge-m3
+   ```
+
+   Choose it under **Advanced AI controls > Vault retrieval**, then press
+   **Test embeddings**. Missing-model guidance can copy the download command;
+   the plugin never runs it for you.
 4. In **Settings > OMD Home > AI answers**, choose an answer provider.
    - For **Ollama on this computer**, choose a local model and press **Check setup**.
-   - For **Ollama Cloud**, sign in to the Ollama app, choose one of the detected
-     cloud-backed models, and press **Check setup**. This confirms setup only.
+     A downloaded model marked **unverified** is still selectable when Ollama
+     omits capability metadata; Check setup inspects it before use.
+   - For **Ollama Cloud**, follow [Ollama Cloud](#ollama-cloud) for the
+     first-run sign-in, model selection, and per-request preview flow.
    - For **OpenAI API**, **Anthropic API**, or **DeepSeek API**, configure a
      developer API key, press **Check setup** to load models, then choose one.
-     On macOS, OMD Home can save the key to macOS Keychain. On Windows and
+     On macOS, paste the actual API key into the password field and press
+     **Save key** to store it in macOS Keychain. On Windows and
      Linux, set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`
-     before starting Obsidian. Keys never enter notes or plugin settings. OpenAI API billing
-     stays separate from ChatGPT subscriptions, and Anthropic API billing stays
-     separate from Claude subscriptions.
+     before starting Obsidian. Keys never enter notes or plugin settings.
+     OpenAI API billing stays separate from ChatGPT subscriptions, and Anthropic API billing stays separate from Claude subscriptions.
 5. If local models changed on disk, run **OMD Home: Refresh local AI models**
    from the command palette, then return to **Check setup**.
 6. Leave the Python bridge override blank to use the bridge bundled in
    `main.js`. OMD Home derives the Python interpreter from the detected OMD
    launcher when that launcher has a direct Python shebang. Otherwise, set an
    explicit Python executable.
+
+### Ollama Cloud
+
+Ollama Cloud requires an Ollama account and whatever cloud billing or usage rules Ollama applies to cloud models. OMD Home only reads the local Ollama app's cloud state; it does not manage Ollama billing or switch providers for you.
+
+1. Sign in to Ollama:
+
+   ```bash
+   ollama signin
+   ```
+
+2. Confirm a cloud-backed model is available:
+
+   ```bash
+   ollama pull gpt-oss:120b-cloud
+   ollama run gpt-oss:120b-cloud
+   ```
+
+3. In **Settings > OMD Home > AI answers**, choose **Ollama Cloud**.
+4. Press **Check setup** to load the detected cloud model metadata.
+5. Select the cloud-backed model you want to use.
+6. Turn on the selected provider's **Allow … answers** toggle only when you want `@`
+   questions to send the question plus bounded evidence excerpts. The label always matches the
+   current provider, for example **Allow Ollama Cloud answers**.
+7. Review the preview modal every time. Cancel sends nothing; Send keeps the selected provider and model fixed.
 
 Official provider references:
 
@@ -252,20 +323,18 @@ Official provider references:
 - [Anthropic API overview](https://platform.claude.com/docs/en/api/overview)
 - [DeepSeek API docs](https://api-docs.deepseek.com/api/deepseek-api)
 
-OMD Home requires a verifiable local-only Ollama daemon for local answer mode,
-note enrichment, capture polish, and local embedding retrieval. Put the
-following in `~/.ollama/server.json`, preserve any unrelated keys, fully quit
-and reopen Ollama, then run **Check setup** again:
+OMD Home does not auto-pull, auto-install, auto-select models, or auto-switch
+providers. Local answer and writing dropdowns show all downloaded models that
+stay on this computer. Compatible completion models and models awaiting
+capability verification are selectable; known incompatible models remain
+visible but disabled with a reason. Remote-backed models stay out of the local
+catalog. An incompatible, remote-backed, or stale saved selection remains
+visible with recovery guidance and is never silently replaced.
 
-```json
-{
-  "disable_ollama_cloud": true
-}
-```
-
-OMD Home does not auto-pull, auto-install, auto-select models, or silently send
-vault content to a hosted provider. Incompatible and stale saved models remain
-visible with an actionable status.
+If you want Ollama itself to run in local-only mode, you can still set
+`disable_ollama_cloud` in `~/.ollama/server.json` or export `OLLAMA_NO_CLOUD=1`
+inside Ollama. OMD Home does not require that setting for local model use, and
+it never writes the file for you.
 
 </details>
 
@@ -316,17 +385,21 @@ to be open:
 - **Suggest links and tags**
 - **Refresh local AI models**, **Check local AI connection**, and
   **Test local AI embeddings**
+- **Start or stop recording**
 - **Refresh macOS calendars**
 
 The omnibox **Commands** action also searches commands from Obsidian core and
-enabled community plugins. Recording reuses Obsidian's own toggle or explicit
-Start and Stop commands; OMD Home does not create a second recorder.
+enabled community plugins. Recording exposes a wrapper command that delegates to Obsidian's own recorder toggle or Start/Stop commands; if the underlying recorder is unavailable, OMD Home should tell you how to enable it rather than guess a second recorder state.
 
-**Current task** shows only active work and its Cancel action. **Needs
+**Current task** shows only active work. **Cancel** appears only while that work
+can still be stopped; after OMD has saved a capture, the short Inbox/indexing
+finalization remains visible without a misleading Cancel button. **Needs
 attention** owns unresolved failures with a timestamp, safe source label,
 details, and the right recovery action for that failure, such as capture retry,
-Local AI checks, or Calendar follow-up. Missing or incompatible OMD, Ollama,
-model, bridge, and EventKit states surface there instead of failing silently.
+Local AI checks, or Calendar follow-up. A failed capture keeps its own Retry even
+if a later setup check reports another issue. Missing or incompatible OMD,
+Ollama, model, bridge, and EventKit states surface there instead of failing
+silently.
 
 ## Privacy and failure boundaries
 
@@ -334,19 +407,27 @@ model, bridge, and EventKit states surface there instead of failing silently.
 - No automatic helper install, executable update, model pull, or model switch.
 - OMD setup actions copy official text or open an external guide. They never
   execute an installer or mutate a Python environment.
-- Cloud answer providers are explicit BYOK setup choices. In this beta, OMD
-  Home can read credentials, discover models, and validate availability, but
-  hosted Vault Q&A stops before any vault evidence leaves your device.
-- OMD Home reads and writes only the current vault, except when it launches a
-  local executable you configured or discovered.
+- Cloud answer providers are explicit BYOK setup choices. OMD Home retrieves
+  evidence locally, then sends only the question and bounded selected evidence
+  after you approve each cloud answer request. It never falls back to another
+  provider automatically.
+- OMD Home reads and writes the current vault. A local file capture reads only
+  the external path you explicitly submit; it does not scan neighboring files.
+- To launch the bundled bridge, OMD Home may read the detected OMD launcher's
+  first line only to identify its Python interpreter. It then starts only the
+  local executable you configured or that passed automatic capability checks.
 - Optional EventKit integration uses local macOS permissions and only the
   calendars selected in OMD Home.
 - URL conversion is local-first, not offline: OMD contacts the URL you submit.
-- Review-first note enrichment sends only bounded note content, ranked candidate metadata, and bounded vault tags to the detected local OMD installation.
+- Review-first note enrichment sends only bounded note content, ranked
+  candidate metadata, and bounded vault tags to the detected local OMD
+  installation.
+- Polish Markdown sends only the captured note content needed for that local
+  cleanup pass.
 - Local Ollama receives bounded note content and metadata only over an accepted
   loopback endpoint. Retrieval, capture, enrichment, and embedding work remain
-  local in this beta. Review generated answers, links, and tags before relying
-  on them.
+  local unless you explicitly opt into a cloud answer request. Review generated
+  answers, links, and tags before relying on them.
 - Disabling or reloading the plugin and quitting Obsidian cancel plugin-owned
   child work. Closing only the Home tab does not.
 

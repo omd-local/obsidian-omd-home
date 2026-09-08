@@ -53,6 +53,14 @@ export function isCloudAiProvider(provider: StoredAiProvider): boolean {
   return provider !== "ollama";
 }
 
+export function cloudAnswerPermissionEnabled(settings: {
+  aiProvider: StoredAiProvider;
+  allowedCloudAnswerProviders: StoredAiProvider[];
+}): boolean {
+  return isCloudAiProvider(settings.aiProvider)
+    && settings.allowedCloudAnswerProviders.includes(settings.aiProvider);
+}
+
 export function aiProviderLabel(provider: StoredAiProvider): string {
   return PROVIDER_LABELS[provider];
 }
@@ -98,14 +106,14 @@ export function isOllamaCloudModel(
 export function providerSetupDescription(provider: StoredAiProvider): string {
   switch (provider) {
     case "ollama":
-      return "Vault evidence stays on this computer. OMD Home verifies Ollama local-only mode before every answer.";
+      return "Vault evidence and answer generation stay on this computer. Cloud availability in the Ollama app does not change the selected model; OMD Home rejects models that report remote metadata.";
     case "ollama-cloud":
-      return "Check setup reads Cloud availability and model metadata from the local Ollama app without sending vault content. This build keeps hosted Vault Q&A disabled.";
+      return "Retrieval stays on this computer. After a per-request preview, the question and selected evidence are sent through the signed-in local Ollama app to Ollama Cloud.";
     case "openai":
-      return "Check setup authenticates with your developer API key and reads the provider model catalog without sending vault content. ChatGPT subscriptions and API billing are separate. This build keeps hosted Vault Q&A disabled.";
+      return "Retrieval stays on this computer. After a per-request preview, the question and selected evidence are sent to the OpenAI API. ChatGPT subscriptions and API billing are separate.";
     case "anthropic":
-      return "Check setup authenticates with your developer API key and reads the provider model catalog without sending vault content. Claude subscriptions and API billing are separate. This build keeps hosted Vault Q&A disabled.";
+      return "Retrieval stays on this computer. After a per-request preview, the question and selected evidence are sent to the Anthropic API. Claude subscriptions and API billing are separate.";
     case "deepseek":
-      return "Check setup authenticates with your developer API key and reads the provider model catalog without sending vault content. This build keeps hosted Vault Q&A disabled.";
+      return "Retrieval stays on this computer. After a per-request preview, the question and selected evidence are sent to the DeepSeek API.";
   }
 }

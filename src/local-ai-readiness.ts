@@ -19,7 +19,7 @@ import {
 const WORKFLOW_LABELS: Record<LocalAiWorkflowId, string> = {
   qa: "Vault Q&A",
   enrichment: "Note enrichment",
-  capture: "Capture polish",
+  capture: "Polish Markdown",
 };
 
 export const LOCAL_AI_CACHE_TTL_MS = 60_000;
@@ -30,7 +30,7 @@ export function normalizeLocalOllamaHost(input: string): string {
   throw new LocalAiError(
     "invalid_host",
     "OMD Home local mode accepts only http://localhost:11434 or http://127.0.0.1:11434.",
-    "Use the default Ollama port and disable Ollama Cloud before retrying.",
+    "Use http://localhost:11434 or http://127.0.0.1:11434, then retry.",
   );
 }
 
@@ -61,8 +61,7 @@ export function createWorkflowSnapshot(
 
 export function workflowModel(workflow: LocalAiWorkflowId, settings: OmdHomeSettings): string {
   if (workflow === "qa") return settings.aiModel;
-  if (workflow === "enrichment") return settings.enrichmentModel;
-  return settings.capturePolishModel;
+  return settings.localWritingModel;
 }
 
 export function snapshotsMatch(left: LocalAiSnapshot, right: LocalAiSnapshot): boolean {
@@ -92,6 +91,44 @@ export function modelHasRemoteMetadata(model: Pick<LocalAiModelEntry, "remoteMod
   return Boolean(model.remoteModel || model.remoteHost);
 }
 
+export function localWritingModelIsSelectable(model: LocalAiModelEntry): boolean {
+  if (modelHasRemoteMetadata(model) || modelIsKnownThinkingOnly(model)) return false;
+  if (modelSupportsCompletion(model)) return true;
+  // Missing or partial catalog metadata is inconclusive. The execution gate inspects the
+  // selected model with /api/show before any vault evidence is sent to it.
+  return !modelSupportsEmbedding(model) && !model.capabilities.includes("thinking");
+}
+
+export function localWritingModelOptionLabel(model: LocalAiModelEntry): string {
+  if (modelHasRemoteMetadata(model)) return `${model.name} (cloud-backed; unavailable for local text answers)`;
+  if (modelIsKnownThinkingOnly(model) || model.capabilities.includes("thinking")) {
+    return `${model.name} (thinking-only; unavailable for text answers)`;
+  }
+  if (modelSupportsEmbedding(model) && !modelSupportsCompletion(model)) {
+    return `${model.name} (embedding model; unavailable for text answers)`;
+  }
+  return modelSupportsCompletion(model) ? model.name : `${model.name} (completion support unverified)`;
+}
+
+export function describeLocalCompletionCatalog(models: LocalAiModelEntry[], catalogChecked: boolean): string {
+  if (!catalogChecked) return "";
+  const localModels = models.filter((model) => !modelHasRemoteMetadata(model));
+  const availableModels = localModels.filter(localWritingModelIsSelectable);
+  const unavailableModels = localModels.filter((model) => !localWritingModelIsSelectable(model));
+  const remoteCount = models.length - localModels.length;
+  const sentences = [
+    `${localModels.length} local ${localModels.length === 1 ? "model" : "models"} found.`,
+    `${availableModels.length} can answer text questions.`,
+  ];
+  if (unavailableModels.length) {
+    sentences.push(`${humanJoin(unavailableModels.map((model) => model.name))} ${unavailableModels.length === 1 ? "is" : "are"} shown but unavailable for text answers.`);
+  }
+  if (remoteCount) {
+    sentences.push(`${remoteCount} cloud-backed ${remoteCount === 1 ? "model is" : "models are"} not shown in this local list.`);
+  }
+  return sentences.join(" ");
+}
+
 export function buildModelEntry(raw: {
   name: string;
   digest?: string;
@@ -109,6 +146,12 @@ export function buildModelEntry(raw: {
     remoteModel: raw.remoteModel?.trim() || undefined,
     remoteHost: raw.remoteHost?.trim() || undefined,
   };
+}
+
+function humanJoin(values: string[]): string {
+  if (values.length < 2) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
 }
 
 export function mergeInspectedModelEntry(
@@ -136,11 +179,9 @@ export function resolveEmbeddingModelRevision(
 }
 
 export function deriveLocalAiDaemonCode(
-  status: LocalAiStatusInfo,
+  _status: LocalAiStatusInfo,
   models: LocalAiModelEntry[],
 ): LocalAiReadinessCode {
-  if (!status.cloud || status.cloud.disabled === undefined) return "cloud_features_unknown";
-  if (status.cloud.disabled === false) return "cloud_features_enabled";
   if (!models.length) return "no_models_installed";
   return "ready";
 }
@@ -158,9 +199,9 @@ export function describeDaemonReadiness(code: LocalAiReadinessCode): string {
     case "no_models_installed":
       return "Ollama is reachable, but no local models are installed. Run `ollama pull` for a text model.";
     case "cloud_features_enabled":
-      return "Ollama reports that Cloud features are available. This does not mean your selected model is currently online, but OMD Home requires local-only mode before sending vault content. Set `disable_ollama_cloud` to true or `OLLAMA_NO_CLOUD=1`, restart Ollama, then check again.";
+      return "Ollama reports that Cloud features are available. Local workflows can still run when the selected models stay local and pass inspection.";
     case "cloud_features_unknown":
-      return "Ollama did not prove that Cloud features are disabled. OMD Home requires local-only mode before sending vault content. Set `disable_ollama_cloud` to true or `OLLAMA_NO_CLOUD=1`, restart Ollama, then check again.";
+      return "Ollama did not report Cloud status, so OMD Home will verify the selected models directly before local actions run.";
     default:
       return describeReadinessCode(code);
   }
@@ -172,11 +213,11 @@ export function describeModelReadiness(model: string, info: LocalAiModelInfo): s
   }
   if (!modelSupportsCompletion(info)) {
     if (modelIsKnownThinkingOnly(info)) {
-      return `${model} is not a bounded instruction model for Vault Q&A. Choose qwen3:4b-instruct or another completion-capable local model.`;
+      return `${model} is not suitable for text answers. Choose qwen3:4b-instruct or another completion-capable local model.`;
     }
     return `${model} does not advertise text completion support. Choose a completion-capable local model.`;
   }
-  return `${model} is ready.`;
+  return `${model} is available locally for text completion.`;
 }
 
 export function buildModelSelectorState(
@@ -209,7 +250,7 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
     case "partial":
       return "Partial";
     case "cloud-provider":
-      return "Cloud setup only";
+      return "Cloud answer selected";
     case "invalid_host":
       return "Invalid host";
     case "daemon_unreachable":
@@ -270,7 +311,7 @@ export function buildWorkflowDisplayState(
       model,
       enabled,
       code: "cloud-provider",
-      detail: "Cloud credentials and models can be checked, but Vault Q&A is disabled for this provider in this build.",
+      detail: "Check setup verifies the selected cloud answer path. Retrieval still stays local, and each cloud answer needs confirmation.",
     };
   }
   if (!summary) {

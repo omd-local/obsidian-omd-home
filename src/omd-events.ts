@@ -1,4 +1,9 @@
 import type { OmdProgressEvent } from "./model";
+import {
+  ocrLanguageValue,
+  whisperLanguageValue,
+  type CaptureRequest,
+} from "./capture-request.ts";
 
 export interface CapturePolishOptions {
   enabled: boolean;
@@ -7,15 +12,18 @@ export interface CapturePolishOptions {
 }
 
 export function omdCaptureArgs(
-  source: string,
+  request: CaptureRequest,
   vaultPath: string,
-  tags: string[] = [],
   polish?: CapturePolishOptions,
 ): string[] {
-  const args = ["capture", source, "--vault", vaultPath, "--json-events"];
-  const cleanTags = tags.map((tag) => tag.trim().replace(/^#/, "")).filter(Boolean);
+  const args = ["capture", request.source, "--vault", vaultPath, "--json-events"];
+  const cleanTags = request.tags.map((tag) => tag.trim().replace(/^#/, "")).filter(Boolean);
   if (cleanTags.length) args.push("--tags", cleanTags.join(","));
-  if (polish?.enabled) {
+  const ocrLanguage = ocrLanguageValue(request.ocr);
+  if (ocrLanguage) args.push("--ocr-lang", ocrLanguage);
+  const whisperLanguage = whisperLanguageValue(request.asr);
+  if (whisperLanguage) args.push("--whisper-lang", whisperLanguage);
+  if (request.polish && polish?.enabled) {
     args.push(
       "--polish-md",
       "--polish-md-model", polish.model.trim() || "qwen3:4b-instruct",
@@ -73,6 +81,25 @@ export function parseOmdEvent(line: string): OmdProgressEvent | null {
     return null;
   }
   return value as unknown as OmdProgressEvent;
+}
+
+export function shouldSurfaceCaptureEvent(event: OmdProgressEvent): boolean {
+  // OMD currently emits `done` when the converter finishes writing its
+  // temporary route path. The capture command still has to rename the note,
+  // write frontmatter and its sidecar, and update the vault index. OMD Home
+  // owns the user-visible terminal event after those steps and Inbox marking.
+  return event.event !== "done";
+}
+
+export function captureWorkflowDoneEvent(output: string, now = Date.now()): OmdProgressEvent {
+  return {
+    v: 1,
+    event: "done",
+    kind: "done",
+    ts: now / 1_000,
+    message: "Saved to OMD Inbox",
+    output,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

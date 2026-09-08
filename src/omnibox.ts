@@ -1,10 +1,10 @@
 import { Notice, setIcon, type App, type TFile } from "obsidian";
 import type OmdHomePlugin from "./main";
+import { captureRequestFromSettings } from "./capture-request.ts";
 import {
-  captureSourceFromDrop,
+  captureSourceFromDataTransfer,
   looksCapturable,
   normalizeCaptureSource,
-  recordingQuickActions,
   safeFileName,
 } from "./omnibox-utils";
 
@@ -25,8 +25,6 @@ interface OmniboxRow {
   file?: TFile;
 }
 
-const RECORDING_ACTION_REFRESH_MS = 180;
-
 export class Omnibox {
   private readonly app: App;
   private readonly plugin: OmdHomePlugin;
@@ -36,9 +34,7 @@ export class Omnibox {
   private resultPanel!: HTMLElement;
   private results!: HTMLElement;
   private actionBar!: HTMLElement;
-  private recordingActions!: HTMLElement;
   private previewTimer: number | null = null;
-  private recordingRefreshTimer: number | null = null;
 
   constructor(app: App, plugin: OmdHomePlugin, onResultVisibilityChange?: (visible: boolean) => void) {
     this.app = app;
@@ -77,8 +73,7 @@ export class Omnibox {
     this.quickAction(this.actionBar, "calendar-plus", "New event", () => void this.plugin.createCalendarEvent());
     this.quickAction(this.actionBar, "terminal-square", "Commands", () => this.usePrefix(">"));
     this.quickAction(this.actionBar, "sparkles", "Ask vault", () => this.usePrefix("@"));
-    this.recordingActions = this.actionBar.createDiv({ cls: "omd-omnibox-recording-actions" });
-    this.renderRecordingActions();
+    this.quickAction(this.actionBar, "mic", "Recording", () => void this.plugin.toggleRecording());
     this.resultPanel = this.root.createDiv({ cls: "omd-omnibox-result-panel" });
     const resultBar = this.resultPanel.createDiv({ cls: "omd-omnibox-result-bar" });
     resultBar.createSpan({ text: "OMD result" });
@@ -131,27 +126,6 @@ export class Omnibox {
     return (this.app as App & { commands: CommandRegistry }).commands;
   }
 
-  private renderRecordingActions(): void {
-    if (!this.recordingActions) return;
-    this.recordingActions.empty();
-    for (const action of recordingQuickActions(this.commands.listCommands())) {
-      this.quickAction(this.recordingActions, action.icon, action.label, () => {
-        this.commands.executeCommandById(action.id);
-        this.input.focus();
-        this.scheduleRecordingActionRefresh();
-      });
-    }
-  }
-
-  private scheduleRecordingActionRefresh(): void {
-    if (this.recordingRefreshTimer !== null) window.clearTimeout(this.recordingRefreshTimer);
-    this.recordingRefreshTimer = window.setTimeout(() => {
-      this.recordingRefreshTimer = null;
-      this.renderRecordingActions();
-      this.input.focus();
-    }, RECORDING_ACTION_REFRESH_MS);
-  }
-
   private schedulePreview(): void {
     if (this.previewTimer !== null) window.clearTimeout(this.previewTimer);
     this.previewTimer = window.setTimeout(() => {
@@ -202,7 +176,9 @@ export class Omnibox {
       return;
     }
     if (looksCapturable(query)) {
-      await this.plugin.captureWithOmd(normalizeCaptureSource(query));
+      await this.plugin.captureWithOmd(
+        captureRequestFromSettings(normalizeCaptureSource(query), this.plugin.settings),
+      );
       return;
     }
     if (query.startsWith(">")) {
@@ -305,18 +281,13 @@ export class Omnibox {
       event.preventDefault();
       setActive(false);
       const source = captureSourceFromDataTransfer(event.dataTransfer);
-      if (!source) return;
+      if (!source) {
+        if (event.dataTransfer?.files.length) {
+          new Notice("OMD Home could not read this file's local path. Paste its full path into the capture dialog.");
+        }
+        return;
+      }
       this.plugin.openCaptureModal(source);
     });
   }
-}
-
-function captureSourceFromDataTransfer(dataTransfer: DataTransfer | null): string {
-  const file = dataTransfer?.files?.[0];
-  const filePath = file && "path" in file && typeof file.path === "string" ? file.path : "";
-  return captureSourceFromDrop(
-    filePath,
-    dataTransfer?.getData("text/uri-list") ?? "",
-    dataTransfer?.getData("text/plain") ?? "",
-  );
 }

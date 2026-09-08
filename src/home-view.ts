@@ -1,5 +1,6 @@
 import { ItemView, Menu, Notice, WorkspaceLeaf, getAllTags, setIcon, type TFile } from "obsidian";
 import { aiProviderLabel } from "./ai-provider.ts";
+import type { CaptureFailureRecord } from "./capture-request";
 import { canOpenOllamaDesktopApp } from "./ollama-app";
 import type OmdHomePlugin from "./main";
 import type { CalendarEventRecord, WidgetId, WidgetPlacement } from "./model";
@@ -207,9 +208,12 @@ export class OmdHomeView extends ItemView {
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
       if (!activity.active) return emptyState(body, "No task running", "Captures continue when this tab is in the background.");
       if (activity.active) {
-        const controls = body.createDiv({ cls: "omd-process-actions" });
-        const cancel = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Cancel" });
-        cancel.addEventListener("click", () => void (this.plugin as OmdHomePlugin & { cancelActiveOmd?: () => Promise<void> | void }).cancelActiveOmd?.());
+        const canCancel = this.plugin.captureCancelable || this.plugin.enrichmentCancelable;
+        if (canCancel) {
+          const controls = body.createDiv({ cls: "omd-process-actions" });
+          const cancel = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Cancel" });
+          cancel.addEventListener("click", () => void this.plugin.cancelActiveOmd());
+        }
         this.renderProcessingSection(body, "Active now", [activity.active]);
       }
       return;
@@ -225,12 +229,19 @@ export class OmdHomeView extends ItemView {
         && this.plugin.hostedAiState.code !== "ready"
         && !this.plugin.hostedAiState.activeAction;
       const localAiOwnsLastError = localAiNeedsAttention && this.plugin.lastErrorContext === "ai";
-      if (!attention.length && !this.plugin.lastError && !capabilityIssue && !localAiNeedsAttention && !hostedAnswerNeedsAttention) {
+      const captureFailure = this.plugin.currentCaptureFailure();
+      const captureFailureForIssue = this.plugin.captureFailureForCurrentIssue();
+      const hasIndependentCaptureFailure = Boolean(captureFailure && captureFailure !== captureFailureForIssue);
+      if (!attention.length && !this.plugin.lastError && !capabilityIssue && !localAiNeedsAttention
+        && !hostedAnswerNeedsAttention && !hasIndependentCaptureFailure) {
         return emptyState(body, "Nothing needs attention", "Sync and processing are healthy.");
       }
       if (this.plugin.lastError && !localAiOwnsLastError) this.renderLastIssue(body);
       if (localAiNeedsAttention) this.renderLocalAiAttention(body);
       if (hostedAnswerNeedsAttention) this.renderHostedAiAttention(body);
+      if (captureFailure && hasIndependentCaptureFailure) {
+        this.renderIndependentCaptureFailure(body, captureFailure);
+      }
       if (capabilityIssue) {
         const item = body.createDiv({ cls: "omd-attention-item" });
         const header = item.createDiv({ cls: "omd-attention-header" });
@@ -582,14 +593,29 @@ export class OmdHomeView extends ItemView {
       item.createDiv({ cls: "omd-attention-source", text: safeSourceLabel(this.plugin.lastErrorSource) });
     }
     item.createDiv({ cls: "omd-attention-detail", text: this.plugin.lastError });
-    if (this.plugin.lastErrorContext === "capture") {
+    const failure = this.plugin.captureFailureForCurrentIssue();
+    if (failure) {
       const retry = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
-      retry.addEventListener("click", () => this.plugin.openCaptureModal(this.plugin.lastErrorSource));
+      retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
     }
     if (this.plugin.lastErrorContext === "inbox" && this.plugin.lastErrorSource) {
       const open = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Open note" });
       open.addEventListener("click", () => void this.app.workspace.openLinkText(this.plugin.lastErrorSource, "", false));
     }
+  }
+
+  private renderIndependentCaptureFailure(body: HTMLElement, failure: CaptureFailureRecord): void {
+    const item = body.createDiv({ cls: "omd-attention-item" });
+    const header = item.createDiv({ cls: "omd-attention-header" });
+    header.createEl("strong", { text: "Capture can be retried" });
+    header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(failure.failedAt) });
+    item.createDiv({ cls: "omd-attention-source", text: safeSourceLabel(failure.request.source) });
+    item.createDiv({
+      cls: "omd-attention-detail",
+      text: failure.detail,
+    });
+    const retry = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
+    retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
   }
 
   private renderLocalAiAttention(body: HTMLElement): void {
@@ -608,6 +634,11 @@ export class OmdHomeView extends ItemView {
       });
     }
     const controls = item.createDiv({ cls: "omd-process-actions" });
+    const failure = this.plugin.captureFailureForCurrentIssue();
+    if (failure?.issueContext === "ai") {
+      const retry = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
+      retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
+    }
     const ollamaCanBeOpened = canOpenOllamaDesktopApp()
       && this.plugin.localAiState.daemonCode === "daemon_unreachable";
     if (ollamaCanBeOpened) {

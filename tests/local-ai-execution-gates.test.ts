@@ -90,19 +90,22 @@ test("capture always uses the shared gate seam and binds the invocation polish f
   assert.match(mainSource, /host: gatedSnapshot\.host/u);
 });
 
-test("Vault Q&A stays fail-closed for cloud providers in this build", () => {
-  assert.match(mainSource, /if \(this\.settings\.aiProvider !== "ollama"\) \{/u);
-  assert.match(mainSource, /const provider = aiProviderLabel\(this\.settings\.aiProvider\);/u);
-  assert.match(mainSource, /sending vault evidence to a cloud answer provider is not enabled in this build/u);
-  assert.match(mainSource, /Select Ollama on this computer to answer locally\./u);
-  assert.match(mainSource, /const preview = await this\.previewLocalAnswer\(query\);/u);
-  assert.doesNotMatch(mainSource, /previewCloudAnswer\(query/u);
-  assert.doesNotMatch(mainSource, /executeCloudAnswer\(query/u);
+test("Vault Q&A requires provider-scoped cloud opt-in and a per-request consent preview", () => {
+  assert.match(mainSource, /cloudAnswerPermissionEnabled\(this\.settings\)/u);
+  assert.match(mainSource, /Enable Allow \$\{aiProviderLabel\(provider\)\} answers in Settings [→-] OMD Home [→-] AI answers/u);
+  assert.match(mainSource, /const preview = await this\.previewCloudAnswer\(query, provider, model\);/u);
+  assert.match(mainSource, /new CloudAnswerConsentModal\(this\.app/u);
+  assert.match(mainSource, /question:\s*query/u);
+  assert.match(mainSource, /evidence:\s*preview\.preview\.evidence/u);
+  assert.match(mainSource, /Cloud answer cancelled\. No vault evidence was sent\./u);
+  assert.match(mainSource, /this\.assertCloudPreviewStillCurrent\(preview\);/u);
+  assert.match(mainSource, /answer = await this\.executeCloudAnswer\(query, preview\);/u);
 });
 
 test("cloud answers stay pinned to the selected provider and never fall back across providers", () => {
   assert.match(mainSource, /async checkHostedAiConnection\(\): Promise<boolean>/u);
   assert.match(mainSource, /async checkOllamaCloudConnection\(\): Promise<boolean>/u);
+  assert.match(mainSource, /provider !== preview\.provider[\s\S]+model !== preview\.model[\s\S]+endpoint !== preview\.endpoint/u);
   assert.doesNotMatch(mainSource, /provider === "openai"[\s\S]{0,160}anthropic|provider === "anthropic"[\s\S]{0,160}openai|provider === "deepseek"[\s\S]{0,160}openai/su);
 });
 

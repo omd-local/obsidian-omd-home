@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import test from "node:test";
 import {
+  captureSourceFromDataTransfer,
   captureSourceFromDrop,
+  isPluginRecordingWrapperCommand,
   isRecordingToggleCommandName,
   looksCapturable,
   normalizeCaptureSource,
@@ -55,6 +57,27 @@ test("dragged files fall back from Electron paths to file URL data", () => {
   assert.equal(captureSourceFromDrop("", "", "ordinary text"), "");
 });
 
+test("modern Electron drops resolve images and PDFs through webUtils when File.path is absent", () => {
+  for (const name of ["IMG_9229.PNG", "Research Paper.pdf"]) {
+    const file = { name } as File;
+    const expectedPath = `/Users/example/Downloads/${name}`;
+    const dataTransfer = {
+      files: [file],
+      getData: () => "",
+    } as unknown as DataTransfer;
+
+    assert.equal(
+      captureSourceFromDataTransfer(
+        dataTransfer,
+        {
+          getPathForFile: (droppedFile) => droppedFile === file ? expectedPath : "",
+        },
+      ),
+      expectedPath,
+    );
+  }
+});
+
 test("recording shortcut only accepts Obsidian recorder toggle names", () => {
   assert.equal(isRecordingToggleCommandName("Start/stop recording"), true);
   assert.equal(isRecordingToggleCommandName("Start/stop audio recording"), true);
@@ -64,6 +87,13 @@ test("recording shortcut only accepts Obsidian recorder toggle names", () => {
   assert.equal(recordingCommandKind("audio-recorder:stop", "Stop recording audio"), "stop");
   assert.equal(recordingCommandKind("third-party:recording", "Start/stop recording"), "toggle");
   assert.equal(recordingCommandKind("third-party:recordings", "Open recordings folder"), null);
+});
+
+test("recording dispatch can exclude OMD Home wrapper commands", () => {
+  assert.equal(isPluginRecordingWrapperCommand("omd-home:toggle-recording", "omd-home"), true);
+  assert.equal(isPluginRecordingWrapperCommand("omd-home:start-recording", "omd-home"), true);
+  assert.equal(isPluginRecordingWrapperCommand("omd-home:stop-recording", "omd-home"), true);
+  assert.equal(isPluginRecordingWrapperCommand("audio-recorder:start", "omd-home"), false);
 });
 
 test("recording quick actions prefer an exact toggle command when available", () => {

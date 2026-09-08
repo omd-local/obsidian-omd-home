@@ -1,4 +1,6 @@
 import { isEnrichmentError, OmdEnrichmentError } from "./enrichment/errors.ts";
+import { posix, win32 } from "node:path";
+import type { SpawnOptions, SpawnResult } from "./omd-bridge.ts";
 
 export const OMD_INSTALL_GUIDE_URL = "https://github.com/omd-local/markdown-everything#quick-start";
 
@@ -24,6 +26,12 @@ export interface OmdInstallInstructions {
 }
 
 export type OmdCapabilityProbe = (executable: string) => Promise<unknown>;
+export type OmdExecutableResolver = (candidate: string) => Promise<string>;
+export type OmdExecutableLocator = (
+  command: string,
+  args: string[],
+  options?: SpawnOptions,
+) => Promise<SpawnResult>;
 
 export function isAutomaticOmdExecutable(value: string): boolean {
   const executable = value.trim().toLowerCase();
@@ -83,6 +91,7 @@ export async function discoverOmdExecutable(
   configuredExecutable: string,
   environment: OmdDiscoveryEnvironment,
   probe: OmdCapabilityProbe,
+  resolveExecutable: OmdExecutableResolver = async (candidate) => candidate,
 ): Promise<OmdDiscoveryResult> {
   const candidates = omdExecutableCandidates(configuredExecutable, environment);
   const candidatesTried: string[] = [];
@@ -91,9 +100,10 @@ export async function discoverOmdExecutable(
   for (const executable of candidates) {
     candidatesTried.push(executable);
     try {
-      await probe(executable);
+      const resolvedExecutable = await resolveExecutable(executable);
+      await probe(resolvedExecutable);
       return {
-        executable,
+        executable: resolvedExecutable,
         mode: isAutomaticOmdExecutable(configuredExecutable) ? "automatic" : "custom",
         candidatesTried,
       };
@@ -111,6 +121,47 @@ export async function discoverOmdExecutable(
     "missing_executable",
     "OMD was not found in common install locations.",
   );
+}
+
+export async function resolveOmdExecutablePath(
+  executable: string,
+  platform: NodeJS.Platform,
+  execute: OmdExecutableLocator,
+  signal?: AbortSignal,
+): Promise<string> {
+  const candidate = executable.trim();
+  if (!candidate) throw missingExecutableError();
+  const pathApi = platform === "win32" ? win32 : posix;
+  if (pathApi.isAbsolute(candidate)) return candidate;
+  if (/[\\/]/u.test(candidate)) {
+    throw new OmdEnrichmentError(
+      "missing_executable",
+      "A custom OMD executable path must be absolute.",
+    );
+  }
+  if (signal?.aborted) throw cancelledDiscoveryError();
+
+  const locator = platform === "win32" ? "where.exe" : "which";
+  try {
+    const result = await execute(locator, [candidate], {
+      signal,
+      shell: false,
+      timeoutMs: 5_000,
+      maxStdoutChars: 16_000,
+      maxStderrChars: 16_000,
+    });
+    if (result.code !== 0) throw missingExecutableError();
+    const resolved = result.stdout
+      .split(/\r?\n/u)
+      .map((line) => line.trim().replace(/^"|"$/gu, ""))
+      .find((line) => pathApi.isAbsolute(line));
+    if (!resolved) throw missingExecutableError();
+    return resolved;
+  } catch (error) {
+    if (isEnrichmentError(error)) throw error;
+    if (error instanceof Error && error.name === "AbortError") throw cancelledDiscoveryError(error);
+    throw missingExecutableError(error);
+  }
 }
 
 export function omdInstallInstructions(platform: NodeJS.Platform): OmdInstallInstructions {
@@ -166,4 +217,20 @@ function errorPriority(error: unknown): number {
   if (error.code === "capability_timeout" || error.code === "capability_invalid_json") return 4;
   if (error.code === "missing_executable") return 1;
   return 3;
+}
+
+function missingExecutableError(cause?: unknown): OmdEnrichmentError {
+  return new OmdEnrichmentError(
+    "missing_executable",
+    "The configured OMD executable could not be resolved to an absolute path.",
+    cause instanceof Error ? { cause } : undefined,
+  );
+}
+
+function cancelledDiscoveryError(cause?: Error): OmdEnrichmentError {
+  return new OmdEnrichmentError(
+    "cancelled",
+    "OMD discovery was cancelled.",
+    cause ? { cause } : undefined,
+  );
 }

@@ -1,6 +1,6 @@
 export type EnrichmentPhase =
   | "idle" | "capability" | "catalog" | "generating" | "review" | "applying"
-  | "applied" | "error" | "cancelled" | "conflict" | "partial-failure";
+  | "applied" | "error" | "cancelled" | "conflict" | "unavailable" | "partial-failure";
 
 export type EnrichmentTone = "idle" | "busy" | "success" | "warning" | "danger";
 export type EnrichmentSuggestionKind = "existing-link" | "existing-tag" | "new-tag" | "new-concept";
@@ -52,6 +52,7 @@ export function describeEnrichmentPhase(phase: EnrichmentPhase): EnrichmentPhase
     case "error": return phaseCopy("Could not finish", "No proposal changes were applied.", "danger", true);
     case "cancelled": return phaseCopy("Cancelled", "The proposal flow stopped before any changes were written.", "warning", true);
     case "conflict": return phaseCopy("Note changed", "This proposal is stale. Generate again from the current note before applying.", "warning", true);
+    case "unavailable": return phaseCopy("Note unavailable", "The target note or one of its candidates can no longer be read safely.", "warning", true);
     case "partial-failure": return phaseCopy("Review required", "A guarded rollback could not safely restore the complete pre-apply state.", "danger", true);
     case "idle": return phaseCopy("Ready", "Choose a Markdown note to generate a review-only proposal.", "idle");
   }

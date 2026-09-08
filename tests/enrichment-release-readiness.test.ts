@@ -52,6 +52,19 @@ test("build config externalizes Obsidian and node builtins for release bundles",
   assert.match(readText("src/main.ts"), /import embeddedPythonBridge from "\.\.\/bridge\/omd_home_bridge\.py"/u);
 });
 
+test("production bundles embed the licenses for every shipped third-party runtime", () => {
+  const esbuild = readText("esbuild.mjs");
+  const notices = readText("THIRD_PARTY_NOTICES");
+
+  assert.match(esbuild, /readFileSync\(new URL\("\.\/node_modules\/fullcalendar\/LICENSE\.md", import\.meta\.url\), "utf8"\)/u);
+  assert.match(esbuild, /readFileSync\(new URL\("\.\/node_modules\/preact\/LICENSE", import\.meta\.url\), "utf8"\)/u);
+  assert.match(esbuild, /banner:\s*production\s*\?\s*\{\s*js:/u);
+  for (const bundledPackage of ["fullcalendar", "@fullcalendar/core", "@full-ui/headless-calendar", "preact"]) {
+    assert.match(notices, new RegExp(bundledPackage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"));
+  }
+  assert.match(notices, /production `main\.js` banner/u);
+});
+
 test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures aligned", () => {
   const readme = readText("README.md");
   assert.match(readme, /Obsidian desktop 1\.11\.4 or newer/iu);
@@ -60,22 +73,22 @@ test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures 
   assert.match(readme, /Google Calendar and Outlook Calendar can participate when they have already been added to\s*macOS Calendar/iu);
   assert.match(readme, /Review-first note enrichment sends only bounded note content/iu);
   assert.match(readme, /supports explicit answer-provider setup for local Ollama on this computer,\s*Ollama Cloud through the local Ollama app,\s*OpenAI API,\s*Anthropic API,\s*and\s*DeepSeek API/iu);
-  assert.match(readme, /This beta keeps one live answer path:\s*local Ollama on this computer/iu);
-  assert.match(readme, /hosted Vault Q&A stays fail-closed before any vault evidence is sent/iu);
-  assert.match(readme, /explicit per-question evidence preview and consent, but\s*that send step is not enabled in this beta/iu);
-  assert.match(readme, /require Ollama to prove that Cloud is disabled/iu);
+  assert.match(readme, /Hosted providers are explicit\s+opt-ins: every cloud answer request shows a preview with the selected provider,\s*model, and bounded evidence excerpts before anything leaves the device/iu);
+  assert.match(readme, /sends only the question plus the selected local evidence snippets; it never sends the whole vault/iu);
+  assert.match(readme, /there is no silent fallback across providers or auto-switch to another provider/iu);
   assert.match(readme, /\*\*Check setup\*\* for the selected provider, model, and safety boundary/iu);
   assert.match(readme, /\*\*Test embeddings\*\* for local hybrid retrieval/iu);
-  assert.match(readme, /On macOS, OMD Home can save the key to macOS Keychain\. On Windows and\s+Linux, set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`\s+before starting Obsidian/iu);
-  assert.match(readme, /hosted Vault Q&A stops before any vault evidence leaves your device/iu);
+  assert.match(readme, /On macOS, paste the actual API key into the password field and press\s+\*\*Save key\*\* to store it in macOS Keychain\. On Windows and\s+Linux, set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`\s+before starting Obsidian/iu);
   assert.match(readme, /OpenAI API billing\s+stays separate from ChatGPT subscriptions, and Anthropic API billing stays\s+separate from Claude subscriptions/iu);
   assert.match(readme, /OMD Home: Refresh local AI models/iu);
-  assert.match(readme, /does not auto-pull, auto-install, auto-select models, or silently send\s+vault content to a hosted provider/iu);
+  assert.match(readme, /does not auto-pull, auto-install, auto-select models, or auto-switch\s+providers/iu);
   assert.match(readme, /Ollama API introduction/iu);
   assert.match(readme, /OpenAI API model docs/iu);
   assert.match(readme, /Anthropic API overview/iu);
   assert.match(readme, /DeepSeek API docs/iu);
   assert.match(readme, /Nothing is written until you explicitly press \*\*Apply\*\*/u);
+  assert.match(readme, /A local file capture reads only\s+the external path you explicitly submit/iu);
+  assert.match(readme, /read the detected OMD launcher's\s+first line only to identify its Python interpreter/iu);
 });
 
 test("fixture manifest records the synced upstream OMD contract provenance", () => {

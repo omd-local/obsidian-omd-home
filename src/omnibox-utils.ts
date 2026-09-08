@@ -34,6 +34,46 @@ export function captureSourceFromDrop(
   return looksCapturable(candidate) ? candidate : "";
 }
 
+interface DroppedFileWebUtils {
+  getPathForFile(file: File): string;
+}
+
+export function captureSourceFromDataTransfer(
+  dataTransfer: DataTransfer | null,
+  webUtils: DroppedFileWebUtils | null = desktopFileWebUtils(),
+): string {
+  const file = dataTransfer?.files?.[0];
+  let desktopPath = "";
+  if (file) {
+    try {
+      desktopPath = webUtils?.getPathForFile(file) ?? "";
+    } catch {
+      desktopPath = "";
+    }
+    if (!desktopPath) {
+      const legacyPath = (file as File & { path?: unknown }).path;
+      desktopPath = typeof legacyPath === "string" ? legacyPath : "";
+    }
+  }
+  return captureSourceFromDrop(
+    desktopPath,
+    dataTransfer?.getData("text/uri-list") ?? "",
+    dataTransfer?.getData("text/plain") ?? "",
+  );
+}
+
+function desktopFileWebUtils(): DroppedFileWebUtils | null {
+  try {
+    const runtimeWindow = window as Window & { require?: (id: string) => unknown };
+    const electron = runtimeWindow.require?.("electron") as {
+      webUtils?: DroppedFileWebUtils;
+    } | undefined;
+    return electron?.webUtils ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function isRecordingToggleCommandName(value: string): boolean {
   return /^(?:start\/stop|toggle) (?:audio )?recording$/iu.test(value.trim());
 }
@@ -55,20 +95,38 @@ export interface RecordingQuickAction {
   icon: "mic" | "square";
 }
 
-export function recordingQuickActions(commands: RecordingCommandRef[]): RecordingQuickAction[] {
+export function isPluginRecordingWrapperCommand(id: string, pluginId: string): boolean {
+  return id === `${pluginId}:toggle-recording`
+    || id === `${pluginId}:start-recording`
+    || id === `${pluginId}:stop-recording`;
+}
+
+export function resolveRecordingCommand(
+  commands: RecordingCommandRef[],
+  kind: "start" | "stop" | "toggle",
+): RecordingCommandRef | null {
   const resolved: Partial<Record<"start" | "stop" | "toggle", RecordingCommandRef>> = {};
   for (const command of commands) {
-    const kind = recordingCommandKind(command.id, command.name);
-    if (kind && !resolved[kind]) resolved[kind] = command;
+    const commandKind = recordingCommandKind(command.id, command.name);
+    if (commandKind && !resolved[commandKind]) resolved[commandKind] = command;
   }
 
-  if (resolved.toggle) {
-    return [{ id: resolved.toggle.id, label: "Recording", icon: "mic" }];
+  if (kind === "toggle") return resolved.toggle ?? null;
+  if (resolved.toggle) return null;
+  return resolved[kind] ?? null;
+}
+
+export function recordingQuickActions(commands: RecordingCommandRef[]): RecordingQuickAction[] {
+  const toggle = resolveRecordingCommand(commands, "toggle");
+  if (toggle) {
+    return [{ id: toggle.id, label: "Recording", icon: "mic" }];
   }
 
   const actions: RecordingQuickAction[] = [];
-  if (resolved.start) actions.push({ id: resolved.start.id, label: "Start recording", icon: "mic" });
-  if (resolved.stop) actions.push({ id: resolved.stop.id, label: "Stop recording", icon: "square" });
+  const start = resolveRecordingCommand(commands, "start");
+  const stop = resolveRecordingCommand(commands, "stop");
+  if (start) actions.push({ id: start.id, label: "Start recording", icon: "mic" });
+  if (stop) actions.push({ id: stop.id, label: "Stop recording", icon: "square" });
   return actions;
 }
 

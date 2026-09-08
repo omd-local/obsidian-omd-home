@@ -93,7 +93,7 @@ export class OmdEnrichmentRunner {
           throw new OmdEnrichmentError("invalid_event", "OMD failed without one valid terminal error event.");
         }
         if (typeof terminal.kind === "string") {
-          throw mapOmdErrorKind(terminal.kind, options.request.model);
+          throw mapOmdErrorKind(terminal.kind, options.request.model, terminal.message);
         }
         throw new OmdEnrichmentError("omd_failed", "OMD enrichment failed. Check the OMD setup and try again.");
       }

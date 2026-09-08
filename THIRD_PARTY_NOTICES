@@ -1,29 +1,20 @@
 Third-party notices for OMD Home
 
-This project includes dependencies distributed under their own licenses.
+This file is a human-readable index for the runtime licenses that are embedded into the
+production `main.js` banner.
 
-1. FullCalendar
+1. FullCalendar runtime packages
    Packages: fullcalendar, @fullcalendar/core, @full-ui/headless-calendar
    License: MIT
    Copyright: © 2026 Adam Shaw
    Source: https://github.com/fullcalendar/fullcalendar
 
-2. Preact
+2. Preact runtime package
    Package: preact
    License: MIT
    Copyright: © 2015-present Jason Miller
    Source: https://github.com/preactjs/preact
 
-3. Temporal Polyfill and Utils
-   Packages: temporal-polyfill, temporal-utils
-   License: MIT
-   Copyright: © 2026 Adam Shaw
-   Source: https://github.com/fullcalendar/temporal-polyfill
-
-4. Temporal Spec
-   Package: temporal-spec
-   License: Apache-2.0
-   Copyright: © 2026 Adam Shaw; portions © Microsoft Corporation
-   Source: https://github.com/fullcalendar/temporal-polyfill
-
-Bundle builds preserve legal comments at the end of the generated artifact when required.
+The production bundle prepends the full license text for these runtime packages so the shipped
+release assets carry the required notices even though only `main.js`, `manifest.json`, and
+`styles.css` are published.

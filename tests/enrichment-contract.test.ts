@@ -10,9 +10,49 @@ import {
   sha256HexUtf8,
   utf8ByteLength,
   validateEnrichEvent,
+  validateCapabilityResponse,
   validateEnrichResponse,
   type OmdEnrichRequest,
 } from "../src/enrichment/contract.ts";
+
+test("capability validation preserves optional build and capture language metadata", () => {
+  const capability = validateCapabilityResponse({
+    package_version: "0.4.0",
+    protocol_version: 1,
+    build_revision: null,
+    config_schema: { current_version: 1, supported_versions: [1] },
+    capture_language_options: {
+      ocr: {
+        argument: "--ocr-language",
+        aliases: ["--ocr-lang", "--lang"],
+        composite: true,
+        separator: "+",
+        presets: [{ id: "mixed", label: "简体中文 + English", value: "chi_sim+eng" }],
+        readiness: {
+          available: true,
+          ready: false,
+          installed_packs: ["eng", "script/HanS"],
+          effective_language: "chi_sim+eng",
+          missing_packs: ["chi_sim"],
+          error: null,
+        },
+      },
+      asr: {
+        argument: "--whisper-lang",
+        modes: ["inherit-adapter-default", "auto-detect", "explicit"],
+      },
+    },
+    enrich_note: { supported: true, schema_versions: [1] },
+  });
+
+  assert.equal(capability.package_version, "0.4.0");
+  assert.equal(capability.protocol_version, 1);
+  assert.equal(capability.build_revision, null);
+  assert.deepEqual(capability.config_schema, { current_version: 1, supported_versions: [1] });
+  assert.deepEqual(capability.capture_language_options?.ocr.aliases, ["--ocr-lang", "--lang"]);
+  assert.equal(capability.capture_language_options?.ocr.presets[0]?.value, "chi_sim+eng");
+  assert.deepEqual(capability.capture_language_options?.ocr.readiness?.installed_packs, ["eng", "script/HanS"]);
+});
 
 test("capabilitySupportsEnrichNote accepts additive capability fields", () => {
   assert.equal(capabilitySupportsEnrichNote({

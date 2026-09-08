@@ -1,3 +1,6 @@
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import path from "node:path";
+import { setTimeout as pause } from "node:timers/promises";
 import type { OmdProgressEvent, OmdSearchHit } from "./model.ts";
 import { guardSparseComparisonAnswer } from "./ai-answer.ts";
 import type {
@@ -13,6 +16,7 @@ import {
   parsePythonShebang,
   prependExecutableDirectoryToPath,
 } from "./omd-events.ts";
+import type { CaptureRequest } from "./capture-request.ts";
 
 export interface SpawnResult {
   stdout: string;
@@ -29,6 +33,7 @@ export interface SpawnOptions {
   maxStderrChars?: number;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
+  shell?: false;
 }
 
 const DEFAULT_MAX_STDOUT_CHARS = 1_000_000;
@@ -37,15 +42,23 @@ const BRIDGE_TIMEOUT_MS = 95_000;
 const HYBRID_BRIDGE_TIMEOUT_MS = 5 * 60_000;
 const CAPTURE_TIMEOUT_MS = 10 * 60_000;
 const WHICH_TIMEOUT_MS = 5_000;
+const CAPTURE_MANIFEST_CLOCK_SKEW_MS = 1_000;
+const CAPTURE_MANIFEST_RETRY_DELAYS_MS = [0, 75, 175, 350] as const;
+const MAX_CAPTURE_MANIFEST_BYTES = 1_000_000;
+const MAX_CAPTURE_MANIFESTS = 512;
+const OMD_PLANNED_OUTPUT_NAME = /^\d{4}-\d{2}-\d{2}-.+-[0-9a-f]{8}\.md$/u;
 
 export interface AiPreview {
   preview: {
     provider: string;
     model: string;
+    capability?: string;
+    operation?: string;
     privacy_mode: string;
     destination_domain: string;
     character_count: number;
     estimated_input_tokens: number;
+    sends_attachment?: boolean;
     policy_url?: string | null;
     data_handling_summary: string;
   };
@@ -132,19 +145,22 @@ export class OmdBridge {
   }
 
   async capture(
-    source: string,
+    executable: string,
+    request: CaptureRequest,
     vaultPath: string,
-    tags: string[],
     polish: CapturePolishOptions,
     onEvent: (event: OmdProgressEvent) => void,
+    signal?: AbortSignal,
   ): Promise<string | null> {
     this.assertDesktop();
+    const captureStartedAt = Date.now();
     let result: SpawnResult;
     try {
       result = await this.spawnManagedProcess(
-        this.omdExecutable(),
-        omdCaptureArgs(source, vaultPath, tags, polish),
+        executable,
+        omdCaptureArgs(request, vaultPath, polish),
         {
+          signal,
           timeoutMs: CAPTURE_TIMEOUT_MS,
           maxStdoutChars: 32_000,
           maxStderrChars: 1_000_000,
@@ -155,11 +171,12 @@ export class OmdBridge {
         },
       );
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
       throw new Error(captureProcessErrorMessage(error), { cause: error as Error });
     }
-    if (result.code !== 0) throw new Error(captureErrorMessage(result.stderr));
+    if (result.code !== 0) throw new Error(captureErrorMessage(result.stderr, request.source));
     const done = result.stderr.split(/\r?\n/).map(parseOmdEvent).findLast((event) => event?.event === "done");
-    return done?.output ?? null;
+    return await resolveOmdCaptureOutput(done?.output ?? null, request.source, vaultPath, captureStartedAt);
   }
 
   async search(vaultPath: string, query: string): Promise<OmdSearchHit[]> {
@@ -234,9 +251,6 @@ export class OmdBridge {
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiPreview> {
-    if (provider !== "ollama") {
-      throw new Error("Cloud Vault Q&A is not enabled in this build");
-    }
     return await this.callPythonBridge({
       action: "preview_ai",
       vault: vaultPath,
@@ -258,13 +272,11 @@ export class OmdBridge {
     provider: string,
     model: string,
     endpoint: string,
+    consentGranted: boolean,
     consentGrant: Record<string, unknown> | null,
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiAnswer> {
-    if (provider !== "ollama") {
-      throw new Error("Cloud Vault Q&A is not enabled in this build");
-    }
     const answer = await this.callPythonBridge({
       action: "execute_ai",
       vault: vaultPath,
@@ -272,6 +284,7 @@ export class OmdBridge {
       provider,
       model,
       endpoint,
+      consent_granted: consentGranted,
       consent_grant: consentGrant,
       limit: 8,
       hybrid_retrieval_enabled: retrieval.hybridRetrievalEnabled,
@@ -362,6 +375,100 @@ export class OmdBridge {
       this.activeControllers.delete(controller);
     }
   }
+}
+
+export async function resolveOmdCaptureOutput(
+  reportedOutput: string | null,
+  source: string,
+  vaultRoot: string,
+  captureStartedAt: number,
+): Promise<string | null> {
+  if (!reportedOutput) return null;
+  if (!path.isAbsolute(reportedOutput)) return reportedOutput;
+  if (!OMD_PLANNED_OUTPUT_NAME.test(path.basename(reportedOutput)) && await isRegularFile(reportedOutput)) {
+    return reportedOutput;
+  }
+
+  for (const delayMs of CAPTURE_MANIFEST_RETRY_DELAYS_MS) {
+    if (delayMs > 0) await pause(delayMs);
+    const resolved = await matchingCaptureManifestOutput(reportedOutput, source, vaultRoot, captureStartedAt);
+    if (resolved) return resolved;
+  }
+  return await isRegularFile(reportedOutput) ? reportedOutput : null;
+}
+
+async function matchingCaptureManifestOutput(
+  reportedOutput: string,
+  source: string,
+  vaultRoot: string,
+  captureStartedAt: number,
+): Promise<string | null> {
+  try {
+    const realVaultRoot = await realpath(vaultRoot);
+    const realReportedDirectory = await realpath(path.dirname(reportedOutput));
+    if (!isContainedPath(realVaultRoot, realReportedDirectory)) return null;
+
+    const entries = (await readdir(realReportedDirectory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && !entry.name.startsWith(".") && entry.name.endsWith(".omd.json"))
+      .slice(0, MAX_CAPTURE_MANIFESTS);
+    let best: { output: string; updatedAt: number } | null = null;
+    for (const entry of entries) {
+      const manifestPath = path.join(realReportedDirectory, entry.name);
+      const manifestStats = await stat(manifestPath);
+      if (manifestStats.size <= 0 || manifestStats.size > MAX_CAPTURE_MANIFEST_BYTES) continue;
+      const manifest = parseCaptureManifest(await readFile(manifestPath, "utf8"));
+      if (!manifest || !captureManifestMatchesSource(manifest, source)) continue;
+      const updatedAt = captureManifestTimestamp(manifest, manifestStats.mtimeMs);
+      if (updatedAt < captureStartedAt - CAPTURE_MANIFEST_CLOCK_SKEW_MS) continue;
+
+      const output = typeof manifest.output === "string" ? manifest.output : "";
+      if (!path.isAbsolute(output) || path.extname(output).toLowerCase() !== ".md") continue;
+      const realOutput = await realpath(output);
+      if (path.dirname(realOutput) !== realReportedDirectory || !await isRegularFile(realOutput)) continue;
+      if (!best || updatedAt > best.updatedAt) best = { output: realOutput, updatedAt };
+    }
+    return best?.output ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function parseCaptureManifest(value: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function captureManifestMatchesSource(manifest: Record<string, unknown>, source: string): boolean {
+  return manifest.source === source || manifest.local_source_path === source;
+}
+
+function captureManifestTimestamp(manifest: Record<string, unknown>, fallback: number): number {
+  for (const field of ["updated_at", "created_at"] as const) {
+    const value = manifest[field];
+    if (typeof value !== "string") continue;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+async function isRegularFile(candidate: string): Promise<boolean> {
+  try {
+    return (await stat(candidate)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isContainedPath(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return !relative || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
 export function bridgeTimeoutMs(payload: Record<string, unknown>): number {
@@ -546,7 +653,7 @@ function isDesktopApp(): boolean {
     && typeof (window as Window & { require?: (id: string) => unknown }).require === "function";
 }
 
-export function captureErrorMessage(value: string): string {
+export function captureErrorMessage(value: string, source = ""): string {
   const detail = normalize(value);
   if (
     detail.includes("missingdependencyexception")
@@ -557,7 +664,7 @@ export function captureErrorMessage(value: string): string {
   const lines = value.trim().split(/\r?\n/).filter(Boolean).reverse();
   for (const line of lines) {
     const event = parseOmdEvent(line);
-    if (event) return mapCaptureEventToUserMessage(event);
+    if (event) return mapCaptureEventToUserMessage(event, source);
   }
   return "OMD capture failed. Check the OMD setup and try again.";
 }
@@ -689,16 +796,32 @@ function captureProcessErrorMessage(error: unknown): string {
   return "OMD capture failed. Check the OMD setup and try again.";
 }
 
-function mapCaptureEventToUserMessage(event: OmdProgressEvent): string {
+function mapCaptureEventToUserMessage(event: OmdProgressEvent, source = ""): string {
+  if (event.kind === "ocr_language_pack_missing") return missingOcrLanguagePackMessage(event);
   const tokens = normalize(`${event.kind ?? ""} ${event.event} ${event.message ?? ""}`);
   if (tokens.includes("cancel")) return "OMD capture was cancelled.";
+  if (
+    tokens.includes("file_not_found")
+    || tokens.includes("file not found")
+    || tokens.includes("no such file")
+    || tokens.includes("enoent")
+  ) {
+    const displayedSource = boundedLocalCaptureSource(source);
+    return displayedSource
+      ? `File not found: ${displayedSource}. Check the filename and location, then try again.`
+      : "The selected file does not exist. Check the filename and location, then try again.";
+  }
+  if (tokens.includes("unsupported_extension") || tokens.includes("unsupported extension")) {
+    return "OMD does not support this file type as a capture source. Choose a supported document, media file, or URL.";
+  }
+  if (tokens.includes("converter created empty output") || tokens.includes("empty output")) {
+    return "OMD could not extract readable content from this file. For an image-only PDF, capture its pages as images with OCR or use a PDF with a text layer.";
+  }
   if (tokens.includes("playwright") || tokens.includes("browser")) {
     return "OMD could not load the page. Check the local browser capture setup and try again.";
   }
   if (
-    tokens.includes("no such file")
-    || tokens.includes("enoent")
-    || tokens.includes("unsupported url")
+    tokens.includes("unsupported url")
     || tokens.includes("invalid url")
     || tokens.includes("permission denied")
   ) {
@@ -706,6 +829,49 @@ function mapCaptureEventToUserMessage(event: OmdProgressEvent): string {
   }
   if (tokens.includes("timed out") || tokens.includes("timeout")) return "OMD capture timed out. Try again.";
   return "OMD capture failed. Check the OMD setup and try again.";
+}
+
+function boundedLocalCaptureSource(source: string): string {
+  const cleaned = Array.from(source, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1F || codePoint === 0x7F ? " " : character;
+  }).join("").trim();
+  if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/u.test(cleaned)) return "";
+  return cleaned.length <= 500 ? cleaned : `${cleaned.slice(0, 499)}…`;
+}
+
+function missingOcrLanguagePackMessage(event: OmdProgressEvent): string {
+  const record = event as unknown as Record<string, unknown>;
+  const detail = event.message ?? "";
+  const requested = recognitionSummaryValue(record.requested)
+    || detail.match(/Requested OCR language:\s*([^.]+)/iu)?.[1]?.trim();
+  const missing = recognitionSummaryValue(record.missing)
+    || detail.match(/Missing Tesseract language pack\(s\):\s*([^.]+)/iu)?.[1]?.trim();
+  const available = recognitionSummaryValue(record.available)
+    || detail.match(/Available language packs:\s*(.+)$/iu)?.[1]?.trim();
+  const summary = [
+    requested ? `Requested: ${boundedRecognitionDetail(requested)}` : "",
+    missing ? `Missing: ${boundedRecognitionDetail(missing)}` : "",
+    available ? `Available: ${boundedRecognitionDetail(available)}` : "",
+  ].filter(Boolean).join(". ");
+  const prefix = summary ? `${summary}. ` : "";
+  return `OMD image recognition is missing required Tesseract language data. ${prefix}Install the missing packs (macOS Homebrew: brew install tesseract-lang; Linux: install the matching tesseract-ocr-* packages; Windows: add the matching .traineddata files to Tesseract's tessdata directory), then retry.`;
+}
+
+function recognitionSummaryValue(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string").join(", ");
+  }
+  return "";
+}
+
+function boundedRecognitionDetail(value: string): string {
+  const printable = [...value].map((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 32 || codePoint === 127 ? " " : character;
+  }).join("");
+  return printable.replace(/\s+/gu, " ").trim().slice(0, 240);
 }
 
 function normalize(value: string): string {

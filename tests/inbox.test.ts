@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { capturedOutputVaultPath, isOmdInboxNote } from "../src/inbox.ts";
+import {
+  capturedOutputVaultPath,
+  isOmdInboxNote,
+  setOmdHomeStatusInMarkdown,
+  waitForCapturedVaultFile,
+} from "../src/inbox.ts";
 
 test("Inbox status includes captures anywhere and hides reviewed notes", () => {
   assert.equal(isOmdInboxNote("Sources/Web/article.md", { omd_home_status: "inbox" }), true);
@@ -25,5 +30,80 @@ test("capture output handles Windows paths without case-sensitive root failures"
   assert.equal(
     capturedOutputVaultPath("c:\\Users\\Shion\\Vault\\Inbox\\note.md", "C:\\Users\\Shion\\Vault"),
     "Inbox/note.md",
+  );
+});
+
+test("capture waits for Obsidian to index an externally-created note", async () => {
+  const waits: number[] = [];
+  let lookups = 0;
+  const file = { path: "Sources/Documents/example.md" };
+
+  const result = await waitForCapturedVaultFile(
+    file.path,
+    () => ++lookups === 3 ? file : null,
+    [0, 25, 50, 100],
+    async (delayMs) => { waits.push(delayMs); },
+  );
+
+  assert.equal(result, file);
+  assert.equal(lookups, 3);
+  assert.deepEqual(waits, [25, 50]);
+});
+
+test("capture stops waiting after the bounded indexing window", async () => {
+  let lookups = 0;
+  const result = await waitForCapturedVaultFile(
+    "Sources/Documents/missing.md",
+    () => { lookups += 1; return null; },
+    [0, 10, 20],
+    async () => undefined,
+  );
+
+  assert.equal(result, null);
+  assert.equal(lookups, 3);
+});
+
+test("capture can mark Inbox status before Obsidian indexes the note", () => {
+  const markdown = [
+    "---",
+    'title: "Example Domain"',
+    'source_type: "webpage"',
+    "---",
+    "",
+    "# Example Domain",
+    "",
+  ].join("\n");
+
+  assert.equal(setOmdHomeStatusInMarkdown(markdown, "inbox"), [
+    "---",
+    'title: "Example Domain"',
+    'source_type: "webpage"',
+    "omd_home_status: inbox",
+    "---",
+    "",
+    "# Example Domain",
+    "",
+  ].join("\n"));
+});
+
+test("capture Inbox status fallback preserves line endings and replaces an existing status", () => {
+  const markdown = "\uFEFF---\r\nomd_home_status: reviewed\r\ntitle: Existing\r\n---\r\nBody\r\n";
+  assert.equal(
+    setOmdHomeStatusInMarkdown(markdown, "inbox"),
+    "\uFEFF---\r\nomd_home_status: inbox\r\ntitle: Existing\r\n---\r\nBody\r\n",
+  );
+});
+
+test("capture Inbox status fallback adds frontmatter without changing note content", () => {
+  assert.equal(
+    setOmdHomeStatusInMarkdown("# Plain note\n", "inbox"),
+    "---\nomd_home_status: inbox\n---\n# Plain note\n",
+  );
+});
+
+test("capture Inbox status fallback rejects malformed frontmatter", () => {
+  assert.throws(
+    () => setOmdHomeStatusInMarkdown("---\ntitle: Broken\n", "inbox"),
+    /unclosed frontmatter/u,
   );
 });

@@ -1,4 +1,4 @@
-import { App, Notice, Platform, PluginSettingTab, SecretComponent, Setting } from "obsidian";
+import { App, Notice, Platform, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import {
   AI_PROVIDER_VALUES,
   DEFAULT_AI_MODELS,
@@ -18,13 +18,41 @@ import type OmdHomePlugin from "./main";
 import type { ExternalCalendarDescriptor } from "./model";
 import {
   buildModelSelectorState,
-  describeReadinessCode,
+  describeLocalCompletionCatalog,
+  localWritingModelIsSelectable,
+  localWritingModelOptionLabel,
   modelHasRemoteMetadata,
-  modelIsKnownThinkingOnly,
   modelSupportsEmbedding,
+  normalizeLocalOllamaHost,
 } from "./local-ai-readiness";
-import type { HostedAiProvider, LocalAiWorkflowId, StoredAiProvider } from "./ollama-local-types";
+import type {
+  HostedAiProvider,
+  LocalAiModelEntry,
+  LocalAiWorkflowDisplayState,
+  LocalAiWorkflowId,
+  StoredAiProvider,
+} from "./ollama-local-types";
 import { isAutomaticOmdExecutable, omdInstallInstructions } from "./omd-discovery.ts";
+import {
+  OCR_LANGUAGE_PRESETS,
+  missingInstalledOcrPacks,
+  normalizeOcrLanguageSet,
+  type CaptureAsrSetting,
+} from "./capture-request.ts";
+
+const CUSTOM_OCR_DEFAULT_DESCRIPTION = "Advanced: enter up to eight installed Tesseract language pack ids joined with +. Script packs such as script/HanS are supported.";
+const INVALID_CUSTOM_OCR_NOTICE = "Custom OCR must use up to eight safe Tesseract language pack ids joined with +.";
+
+function disableUnavailableLocalModelOptions(selectEl: HTMLSelectElement, models: LocalAiModelEntry[]): void {
+  const unavailableNames = new Set(
+    models.filter((model) => !localWritingModelIsSelectable(model)).map((model) => model.name),
+  );
+  for (const option of Array.from(selectEl.options)) {
+    if (!unavailableNames.has(option.value)) continue;
+    option.disabled = true;
+    option.title = "This downloaded model cannot be used for local text answers.";
+  }
+}
 
 export interface OmdHomeSettings {
   openOnLaunch: boolean;
@@ -37,14 +65,16 @@ export interface OmdHomeSettings {
   aiProvider: StoredAiProvider;
   aiModel: string;
   aiModels: AiModelMemory;
+  allowedCloudAnswerProviders: StoredAiProvider[];
   hybridRetrievalEnabled: boolean;
   embeddingModel: string;
   semanticRerankEnabled: boolean;
-  enrichmentModel: string;
+  localWritingModel: string;
   ollamaHost: string;
   capturePolish: boolean;
-  capturePolishModel: string;
   captureSuggestLinksAndTags: boolean;
+  captureOcrLanguage: string;
+  captureAsrLanguage: CaptureAsrSetting;
   pinnedNotes: string[];
 }
 
@@ -59,20 +89,23 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
   aiProvider: "ollama",
   aiModel: "qwen3:4b-instruct",
   aiModels: { ...DEFAULT_AI_MODELS },
+  allowedCloudAnswerProviders: [],
   hybridRetrievalEnabled: true,
   embeddingModel: "bge-m3",
   semanticRerankEnabled: false,
-  enrichmentModel: "qwen3:4b-instruct",
+  localWritingModel: "qwen3:4b-instruct",
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
-  capturePolishModel: "qwen3:4b-instruct",
   captureSuggestLinksAndTags: true,
+  captureOcrLanguage: "",
+  captureAsrLanguage: "inherit-adapter-default",
   pinnedNotes: [],
 };
 
 export class OmdHomeSettingTab extends PluginSettingTab {
   private readonly plugin: OmdHomePlugin;
   private readonly customModelModes = new Set<LocalAiWorkflowId>();
+  private localAiAdvancedExpanded = false;
 
   constructor(app: App, plugin: OmdHomePlugin) {
     super(app, plugin);
@@ -119,7 +152,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .setName(helperAvailable ? "Calendar connection" : "Calendar helper unavailable")
       .setDesc(helperAvailable
         ? "Load Apple Calendar plus Google and Outlook accounts already added to macOS Calendar. You choose which calendars OMD Home can use."
-        : "The Calendar helper was not found. Reinstall the complete plugin release or open Advanced Calendar helper below.")
+        : "Apple Calendar needs the optional EventKit helper, which is not included in the standard Marketplace files. Open Calendar setup or Advanced Calendar helper below.")
       .addButton((button) => button
         .setButtonText(this.plugin.calendarLoading ? "Loading…" : helperAvailable ? "Refresh calendars" : "Try again")
         .setDisabled(this.plugin.calendarLoading)
@@ -194,7 +227,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     const advanced = this.settingsDisclosure(
       container,
       "Advanced Calendar helper",
-      "Leave this blank to use the helper bundled with the plugin. Set an absolute path only for development or recovery.",
+      "Leave this blank to use an optional helper installed beside the plugin. Set an absolute path only for development or recovery.",
     );
     advanced.toggleAttribute("open", !helperAvailable || Boolean(this.plugin.settings.eventKitHelperPath));
     const helperSetting = new Setting(advanced)
@@ -227,7 +260,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     const provider = this.plugin.settings.aiProvider;
     new Setting(container)
       .setName("Answer provider")
-      .setDesc("Use local Ollama for @ answers. Hosted choices currently configure credentials and models only. Retrieval and source selection stay on your computer.")
+      .setDesc(`Choose where @ questions are answered. ${providerSetupDescription(provider)}`)
       .addDropdown((dropdown) => {
         for (const value of AI_PROVIDER_VALUES) dropdown.addOption(value, aiProviderLabel(value));
         dropdown.setValue(provider).onChange(async (value) => {
@@ -247,17 +280,40 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(container)
-      .setName(isCloudAiProvider(provider) ? "Cloud boundary" : "Local-only boundary")
-      .setDesc(`${providerSetupDescription(provider)} Destination: ${aiProviderDestination(provider)}.`);
+    if (isCloudAiProvider(provider)) {
+      const permission = new Setting(container)
+        .setName(`Allow ${aiProviderLabel(provider)} answers`)
+        .setDesc(`Allow @ answers to use ${aiProviderDestination(provider)} only while ${aiProviderLabel(provider)} is selected. Before every request, OMD Home shows the destination, model, and bounded evidence excerpts and asks you to approve sending them.`)
+        .addToggle((toggle) => toggle
+          .setValue(this.plugin.settings.allowedCloudAnswerProviders.includes(provider))
+          .onChange(async (enabled) => {
+            const allowed = new Set(this.plugin.settings.allowedCloudAnswerProviders.filter(isCloudAiProvider));
+            enabled ? allowed.add(provider) : allowed.delete(provider);
+            this.plugin.settings.allowedCloudAnswerProviders = [...allowed];
+            await this.plugin.saveSettings();
+            new Notice(enabled
+              ? `${aiProviderLabel(provider)} answers allowed. OMD Home will still ask before every request.`
+              : `${aiProviderLabel(provider)} answers disabled. No new vault evidence will be sent to this provider.`);
+            this.renderLocalAiSection(container);
+          }));
+      if (provider === "ollama-cloud") {
+        permission.addButton((button) => button
+          .setButtonText("Setup guide")
+          .onClick(() => this.plugin.openCloudAiGuide()));
+      }
+      permission.settingEl.addClass("omd-settings-cloud-permission");
+    }
 
     if (isHostedApiProvider(provider)) this.hostedCredentialSetting(container, provider);
     this.answerModelSetting(container, provider);
     this.answerProviderStatusSetting(container, provider);
     if (isHostedApiProvider(provider)
-      && (!this.plugin.hostedAiState || this.plugin.hostedAiState.provider !== provider || !this.plugin.hostedAiState.credential)) {
+      && (!this.plugin.hostedAiState || this.plugin.hostedAiState.provider !== provider
+        || (!this.plugin.hostedAiState.credential && this.plugin.hostedAiState.checkedAt === undefined && !this.plugin.hostedAiState.activeAction))) {
       void this.plugin.ensureHostedCredentialState(provider).finally(() => {
-        if (container.isConnected) this.renderLocalAiSection(container);
+        const state = this.plugin.hostedAiState;
+        if (container.isConnected && state?.provider === provider
+          && (state.credential || state.checkedAt !== undefined)) this.renderLocalAiSection(container);
       });
     }
 
@@ -270,8 +326,12 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     const advanced = this.settingsDisclosure(
       container,
       "Advanced AI controls",
-      "Tune local retrieval, capture enrichment, and the loopback Ollama endpoint.",
+      "Configure vault retrieval, the local writing model, and Ollama troubleshooting.",
     );
+    advanced.open = this.localAiAdvancedExpanded;
+    advanced.addEventListener("toggle", () => {
+      this.localAiAdvancedExpanded = advanced.open;
+    });
     new Setting(advanced).setName("Vault retrieval").setHeading();
     this.hybridRetrievalSetting(advanced);
     this.embeddingModelSetting(advanced);
@@ -288,44 +348,47 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         }));
 
     new Setting(advanced)
-      .setName("Local capture and links")
-      .setDesc("Enrichment and capture polish are separate local passes. Both use loopback Ollama; keep the two model selectors the same if you want one model for both.")
+      .setName("Local writing tools")
+      .setDesc("The capture dialog turns optional writing actions on or off. Choose the loopback Ollama model they share here. These actions never use the cloud answer provider.")
       .setHeading();
-    this.modelSetting(advanced, "Enrichment model", "Review-first link and tag suggestions.", "enrichmentModel", "enrichment");
-    new Setting(advanced)
-      .setName("Suggest links and tags after capture")
-      .setDesc("Open a review proposal after capture. Nothing is written until you approve it.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.captureSuggestLinksAndTags)
-        .onChange(async (value) => {
-          this.plugin.settings.captureSuggestLinksAndTags = value;
-          await this.plugin.saveSettings();
-        }));
-    this.modelSetting(advanced, "Capture polish model", "Used only when capture polish is enabled.", "capturePolishModel", "capture");
-
+    this.modelSetting(
+      advanced,
+      "Local writing model",
+      "Used by optional Markdown polish and review-first link and tag proposals.",
+      "localWritingModel",
+      "enrichment",
+    );
     new Setting(advanced).setName("Ollama troubleshooting").setHeading();
-    new Setting(advanced)
+    let endpointValidation: ((value: string) => boolean) | undefined;
+    let validation: HTMLElement | null = null;
+    const endpoint = new Setting(advanced)
       .setName("Ollama endpoint")
-      .setDesc("Only the default loopback Ollama endpoints are accepted.")
-      .addText((text) => text.setValue(this.plugin.settings.ollamaHost).onChange(async (value) => {
-        this.plugin.settings.ollamaHost = value.trim();
-        this.plugin.invalidateLocalAiState("host");
-        await this.plugin.saveSettings();
-      }));
-    if (this.plugin.localAiState.daemonCode === "cloud_features_enabled"
-      || this.plugin.localAiState.daemonCode === "cloud_features_unknown") {
-      new Setting(advanced)
-        .setName("Ollama local-only configuration")
-        .setDesc("Enable local-only mode in Ollama server settings, then fully restart Ollama and check setup again.")
-        .addButton((button) => button.setButtonText("Copy configuration").onClick(async () => {
+      .setDesc("Default: http://localhost:11434. For security, the only alternative is http://127.0.0.1:11434.")
+      .addText((text) => {
+        const updateValidation = (value: string): boolean => {
+          const candidate = value.trim();
           try {
-            await navigator.clipboard.writeText('{"disable_ollama_cloud": true}');
-            new Notice("Copied Ollama local-only configuration");
+            normalizeLocalOllamaHost(candidate);
+            endpoint.settingEl.removeClass("is-invalid");
+            validation?.empty();
+            return true;
           } catch {
-            new Notice("Could not copy the configuration.");
+            endpoint.settingEl.addClass("is-invalid");
+            validation?.setText("Use http://localhost:11434 or http://127.0.0.1:11434. The last valid endpoint remains saved.");
+            return false;
           }
-        }));
-    }
+        };
+        endpointValidation = updateValidation;
+        text.setValue(this.plugin.settings.ollamaHost).onChange(async (value) => {
+          if (!updateValidation(value)) return;
+          this.plugin.settings.ollamaHost = value.trim();
+          this.plugin.invalidateLocalAiState("host");
+          await this.plugin.saveSettings();
+        });
+      });
+    validation = endpoint.settingEl.createDiv({ cls: "omd-settings-endpoint-validation" });
+    endpoint.settingEl.addClass("omd-settings-endpoint");
+    endpointValidation?.(this.plugin.settings.ollamaHost);
   }
 
   private hostedCredentialSetting(container: HTMLElement, provider: HostedAiProvider): void {
@@ -336,8 +399,8 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       const setting = new Setting(container)
         .setName("Developer key")
         .setDesc(credential?.source === "env"
-          ? `Using ${credential.envVar || envVar} from the OMD environment. Consumer subscriptions do not include API usage. Hosted Vault Q&A stays disabled in this beta.`
-          : `Set ${envVar} before starting Obsidian, then run Check setup. In-app saving appears only when macOS Keychain is available. Hosted Vault Q&A stays disabled in this beta.`);
+          ? `Using ${credential.envVar || envVar} from the OMD environment. Consumer subscriptions do not include API usage.`
+          : `Set ${envVar} before starting Obsidian, then run Check setup. In-app saving appears only when macOS Keychain is available. Consumer subscriptions do not include API usage.`);
       setting.settingEl.addClass("omd-settings-model", "omd-settings-secret");
       return;
     }
@@ -345,15 +408,16 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     const setting = new Setting(container)
       .setName("Developer key")
       .setDesc(credential?.source === "env"
-        ? `Using ${credential.envVar} from the OMD environment. Consumer subscriptions do not include API usage. Hosted Vault Q&A stays disabled in this beta.`
+        ? `Using ${credential.envVar} from the OMD environment. Consumer subscriptions do not include API usage.`
         : credential?.source === "keychain"
-          ? "Saved in macOS Keychain. Consumer subscriptions do not include API usage. Hosted Vault Q&A stays disabled in this beta."
-          : `Paste a developer API key to save it in macOS Keychain, or set ${envVar} before starting Obsidian. The key is never stored in plugin settings.`);
-    const secret = new SecretComponent(this.app, setting.controlEl)
+          ? "Saved in macOS Keychain. Consumer subscriptions do not include API usage."
+          : `Paste a developer API key to save it in macOS Keychain, or set ${envVar} before starting Obsidian. The key is never stored in plugin settings. Consumer subscriptions do not include API usage.`);
+    const secret = new TextComponent(setting.controlEl)
       .setValue("")
+      .setPlaceholder(credential?.source === "keychain" ? "Key saved" : "Paste API key")
       .onChange((value) => { draft = value; });
-    const input = setting.controlEl.querySelector("input");
-    if (input) input.setAttribute("placeholder", credential?.source === "keychain" ? "Key saved" : "Paste API key");
+    secret.inputEl.type = "password";
+    secret.inputEl.autocomplete = "off";
     setting.addButton((button) => button
       .setButtonText(state?.activeAction === "save-key" ? "Saving…" : "Save key")
       .setDisabled(Boolean(state?.activeAction))
@@ -362,8 +426,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         button.setDisabled(true).setButtonText("Saving…");
         let saved = false;
         try {
-          await this.plugin.saveHostedApiKey(draft);
-          saved = true;
+          saved = await this.plugin.saveHostedApiKey(draft);
         } catch {
           // The plugin records and surfaces the safe provider error.
         }
@@ -389,40 +452,80 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   }
 
   private answerModelSetting(container: HTMLElement, provider: StoredAiProvider): void {
+    const qaWorkflow = this.plugin.localAiState.workflows.qa;
+    const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
+    const localModels = this.plugin.localAiState.models.filter((model) => !modelHasRemoteMetadata(model));
+    const selectableLocalModels = localModels.filter(localWritingModelIsSelectable);
     const models = provider === "ollama"
-      ? this.plugin.localAiState.models.filter((model) => !isOllamaCloudModel(model))
+      ? localModels
       : provider === "ollama-cloud"
         ? this.plugin.localAiState.models.filter(isOllamaCloudModel)
         : this.plugin.hostedAiState?.provider === provider ? this.plugin.hostedAiState.models : [];
     const current = this.plugin.settings.aiModel.trim();
+    const allowCustom = provider !== "ollama-cloud";
+    const known = models.some((model) => model.name === current);
+    const custom = allowCustom && this.customModelModes.has("qa");
+    const checkedLocalSelector = buildModelSelectorState(current, selectableLocalModels);
+    const selector = provider === "ollama"
+      ? custom
+        ? { optionValue: "__custom__", useCustom: true, stale: false, customValue: current }
+        : !catalogChecked
+          ? { optionValue: current || "__custom__", useCustom: !current, stale: false, customValue: current }
+          : checkedLocalSelector.stale && models.some((model) => model.name === current)
+            ? { ...checkedLocalSelector, optionValue: current, useCustom: false }
+            : checkedLocalSelector
+      : current
+        ? {
+          optionValue: known ? current : "__stale__",
+          useCustom: custom,
+          stale: !known,
+          customValue: current,
+        }
+        : {
+          optionValue: custom ? "__custom__" : "__empty__",
+          useCustom: custom,
+          stale: false,
+          customValue: "",
+        };
     const options = models.reduce<Record<string, string>>((result, model) => {
-      const suffix = provider === "ollama" && model.capabilities.length > 0 && !model.supportsCompletion
-          ? " (not text-capable)"
-          : "";
-      result[model.name] = `${model.name}${suffix}`;
+      result[model.name] = provider === "ollama" ? localWritingModelOptionLabel(model) : model.name;
       return result;
     }, {});
-    const allowCustom = provider !== "ollama-cloud";
-    const known = Boolean(options[current]);
-    if (allowCustom) options.__custom__ = "Custom model id…";
-    if (current && !known) options.__saved__ = `${current} (saved, not listed)`;
-    if (!Object.keys(options).length) options.__empty__ = "Check setup to load models";
-    const custom = allowCustom && (this.customModelModes.has("qa") || (!known && Boolean(current)));
+    if (provider === "ollama" && !catalogChecked && current && !options[current]) options[current] = current;
+    if (allowCustom) options.__custom__ = "Custom…";
+    if (selector.stale && !options[selector.optionValue]) {
+      options.__stale__ = provider === "ollama"
+        ? `${current} (saved, unavailable for local answers)`
+        : `${current} (saved, not installed)`;
+    }
+    if (!models.length && !selector.useCustom && !current) options.__empty__ = "Check setup to load models";
+    const showCustom = custom || (!current && selector.useCustom);
+    const title = provider === "ollama" ? "Text completion model" : "Answer model";
+    const catalogDescription = provider === "ollama"
+      ? describeLocalCompletionCatalog(this.plugin.localAiState.models, catalogChecked)
+      : "";
+    const catalogHint = catalogDescription ? ` ${catalogDescription}` : "";
+    const verificationHint = selector.stale && provider !== "ollama"
+      ? " The saved model is not in the latest catalog; press Check setup to verify it."
+      : "";
     const setting = new Setting(container)
-      .setName("Answer model")
+      .setName(title)
       .setDesc(provider === "ollama-cloud"
-        ? "Cloud-backed models detected by the local Ollama app. This selection is remembered for setup only in this build."
+        ? `Choose a Cloud model exposed by the signed-in local Ollama app. Answers run on Ollama Cloud only after per-request approval.${verificationHint}`
         : provider === "ollama"
-          ? "The local model used for read-only @ questions. Prefer a chat or instruct model."
-          : "The provider model validated by Check setup. This selection is remembered for setup only in this build.")
+          ? `Choose the local text completion model used for read-only @ questions. qwen3:4b-instruct is the default.${catalogHint}${verificationHint}`
+          : `Choose the provider model used after per-request approval.${verificationHint}`)
       .addDropdown((dropdown) => {
         dropdown.addOptions(options);
-        dropdown.setValue(known ? current : custom ? "__custom__" : current ? "__saved__" : "__empty__");
+        if (provider === "ollama") disableUnavailableLocalModelOptions(dropdown.selectEl, models);
+        dropdown.setValue(showCustom ? "__custom__" : selector.optionValue);
         dropdown.onChange(async (value) => {
-          if (value === "__empty__" || value === "__saved__") return;
-          if (value === "__custom__") {
+          if (value === "__empty__") return;
+          if (value === "__custom__" || value === "__stale__") {
             this.customModelModes.add("qa");
-            new Notice("Enter the exact model id, then run Check setup to verify it.");
+            if (value === "__custom__") {
+              new Notice("Enter the exact model id, then run check setup to verify it.");
+            }
             this.renderLocalAiSection(container);
             return;
           }
@@ -431,27 +534,39 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           this.renderLocalAiSection(container);
         });
       });
-    if (custom) {
+    if (showCustom) {
+      let draft = selector.customValue;
       setting.addText((text) => {
         text
           .setPlaceholder("Exact provider model id")
-          .setValue(current)
-          .onChange(async (value) => await this.saveAnswerModel(provider, value));
-        text.inputEl.addEventListener("blur", () => {
-          if (!text.getValue().trim()) return;
-          new Notice("Custom model id saved. Run Check setup to verify it is installed.");
-        });
+          .setValue(selector.customValue)
+          .onChange((value) => {
+            draft = value.trim();
+          });
       });
+      setting.addButton((button) => button
+        .setButtonText("Save model")
+        .onClick(async () => {
+          if (!draft.trim()) {
+            new Notice("Enter the exact model id first.");
+            return;
+          }
+          await this.saveAnswerModel(provider, draft, "Custom model id saved. Run Check setup to verify it is installed.");
+          this.customModelModes.add("qa");
+          this.renderLocalAiSection(container);
+        }));
     }
     setting.settingEl.addClass("omd-settings-model", "omd-settings-answer-model");
+    if (provider === "ollama") this.modelReadinessRail(container, "Text completion model", qaWorkflow, selector.stale);
   }
 
-  private async saveAnswerModel(provider: StoredAiProvider, value: string): Promise<void> {
+  private async saveAnswerModel(provider: StoredAiProvider, value: string, notice?: string): Promise<void> {
     const model = value.trim();
     this.plugin.settings.aiModel = model;
     this.plugin.settings.aiModels[provider] = model;
     this.plugin.invalidateLocalAiState("answer-model");
     await this.plugin.saveSettings();
+    if (notice) new Notice(notice);
   }
 
   private answerProviderStatusSetting(container: HTMLElement, provider: StoredAiProvider): void {
@@ -461,11 +576,13 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     const activeAction = hostedState?.activeAction || this.plugin.localAiState.activeAction;
     const detail = hostedState?.detail
       ?? (provider === "ollama-cloud"
-        ? "Check the local Ollama app, Cloud availability, and selected cloud model."
+        ? "Check the signed-in local Ollama app and selected Cloud model."
         : this.plugin.localAiState.daemonDetail);
     const status = new Setting(container)
       .setName("Answer setup")
-      .setDesc(isCloudAiProvider(provider) ? `${detail} Check setup verifies credentials and model availability only.` : detail);
+      .setDesc(isCloudAiProvider(provider)
+        ? `${detail} Check setup verifies access and model availability without sending vault content.`
+        : detail);
     const canOpenOllama = (provider === "ollama" || provider === "ollama-cloud")
       && canOpenOllamaDesktopApp()
       && this.plugin.localAiState.daemonCode === "daemon_unreachable";
@@ -487,7 +604,35 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       }));
   }
 
-  private settingsDisclosure(container: HTMLElement, label: string, description: string): HTMLElement {
+  private modelReadinessRail(
+    container: HTMLElement,
+    name: string,
+    state: Pick<LocalAiWorkflowDisplayState, "code" | "detail">,
+    savedUnavailable = false,
+  ): void {
+    const ready = !savedUnavailable && state.code === "ready";
+    const checking = !savedUnavailable && state.code === "checking";
+    const neutral = !savedUnavailable && state.code === "unchecked";
+    const status = new Setting(container)
+      .setName(savedUnavailable
+        ? `${name} needs attention`
+        : ready
+          ? `${name} available`
+          : checking
+            ? `Checking ${name.toLowerCase()}`
+            : neutral
+              ? `Verify ${name.toLowerCase()}`
+              : `${name} needs attention`)
+      .setDesc(savedUnavailable
+        ? "The saved model is not available for this local workflow. Choose another downloaded model or run Check setup to refresh the catalog."
+        : state.detail);
+    status.settingEl.addClass(
+      "omd-settings-model-status",
+      ready ? "is-ready" : checking ? "is-checking" : neutral ? "is-neutral" : "is-unavailable",
+    );
+  }
+
+  private settingsDisclosure(container: HTMLElement, label: string, description: string): HTMLDetailsElement {
     const details = container.createEl("details", { cls: "omd-settings-advanced" });
     details.createEl("summary", { text: label });
     details.createEl("p", { text: description });
@@ -540,6 +685,108 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         new Notice(ready ? "OMD is ready." : this.plugin.enrichmentCapability.message);
         this.display();
       }));
+
+    const recognition = container.createEl("details", { cls: "omd-settings-advanced" });
+    recognition.createEl("summary", { text: "Recognition defaults" });
+    const languageAvailability = this.plugin.captureLanguageAvailability();
+    const recognitionReady = languageAvailability.status === "supported";
+    recognition.createEl("p", {
+      text: recognitionReady
+        ? `Vault defaults for new image, audio, and video captures. Recognition only; OMD does not translate the captured text. A language selected while capturing applies only to that item; a retry repeats it. ${languageAvailability.message}`
+        : `Vault defaults for new image, audio, and video captures. Recognition only; OMD does not translate the captured text. Language preferences remain off until a compatible local converter is detected. ${languageAvailability.message}`,
+    });
+    const savedOcrLanguage = this.plugin.settings.captureOcrLanguage;
+    const readyOcrPresets = languageAvailability.ocrPresets.filter((preset) => (
+      languageAvailability.ocrBackendAvailable !== false
+      && missingInstalledOcrPacks(preset.value, languageAvailability.ocrInstalledPacks).length === 0
+    ));
+    const savedIsPreset = OCR_LANGUAGE_PRESETS.includes(savedOcrLanguage as typeof OCR_LANGUAGE_PRESETS[number]);
+    const savedOcrSupported = !savedOcrLanguage
+      || (savedIsPreset
+        ? languageAvailability.ocrPresets.some((preset) => preset.value === savedOcrLanguage)
+        : languageAvailability.customOcr);
+    const savedOcrReady = savedOcrSupported
+      && languageAvailability.ocrBackendAvailable !== false
+      && missingInstalledOcrPacks(savedOcrLanguage, languageAvailability.ocrInstalledPacks).length === 0;
+    const ocrSetting = new Setting(recognition)
+      .setName("Image text language")
+      .setDesc("Default for new image captures. Choose a language only when image text is recognized incorrectly.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("", "No language preference");
+        if (recognitionReady) {
+          for (const preset of readyOcrPresets) {
+            dropdown.addOption(preset.value, preset.label);
+          }
+        }
+        const savedCustom = savedOcrLanguage && !savedIsPreset;
+        if (recognitionReady && savedOcrReady && savedCustom) {
+          dropdown.addOption(savedOcrLanguage, `Custom: ${savedOcrLanguage}`);
+        }
+        dropdown
+          .setValue(recognitionReady && savedOcrReady ? savedOcrLanguage : "")
+          .setDisabled(!recognitionReady || (readyOcrPresets.length === 0 && !savedCustom))
+          .onChange(async (value) => {
+          this.plugin.settings.captureOcrLanguage = value;
+          await this.plugin.saveSettings();
+          });
+      });
+    if ((!recognitionReady || !savedOcrReady) && savedOcrLanguage) {
+      ocrSetting.addButton((button) => button.setButtonText("Clear preference").onClick(async () => {
+        this.plugin.settings.captureOcrLanguage = "";
+        await this.plugin.saveSettings();
+        this.display();
+      }));
+    }
+    if (recognitionReady && languageAvailability.customOcr && languageAvailability.ocrBackendAvailable !== false) {
+      const presetValues = languageAvailability.ocrPresets.map((preset) => preset.value);
+      const customValue = presetValues.includes(savedOcrLanguage as typeof presetValues[number]) ? "" : savedOcrLanguage;
+      new Setting(recognition)
+        .setName("Custom image text language")
+        .setDesc(CUSTOM_OCR_DEFAULT_DESCRIPTION)
+        .addText((text) => {
+          text.setPlaceholder("Example: deu+eng").setValue(customValue);
+          text.inputEl.addEventListener("change", () => {
+            const value = normalizeOcrLanguageSet(text.getValue());
+            if (!value) {
+              new Notice(INVALID_CUSTOM_OCR_NOTICE);
+              return;
+            }
+            const missingPacks = missingInstalledOcrPacks(value, languageAvailability.ocrInstalledPacks);
+            if (missingPacks.length) {
+              new Notice(`Missing installed Tesseract language packs: ${missingPacks.join(", ")}. Install them, then retry.`);
+              return;
+            }
+            this.plugin.settings.captureOcrLanguage = value;
+            void this.plugin.saveSettings().then(() => this.display());
+          });
+        });
+    }
+    const asrSetting = new Setting(recognition)
+      .setName("Speech language")
+      .setDesc("Default for new audio and video captures. Choose auto-detect when the recording's language is unknown.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("inherit-adapter-default", "No language preference");
+        if (recognitionReady && languageAvailability.asrAutoDetect) {
+          dropdown.addOption("auto-detect", "Auto-detect speech");
+        }
+        if (recognitionReady && languageAvailability.asrExplicit) {
+          dropdown.addOption("en", "English").addOption("zh", "Chinese");
+        }
+        dropdown
+          .setValue(recognitionReady ? this.plugin.settings.captureAsrLanguage : "inherit-adapter-default")
+          .setDisabled(!recognitionReady)
+          .onChange(async (value) => {
+          this.plugin.settings.captureAsrLanguage = normalizeCaptureAsrLanguage(value);
+          await this.plugin.saveSettings();
+          });
+      });
+    if (!recognitionReady && this.plugin.settings.captureAsrLanguage !== "inherit-adapter-default") {
+      asrSetting.addButton((button) => button.setButtonText("Clear preference").onClick(async () => {
+        this.plugin.settings.captureAsrLanguage = "inherit-adapter-default";
+        await this.plugin.saveSettings();
+        this.display();
+      }));
+    }
 
     const advanced = container.createEl("details", { cls: "omd-settings-advanced" });
     advanced.open = !automatic
@@ -636,39 +883,54 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     container: HTMLElement,
     name: string,
     description: string,
-    key: "aiModel" | "enrichmentModel" | "capturePolishModel",
+    key: "localWritingModel",
     workflow: LocalAiWorkflowId,
   ): void {
     const workflowState = this.plugin.localAiState.workflows[workflow];
+    const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
+    const localModels = this.plugin.localAiState.models
+      .filter((model) => !modelHasRemoteMetadata(model));
+    const selectableModels = localModels.filter(localWritingModelIsSelectable);
     const selector = this.customModelModes.has(workflow)
       ? {
         optionValue: "__custom__",
         useCustom: true,
         stale: false,
-        customValue: this.plugin.localAiState.models.some((model) => model.name === this.plugin.settings[key]) ? "" : this.plugin.settings[key],
+        customValue: selectableModels.some((model) => model.name === this.plugin.settings[key]) ? "" : this.plugin.settings[key],
       }
-      : buildModelSelectorState(this.plugin.settings[key], this.plugin.localAiState.models);
-    const options = this.plugin.localAiState.models
+      : !catalogChecked
+        ? {
+          optionValue: this.plugin.settings[key] || "__custom__",
+          useCustom: !this.plugin.settings[key],
+          stale: false,
+          customValue: this.plugin.settings[key],
+        }
+        : (() => {
+          const checked = buildModelSelectorState(this.plugin.settings[key], selectableModels);
+          return checked.stale && localModels.some((model) => model.name === this.plugin.settings[key])
+            ? { ...checked, optionValue: this.plugin.settings[key], useCustom: false }
+            : checked;
+        })();
+    const options = localModels
       .reduce<Record<string, string>>((result, model) => {
-        const suffix = modelHasRemoteMetadata(model)
-          ? " (remote blocked)"
-          : modelIsKnownThinkingOnly(model)
-            ? ""
-          : model.capabilities.length > 0 && !model.supportsCompletion
-            ? " (not text-capable)"
-          : model.capabilities.length === 0
-            ? " (unchecked)"
-            : "";
-        result[model.name] = `${model.name}${suffix}`;
+        result[model.name] = localWritingModelOptionLabel(model);
         return result;
       }, {});
+    if (!catalogChecked && this.plugin.settings[key] && !options[this.plugin.settings[key]]) {
+      options[this.plugin.settings[key]] = this.plugin.settings[key];
+    }
     options.__custom__ = "Custom…";
-    if (selector.stale) options.__stale__ = `${this.plugin.settings[key]} (saved, not installed)`;
+    if (selector.stale && !options[selector.optionValue]) {
+      options.__stale__ = `${this.plugin.settings[key]} (saved, unavailable for local writing)`;
+    }
+    const catalogDescription = describeLocalCompletionCatalog(this.plugin.localAiState.models, catalogChecked);
+    const catalogHint = catalogDescription ? ` ${catalogDescription}` : "";
     const setting = new Setting(container)
       .setName(name)
-      .setDesc(`${description} ${describeReadinessCode(workflowState.code)}. ${workflowState.detail}`)
+      .setDesc(`${description}${catalogHint}`)
       .addDropdown((dropdown) => {
         dropdown.addOptions(options);
+        disableUnavailableLocalModelOptions(dropdown.selectEl, localModels);
         dropdown.setValue(selector.optionValue);
         dropdown.onChange(async (value) => {
           if (value === "__custom__" || value === "__stale__") {
@@ -682,20 +944,40 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           this.renderLocalAiSection(container);
         });
-      });
+    });
     if (selector.useCustom) {
+      let draft = selector.customValue;
       setting.addText((text) => {
         text.setPlaceholder("Custom Ollama model id");
         text.setValue(selector.customValue);
-        text.onChange(async (value) => {
-          this.customModelModes.add(workflow);
-          this.plugin.settings[key] = value.trim();
-          this.plugin.invalidateLocalAiState("model");
-          await this.plugin.saveSettings();
+        text.onChange((value) => {
+          draft = value.trim();
         });
       });
+      setting.addButton((button) => button
+        .setButtonText("Save model")
+        .onClick(async () => {
+          if (!draft.trim()) {
+            new Notice("Enter a custom model id first.");
+            return;
+          }
+          this.customModelModes.add(workflow);
+          await this.saveModelValue(key, draft);
+          new Notice(`Saved ${name.toLowerCase()}. Press Check setup to verify it.`);
+          if (container.isConnected) this.renderLocalAiSection(container);
+        }));
     }
     setting.settingEl.addClass("omd-settings-model");
+    this.modelReadinessRail(container, name, workflowState, selector.stale);
+  }
+
+  private async saveModelValue(
+    key: "localWritingModel",
+    value: string,
+  ): Promise<void> {
+    this.plugin.settings[key] = value.trim();
+    this.plugin.invalidateLocalAiState("model");
+    await this.plugin.saveSettings();
   }
 
   private hybridRetrievalSetting(container: HTMLElement): void {
@@ -713,19 +995,27 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   }
 
   private embeddingModelSetting(container: HTMLElement): void {
+    const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
     const embeddingModels = this.plugin.localAiState.models
       .filter((model) => modelSupportsEmbedding(model) && !modelHasRemoteMetadata(model));
     const options = embeddingModels.reduce<Record<string, string>>((result, model) => {
       result[model.name] = model.name;
       return result;
     }, {});
-    if (!options[this.plugin.settings.embeddingModel]) {
+    const savedUnavailable = catalogChecked && !options[this.plugin.settings.embeddingModel];
+    if (savedUnavailable) {
       options.__saved__ = `${this.plugin.settings.embeddingModel} (saved, not installed)`;
+    } else if (!catalogChecked && this.plugin.settings.embeddingModel && !options[this.plugin.settings.embeddingModel]) {
+      options[this.plugin.settings.embeddingModel] = this.plugin.settings.embeddingModel;
     }
     const selected = options[this.plugin.settings.embeddingModel] ? this.plugin.settings.embeddingModel : "__saved__";
     const setting = new Setting(container)
       .setName("Embedding model")
-      .setDesc("Used only for local multilingual retrieval and optional reranking during vault questions.")
+      .setDesc(!catalogChecked
+        ? "Used only for local multilingual retrieval and optional reranking. Run Check setup to load installed models."
+        : savedUnavailable
+          ? "The saved embedding model is unavailable locally. Hybrid retrieval stays safe: it will not download or use a different model automatically."
+          : "Used only for local multilingual retrieval and optional reranking during vault questions.")
       .addDropdown((dropdown) => {
         if (!Object.keys(options).length) dropdown.addOption("__saved__", this.plugin.settings.embeddingModel || "No local embedding model found");
         else dropdown.addOptions(options);
@@ -746,7 +1036,36 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           await this.plugin.testLocalEmbeddings();
           if (container.isConnected) this.renderLocalAiSection(container);
         }));
+    if (savedUnavailable && this.plugin.settings.embeddingModel.trim().toLowerCase() === "bge-m3") {
+      setting.addButton((button) => button
+        .setButtonText("Copy download command")
+        .onClick(async () => {
+          try {
+            await navigator.clipboard.writeText("ollama pull bge-m3");
+            new Notice("Download command copied. Run `ollama pull bge-m3` in a terminal to install the recommended local embedding model.");
+          } catch {
+            new Notice("Could not copy the command. Run `ollama pull bge-m3` in a terminal.");
+          }
+        }));
+    }
     setting.settingEl.addClass("omd-settings-model");
+    const embeddingStatus = new Setting(container)
+      .setName(!catalogChecked
+        ? "Verify embedding model"
+        : savedUnavailable
+          ? "Embedding model needs attention"
+          : "Embedding model installed")
+      .setDesc(!catalogChecked
+        ? "Run Check setup to load the local model catalog, then run Test embeddings."
+        : savedUnavailable
+        ? this.plugin.settings.embeddingModel.trim().toLowerCase() === "bge-m3"
+          ? "Recommended model bge-m3 is not installed. Copy the command above to download it yourself; OMD Home never installs models automatically."
+          : "Choose an installed local embedding model or install the saved model yourself, then run Test embeddings."
+        : "Installed locally and available for hybrid retrieval. Run Test embeddings to verify it before relying on semantic reranking.");
+    embeddingStatus.settingEl.addClass(
+      "omd-settings-model-status",
+      !catalogChecked ? "is-neutral" : savedUnavailable ? "is-unavailable" : "is-ready",
+    );
   }
 }
 
@@ -769,13 +1088,26 @@ function omdStatusTitle(
 }
 
 export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
-  const input = raw && typeof raw === "object" ? raw as Partial<OmdHomeSettings> : {};
+  const input = raw && typeof raw === "object"
+    ? raw as Partial<OmdHomeSettings>
+    : {};
+  const legacyInput = Object.fromEntries(Object.entries(input));
   const aiProviderValue = input.aiProvider;
   const aiProvider = isStoredAiProvider(aiProviderValue) ? aiProviderValue : DEFAULT_SETTINGS.aiProvider;
   const legacyAiModel = typeof input.aiModel === "string"
     ? input.aiModel.trim()
     : aiProvider === "ollama" ? DEFAULT_SETTINGS.aiModel : "";
   const aiModels = normalizeAiModelMemory(input.aiModels, aiProvider, legacyAiModel);
+  const allowedCloudAnswerProviders = typeof (input as { allowCloudVaultAnswers?: unknown }).allowCloudVaultAnswers === "boolean"
+    ? (input as { allowCloudVaultAnswers?: boolean }).allowCloudVaultAnswers && isCloudAiProvider(aiProvider) ? [aiProvider] : []
+    : uniqueStrings((input as { allowedCloudAnswerProviders?: unknown }).allowedCloudAnswerProviders)
+      .filter(isStoredAiProvider)
+      .filter(isCloudAiProvider);
+  const legacyWritingModel = typeof legacyInput.enrichmentModel === "string" && legacyInput.enrichmentModel.trim()
+    ? legacyInput.enrichmentModel.trim()
+    : typeof legacyInput.capturePolishModel === "string" && legacyInput.capturePolishModel.trim()
+      ? legacyInput.capturePolishModel.trim()
+      : "";
   return {
     openOnLaunch: typeof input.openOnLaunch === "boolean" ? input.openOnLaunch : DEFAULT_SETTINGS.openOnLaunch,
     omdExecutable: cleanString(input.omdExecutable, DEFAULT_SETTINGS.omdExecutable),
@@ -787,6 +1119,7 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
     aiProvider,
     aiModel: aiModels[aiProvider],
     aiModels,
+    allowedCloudAnswerProviders,
     hybridRetrievalEnabled: typeof input.hybridRetrievalEnabled === "boolean"
       ? input.hybridRetrievalEnabled
       : DEFAULT_SETTINGS.hybridRetrievalEnabled,
@@ -794,13 +1127,15 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
     semanticRerankEnabled: typeof input.semanticRerankEnabled === "boolean"
       ? input.semanticRerankEnabled
       : DEFAULT_SETTINGS.semanticRerankEnabled,
-    enrichmentModel: cleanString(input.enrichmentModel, DEFAULT_SETTINGS.enrichmentModel),
+    localWritingModel: cleanString(input.localWritingModel, legacyWritingModel || DEFAULT_SETTINGS.localWritingModel)
+      || DEFAULT_SETTINGS.localWritingModel,
     ollamaHost: cleanString(input.ollamaHost, DEFAULT_SETTINGS.ollamaHost),
     capturePolish: typeof input.capturePolish === "boolean" ? input.capturePolish : DEFAULT_SETTINGS.capturePolish,
-    capturePolishModel: cleanString(input.capturePolishModel, DEFAULT_SETTINGS.capturePolishModel),
     captureSuggestLinksAndTags: typeof input.captureSuggestLinksAndTags === "boolean"
       ? input.captureSuggestLinksAndTags
       : DEFAULT_SETTINGS.captureSuggestLinksAndTags,
+    captureOcrLanguage: normalizeCaptureOcrLanguage(input.captureOcrLanguage),
+    captureAsrLanguage: normalizeCaptureAsrLanguage(input.captureAsrLanguage),
     pinnedNotes: uniqueStrings(input.pinnedNotes),
   };
 }
@@ -841,4 +1176,14 @@ function cleanString(value: unknown, fallback: string): string {
 function uniqueStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean))];
+}
+
+function normalizeCaptureOcrLanguage(value: unknown): string {
+  return typeof value === "string" ? normalizeOcrLanguageSet(value) ?? "" : "";
+}
+
+function normalizeCaptureAsrLanguage(value: unknown): OmdHomeSettings["captureAsrLanguage"] {
+  return value === "auto-detect" || value === "en" || value === "zh"
+    ? value
+    : "inherit-adapter-default";
 }

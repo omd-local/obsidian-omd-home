@@ -29,6 +29,27 @@ test("processing summary separates active work from completed history", () => {
   }]);
 });
 
+test("processing actions only offer Cancel while the active phase is cancellable", () => {
+  assert.match(
+    homeSource,
+    /const canCancel = this\.plugin\.captureCancelable \|\| this\.plugin\.enrichmentCancelable/u,
+  );
+  assert.match(homeSource, /if \(canCancel\) \{[\s\S]*text: "Cancel"/u);
+  assert.doesNotMatch(homeSource, /if \(activity\.active\) \{\s*const controls = body\.createDiv[\s\S]*text: "Cancel"/u);
+});
+
+test("a failed capture keeps a dedicated Retry after another issue replaces it", () => {
+  assert.match(homeSource, /const captureFailure = this\.plugin\.currentCaptureFailure\(\)/u);
+  assert.match(homeSource, /const captureFailureForIssue = this\.plugin\.captureFailureForCurrentIssue\(\)/u);
+  assert.match(homeSource, /this\.renderIndependentCaptureFailure\(body, captureFailure\)/u);
+  const lastIssueBody = extractMethodBody(homeSource, "private renderLastIssue");
+  assert.match(lastIssueBody, /captureFailureForCurrentIssue\(\)/u);
+  const independentBody = extractMethodBody(homeSource, "private renderIndependentCaptureFailure");
+  assert.match(independentBody, /formatIssueTime\(failure\.failedAt\)/u);
+  assert.match(independentBody, /text: failure\.detail/u);
+  assert.match(independentBody, /retryFailedCapture\(failure\.id\)/u);
+});
+
 test("capture activity falls back to the latest event state", () => {
   assert.equal(inferCaptureActive([
     { v: 1, ts: 0.1, event: "progress", percent: 50 },
@@ -81,7 +102,8 @@ test("Current task and Needs attention do not render the same terminal capture e
   assert.match(homeSource, /formatIssueTime/);
   assert.match(homeSource, /enrichmentCapability\.status === "unavailable"/);
   assert.match(homeSource, /if \(context === "inbox"\) return "Inbox update failed";/);
-  assert.match(homeSource, /if \(this\.plugin\.lastErrorContext === "capture"\)/);
+  assert.match(homeSource, /const failure = this\.plugin\.captureFailureForCurrentIssue\(\)/u);
+  assert.match(homeSource, /retryFailedCapture\(failure\.id\)/u);
   assert.match(homeSource, /if \(this\.plugin\.lastErrorContext === "inbox" && this\.plugin\.lastErrorSource\)/);
 });
 

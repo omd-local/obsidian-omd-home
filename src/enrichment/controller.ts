@@ -9,7 +9,10 @@ import type {
   OmdEnrichEvent,
   OmdEnrichRequest,
 } from "./contract.ts";
-import { isEnrichmentError, toUserFacingEnrichmentMessage } from "./errors.ts";
+import {
+  describeEnrichmentFailure,
+  isEnrichmentError,
+} from "./errors.ts";
 import { createObsidianApplyServices, desktopVaultRoot } from "./obsidian-adapter.ts";
 import { EnrichmentReviewModal, type EnrichmentApplyPayload } from "./review-modal.ts";
 import { emptyReviewState, type EnrichmentReviewState } from "./workflow.ts";
@@ -20,6 +23,7 @@ interface ActiveEnrichment {
   file: TFile;
   modal: EnrichmentReviewModal;
   state: EnrichmentReviewState;
+  abortController: AbortController;
   request?: OmdEnrichRequest;
   catalogById?: ReadonlyMap<string, EnrichmentCandidate>;
 }
@@ -33,9 +37,23 @@ export class EnrichmentWorkflowController {
     this.plugin = plugin;
   }
 
+  /**
+   * Cancellation is safe only before Apply starts writing to the vault.  Keep
+   * this signal separate from `enrichmentActive`: Apply remains active so the
+   * UI can report progress, but it must not advertise a destructive cancel.
+   */
+  get canCancel(): boolean {
+    const phase = this.active?.state.phase;
+    return phase === "capability" || phase === "catalog" || phase === "generating" || phase === "review";
+  }
+
   async start(file: TFile): Promise<void> {
     if (file.extension !== "md") {
       new Notice("Open a Markdown note first.");
+      return;
+    }
+    if (this.active?.state.phase === "applying") {
+      new Notice("Wait for the active OMD enrichment to finish applying before starting another.");
       return;
     }
     if (this.plugin.captureActive) {
@@ -44,10 +62,11 @@ export class EnrichmentWorkflowController {
     }
 
     this.cancel(false);
-    const model = this.plugin.settings.enrichmentModel;
+    const model = this.plugin.settings.localWritingModel;
     const endpoint = this.plugin.settings.ollamaHost;
     const token = ++this.nextToken;
     const state = emptyReviewState(file.path, model, endpoint);
+    const abortController = new AbortController();
     const active = {} as ActiveEnrichment;
     const modal = new EnrichmentReviewModal(this.plugin.app, state, {
       onCancel: () => {
@@ -62,7 +81,7 @@ export class EnrichmentWorkflowController {
         void this.plugin.app.workspace.openLinkText(path, file.path, false);
       },
     });
-    Object.assign(active, { token, file, modal, state });
+    Object.assign(active, { token, file, modal, state, abortController });
     this.active = active;
     this.plugin.clearEnrichmentIssue();
     this.setBusy(true);
@@ -70,7 +89,7 @@ export class EnrichmentWorkflowController {
 
     try {
       const executable = await this.plugin.requireReadyOmdExecutable();
-      await this.plugin.omdCapabilityService.requireEnrichNote(executable);
+      await this.plugin.omdCapabilityService.requireEnrichNote(executable, abortController.signal);
       if (!this.isCurrent(active)) return;
 
       const snapshot = createWorkflowSnapshot("enrichment", this.plugin.settings);
@@ -110,25 +129,21 @@ export class EnrichmentWorkflowController {
             catalogById: built.catalogById,
           };
         },
+        abortController.signal,
       );
       if (!this.isCurrent(active)) return;
 
       active.state = reviewState(request, response, catalogById);
       active.modal.setState(active.state);
       this.plugin.clearEnrichmentIssue();
-      this.setBusy(false);
+      // The model process is idle during review, but the review still owns the
+      // OMD workflow mutex until it is cancelled or Apply finishes.
+      this.plugin.refreshHomeViews();
     } catch (error) {
       if (!this.isCurrent(active)) return;
-      const cancelled = (isEnrichmentError(error) && error.code === "cancelled")
-        || (error instanceof Error && error.name === "AbortError");
-      const detail = toUserFacingEnrichmentMessage(error);
-      this.update(active, {
-        phase: cancelled ? "cancelled" : "error",
-        statusText: detail,
-        detailText: cancelled
-          ? "No proposal changes were written."
-          : "Check OMD, Ollama, the model, and the configured loopback endpoint, then try again.",
-      });
+      const failure = describeEnrichmentFailure(error, "generation");
+      const cancelled = failure.phase === "cancelled";
+      this.update(active, failure);
       this.active = null;
       this.setBusy(false);
       this.pushEvent({
@@ -136,11 +151,11 @@ export class EnrichmentWorkflowController {
         event: cancelled ? "cancelled" : "error",
         kind: cancelled ? "cancelled" : isEnrichmentError(error) ? error.code : "error",
         ts: Date.now() / 1000,
-        message: detail,
+        message: failure.statusText,
       });
       if (!cancelled) {
         this.plugin.reportEnrichmentIssue(error, file.path);
-        new Notice(detail);
+        new Notice(failure.statusText);
       }
     }
   }
@@ -151,10 +166,13 @@ export class EnrichmentWorkflowController {
       if (showIdleNotice) new Notice("OMD is idle");
       return false;
     }
+    if (!this.canCancel) {
+      if (showIdleNotice) new Notice("OMD is applying changes and cannot be cancelled.");
+      return false;
+    }
     this.active = null;
-    this.plugin.cancelLocalAiRequests();
+    active.abortController.abort();
     this.plugin.omdEnrichmentRunner.cancel();
-    this.plugin.omdCapabilityService.cancelActive(this.plugin.resolvedOmdExecutable());
     this.setBusy(false);
     this.pushEvent({
       v: 1,
@@ -173,6 +191,13 @@ export class EnrichmentWorkflowController {
 
   private async apply(active: ActiveEnrichment, payload: EnrichmentApplyPayload): Promise<void> {
     if (!this.isCurrent(active) || !active.request || !active.catalogById) return;
+    // Keep this check before the phase transition and before the first await.
+    // Capture claims its side of the mutex synchronously, so Apply can never
+    // begin writing across an already-active capture.
+    if (this.plugin.captureActive) {
+      new Notice("Wait for the active OMD capture to finish, or cancel it first.");
+      return;
+    }
     this.update(active, {
       phase: "applying",
       statusText: "Revalidating the note and selected candidates before writing.",
@@ -215,8 +240,8 @@ export class EnrichmentWorkflowController {
       new Notice(statusText);
     } catch (error) {
       if (!this.isCurrent(active)) return;
-      const detail = toUserFacingEnrichmentMessage(error);
-      this.update(active, { phase: "error", statusText: detail });
+      const failure = describeEnrichmentFailure(error, "apply");
+      this.update(active, failure);
       this.active = null;
       this.setBusy(false);
       this.pushEvent({
@@ -224,10 +249,12 @@ export class EnrichmentWorkflowController {
         event: "error",
         kind: isEnrichmentError(error) ? error.code : "error",
         ts: Date.now() / 1000,
-        message: detail,
+        message: failure.statusText,
       });
-      this.plugin.reportEnrichmentIssue(detail, active.file.path);
-      new Notice(detail);
+      if (failure.phase !== "cancelled") {
+        this.plugin.reportEnrichmentIssue(error, active.file.path);
+        new Notice(failure.statusText);
+      }
     }
   }
 
