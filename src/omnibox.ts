@@ -25,6 +25,12 @@ interface OmniboxRow {
   file?: TFile;
 }
 
+interface OmniboxResultRequest {
+  generation: number;
+  controller: AbortController | null;
+  output: HTMLElement;
+}
+
 export class Omnibox {
   private readonly app: App;
   private readonly plugin: OmdHomePlugin;
@@ -35,6 +41,10 @@ export class Omnibox {
   private results!: HTMLElement;
   private actionBar!: HTMLElement;
   private previewTimer: number | null = null;
+  private resultGeneration = 0;
+  private resultController: AbortController | null = null;
+  private resultOutput: HTMLElement | null = null;
+  private disposed = false;
 
   constructor(app: App, plugin: OmdHomePlugin, onResultVisibilityChange?: (visible: boolean) => void) {
     this.app = app;
@@ -84,8 +94,8 @@ export class Omnibox {
     });
     setIcon(dismiss, "x");
     dismiss.addEventListener("click", () => {
+      this.clearResultShell();
       this.input.value = "";
-      this.setResultsVisible(false);
       this.input.focus();
     });
     this.results = this.resultPanel.createDiv({ cls: "omd-omnibox-results" });
@@ -98,14 +108,24 @@ export class Omnibox {
     });
     this.input.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
+        this.clearResultShell();
         this.input.value = "";
-        this.setResultsVisible(false);
       }
     });
     this.bindDropTarget(this.root);
   }
 
   focus(): void { this.input?.focus(); }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.previewTimer !== null) {
+      window.clearTimeout(this.previewTimer);
+      this.previewTimer = null;
+    }
+    this.cancelPendingResult();
+  }
 
   private usePrefix(prefix: string): void {
     this.input.value = prefix;
@@ -128,6 +148,7 @@ export class Omnibox {
 
   private schedulePreview(): void {
     if (this.previewTimer !== null) window.clearTimeout(this.previewTimer);
+    this.clearResultShell();
     this.previewTimer = window.setTimeout(() => {
       this.previewTimer = null;
       void this.preview();
@@ -166,9 +187,16 @@ export class Omnibox {
     }
     const query = this.input.value.trim();
     if (!query) return;
+    this.beginSubmission();
     if (query.startsWith("@")) {
+      const request = this.beginResult(true, "omd-omnibox-answer-surface");
+      if (!request) return;
       this.setResultsVisible(true);
-      await this.plugin.askOmd(query.slice(1).trim(), this.results);
+      try {
+        await this.plugin.askOmd(query.slice(1).trim(), request.output, request.controller?.signal);
+      } finally {
+        this.finishResult(request);
+      }
       return;
     }
     if (query.startsWith("+")) {
@@ -189,12 +217,54 @@ export class Omnibox {
     }
     const first = this.searchVault(query)[0];
     if (first) {
-      this.setResultsVisible(false);
       await this.app.workspace.openLinkText(first.path, "", false);
     } else {
+      const request = this.beginResult(true, "omd-omnibox-search-surface");
+      if (!request) return;
       this.setResultsVisible(true);
-      await this.plugin.searchWithOmd(query, this.results);
+      try {
+        await this.plugin.searchWithOmd(query, request.output, request.controller?.signal);
+      } finally {
+        this.finishResult(request);
+      }
     }
+  }
+
+  private beginSubmission(): void {
+    this.clearResultShell();
+  }
+
+  private beginResult(abortable: boolean, className: string): OmniboxResultRequest | null {
+    if (this.disposed) return null;
+    const controller = abortable ? new AbortController() : null;
+    this.resultController = controller;
+    const output = this.results.createDiv({ cls: className });
+    this.resultOutput = output;
+    return {
+      generation: this.resultGeneration,
+      controller,
+      output,
+    };
+  }
+
+  private finishResult(request: OmniboxResultRequest): void {
+    if (request.generation !== this.resultGeneration || request.output !== this.resultOutput) return;
+    this.resultController = null;
+    this.resultOutput = null;
+  }
+
+  private cancelPendingResult(): void {
+    this.resultGeneration += 1;
+    this.resultController?.abort();
+    this.resultController = null;
+    this.resultOutput?.remove();
+    this.resultOutput = null;
+  }
+
+  private clearResultShell(): void {
+    this.cancelPendingResult();
+    this.results?.empty();
+    this.setResultsVisible(false);
   }
 
   private searchVault(query: string): TFile[] {

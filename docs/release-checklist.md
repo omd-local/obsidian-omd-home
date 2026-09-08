@@ -41,7 +41,7 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] First-use hybrid indexing has a longer bounded timeout, remains cancellable, and namespaces cached vectors by the installed Ollama model digest when available.
 - [ ] D01 (`这些阳台番茄笔记给新手哪些建议？`) recalls both benchmark fixture notes with `bge-m3`, excludes distractors, and fails closed in the sparse-only control.
 - [ ] Optional semantic reranking uses the selected loopback embedding model, stays off by default, and cannot hide a fallback or change an evidence-grounded abstention into an unsupported answer.
-- [ ] Blank Python and bridge overrides resolve OMD's embedded interpreter and the bridge bundled in `main.js`.
+- [ ] Blank Python and bridge overrides resolve OMD's embedded interpreter and the bridge bundled in `main.js`; on Windows, environment-local Python discovery stops immediately on cancellation and missing Python guidance points to the advanced override.
 - [ ] A blank EventKit helper override resolves only an executable regular file beside OMD Home; missing helpers and Calendar permission failures remain actionable.
 - [ ] Local Ollama mode rejects any host outside `http://localhost:11434` and `http://127.0.0.1:11434`. Hosted answer providers never inherit an arbitrary loopback override.
 - [ ] Ollama Cloud and hosted APIs can validate model availability, and real hosted Vault Q&A only proceeds after per-request preview approval; cancel sends nothing, no fallback occurs, and no full vault leaves the device.
@@ -49,6 +49,8 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] Credential hydration settles without an automatic request/render loop, including missing-key and failed-check states; provider switches and aborted older work cannot overwrite a newer provider's state or task.
 - [ ] Hosted consent shows the exact selected bounded evidence excerpts and binds approval to that question/provider/model/evidence; Cancel, Escape, provider changes, and unload while awaiting approval send nothing and cannot reuse stale consent.
 - [ ] Hosted developer credentials never appear in plugin settings, notes, copied release assets, logs, or error details.
+- [ ] AI setup actions are serialized across local and hosted providers; a late, cancelled, or provider-stale setup result cannot overwrite the current provider state.
+- [ ] Omnibox results obey latest-submission-wins across local answers, hosted consent, ordinary OMD search, capture, quick-note, and command submissions; obsolete work cannot restore a hidden result panel or leave a stale Needs attention error.
 - [ ] macOS Calendar lists only explicitly selected calendars; Google and Outlook are accessed only through accounts already added to Apple Calendar.
 - [ ] Vault, Calendar, and Linked filters update events without resetting the current Calendar date/view, and at least one source stays enabled.
 - [ ] Event Start/End use local native controls; timed-to-all-day conversion preserves a valid exclusive End date.
@@ -67,6 +69,7 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] Public docs prefer `--ocr-lang`/`--ocr-language`, identify top-level `--lang` as legacy OCR and adapter-local reel `--lang` as deprecated ASR, and do not claim automatic OCR-language detection ships.
 - [ ] Commands discovers enabled core/community commands; recording uses an exact toggle or explicit Start/Stop actions without guessing state.
 - [ ] English and Chinese/Unicode notes, long paths, and exact evidence remain readable without leaking unnecessary absolute paths.
+- [ ] A question that cannot fit the model context is rejected before retrieval with guidance to shorten the question; accepted questions remain exact while only selected evidence may be shortened.
 - [ ] Backgrounding or closing only the Home tab does not cancel a running capture; disabling/reloading the plugin and quitting Obsidian cancel plugin-owned child work and leave no orphan process.
 
 ## Review-first enrichment
@@ -85,7 +88,8 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] The public GitHub release contains exactly `main.js`, `manifest.json`, and `styles.css` as plugin assets.
 - [ ] A clean vault installs and loads those exact assets without a sibling source checkout.
 - [ ] Installing/reinstalling does not overwrite the vault's plugin `data.json`.
-- [ ] README, license, third-party notices, security policy, privacy boundaries, desktop-only scope, explicit provider choices, provider-scoped cloud opt-ins, local-only writing gates, and optional local prerequisites are current.
+- [ ] README, source-available license disclosure, third-party notices, security policy, privacy boundaries, desktop-only scope, explicit provider choices, provider-scoped cloud opt-ins, local-only writing gates, and optional local prerequisites are current.
+- [ ] The production `main.js` banner contains the PolyForm Shield URL, exact Required Notice, and every bundled third-party runtime notice.
 - [ ] README and release notes do not promise auto-install, auto-pull, alternate ports, automatic hosted failover, silent evidence egress, or automatic provider switching.
 - [ ] The locally verified asset hashes match the published release assets.
 - [ ] The Community Plugins submission/reviewer feedback is complete before claiming Marketplace availability.

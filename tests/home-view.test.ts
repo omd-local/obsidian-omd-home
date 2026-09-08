@@ -92,8 +92,14 @@ test("failed enrichment ends Current task and moves the actionable error to Need
 
 test("backgrounding or closing the Home view does not cancel plugin-owned capture work", () => {
   const onClose = extractMethodBody(homeSource, "async onClose()");
-  assert.doesNotMatch(onClose, /cancelActive|cancelActiveOmd|dispose\(/);
+  assert.doesNotMatch(onClose, /cancelActive|cancelActiveOmd|this\.plugin\.[\s\S]*dispose\(/u);
   assert.match(mainSource, /onunload\(\): void[\s\S]*this\.omdBridge\?\.dispose|this\.omdBridge\?\.dispose/);
+});
+
+test("closing Home disposes only its Omnibox-owned requests", () => {
+  const onClose = extractMethodBody(homeSource, "async onClose()");
+  assert.match(onClose, /this\.omnibox\?\.dispose\(\)/u);
+  assert.doesNotMatch(onClose, /cancelActive|cancelActiveOmd/u);
 });
 
 test("Current task and Needs attention do not render the same terminal capture error", () => {
@@ -110,6 +116,7 @@ test("Current task and Needs attention do not render the same terminal capture e
 test("Home exposes unchecked Local AI recovery without duplicating owned AI failures", () => {
   assert.match(homeSource, /statusLine\(body, "Local AI", this\.plugin\.localAiState\.daemonCode\)/u);
   assert.match(homeSource, /text: "Check setup"|\? "Checking…" : "Check setup"/u);
+  assert.match(homeSource, /this\.plugin\.aiSetupBusy\(\)/u);
   assert.match(homeSource, /const localAiOwnsLastError = localAiNeedsAttention && this\.plugin\.lastErrorContext === "ai"/u);
   assert.match(homeSource, /if \(this\.plugin\.lastError && !localAiOwnsLastError\) this\.renderLastIssue\(body\)/u);
   assert.match(homeSource, /formatIssueTime\(this\.plugin\.localAiState\.catalogCheckedAt\)/u);
@@ -117,6 +124,12 @@ test("Home exposes unchecked Local AI recovery without duplicating owned AI fail
   assert.match(homeSource, /canOpenOllamaDesktopApp\(\)/u);
   assert.match(homeSource, /text: "Open Ollama"/u);
   assert.match(homeSource, /this\.plugin\.openOllamaApp\(\)/u);
+});
+
+test("hosted AI attention stays disabled while a credential child is still draining", () => {
+  const hostedAttention = extractMethodBody(homeSource, "private renderHostedAiAttention");
+  assert.match(hostedAttention, /const aiSetupBusy = this\.plugin\.aiSetupBusy\(\)/u);
+  assert.match(hostedAttention, /check\.disabled = aiSetupBusy/u);
 });
 
 test("maintenance actions are available through Obsidian commands", () => {

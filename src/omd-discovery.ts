@@ -41,12 +41,16 @@ export function isAutomaticOmdExecutable(value: string): boolean {
 export function omdExecutableCandidates(
   configuredExecutable: string,
   environment: OmdDiscoveryEnvironment,
+  preferredExecutable = "",
 ): string[] {
   const configured = configuredExecutable.trim();
   if (!isAutomaticOmdExecutable(configured)) return [configured];
 
   const executableName = environment.platform === "win32" ? "omd.exe" : "omd";
-  const candidates = environment.platform === "win32" ? ["omd", "omd.exe"] : ["omd"];
+  const pathApi = environment.platform === "win32" ? win32 : posix;
+  const preferred = preferredExecutable.trim();
+  const candidates = preferred && pathApi.isAbsolute(preferred) ? [preferred] : [];
+  candidates.push(...(environment.platform === "win32" ? ["omd", "omd.exe"] : ["omd"]));
   const environmentPrefixes = [environment.condaPrefix, environment.virtualEnvironment];
   for (const prefix of environmentPrefixes) {
     if (prefix?.trim()) candidates.push(executableInPrefix(prefix, executableName, environment.platform));
@@ -92,8 +96,9 @@ export async function discoverOmdExecutable(
   environment: OmdDiscoveryEnvironment,
   probe: OmdCapabilityProbe,
   resolveExecutable: OmdExecutableResolver = async (candidate) => candidate,
+  preferredExecutable = "",
 ): Promise<OmdDiscoveryResult> {
-  const candidates = omdExecutableCandidates(configuredExecutable, environment);
+  const candidates = omdExecutableCandidates(configuredExecutable, environment, preferredExecutable);
   const candidatesTried: string[] = [];
   let preferredError: unknown;
 

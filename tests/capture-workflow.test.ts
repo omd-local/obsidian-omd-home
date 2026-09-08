@@ -121,7 +121,7 @@ test("retry survives unrelated issue replacement and only clears the issue owned
   assert.match(retryBody, /this\.openCaptureModal\(failure\.request, failure\.id\)/u);
   assert.match(currentBody, /return this\.lastCaptureFailure/u);
   assert.match(matchingBody, /captureFailureForIssue\(this\.lastCaptureFailure, this\.lastIssueId\)/u);
-  assert.match(captureBody, /if \(retryFailure\) this\.resetEnrichmentCapability\(\);/u);
+  assert.match(captureBody, /if \(retryFailure\) this\.resetEnrichmentCapability\(true\);/u);
   assert.match(captureBody, /this\.clearIssueById\(retryFailure\.issueId\)/u);
   assert.match(captureBody, /this\.lastCaptureFailure\?\.id === retryFailure\.id/u);
 });

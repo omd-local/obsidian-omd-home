@@ -93,13 +93,13 @@ test("capture always uses the shared gate seam and binds the invocation polish f
 test("Vault Q&A requires provider-scoped cloud opt-in and a per-request consent preview", () => {
   assert.match(mainSource, /cloudAnswerPermissionEnabled\(this\.settings\)/u);
   assert.match(mainSource, /Enable Allow \$\{aiProviderLabel\(provider\)\} answers in Settings [→-] OMD Home [→-] AI answers/u);
-  assert.match(mainSource, /const preview = await this\.previewCloudAnswer\(query, provider, model\);/u);
+  assert.match(mainSource, /const preview = await this\.previewCloudAnswer\(query, provider, model, requestSignal\);/u);
   assert.match(mainSource, /new CloudAnswerConsentModal\(this\.app/u);
   assert.match(mainSource, /question:\s*query/u);
   assert.match(mainSource, /evidence:\s*preview\.preview\.evidence/u);
   assert.match(mainSource, /Cloud answer cancelled\. No vault evidence was sent\./u);
   assert.match(mainSource, /this\.assertCloudPreviewStillCurrent\(preview\);/u);
-  assert.match(mainSource, /answer = await this\.executeCloudAnswer\(query, preview\);/u);
+  assert.match(mainSource, /answer = await this\.executeCloudAnswer\(query, preview, requestSignal\);/u);
 });
 
 test("cloud answers stay pinned to the selected provider and never fall back across providers", () => {
@@ -112,10 +112,17 @@ test("cloud answers stay pinned to the selected provider and never fall back acr
 test("hybrid retrieval falls back to sparse search when local embedding safety cannot be verified", () => {
   assert.match(mainSource, /const status = await this\.ollamaLocalClient\.status\(host, signal\)/u);
   assert.match(mainSource, /const models = await this\.ollamaLocalClient\.tags\(host, signal\)/u);
-  assert.match(mainSource, /const inspected = buildModelEntry\(await this\.safeShowModel\(host, embeddingModel, signal\)\)/u);
-  assert.match(mainSource, /if \(modelHasRemoteMetadata\(inspected\)\)/u);
+  assert.match(mainSource, /const inspected = mergeInspectedModelEntry\([\s\S]+buildModelEntry\(await this\.safeShowModel\(host, embeddingModel, signal\)\)[\s\S]+embeddingModel/u);
+  assert.match(mainSource, /if \(modelIsCloudBacked\(inspected\)\)/u);
   assert.match(mainSource, /if \(!modelSupportsEmbedding\(inspected\)\)/u);
   assert.match(mainSource, /hybridRetrievalEnabled:\s*false/u);
   assert.match(mainSource, /semanticRerankEnabled:\s*false/u);
   assert.match(mainSource, /warning:\s*"hybrid_retrieval_local_safety_fallback"/u);
+});
+
+test("local smoke and embedding gates reject explicit cloud ids even without remote metadata", () => {
+  assert.match(mainSource, /modelIsCloudBacked\(\{\s*name: gatedSnapshot\.model,\s*remoteModel: smoke\.remoteModel,\s*remoteHost: smoke\.remoteHost/u);
+  assert.match(mainSource, /const selectedEntry = mergeInspectedModelEntry\(mergedModels\.get\(model\), buildModelEntry\(selected\), model\);/u);
+  assert.match(mainSource, /if \(modelIsCloudBacked\(selectedEntry\)\)/u);
+  assert.match(mainSource, /const modelEntry = mergeInspectedModelEntry\([\s\S]+snapshot\.model,[\s\S]+const modelCode = deriveLocalAiModelCode\(modelEntry\)/u);
 });

@@ -49,6 +49,8 @@ export class OmdHomeView extends ItemView {
 
   async onClose(): Promise<void> {
     if (this.renderTimer !== null) window.clearTimeout(this.renderTimer);
+    this.omnibox?.dispose();
+    this.omnibox = undefined;
   }
 
   private scheduleRender(): void {
@@ -335,13 +337,14 @@ export class OmdHomeView extends ItemView {
         statusLine(body, workflow.label, workflow.code);
       }
       if (this.plugin.localAiState.daemonCode === "unchecked") {
+        const aiSetupBusy = this.plugin.aiSetupBusy();
         const controls = body.createDiv({ cls: "omd-process-actions" });
         const check = controls.createEl("button", {
           cls: "omd-inline-action",
           type: "button",
-          text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check setup",
+          text: aiSetupBusy ? "Checking…" : "Check setup",
         });
-        check.disabled = Boolean(this.plugin.localAiState.activeAction);
+        check.disabled = aiSetupBusy;
         check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
       }
     }
@@ -652,9 +655,9 @@ export class OmdHomeView extends ItemView {
     const check = controls.createEl("button", {
       cls: "omd-inline-action",
       type: "button",
-      text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check setup",
+      text: this.plugin.aiSetupBusy() ? "Checking…" : "Check setup",
     });
-    check.disabled = Boolean(this.plugin.localAiState.activeAction);
+    check.disabled = this.plugin.aiSetupBusy();
     check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
   }
 
@@ -672,11 +675,14 @@ export class OmdHomeView extends ItemView {
       text: `${aiProviderLabel(state.provider)}: ${state.detail}`,
     });
     const controls = item.createDiv({ cls: "omd-process-actions" });
+    const activeAction = this.plugin.localAiState.activeAction || state.activeAction;
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     const check = controls.createEl("button", {
       cls: "omd-inline-action",
       type: "button",
-      text: "Check setup",
+      text: activeAction ? "Checking…" : "Check setup",
     });
+    check.disabled = aiSetupBusy;
     check.addEventListener("click", () => void this.plugin.checkHostedAiConnection());
   }
 }

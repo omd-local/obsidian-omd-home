@@ -125,6 +125,34 @@ export function pythonBridgeStdin(
   return `${JSON.stringify({ source: embeddedSource })}\n${JSON.stringify(payload)}`;
 }
 
+export function windowsPythonCandidatesForOmd(omdExecutable: string): string[] {
+  const executable = omdExecutable.trim().replaceAll("/", "\\");
+  if (!path.win32.isAbsolute(executable)) return [];
+  const scriptsDirectory = path.win32.dirname(executable);
+  const candidates = [
+    path.win32.join(scriptsDirectory, "python.exe"),
+    path.win32.join(scriptsDirectory, "python3.exe"),
+  ];
+  if (path.win32.basename(scriptsDirectory).toLowerCase() === "scripts") {
+    const environmentRoot = path.win32.dirname(scriptsDirectory);
+    candidates.push(
+      path.win32.join(environmentRoot, "python.exe"),
+      path.win32.join(environmentRoot, "python3.exe"),
+    );
+  }
+  return [...new Set(candidates)];
+}
+
+export async function firstVerifiedWindowsPython(
+  omdExecutable: string,
+  verify: (candidate: string) => Promise<boolean>,
+): Promise<string | null> {
+  for (const candidate of windowsPythonCandidatesForOmd(omdExecutable)) {
+    if (await verify(candidate)) return candidate;
+  }
+  return null;
+}
+
 export class OmdBridge {
   private readonly omdExecutable: () => string;
   private readonly pythonExecutable: () => string;
@@ -179,13 +207,20 @@ export class OmdBridge {
     return await resolveOmdCaptureOutput(done?.output ?? null, request.source, vaultPath, captureStartedAt);
   }
 
-  async search(vaultPath: string, query: string): Promise<OmdSearchHit[]> {
-    const response = await this.callPythonBridge({ action: "search", vault: vaultPath, query, limit: 10 });
+  async search(vaultPath: string, query: string, signal?: AbortSignal): Promise<OmdSearchHit[]> {
+    const response = await this.callPythonBridge({ action: "search", vault: vaultPath, query, limit: 10 }, { signal });
     return Array.isArray(response.hits) ? response.hits as OmdSearchHit[] : [];
   }
 
-  async storeHostedApiKey(provider: HostedAiCredentialState["provider"], apiKey: string): Promise<HostedAiCredentialState> {
-    const response = await this.callPythonBridge({ action: "store_hosted_api_key", provider, api_key: apiKey });
+  async storeHostedApiKey(
+    provider: HostedAiCredentialState["provider"],
+    apiKey: string,
+    signal?: AbortSignal,
+  ): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge(
+      { action: "store_hosted_api_key", provider, api_key: apiKey },
+      { signal },
+    );
     const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
     if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
     return credential;
@@ -201,8 +236,11 @@ export class OmdBridge {
     return credential;
   }
 
-  async deleteHostedApiKey(provider: HostedAiCredentialState["provider"]): Promise<HostedAiCredentialState> {
-    const response = await this.callPythonBridge({ action: "delete_hosted_api_key", provider });
+  async deleteHostedApiKey(
+    provider: HostedAiCredentialState["provider"],
+    signal?: AbortSignal,
+  ): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge({ action: "delete_hosted_api_key", provider }, { signal });
     const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
     if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
     return credential;
@@ -340,6 +378,26 @@ export class OmdBridge {
         maxStderrChars: 16_000,
       })).stdout.trim().split(/\r?\n/u).find(Boolean) ?? "";
     if (!executable) throw new Error("Could not find the detected OMD executable");
+    if (process.platform === "win32") {
+      const interpreter = await firstVerifiedWindowsPython(executable, async (candidate) => {
+        try {
+          const result = await this.spawnManagedProcess(candidate, ["--version"], {
+            signal,
+            timeoutMs: WHICH_TIMEOUT_MS,
+            maxStdoutChars: 16_000,
+            maxStderrChars: 16_000,
+          });
+          return result.code === 0 && /\bPython\s+\d+(?:\.\d+)+/u.test(`${result.stdout}\n${result.stderr}`);
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") throw error;
+          return false;
+        }
+      });
+      if (!interpreter) {
+        throw new Error("Could not find Python beside the detected OMD launcher. Open Advanced OMD paths to choose the environment's python.exe.");
+      }
+      return interpreter;
+    }
     const runtimeWindow = window as Window & { require?: (id: string) => typeof import("node:fs") };
     if (!runtimeWindow.require) throw new Error("Desktop file APIs are unavailable");
     const firstLine = runtimeWindow.require("node:fs").readFileSync(executable, "utf8").slice(0, 256);
@@ -734,6 +792,9 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   if (tokens.includes("ollama returned an invalid response")) {
     return "Ollama returned an invalid response. Try again after the local service is ready.";
   }
+  if (tokens.includes("the question is too long for the ai context budget")) {
+    return "The question is too long for the AI context budget. Shorten it and try again.";
+  }
   if (tokens.includes("context budget") || tokens.includes("context_limit_exceeded")) {
     return "The retrieved vault evidence exceeded the local model context budget. OMD Home reduced the evidence selection; try again or ask a narrower question.";
   }
@@ -774,6 +835,9 @@ function bridgeProcessErrorMessage(error: unknown): string {
   }
   if (tokens.includes("could not determine omd's python interpreter")) {
     return "OMD Home could not determine OMD's Python interpreter. Open Advanced OMD paths to choose it.";
+  }
+  if (tokens.includes("could not find python beside the detected omd launcher")) {
+    return "Could not find Python beside the detected OMD launcher. Open Advanced OMD paths to choose the environment's python.exe.";
   }
   if (tokens.includes("timed out")) return "OMD Home bridge timed out. Try again.";
   if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {

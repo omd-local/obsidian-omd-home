@@ -18,12 +18,14 @@ import {
   bridgeProcessFailureMessage,
   bridgeTimeoutMs,
   captureErrorMessage,
+  firstVerifiedWindowsPython,
   OmdBridge,
   parseBridgeResponse,
   pythonBridgeArgs,
   pythonBridgeStdin,
   resolveOmdCaptureOutput,
   spawnProcess,
+  windowsPythonCandidatesForOmd,
 } from "../src/omd-bridge.ts";
 import { createCaptureRequest } from "../src/capture-request.ts";
 
@@ -48,6 +50,70 @@ test("bundled bridge stdin carries source separately from the request payload", 
     pythonBridgeStdin("/custom/bridge.py", "ignored", { action: "search" }),
     JSON.stringify({ action: "search" }),
   );
+});
+
+test("Windows bridge discovery verifies Python from the detected OMD environment", async () => {
+  const omd = "C:\\Users\\example\\omd-env\\Scripts\\omd.exe";
+  const candidates = windowsPythonCandidatesForOmd(omd);
+  assert.deepEqual(candidates, [
+    "C:\\Users\\example\\omd-env\\Scripts\\python.exe",
+    "C:\\Users\\example\\omd-env\\Scripts\\python3.exe",
+    "C:\\Users\\example\\omd-env\\python.exe",
+    "C:\\Users\\example\\omd-env\\python3.exe",
+  ]);
+  const attempted: string[] = [];
+  const selected = await firstVerifiedWindowsPython(omd, async (candidate) => {
+    attempted.push(candidate);
+    return candidate === "C:\\Users\\example\\omd-env\\python.exe";
+  });
+  assert.equal(selected, "C:\\Users\\example\\omd-env\\python.exe");
+  assert.deepEqual(attempted, candidates.slice(0, 3));
+  assert.deepEqual(windowsPythonCandidatesForOmd("omd.exe"), []);
+});
+
+test("Windows bridge discovery stops candidate probing when cancelled", async () => {
+  const omd = "C:\\Users\\example\\omd-env\\Scripts\\omd.exe";
+  const candidates = windowsPythonCandidatesForOmd(omd);
+  const calls: Array<{ command: string; args: string[] }> = [];
+  await withNodeRequire(async () => {
+    await withPlatform("win32", async () => {
+      const bridge = new OmdBridge(() => omd, () => "", () => "", () => "print('embedded')");
+      const managedBridge = bridge as unknown as {
+        spawnManagedProcess: (command: string, args: string[]) => Promise<{ stdout: string; stderr: string; code: number }>;
+      };
+      managedBridge.spawnManagedProcess = async (command, args) => {
+        calls.push({ command, args });
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        throw error;
+      };
+
+      await assert.rejects(
+        bridge.search("C:\\vault", "calendar"),
+        (error: unknown) => error instanceof Error && error.name === "AbortError",
+      );
+    });
+  });
+
+  assert.deepEqual(calls, [{ command: candidates[0], args: ["--version"] }]);
+});
+
+test("Windows Python discovery keeps the Advanced OMD path guidance", async () => {
+  const omd = "C:\\Users\\example\\omd-env\\Scripts\\omd.exe";
+  await withNodeRequire(async () => {
+    await withPlatform("win32", async () => {
+      const bridge = new OmdBridge(() => omd, () => "", () => "", () => "print('embedded')");
+      const managedBridge = bridge as unknown as {
+        spawnManagedProcess: () => Promise<{ stdout: string; stderr: string; code: number }>;
+      };
+      managedBridge.spawnManagedProcess = async () => ({ stdout: "", stderr: "", code: 1 });
+
+      await assert.rejects(
+        bridge.search("C:\\vault", "calendar"),
+        /Could not find Python beside the detected OMD launcher\. Open Advanced OMD paths to choose the environment's python\.exe\./u,
+      );
+    });
+  });
 });
 
 test("hybrid Vault Q&A gets a longer bounded bridge timeout", () => {
@@ -348,6 +414,13 @@ test("sanitizes structured bridge errors before surfacing them", () => {
       "fallback",
     ),
     "Ollama rejected the request. Check the selected local model and try again.",
+  );
+  assert.equal(
+    bridgeErrorMessage(
+      { message: "The question is too long for the AI context budget. Shorten it and try again.", type: "ValueError" },
+      "fallback",
+    ),
+    "The question is too long for the AI context budget. Shorten it and try again.",
   );
   assert.equal(
     bridgeErrorMessage(
@@ -1330,6 +1403,21 @@ test("bundled bridge includes Ollama Cloud consent and preflight checks", () => 
   assert.doesNotMatch(source, /cloud Vault Q&A is not enabled in this build/u);
 });
 
+test("bridge recognizes delimiter-separated Ollama Cloud model ids without remote metadata", () => {
+  const code = [
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "print(json.dumps({",
+    "    'cloud': bridge._is_cloud_backed_model('gpt-oss:120b-cloud', {}),",
+    "    'local': bridge._is_cloud_backed_model('qwen3:4b-instruct', {}),",
+    "    'remote': bridge._is_cloud_backed_model('qwen3:4b-instruct', {'remote_model': 'qwen3:cloud'}),",
+    "}))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { cloud: true, local: false, remote: true });
+});
+
 test("vault answer evidence is bounded before OMD applies its local context limit", () => {
   const code = [
     "from dataclasses import dataclass",
@@ -1353,6 +1441,102 @@ test("vault answer evidence is bounded before OMD applies its local context limi
   assert.ok(value.tokens <= value.limit);
 });
 
+test("vault answer rejects a question that cannot fit before retrieval starts", () => {
+  const code = [
+    "import bridge.omd_home_bridge as bridge",
+    "bridge.build_answer_context = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('retrieval must not run'))",
+    "request = {'vault': '/unused', 'query': '问' * 2300, 'limit': 8}",
+    "try:",
+    "    bridge._answer_material(request)",
+    "except ValueError as exc:",
+    "    print(str(exc))",
+    "else:",
+    "    raise AssertionError('over-limit question was accepted')",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    result.stdout.trim(),
+    "The question is too long for the AI context budget. Shorten it and try again.",
+  );
+});
+
+test("vault answer preserves an accepted long CJK question with zero or bounded evidence", () => {
+  const code = [
+    "from types import SimpleNamespace",
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "query = '问' * 2240 + '结束'",
+    "hit = bridge.SearchHit(path='first.md', title='First', score=9.0, evidence='EVIDENCE ' * 3000 + 'OMITTED-TAIL')",
+    "block = SimpleNamespace(path='first.md', title='First', heading='Details', kind='detail', score=9.0, text='EVIDENCE ' * 3000 + 'OMITTED-TAIL')",
+    "results = {}",
+    "for name, hits in (('zero_hit', []), ('hit', [hit])):",
+    "    selected, source = bridge._bounded_hit_context(query, hits)",
+    "    question = source.split('TRUSTED USER QUESTION\\n', 1)[1].split('\\n\\nUNTRUSTED VAULT EVIDENCE\\n', 1)[0]",
+    "    results[name] = {'question': question, 'source': source, 'tokens': bridge._task_input_tokens(source), 'selected': [bridge._hit_dict(item) for item in selected]}",
+    "selected_blocks, block_source = bridge._bounded_block_context(query, [block])",
+    "block_question = block_source.split('TRUSTED USER QUESTION\\n', 1)[1].split('\\n\\nSOURCE CATALOG\\n', 1)[0]",
+    "results['block_hit'] = {'question': block_question, 'source': block_source, 'tokens': bridge._task_input_tokens(block_source), 'selected': []}",
+    "print(json.dumps({'query': query, 'results': results}, ensure_ascii=False))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as {
+    query: string;
+    results: Record<string, {
+      question: string;
+      source: string;
+      tokens: number;
+      selected: Array<{ evidence: string }>;
+    }>;
+  };
+  for (const scenario of Object.values(value.results)) {
+    assert.equal(scenario.question, value.query);
+    assert.ok(scenario.tokens <= 2_600);
+  }
+  assert.deepEqual(value.results.zero_hit.selected, []);
+  assert.doesNotMatch(value.results.hit.source, /OMITTED-TAIL/u);
+  assert.match(value.results.hit.source, /Evidence shortened to fit the local model context/u);
+  assert.doesNotMatch(JSON.stringify(value.results.hit.selected), /OMITTED-TAIL/u);
+  assert.doesNotMatch(value.results.block_hit.source, /OMITTED-TAIL/u);
+  assert.ok(
+    /Evidence shortened to fit the local model context/u.test(value.results.block_hit.source)
+      || /SOURCE CATALOG\n\(none\)\n\nUNTRUSTED EVIDENCE BLOCKS\n\(none\)/u.test(value.results.block_hit.source),
+  );
+});
+
+test("empty block consent evidence never sends source catalog metadata", () => {
+  const code = [
+    "from types import SimpleNamespace",
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "block = SimpleNamespace(path='private/vault-note.md', title='Private title', heading='Private heading', kind='detail', score=9.0, text='PRIVATE CONTENT')",
+    "answer = SimpleNamespace(blocks=[block], hits=[], warnings=(), retrieval_mode='sparse')",
+    "query = next(",
+    "    ('问' * size for size in range(2_400, 0, -1)",
+    "     if bridge._task_input_tokens(bridge._block_context('问' * size, [])) <= bridge.AI_INPUT_TOKEN_LIMIT",
+    "     and bridge._task_input_tokens(bridge._block_context_prefix('问' * size) + '[S1] private/vault-note.md\\n\\nUNTRUSTED EVIDENCE BLOCKS\\n' + bridge.EVIDENCE_SHORTENED_NOTICE) > bridge.AI_INPUT_TOKEN_LIMIT),",
+    "    None,",
+    ")",
+    "assert query is not None",
+    "bridge.build_answer_context = lambda *args, **kwargs: answer",
+    "evidence, source, *_ = bridge._answer_material({'vault': '/unused', 'query': query, 'limit': 8})",
+    "question = source.split('TRUSTED USER QUESTION\\n', 1)[1].split('\\n\\nSOURCE CATALOG\\n', 1)[0]",
+    "print(json.dumps({'query': query, 'question': question, 'evidence': [bridge._hit_dict(hit) for hit in evidence], 'source': source}, ensure_ascii=False))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as {
+    query: string;
+    question: string;
+    evidence: unknown[];
+    source: string;
+  };
+  assert.equal(value.question, value.query);
+  assert.deepEqual(value.evidence, []);
+  assert.doesNotMatch(value.source, /private\/vault-note\.md|Private title|Private heading|PRIVATE CONTENT|\[S1\]/u);
+});
+
 test("consent evidence excludes truncated block and fallback hit text from the actual outgoing source", () => {
   const code = [
     "from types import SimpleNamespace",
@@ -1369,7 +1553,7 @@ test("consent evidence excludes truncated block and fallback hit text from the a
     "for mode in ('block', 'fallback'):",
     "    bridge.build_answer_context = (lambda *args, **kwargs: answer) if mode == 'block' else None",
     "    bridge._hits = lambda request: [hit, omitted_hit]",
-    "    for query_name, query in (('bounded', 'summarise evidence'), ('no_evidence', '文' * 4000)):",
+    "    for query_name, query in (('bounded', 'summarise evidence'),):",
     "        evidence, source, *_ = bridge._answer_material({**request, 'query': query})",
     "        results[mode + '_' + query_name] = {'evidence': [bridge._hit_dict(item) for item in evidence], 'source': source, 'tokens': bridge._task_input_tokens(source), 'limit': bridge.AI_INPUT_TOKEN_LIMIT}",
     "print(json.dumps(results))",
@@ -1385,10 +1569,6 @@ test("consent evidence excludes truncated block and fallback hit text from the a
   for (const [name, value] of Object.entries(values)) {
     assert.ok(value.tokens <= value.limit, name);
     assert.doesNotMatch(JSON.stringify(value), /OMITTED-TAIL|OMITTED-SOURCE|UNSENT-HIT-EXCERPT/u, name);
-    if (name.endsWith("no_evidence")) {
-      assert.deepEqual(value.evidence, [], name);
-      continue;
-    }
     assert.deepEqual(value.evidence.map((hit) => hit.path), ["first.md"], name);
     const excerpt = value.evidence[0].evidence;
     const marker = name.startsWith("block") ? "UNTRUSTED EVIDENCE BLOCKS\n" : "UNTRUSTED VAULT EVIDENCE\n";
@@ -1516,6 +1696,27 @@ test("OmdBridge relays caller cancellation to a running hybrid bridge", async ()
   }
 });
 
+test("OmdBridge relays caller cancellation to a running search bridge", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-cancel-search-"));
+  const script = join(root, "slow_bridge.py");
+  try {
+    await writeFile(script, "import time\ntime.sleep(30)\n");
+    await withNodeRequire(async () => {
+      const bridge = new OmdBridge(() => "omd", () => "python3", () => script);
+      const controller = new AbortController();
+      const pending = bridge.search(root, "test", controller.signal);
+      controller.abort();
+      await assert.rejects(
+        pending,
+        (error: unknown) => error instanceof Error && error.name === "AbortError",
+      );
+      bridge.dispose();
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("spawnProcess enforces stdout bounds", async () => {
   await withNodeRequire(async () => {
     await assert.rejects(
@@ -1568,5 +1769,16 @@ async function withNodeRequire<T>(run: () => Promise<T>): Promise<T> {
   } finally {
     if (previous === undefined) Reflect.deleteProperty(runtime, "window");
     else Object.defineProperty(runtime, "window", { value: previous, configurable: true, writable: true });
+  }
+}
+
+async function withPlatform<T>(platform: NodeJS.Platform, run: () => Promise<T>): Promise<T> {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  if (!descriptor) throw new Error("Could not read the Node platform descriptor");
+  Object.defineProperty(process, "platform", { ...descriptor, value: platform });
+  try {
+    return await run();
+  } finally {
+    Object.defineProperty(process, "platform", descriptor);
   }
 }

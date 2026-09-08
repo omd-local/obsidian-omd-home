@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { modelIsCloudBacked } from "../src/ai-provider.ts";
 import {
   aggregateLocalAiState,
   buildConnectionSummary,
@@ -13,7 +14,6 @@ import {
   localWritingModelIsSelectable,
   localWritingModelOptionLabel,
   mergeInspectedModelEntry,
-  modelHasRemoteMetadata,
   modelIsKnownThinkingOnly,
   modelSupportsCompletion,
   modelSupportsEmbedding,
@@ -93,7 +93,28 @@ test("model helpers classify completion support and remote metadata", () => {
   assert.equal(modelSupportsEmbedding(localModel), false);
   assert.equal(modelIsKnownThinkingOnly(thinkingOnlyModel), true);
   assert.equal(modelSupportsCompletion(thinkingOnlyModel), false);
-  assert.equal(modelHasRemoteMetadata(remoteModel), true);
+  assert.equal(modelIsCloudBacked(remoteModel), true);
+});
+
+test("explicit cloud ids stay out of every local-only model path when metadata is absent", () => {
+  const metadataAbsentCloudCompletion = buildModelEntry({
+    name: "gpt-oss:20b-cloud",
+    capabilities: ["completion"],
+  });
+  const metadataAbsentCloudEmbedding = buildModelEntry({
+    name: "bge-m3-cloud",
+    capabilities: ["embedding"],
+  });
+
+  assert.equal(modelIsCloudBacked(metadataAbsentCloudCompletion), true);
+  assert.equal(localWritingModelIsSelectable(metadataAbsentCloudCompletion), false);
+  assert.equal(deriveLocalAiModelCode(metadataAbsentCloudCompletion), "selected_model_remote_blocked");
+  assert.match(localWritingModelOptionLabel(metadataAbsentCloudCompletion), /cloud-backed/u);
+  assert.equal(modelIsCloudBacked(metadataAbsentCloudEmbedding), true);
+  assert.match(
+    describeLocalCompletionCatalog([metadataAbsentCloudCompletion], true),
+    /0 local models found\. 0 can answer text questions\. 1 cloud-backed model is not shown/u,
+  );
 });
 
 test("model inspection preserves catalog digest and remote metadata", () => {

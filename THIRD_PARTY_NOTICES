@@ -3,11 +3,13 @@ Third-party notices for OMD Home
 This file is a human-readable index for the runtime licenses that are embedded into the
 production `main.js` banner.
 
-1. FullCalendar runtime packages
-   Packages: fullcalendar, @fullcalendar/core, @full-ui/headless-calendar
+1. FullCalendar and Temporal runtime packages
+   Packages: fullcalendar, @fullcalendar/core, @full-ui/headless-calendar,
+   temporal-polyfill, temporal-utils
    License: MIT
    Copyright: © 2026 Adam Shaw
-   Source: https://github.com/fullcalendar/fullcalendar
+   Sources: https://github.com/fullcalendar/fullcalendar and
+   https://github.com/fullcalendar/temporal-polyfill
 
 2. Preact runtime package
    Package: preact

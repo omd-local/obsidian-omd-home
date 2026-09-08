@@ -97,16 +97,21 @@ export function selectedAiModel(settings: {
   return settings.aiModels[settings.aiProvider]?.trim() || settings.aiModel.trim();
 }
 
-export function isOllamaCloudModel(
+export function modelIsCloudBacked(
   model: Pick<LocalAiModelEntry, "name" | "remoteModel" | "remoteHost">,
 ): boolean {
-  return Boolean(model.remoteModel || model.remoteHost || /(?:^|[:_-])cloud$/iu.test(model.name.trim()));
+  if (model.remoteModel?.trim() || model.remoteHost?.trim()) return true;
+  return model.name
+    .trim()
+    .toLowerCase()
+    .split(/[:/_.@-]+/u)
+    .includes("cloud");
 }
 
 export function providerSetupDescription(provider: StoredAiProvider): string {
   switch (provider) {
     case "ollama":
-      return "Vault evidence and answer generation stay on this computer. Cloud availability in the Ollama app does not change the selected model; OMD Home rejects models that report remote metadata.";
+      return "Vault evidence and answer generation stay on this computer. Cloud availability in the Ollama app does not change the selected model; OMD Home rejects explicit Cloud model ids and models that report remote metadata.";
     case "ollama-cloud":
       return "Retrieval stays on this computer. After a per-request preview, the question and selected evidence are sent through the signed-in local Ollama app to Ollama Cloud.";
     case "openai":

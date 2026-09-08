@@ -6,12 +6,18 @@ const production = process.argv[2] === "production";
 const fullcalendarNotice = readFileSync(new URL("./node_modules/fullcalendar/LICENSE.md", import.meta.url), "utf8").trim();
 const preactNotice = readFileSync(new URL("./node_modules/preact/LICENSE", import.meta.url), "utf8").trim();
 const thirdPartyNotices = [
+  "OMD Home is licensed under the PolyForm Shield License 1.0.0:",
+  "https://polyformproject.org/licenses/shield/1.0.0",
+  "Required Notice: Copyright 2026 OMD Local contributors.",
+  "",
   "Third-party notices for the production OMD Home bundle.",
   "",
-  "FullCalendar runtime packages:",
+  "FullCalendar and Temporal runtime packages:",
   "- fullcalendar",
   "- @fullcalendar/core",
   "- @full-ui/headless-calendar",
+  "- temporal-polyfill",
+  "- temporal-utils",
   "",
   fullcalendarNotice,
   "",

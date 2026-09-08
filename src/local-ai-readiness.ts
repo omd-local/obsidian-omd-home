@@ -1,4 +1,5 @@
 import type { OmdHomeSettings } from "./settings.ts";
+import { modelIsCloudBacked } from "./ai-provider.ts";
 import {
   LOCAL_OLLAMA_HOSTS,
   LocalAiError,
@@ -87,12 +88,8 @@ export function modelSupportsEmbedding(model: Pick<LocalAiModelEntry, "name" | "
   return normalized === "bge-m3" || normalized.includes("embed") || normalized.includes("embedding");
 }
 
-export function modelHasRemoteMetadata(model: Pick<LocalAiModelEntry, "remoteModel" | "remoteHost">): boolean {
-  return Boolean(model.remoteModel || model.remoteHost);
-}
-
 export function localWritingModelIsSelectable(model: LocalAiModelEntry): boolean {
-  if (modelHasRemoteMetadata(model) || modelIsKnownThinkingOnly(model)) return false;
+  if (modelIsCloudBacked(model) || modelIsKnownThinkingOnly(model)) return false;
   if (modelSupportsCompletion(model)) return true;
   // Missing or partial catalog metadata is inconclusive. The execution gate inspects the
   // selected model with /api/show before any vault evidence is sent to it.
@@ -100,7 +97,7 @@ export function localWritingModelIsSelectable(model: LocalAiModelEntry): boolean
 }
 
 export function localWritingModelOptionLabel(model: LocalAiModelEntry): string {
-  if (modelHasRemoteMetadata(model)) return `${model.name} (cloud-backed; unavailable for local text answers)`;
+  if (modelIsCloudBacked(model)) return `${model.name} (cloud-backed; unavailable for local text answers)`;
   if (modelIsKnownThinkingOnly(model) || model.capabilities.includes("thinking")) {
     return `${model.name} (thinking-only; unavailable for text answers)`;
   }
@@ -112,7 +109,7 @@ export function localWritingModelOptionLabel(model: LocalAiModelEntry): string {
 
 export function describeLocalCompletionCatalog(models: LocalAiModelEntry[], catalogChecked: boolean): string {
   if (!catalogChecked) return "";
-  const localModels = models.filter((model) => !modelHasRemoteMetadata(model));
+  const localModels = models.filter((model) => !modelIsCloudBacked(model));
   const availableModels = localModels.filter(localWritingModelIsSelectable);
   const unavailableModels = localModels.filter((model) => !localWritingModelIsSelectable(model));
   const remoteCount = models.length - localModels.length;
@@ -187,7 +184,7 @@ export function deriveLocalAiDaemonCode(
 }
 
 export function deriveLocalAiModelCode(model: LocalAiModelInfo): LocalAiReadinessCode {
-  if (modelHasRemoteMetadata(model)) return "selected_model_remote_blocked";
+  if (modelIsCloudBacked(model)) return "selected_model_remote_blocked";
   if (!modelSupportsCompletion(model)) return "selected_model_incompatible";
   return "ready";
 }
@@ -208,8 +205,8 @@ export function describeDaemonReadiness(code: LocalAiReadinessCode): string {
 }
 
 export function describeModelReadiness(model: string, info: LocalAiModelInfo): string {
-  if (modelHasRemoteMetadata(info)) {
-    return `${model} reported remote Ollama metadata and was blocked.`;
+  if (modelIsCloudBacked(info)) {
+    return `${model} was identified as cloud-backed and blocked from local-only use.`;
   }
   if (!modelSupportsCompletion(info)) {
     if (modelIsKnownThinkingOnly(info)) {

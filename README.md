@@ -10,7 +10,7 @@
 
 The note is your vault. The doorway is the controlled working surface around it.
 
-Bring sources in. See the day. Ask with evidence. Review every write before it lands.
+Bring sources in. See the day. Ask with evidence. Review AI-suggested changes before they land.
 Your Markdown files remain the source of truth.
 
 [![CI](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml/badge.svg)](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml)
@@ -63,8 +63,7 @@ Paste a URL, paste a local path, or drop a file onto Home. OMD Home starts a
 managed OMD process, reports progress, and leaves conversion ownership with
 [Markdown Everything](https://github.com/omd-local/markdown-everything).
 
-The boundary stays narrow: only the URL or file you submit enters, and nothing
-new is written back without review.
+The boundary stays narrow: only the URL or file you submit enters. Capture writes the requested Markdown note immediately; only optional link and tag changes wait for review.
 
 <img src="docs/assets/omd-home-capture-flow.svg" alt="OMD Home capture flow" />
 
@@ -287,9 +286,10 @@ preset fails, install the named Tesseract language pack and check
 5. If local models changed on disk, run **OMD Home: Refresh local AI models**
    from the command palette, then return to **Check setup**.
 6. Leave the Python bridge override blank to use the bridge bundled in
-   `main.js`. OMD Home derives the Python interpreter from the detected OMD
-   launcher when that launcher has a direct Python shebang. Otherwise, set an
-   explicit Python executable.
+   `main.js`. On macOS and Linux, OMD Home derives the Python interpreter from
+   the detected OMD launcher shebang. On Windows, it verifies `python.exe`
+   beside the launcher or at the root of its `Scripts` environment. For a
+   non-standard environment, set an explicit Python executable.
 
 ### Ollama Cloud
 
@@ -482,7 +482,7 @@ components remain under their own licences; see
 
 <div align="center">
 
-**ONE DOORWAY -> LOCAL EVIDENCE -> REVIEW BEFORE WRITE -> KEEP THE VAULT YOURS**
+**CAPTURE ON REQUEST -> REVIEW AI CHANGES -> KEEP THE VAULT YOURS**
 
 [Download](https://github.com/omd-local/obsidian-omd-home/releases/latest) ·
 [Read about OMD](https://github.com/omd-local/markdown-everything) ·

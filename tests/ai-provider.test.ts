@@ -7,7 +7,7 @@ import {
   aiProviderEnvVar,
   aiProviderLabel,
   isHostedApiProvider,
-  isOllamaCloudModel,
+  modelIsCloudBacked,
   normalizeAiModelMemory,
   selectedAiModel,
 } from "../src/ai-provider.ts";
@@ -59,8 +59,11 @@ test("selectedAiModel always follows the active provider memory before the legac
   assert.equal(selectedAiModel({ aiProvider: "ollama", aiModel: "legacy-value", aiModels: memory }), "qwen3:4b-instruct");
 });
 
-test("Ollama Cloud model detection accepts daemon metadata and explicit cloud ids", () => {
-  assert.equal(isOllamaCloudModel({ name: "gpt-oss:120b-cloud" }), true);
-  assert.equal(isOllamaCloudModel({ name: "custom", remoteHost: "https://ollama.com" }), true);
-  assert.equal(isOllamaCloudModel({ name: "qwen3:4b-instruct" }), false);
+test("cloud-backed model detection accepts metadata and explicit cloud-id segments", () => {
+  assert.equal(modelIsCloudBacked({ name: "gpt-oss:120b-cloud" }), true);
+  assert.equal(modelIsCloudBacked({ name: "gpt-oss:cloud" }), true);
+  assert.equal(modelIsCloudBacked({ name: "gpt-cloud:latest" }), true);
+  assert.equal(modelIsCloudBacked({ name: "custom", remoteHost: "https://ollama.com" }), true);
+  assert.equal(modelIsCloudBacked({ name: "qwen3:4b-instruct" }), false);
+  assert.equal(modelIsCloudBacked({ name: "cloudy:latest" }), false);
 });

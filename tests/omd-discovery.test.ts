@@ -25,6 +25,17 @@ test("automatic OMD discovery includes PATH, environment, package manager, and u
   assert.equal(new Set(candidates).size, candidates.length);
 });
 
+test("automatic OMD discovery tries an already verified executable before PATH candidates", () => {
+  const candidates = omdExecutableCandidates(
+    "omd",
+    macEnvironment,
+    "/Applications/OMD/bin/omd",
+  );
+  assert.equal(candidates[0], "/Applications/OMD/bin/omd");
+  assert.equal(candidates[1], "omd");
+  assert.equal(new Set(candidates).size, candidates.length);
+});
+
 test("a custom OMD executable is the only discovery candidate", () => {
   assert.deepEqual(
     omdExecutableCandidates(" /custom/omd ", macEnvironment),
@@ -70,6 +81,26 @@ test("automatic discovery probes and returns the same resolved absolute PATH exe
   assert.equal(result.executable, "/opt/homebrew/bin/omd");
   assert.deepEqual(probed, ["/opt/homebrew/bin/omd"]);
   assert.deepEqual(result.candidatesTried, ["omd"]);
+});
+
+test("automatic discovery falls back to PATH when the verified absolute hint is no longer valid", async () => {
+  const stale = "/Applications/OMD/bin/omd";
+  const legacy = "/legacy/bin/omd";
+  const probed: string[] = [];
+  const result = await discoverOmdExecutable(
+    "omd",
+    macEnvironment,
+    async (executable) => {
+      probed.push(executable);
+      if (executable === stale) throw new OmdEnrichmentError("missing_executable", "removed");
+    },
+    async (candidate) => candidate === "omd" ? legacy : candidate,
+    stale,
+  );
+
+  assert.equal(result.executable, legacy);
+  assert.deepEqual(result.candidatesTried, [stale, "omd"]);
+  assert.deepEqual(probed, [stale, legacy]);
 });
 
 test("bare executable resolution uses a shell-free bounded locator on macOS and Windows", async () => {

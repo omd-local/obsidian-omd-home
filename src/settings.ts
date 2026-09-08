@@ -7,8 +7,8 @@ import {
   aiProviderLabel,
   isCloudAiProvider,
   isHostedApiProvider,
-  isOllamaCloudModel,
   isStoredAiProvider,
+  modelIsCloudBacked,
   normalizeAiModelMemory,
   providerSetupDescription,
   type AiModelMemory,
@@ -21,7 +21,6 @@ import {
   describeLocalCompletionCatalog,
   localWritingModelIsSelectable,
   localWritingModelOptionLabel,
-  modelHasRemoteMetadata,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
 } from "./local-ai-readiness";
@@ -105,6 +104,7 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
 export class OmdHomeSettingTab extends PluginSettingTab {
   private readonly plugin: OmdHomePlugin;
   private readonly customModelModes = new Set<LocalAiWorkflowId>();
+  private readonly hostedCredentialDrafts = new Map<HostedAiProvider, string>();
   private localAiAdvancedExpanded = false;
 
   constructor(app: App, plugin: OmdHomePlugin) {
@@ -258,12 +258,13 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     new Setting(container).setName("AI answers").setHeading();
 
     const provider = this.plugin.settings.aiProvider;
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     new Setting(container)
       .setName("Answer provider")
       .setDesc(`Choose where @ questions are answered. ${providerSetupDescription(provider)}`)
       .addDropdown((dropdown) => {
         for (const value of AI_PROVIDER_VALUES) dropdown.addOption(value, aiProviderLabel(value));
-        dropdown.setValue(provider).onChange(async (value) => {
+        dropdown.setValue(provider).setDisabled(aiSetupBusy).onChange(async (value) => {
           if (!isStoredAiProvider(value)) return;
           this.plugin.settings.aiModels[provider] = this.plugin.settings.aiModel.trim();
           this.plugin.settings.aiProvider = value;
@@ -271,12 +272,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           this.customModelModes.delete("qa");
           this.plugin.invalidateLocalAiState("provider");
           await this.plugin.saveSettings();
-          if (isHostedApiProvider(value)) {
-            void this.plugin.ensureHostedCredentialState(value).finally(() => {
-              if (container.isConnected) this.renderLocalAiSection(container);
-            });
-          }
-          this.renderLocalAiSection(container);
+          this.rerenderLocalAiSection();
         });
       });
 
@@ -286,15 +282,17 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setDesc(`Allow @ answers to use ${aiProviderDestination(provider)} only while ${aiProviderLabel(provider)} is selected. Before every request, OMD Home shows the destination, model, and bounded evidence excerpts and asks you to approve sending them.`)
         .addToggle((toggle) => toggle
           .setValue(this.plugin.settings.allowedCloudAnswerProviders.includes(provider))
+          .setDisabled(aiSetupBusy)
           .onChange(async (enabled) => {
             const allowed = new Set(this.plugin.settings.allowedCloudAnswerProviders.filter(isCloudAiProvider));
             enabled ? allowed.add(provider) : allowed.delete(provider);
             this.plugin.settings.allowedCloudAnswerProviders = [...allowed];
+            this.plugin.invalidateCloudAnswerConsent();
             await this.plugin.saveSettings();
             new Notice(enabled
               ? `${aiProviderLabel(provider)} answers allowed. OMD Home will still ask before every request.`
               : `${aiProviderLabel(provider)} answers disabled. No new vault evidence will be sent to this provider.`);
-            this.renderLocalAiSection(container);
+            this.rerenderLocalAiSection();
           }));
       if (provider === "ollama-cloud") {
         permission.addButton((button) => button
@@ -311,9 +309,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       && (!this.plugin.hostedAiState || this.plugin.hostedAiState.provider !== provider
         || (!this.plugin.hostedAiState.credential && this.plugin.hostedAiState.checkedAt === undefined && !this.plugin.hostedAiState.activeAction))) {
       void this.plugin.ensureHostedCredentialState(provider).finally(() => {
-        const state = this.plugin.hostedAiState;
-        if (container.isConnected && state?.provider === provider
-          && (state.credential || state.checkedAt !== undefined)) this.renderLocalAiSection(container);
+        if (container.isConnected && this.plugin.settings.aiProvider === provider) {
+          this.rerenderLocalAiSection();
+        }
       });
     }
 
@@ -340,7 +338,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .setDesc("Reorder selected evidence with the local embedding model. Sparse order is kept if reranking fails.")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.semanticRerankEnabled)
-        .setDisabled(!this.plugin.settings.hybridRetrievalEnabled)
+        .setDisabled(aiSetupBusy || !this.plugin.settings.hybridRetrievalEnabled)
         .onChange(async (value) => {
           this.plugin.settings.semanticRerankEnabled = value;
           this.plugin.invalidateLocalAiState("retrieval");
@@ -379,7 +377,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           }
         };
         endpointValidation = updateValidation;
-        text.setValue(this.plugin.settings.ollamaHost).onChange(async (value) => {
+        text.setValue(this.plugin.settings.ollamaHost).setDisabled(aiSetupBusy).onChange(async (value) => {
           if (!updateValidation(value)) return;
           this.plugin.settings.ollamaHost = value.trim();
           this.plugin.invalidateLocalAiState("host");
@@ -391,8 +389,24 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     endpointValidation?.(this.plugin.settings.ollamaHost);
   }
 
+  private rerenderLocalAiSection(): void {
+    const section = this.containerEl.querySelector<HTMLElement>(".omd-settings-local-ai");
+    if (section?.isConnected) this.renderLocalAiSection(section);
+  }
+
+  private async runAiSetupAction<T>(action: () => Promise<T>): Promise<T> {
+    const pending = action();
+    this.rerenderLocalAiSection();
+    try {
+      return await pending;
+    } finally {
+      this.rerenderLocalAiSection();
+    }
+  }
+
   private hostedCredentialSetting(container: HTMLElement, provider: HostedAiProvider): void {
     const state = this.plugin.hostedAiState?.provider === provider ? this.plugin.hostedAiState : null;
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     const credential = state?.credential;
     const envVar = aiProviderEnvVar(provider);
     if (!Platform.isMacOS || credential?.keychainSupported === false) {
@@ -404,7 +418,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       setting.settingEl.addClass("omd-settings-model", "omd-settings-secret");
       return;
     }
-    let draft = "";
+    const savedDraft = this.hostedCredentialDrafts.get(provider) ?? "";
     const setting = new Setting(container)
       .setName("Developer key")
       .setDesc(credential?.source === "env"
@@ -413,53 +427,54 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           ? "Saved in macOS Keychain. Consumer subscriptions do not include API usage."
           : `Paste a developer API key to save it in macOS Keychain, or set ${envVar} before starting Obsidian. The key is never stored in plugin settings. Consumer subscriptions do not include API usage.`);
     const secret = new TextComponent(setting.controlEl)
-      .setValue("")
+      .setValue(savedDraft)
       .setPlaceholder(credential?.source === "keychain" ? "Key saved" : "Paste API key")
-      .onChange((value) => { draft = value; });
+      .setDisabled(aiSetupBusy)
+      .onChange((value) => {
+        if (value) this.hostedCredentialDrafts.set(provider, value);
+        else this.hostedCredentialDrafts.delete(provider);
+      });
     secret.inputEl.type = "password";
     secret.inputEl.autocomplete = "off";
     setting.addButton((button) => button
       .setButtonText(state?.activeAction === "save-key" ? "Saving…" : "Save key")
-      .setDisabled(Boolean(state?.activeAction))
+      .setDisabled(aiSetupBusy)
       .onClick(async () => {
-        if (!draft.trim()) return void new Notice("Paste a developer key first.");
-        button.setDisabled(true).setButtonText("Saving…");
+        const submittedDraft = this.hostedCredentialDrafts.get(provider) ?? "";
+        if (!submittedDraft.trim()) return void new Notice("Paste a developer key first.");
         let saved = false;
         try {
-          saved = await this.plugin.saveHostedApiKey(draft);
+          saved = await this.runAiSetupAction(() => this.plugin.saveHostedApiKey(submittedDraft));
         } catch {
           // The plugin records and surfaces the safe provider error.
         }
-        if (!saved) {
-          button.setDisabled(false).setButtonText("Save key");
-          return;
+        if (saved && this.hostedCredentialDrafts.get(provider) === submittedDraft) {
+          this.hostedCredentialDrafts.delete(provider);
+          this.rerenderLocalAiSection();
         }
-        secret.setValue("");
-        draft = "";
-        if (container.isConnected) this.renderLocalAiSection(container);
       }));
     if (credential?.source === "keychain") {
       setting.addButton((button) => button
         .setButtonText("Remove key")
         .setWarning()
-        .setDisabled(Boolean(state?.activeAction))
+        .setDisabled(aiSetupBusy)
         .onClick(async () => {
-          await this.plugin.deleteHostedApiKey();
-          if (container.isConnected) this.renderLocalAiSection(container);
+          await this.runAiSetupAction(() => this.plugin.deleteHostedApiKey());
         }));
     }
     setting.settingEl.addClass("omd-settings-model", "omd-settings-secret");
   }
 
   private answerModelSetting(container: HTMLElement, provider: StoredAiProvider): void {
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     const qaWorkflow = this.plugin.localAiState.workflows.qa;
     const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
-    const localModels = this.plugin.localAiState.models.filter((model) => !modelHasRemoteMetadata(model));
+    const localModels = this.plugin.localAiState.models.filter((model) => !modelIsCloudBacked(model));
     const selectableLocalModels = localModels.filter(localWritingModelIsSelectable);
     const models = provider === "ollama"
       ? localModels
       : provider === "ollama-cloud"
-        ? this.plugin.localAiState.models.filter(isOllamaCloudModel)
+        ? this.plugin.localAiState.models.filter(modelIsCloudBacked)
         : this.plugin.hostedAiState?.provider === provider ? this.plugin.hostedAiState.models : [];
     const current = this.plugin.settings.aiModel.trim();
     const allowCustom = provider !== "ollama-cloud";
@@ -518,7 +533,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .addDropdown((dropdown) => {
         dropdown.addOptions(options);
         if (provider === "ollama") disableUnavailableLocalModelOptions(dropdown.selectEl, models);
-        dropdown.setValue(showCustom ? "__custom__" : selector.optionValue);
+        dropdown.setValue(showCustom ? "__custom__" : selector.optionValue).setDisabled(aiSetupBusy);
         dropdown.onChange(async (value) => {
           if (value === "__empty__") return;
           if (value === "__custom__" || value === "__stale__") {
@@ -526,12 +541,12 @@ export class OmdHomeSettingTab extends PluginSettingTab {
             if (value === "__custom__") {
               new Notice("Enter the exact model id, then run check setup to verify it.");
             }
-            this.renderLocalAiSection(container);
+            this.rerenderLocalAiSection();
             return;
           }
           this.customModelModes.delete("qa");
           await this.saveAnswerModel(provider, value);
-          this.renderLocalAiSection(container);
+          this.rerenderLocalAiSection();
         });
       });
     if (showCustom) {
@@ -540,12 +555,14 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("Exact provider model id")
           .setValue(selector.customValue)
+          .setDisabled(aiSetupBusy)
           .onChange((value) => {
             draft = value.trim();
           });
       });
       setting.addButton((button) => button
         .setButtonText("Save model")
+        .setDisabled(aiSetupBusy)
         .onClick(async () => {
           if (!draft.trim()) {
             new Notice("Enter the exact model id first.");
@@ -553,7 +570,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           }
           await this.saveAnswerModel(provider, draft, "Custom model id saved. Run Check setup to verify it is installed.");
           this.customModelModes.add("qa");
-          this.renderLocalAiSection(container);
+          this.rerenderLocalAiSection();
         }));
     }
     setting.settingEl.addClass("omd-settings-model", "omd-settings-answer-model");
@@ -574,6 +591,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       ? this.plugin.hostedAiState
       : null;
     const activeAction = hostedState?.activeAction || this.plugin.localAiState.activeAction;
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     const detail = hostedState?.detail
       ?? (provider === "ollama-cloud"
         ? "Check the signed-in local Ollama app and selected Cloud model."
@@ -589,18 +607,18 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     if (canOpenOllama) {
       status.addButton((button) => button.setButtonText("Open Ollama app").setCta().onClick(async () => {
         await this.plugin.openOllamaApp();
-        if (container.isConnected) this.renderLocalAiSection(container);
+        if (container.isConnected) this.rerenderLocalAiSection();
       }));
     }
     status.addButton((button) => button
       .setButtonText(activeAction === "check-connection" ? "Checking…" : "Check setup")
-      .setDisabled(Boolean(activeAction))
+      .setDisabled(aiSetupBusy)
       .onClick(async () => {
-        button.setDisabled(true).setButtonText("Checking…");
-        if (provider === "ollama") await this.plugin.checkLocalAiConnection();
-        else if (provider === "ollama-cloud") await this.plugin.checkOllamaCloudConnection();
-        else await this.plugin.checkHostedAiConnection();
-        if (container.isConnected) this.renderLocalAiSection(container);
+        await this.runAiSetupAction(async () => {
+          if (provider === "ollama") return await this.plugin.checkLocalAiConnection();
+          if (provider === "ollama-cloud") return await this.plugin.checkOllamaCloudConnection();
+          return await this.plugin.checkHostedAiConnection();
+        });
       }));
   }
 
@@ -839,7 +857,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
 
     new Setting(advanced)
       .setName("Python executable override")
-      .setDesc("Leave blank to read the interpreter from the detected OMD launcher shebang.")
+      .setDesc("Leave blank for automatic detection from the OMD environment. Advanced users can provide an exact interpreter path.")
       .addText((text) => text
         .setPlaceholder("Automatic from OMD")
         .setValue(this.plugin.settings.pythonExecutable)
@@ -886,10 +904,11 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     key: "localWritingModel",
     workflow: LocalAiWorkflowId,
   ): void {
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     const workflowState = this.plugin.localAiState.workflows[workflow];
     const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
     const localModels = this.plugin.localAiState.models
-      .filter((model) => !modelHasRemoteMetadata(model));
+      .filter((model) => !modelIsCloudBacked(model));
     const selectableModels = localModels.filter(localWritingModelIsSelectable);
     const selector = this.customModelModes.has(workflow)
       ? {
@@ -931,31 +950,32 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .addDropdown((dropdown) => {
         dropdown.addOptions(options);
         disableUnavailableLocalModelOptions(dropdown.selectEl, localModels);
-        dropdown.setValue(selector.optionValue);
+        dropdown.setValue(selector.optionValue).setDisabled(aiSetupBusy);
         dropdown.onChange(async (value) => {
           if (value === "__custom__" || value === "__stale__") {
             this.customModelModes.add(workflow);
-            this.renderLocalAiSection(container);
+            this.rerenderLocalAiSection();
             return;
           }
           this.customModelModes.delete(workflow);
           this.plugin.settings[key] = value;
           this.plugin.invalidateLocalAiState("model");
           await this.plugin.saveSettings();
-          this.renderLocalAiSection(container);
+          this.rerenderLocalAiSection();
         });
     });
     if (selector.useCustom) {
       let draft = selector.customValue;
       setting.addText((text) => {
         text.setPlaceholder("Custom Ollama model id");
-        text.setValue(selector.customValue);
+        text.setValue(selector.customValue).setDisabled(aiSetupBusy);
         text.onChange((value) => {
           draft = value.trim();
         });
       });
       setting.addButton((button) => button
         .setButtonText("Save model")
+        .setDisabled(aiSetupBusy)
         .onClick(async () => {
           if (!draft.trim()) {
             new Notice("Enter a custom model id first.");
@@ -964,7 +984,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           this.customModelModes.add(workflow);
           await this.saveModelValue(key, draft);
           new Notice(`Saved ${name.toLowerCase()}. Press Check setup to verify it.`);
-          if (container.isConnected) this.renderLocalAiSection(container);
+          if (container.isConnected) this.rerenderLocalAiSection();
         }));
     }
     setting.settingEl.addClass("omd-settings-model");
@@ -981,23 +1001,26 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   }
 
   private hybridRetrievalSetting(container: HTMLElement): void {
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     new Setting(container)
       .setName("Hybrid retrieval")
       .setDesc("Fuse sparse note recall with optional local multilingual embeddings for vault questions. Disable this to stay sparse-only.")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.hybridRetrievalEnabled)
+        .setDisabled(aiSetupBusy)
         .onChange(async (value) => {
           this.plugin.settings.hybridRetrievalEnabled = value;
           this.plugin.invalidateLocalAiState("retrieval");
           await this.plugin.saveSettings();
-          this.renderLocalAiSection(container);
+          this.rerenderLocalAiSection();
         }));
   }
 
   private embeddingModelSetting(container: HTMLElement): void {
+    const aiSetupBusy = this.plugin.aiSetupBusy();
     const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
     const embeddingModels = this.plugin.localAiState.models
-      .filter((model) => modelSupportsEmbedding(model) && !modelHasRemoteMetadata(model));
+      .filter((model) => modelSupportsEmbedding(model) && !modelIsCloudBacked(model));
     const options = embeddingModels.reduce<Record<string, string>>((result, model) => {
       result[model.name] = model.name;
       return result;
@@ -1020,21 +1043,20 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         if (!Object.keys(options).length) dropdown.addOption("__saved__", this.plugin.settings.embeddingModel || "No local embedding model found");
         else dropdown.addOptions(options);
         dropdown.setValue(selected);
+        dropdown.setDisabled(aiSetupBusy);
         dropdown.onChange(async (value) => {
           if (value === "__saved__") return;
           this.plugin.settings.embeddingModel = value;
           this.plugin.invalidateLocalAiState("retrieval");
           await this.plugin.saveSettings();
-          this.renderLocalAiSection(container);
+          this.rerenderLocalAiSection();
         });
       })
       .addButton((button) => button
         .setButtonText(this.plugin.localAiState.activeAction === "test-embeddings" ? "Testing…" : "Test embeddings")
-        .setDisabled(Boolean(this.plugin.localAiState.activeAction) || !this.plugin.settings.embeddingModel.trim())
+        .setDisabled(aiSetupBusy || !this.plugin.settings.embeddingModel.trim())
         .onClick(async () => {
-          button.setDisabled(true).setButtonText("Testing…");
-          await this.plugin.testLocalEmbeddings();
-          if (container.isConnected) this.renderLocalAiSection(container);
+          await this.runAiSetupAction(() => this.plugin.testLocalEmbeddings());
         }));
     if (savedUnavailable && this.plugin.settings.embeddingModel.trim().toLowerCase() === "bge-m3") {
       setting.addButton((button) => button

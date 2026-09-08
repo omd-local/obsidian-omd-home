@@ -59,7 +59,16 @@ test("production bundles embed the licenses for every shipped third-party runtim
   assert.match(esbuild, /readFileSync\(new URL\("\.\/node_modules\/fullcalendar\/LICENSE\.md", import\.meta\.url\), "utf8"\)/u);
   assert.match(esbuild, /readFileSync\(new URL\("\.\/node_modules\/preact\/LICENSE", import\.meta\.url\), "utf8"\)/u);
   assert.match(esbuild, /banner:\s*production\s*\?\s*\{\s*js:/u);
-  for (const bundledPackage of ["fullcalendar", "@fullcalendar/core", "@full-ui/headless-calendar", "preact"]) {
+  assert.match(esbuild, /https:\/\/polyformproject\.org\/licenses\/shield\/1\.0\.0/u);
+  assert.match(esbuild, /Required Notice: Copyright 2026 OMD Local contributors\./u);
+  for (const bundledPackage of [
+    "fullcalendar",
+    "@fullcalendar/core",
+    "@full-ui/headless-calendar",
+    "temporal-polyfill",
+    "temporal-utils",
+    "preact",
+  ]) {
     assert.match(notices, new RegExp(bundledPackage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"));
   }
   assert.match(notices, /production `main\.js` banner/u);
@@ -82,6 +91,7 @@ test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures 
   assert.match(readme, /OpenAI API billing\s+stays separate from ChatGPT subscriptions, and Anthropic API billing stays\s+separate from Claude subscriptions/iu);
   assert.match(readme, /OMD Home: Refresh local AI models/iu);
   assert.match(readme, /does not auto-pull, auto-install, auto-select models, or auto-switch\s+providers/iu);
+  assert.match(readme, /Capture writes the requested Markdown note immediately; only optional link and tag changes wait for review/iu);
   assert.match(readme, /Ollama API introduction/iu);
   assert.match(readme, /OpenAI API model docs/iu);
   assert.match(readme, /Anthropic API overview/iu);
