@@ -8,6 +8,7 @@ import {
   aiProviderLabel,
   isHostedApiProvider,
   modelIsCloudBacked,
+  modelIsVerifiedOllamaCloud,
   normalizeAiModelMemory,
   selectedAiModel,
 } from "../src/ai-provider.ts";
@@ -66,4 +67,15 @@ test("cloud-backed model detection accepts metadata and explicit cloud-id segmen
   assert.equal(modelIsCloudBacked({ name: "custom", remoteHost: "https://ollama.com" }), true);
   assert.equal(modelIsCloudBacked({ name: "qwen3:4b-instruct" }), false);
   assert.equal(modelIsCloudBacked({ name: "cloudy:latest" }), false);
+});
+
+test("verified Ollama Cloud models require pinned ollama.com metadata", () => {
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "https://ollama.com" }), true);
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "https://ollama.com:443/" }), true);
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "https://evil.example" }), false);
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "https://user@ollama.com" }), false);
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "https://ollama.com/private" }), false);
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "https://ollama.com?next=evil" }), false);
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "", remoteHost: "https://ollama.com" }), false);
+  assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "" }), false);
 });

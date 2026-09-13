@@ -2,7 +2,6 @@ import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import type { OmdProgressEvent, OmdSearchHit } from "./model.ts";
-import { guardSparseComparisonAnswer } from "./ai-answer.ts";
 import type {
   HostedAiCatalog,
   HostedAiCheckResult,
@@ -79,6 +78,7 @@ export interface AiAnswer {
   warnings?: string[];
   usage?: Record<string, number>;
   timing?: Record<string, number>;
+  embeddingFallbackModel?: string;
 }
 
 export interface HybridRetrievalOptions {
@@ -102,7 +102,146 @@ function normalizeCredential(value: Record<string, unknown> | undefined): Hosted
     envVar,
     source,
     keychainSupported,
+    envPresent: typeof value.envPresent === "boolean" ? value.envPresent : source === "env",
+    keychainPresent: typeof value.keychainPresent === "boolean" ? value.keychainPresent : source === "keychain",
   };
+}
+
+function normalizeSearchHits(value: unknown): OmdSearchHit[] | null {
+  if (!Array.isArray(value)) return null;
+  const hits: OmdSearchHit[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record.path !== "string"
+      || typeof record.title !== "string"
+      || typeof record.evidence !== "string"
+      || typeof record.score !== "number"
+      || !Number.isFinite(record.score)
+    ) return null;
+    hits.push({ path: record.path, title: record.title, evidence: record.evidence, score: record.score });
+  }
+  return hits;
+}
+
+function normalizeAiPreview(value: Record<string, unknown>): AiPreview | null {
+  const previewValue = value.preview;
+  if (!previewValue || typeof previewValue !== "object" || Array.isArray(previewValue)) return null;
+  const preview = previewValue as Record<string, unknown>;
+  const requiredStrings = ["provider", "model", "privacy_mode", "destination_domain", "data_handling_summary"] as const;
+  if (requiredStrings.some((key) => typeof preview[key] !== "string" || !preview[key].trim())) return null;
+  if (
+    typeof preview.character_count !== "number"
+    || !Number.isFinite(preview.character_count)
+    || preview.character_count < 0
+    || typeof preview.estimated_input_tokens !== "number"
+    || !Number.isFinite(preview.estimated_input_tokens)
+    || preview.estimated_input_tokens < 0
+  ) return null;
+  if (preview.policy_url !== undefined && preview.policy_url !== null && typeof preview.policy_url !== "string") return null;
+  if (preview.sends_attachment !== undefined && typeof preview.sends_attachment !== "boolean") return null;
+  const evidence = normalizeSearchHits(value.evidence);
+  if (!evidence) return null;
+  const retrievalMode = value.retrieval_mode;
+  if (retrievalMode !== undefined && retrievalMode !== "sparse" && retrievalMode !== "hybrid") return null;
+  const retrievalModel = value.retrieval_model;
+  if (retrievalModel !== undefined && retrievalModel !== null && typeof retrievalModel !== "string") return null;
+  const consentGrant = value.consent_grant;
+  if (consentGrant !== undefined && consentGrant !== null && (typeof consentGrant !== "object" || Array.isArray(consentGrant))) return null;
+  const warnings = value.warnings;
+  if (warnings !== undefined && (!Array.isArray(warnings) || warnings.some((item) => typeof item !== "string"))) return null;
+  return {
+    preview: {
+      provider: preview.provider as string,
+      model: preview.model as string,
+      capability: typeof preview.capability === "string" ? preview.capability : undefined,
+      operation: typeof preview.operation === "string" ? preview.operation : undefined,
+      privacy_mode: preview.privacy_mode as string,
+      destination_domain: preview.destination_domain as string,
+      character_count: preview.character_count,
+      estimated_input_tokens: preview.estimated_input_tokens,
+      sends_attachment: typeof preview.sends_attachment === "boolean" ? preview.sends_attachment : undefined,
+      policy_url: preview.policy_url,
+      data_handling_summary: preview.data_handling_summary as string,
+    },
+    evidence,
+    consent_grant: consentGrant as Record<string, unknown> | null | undefined,
+    retrieval_mode: retrievalMode,
+    retrieval_model: retrievalModel,
+    warnings: warnings as string[] | undefined,
+  };
+}
+
+function normalizeNumberRecord(value: unknown): Record<string, number> | undefined | null {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const result: Record<string, number> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "number" || !Number.isFinite(item) || item < 0) return null;
+    result[key] = item;
+  }
+  return result;
+}
+
+function normalizeAiAnswer(value: Record<string, unknown>): AiAnswer | null {
+  const text = value.text;
+  const provider = value.provider;
+  const model = value.model;
+  if (
+    value.grounding_contract_version !== 1
+    ||
+    typeof text !== "string"
+    || !text.trim()
+    || typeof provider !== "string"
+    || !provider.trim()
+    || typeof model !== "string"
+    || !model.trim()
+  ) return null;
+  const evidence = normalizeSearchHits(value.evidence);
+  if (!evidence) return null;
+  const retrievalMode = value.retrieval_mode;
+  if (retrievalMode !== undefined && retrievalMode !== "sparse" && retrievalMode !== "hybrid") return null;
+  const retrievalModel = value.retrieval_model;
+  if (retrievalModel !== undefined && retrievalModel !== null && typeof retrievalModel !== "string") return null;
+  const warnings = value.warnings;
+  if (warnings !== undefined && (!Array.isArray(warnings) || warnings.some((item) => typeof item !== "string"))) return null;
+  const usage = normalizeNumberRecord(value.usage);
+  const timing = normalizeNumberRecord(value.timing);
+  if (usage === null || timing === null) return null;
+  return {
+    text,
+    evidence,
+    provider,
+    model,
+    retrieval_mode: retrievalMode,
+    retrieval_model: retrievalModel,
+    warnings,
+    usage,
+    timing,
+  };
+}
+
+function assertGroundedAnswerContract(answer: AiAnswer): void {
+  const warnings = new Set(answer.warnings ?? []);
+  const missingCitations = warnings.has("answer_citation_coverage_incomplete");
+  const invalidSections = warnings.has("answer_provenance_labels_missing");
+  if (missingCitations && invalidSections) {
+    throw new Error(
+      "The answer model omitted claim citations and the required Source states / Model inference format. No unverified answer was shown; try again or ask a narrower question.",
+    );
+  }
+  if (missingCitations) {
+    throw new Error("The answer model did not cite every claim from the retrieved notes. No unverified answer was shown; try again or ask a narrower question.");
+  }
+  if (invalidSections) {
+    throw new Error("The answer model did not separate Source states from Model inference in the required format. No unverified answer was shown; try again.");
+  }
+  if (!answer.evidence.length) {
+    throw new Error(
+      "The answer model did not return a verifiable grounded answer. No retrieved evidence was attached, so no answer was shown.",
+    );
+  }
 }
 
 const BUNDLED_BRIDGE_BOOTSTRAP = "import json,sys\ns=json.loads(sys.stdin.readline())['source']\nexec(compile(s,'<omd-home-bridge>','exec'))";
@@ -289,7 +428,7 @@ export class OmdBridge {
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiPreview> {
-    return await this.callPythonBridge({
+    const response = await this.callPythonBridge({
       action: "preview_ai",
       vault: vaultPath,
       query,
@@ -301,7 +440,10 @@ export class OmdBridge {
       embedding_model: retrieval.embeddingModel,
       embedding_model_revision: retrieval.embeddingModelRevision ?? null,
       semantic_rerank_enabled: retrieval.semanticRerankEnabled,
-    }, { signal }) as unknown as AiPreview;
+    }, { signal });
+    const preview = normalizeAiPreview(response);
+    if (!preview) throw new Error("OMD Home bridge returned an invalid AI preview.");
+    return preview;
   }
 
   async executeAi(
@@ -315,7 +457,7 @@ export class OmdBridge {
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiAnswer> {
-    const answer = await this.callPythonBridge({
+    const response = await this.callPythonBridge({
       action: "execute_ai",
       vault: vaultPath,
       query,
@@ -329,8 +471,15 @@ export class OmdBridge {
       embedding_model: retrieval.embeddingModel,
       embedding_model_revision: retrieval.embeddingModelRevision ?? null,
       semantic_rerank_enabled: retrieval.semanticRerankEnabled,
-    }, { signal }) as unknown as AiAnswer;
-    return guardSparseComparisonAnswer(query, answer);
+    }, { signal });
+    const answer = normalizeAiAnswer(response);
+    if (!answer) {
+      throw new Error(
+        "OMD Home bridge returned an invalid AI answer. Grounding contract v1 is required; use the bundled bridge or update the custom bridge. No answer was shown.",
+      );
+    }
+    assertGroundedAnswerContract(answer);
+    return answer;
   }
 
   private async callPythonBridge(
@@ -695,7 +844,7 @@ export function bridgeErrorMessage(error: unknown, fallback: string): string {
 }
 
 function bridgeError(error: unknown, fallback: string): Error {
-  return new Error(bridgeErrorMessage(error, fallback), { cause: error });
+  return new Error(bridgeErrorMessage(error, fallback));
 }
 
 export function bridgeProcessFailureMessage(stderr: string, code: number): string {
@@ -743,21 +892,106 @@ function extractBridgeErrorDetail(error: unknown): BridgeErrorDetail | null {
       break;
     }
   }
-  for (const key of ["type", "kind", "code"] as const) {
+  for (const key of ["type", "kind"] as const) {
     const value = record[key];
     if (typeof value === "string" && value.trim()) {
       detail.kind = value.trim();
       break;
     }
   }
-  return detail.message || detail.kind ? detail : null;
+  if (typeof record.code === "string" && record.code.trim()) detail.code = record.code.trim();
+  if (typeof record.provider === "string" && record.provider.trim()) detail.provider = record.provider.trim();
+  const statusCode = record.status_code ?? record.statusCode;
+  if (typeof statusCode === "number" && Number.isInteger(statusCode)) detail.statusCode = statusCode;
+  if (typeof record.retryable === "boolean") detail.retryable = record.retryable;
+  if (typeof record.action === "string" && record.action.trim()) detail.action = record.action.trim();
+  return detail.message || detail.kind || detail.code || detail.provider || detail.statusCode ? detail : null;
 }
 
 function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null {
-  const tokens = normalize(`${detail.kind ?? ""} ${detail.message ?? ""}`);
+  const tokens = normalize(`${detail.kind ?? ""} ${detail.code ?? ""} ${detail.message ?? ""}`);
   if (!tokens) return null;
+  const provider = hostedProviderDisplayName(detail.provider);
+  if (detail.code === "credentials_invalid") {
+    return `${provider} rejected the developer API key. Replace it in Settings → OMD Home → AI answers, then check setup again.`;
+  }
+  if (detail.code === "credentials_missing") {
+    return `${provider} developer API key is unavailable. Add or replace it in Settings → OMD Home → AI answers, then check setup again.`;
+  }
+  if (detail.code === "disclosure_unavailable") {
+    return "OMD Home could not prepare the exact evidence disclosure. Nothing was sent. Retry the question; if it repeats, run Check OMD setup.";
+  }
+  if (detail.code === "provider_mismatch") {
+    return "The selected provider no longer matches the approved request. Nothing was sent. Review the current provider and evidence, then approve a new request.";
+  }
+  if (detail.code === "cancelled") {
+    return "The AI request was cancelled. Start a new request when you are ready.";
+  }
+  if (detail.code === "model_unavailable" || detail.code === "model_check_invalid") {
+    return `${provider} could not use the selected answer model. Check setup and choose an available model, then try again.`;
+  }
+  if (detail.code === "timeout") {
+    return `${provider} did not respond before the request timed out. Try again.`;
+  }
+  if (detail.code === "transport_error") {
+    return `OMD Home could not connect to ${provider}. Check the network connection and try again.`;
+  }
+  if (detail.code === "incomplete_response") {
+    return `${provider} stopped before completing the answer. Try again or ask a narrower question.`;
+  }
+  if (detail.code === "refused") {
+    return `${provider} declined this request. Revise the question or choose another model.`;
+  }
+  if (detail.code === "malformed_structured_output") {
+    return "The answer model did not provide the required Source states / Model inference structure. No unverified answer was shown; try again.";
+  }
+  if (detail.code === "malformed_response") {
+    return `${provider} returned a response OMD Home could not read. Try again or choose another model.`;
+  }
+  if (detail.code === "response_too_large") {
+    return `${provider} returned more data than OMD Home can safely process. Ask a narrower question and try again.`;
+  }
+  if (detail.code === "provider_failure") {
+    return `${provider} could not complete the request. Check the provider setup and try again.`;
+  }
+  if (detail.code === "stream_error") {
+    return `${provider} stopped while returning the answer. Try again or ask a narrower question.`;
+  }
+  if (detail.code === "consent_required" || detail.code === "consent_expired" || detail.code === "consent_mismatch" || detail.code === "consent_preview_required") {
+    return "The cloud request approval is no longer current. Review the destination and exact evidence again, then approve a new request.";
+  }
+  if (detail.code === "http_error" || tokens.includes("http error")) {
+    const operation = detail.action === "discover_provider_models" || detail.action === "check_provider_model"
+      ? "provider setup request"
+      : "answer request";
+    if (detail.statusCode === 401) {
+      return `${provider} rejected the developer API key. Replace the key in Settings → OMD Home → AI answers, then check setup again.`;
+    }
+    if (detail.statusCode === 403) {
+      return `${provider} denied access. Check that the API account and selected model are permitted, then try again.`;
+    }
+    if (detail.statusCode === 429) {
+      return `${provider} is rate-limited or the API account has no available quota. Check the provider account, then try again.`;
+    }
+    if (typeof detail.statusCode === "number" && detail.statusCode >= 500) {
+      return `${provider} is temporarily unavailable (HTTP ${detail.statusCode}). Try again later.`;
+    }
+    if (detail.statusCode === 400) {
+      return `${provider} rejected the ${operation} (HTTP 400). Check that the selected model supports this request, then try again.`;
+    }
+    return `${provider} rejected the ${operation}${typeof detail.statusCode === "number" ? ` (HTTP ${detail.statusCode})` : ""}. Check the provider setup and try again.`;
+  }
   if (tokens.includes("no module named") || tokens.includes("modulenotfounderror")) {
     return "The Python environment used by OMD Home is missing a required module. Use Advanced OMD paths to select the current OMD environment, then try again.";
+  }
+  if (
+    tokens.includes("cannot access provider credentials")
+    || tokens.includes("cannot validate provider models")
+    || tokens.includes("cannot create cloud consent grants")
+    || tokens.includes("cannot run ai answers")
+    || tokens.includes("cannot run cloud vault q&a")
+  ) {
+    return "The detected OMD build is too old for this AI provider. Update OMD, run Check OMD setup, then check the provider setup again.";
   }
   if (tokens.includes("can't open file") || tokens.includes("cannot open file")) {
     return "The configured OMD Home bridge file could not be opened. Use the bundled bridge or choose an existing bridge file.";
@@ -804,6 +1038,9 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   if (tokens.includes("retrieval root must be an existing directory")) {
     return "The selected vault could not be read by OMD Home.";
   }
+  if (tokens.includes("no matched vault body excerpts are available for this question")) {
+    return "No relevant vault evidence was found. No model request was sent.";
+  }
   if (
     tokens.includes("request must be a json object")
     || tokens.includes("unsupported action")
@@ -813,6 +1050,14 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
     return "OMD Home rejected the request. Check the plugin settings and try again.";
   }
   return null;
+}
+
+function hostedProviderDisplayName(value: string | undefined): string {
+  if (value === "openai") return "OpenAI";
+  if (value === "anthropic") return "Anthropic";
+  if (value === "deepseek") return "DeepSeek";
+  if (value === "ollama") return "Ollama";
+  return "The selected AI provider";
 }
 
 function sanitizeBridgeFallback(fallback: string): string {
@@ -945,4 +1190,9 @@ function normalize(value: string): string {
 interface BridgeErrorDetail {
   message?: string;
   kind?: string;
+  code?: string;
+  provider?: string;
+  statusCode?: number;
+  retryable?: boolean;
+  action?: string;
 }

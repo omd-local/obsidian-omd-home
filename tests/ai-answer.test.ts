@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  answerSourceCount,
   formatAiAnswerForClipboard,
   formatAnswerElapsedTime,
-  guardSparseComparisonAnswer,
+  scopedAiAnswerText,
 } from "../src/ai-answer.ts";
 
 test("formats end-to-end answer timing for quick and longer responses", () => {
@@ -23,7 +24,7 @@ test("formats an OMD answer with deduplicated Obsidian source links", () => {
         { path: "Sources/Web/tips.md", title: "Tips", score: 8, evidence: "Duplicate" },
       ],
     }),
-    "Ten grounded tips.\n\nSources:\n- [[Sources/Web/tips.md]]\n- [[Sources/Web/mistakes.md]]",
+    "Based on 2 retrieved notes.\n\nTen grounded tips.\n\nSources:\n- [[Sources/Web/tips.md]]\n- [[Sources/Web/mistakes.md]]",
   );
 });
 
@@ -31,46 +32,48 @@ test("copies only the answer when no source paths are available", () => {
   assert.equal(formatAiAnswerForClipboard({ text: "  Local answer  ", evidence: [] }), "Local answer");
 });
 
-test("fails closed when a sparse comparison answer lists rejected pairs as no-overlap results", () => {
-  const answer = guardSparseComparisonAnswer(
-    "Across both notes, which recommendations overlap?",
-    {
-      text: "1. Warm up — no overlap.\nConclusion: zero overlapping recommendations.",
-      evidence: [
-        { path: "Sources/tips.md", title: "Tips", score: 10, evidence: "Warm up" },
-        { path: "Sources/mistakes.md", title: "Mistakes", score: 9, evidence: "Warmups" },
-      ],
-    },
+test("copy output never interpolates unsafe vault paths into Markdown structure", () => {
+  const answer = {
+    text: "Source states:\n- A cited fact. [S1]",
+    evidence: [{ path: "safe.md]] injected\n[[evil", title: "", score: 1, evidence: "" }],
+  };
+
+  const copied = formatAiAnswerForClipboard(answer);
+  assert.doesNotMatch(copied, /injected|evil/u);
+  assert.match(copied, /Source 1 \(filename omitted because it contains Markdown link delimiters\)/u);
+});
+
+test("scopes one-note answers without implying whole-vault coverage", () => {
+  const answer = {
+    text: "Source states: The project uses weekly planning. [[Projects/Plan.md]]",
+    evidence: [
+      { path: "Projects/Plan.md", title: "Plan", score: 9, evidence: "Weekly planning" },
+      { path: "Projects/Plan.md", title: "Plan", score: 8, evidence: "Duplicate section" },
+    ],
+  };
+  assert.equal(answerSourceCount(answer), 1);
+  assert.equal(
+    scopedAiAnswerText(answer),
+    "Based on 1 retrieved note.\n\nSource states: The project uses weekly planning. [[Projects/Plan.md]]",
   );
-
-  assert.match(answer.text, /could not verify a reliable overlap/u);
-  assert.match(answer.text, /\[\[Sources\/tips\.md\]\]/u);
-  assert.match(answer.text, /\[\[Sources\/mistakes\.md\]\]/u);
-  assert.doesNotMatch(answer.text, /zero overlapping/u);
+  assert.doesNotMatch(scopedAiAnswerText(answer), /entire vault|whole vault/iu);
 });
 
-test("does not rewrite ordinary answers or supported comparison answers", () => {
-  const ordinary = { text: "Ten tips.", evidence: [] };
-  assert.equal(guardSparseComparisonAnswer("List all tips", ordinary), ordinary);
-
-  const supported = {
-    text: "Plan the sequence: [[A.md]] and [[B.md]].",
-    evidence: [
-      { path: "A.md", title: "A", score: 2, evidence: "Plan" },
-      { path: "B.md", title: "B", score: 1, evidence: "Read" },
-    ],
+test("does not duplicate an existing retrieved-note scope", () => {
+  const answer = {
+    text: "Based on 1 retrieved note.\n\nA cited fact. [[A.md]]",
+    evidence: [{ path: "A.md", title: "A", score: 1, evidence: "Fact" }],
   };
-  assert.equal(guardSparseComparisonAnswer("What overlaps across both notes?", supported), supported);
+  assert.equal(scopedAiAnswerText(answer), answer.text);
 });
 
-test("does not rewrite hybrid answers even when the model says overlap is missing", () => {
-  const hybrid = {
-    text: "No overlap was verified.",
-    retrieval_mode: "hybrid" as const,
-    evidence: [
-      { path: "A.md", title: "A", score: 2, evidence: "Plan" },
-      { path: "B.md", title: "B", score: 1, evidence: "Read" },
-    ],
+test("replaces a stale retrieved-note scope with the current unique source count", () => {
+  const answer = {
+    text: "Based on 2 retrieved notes.\n\nA cited fact. [[A.md]]",
+    evidence: [{ path: "A.md", title: "A", score: 1, evidence: "Fact" }],
   };
-  assert.equal(guardSparseComparisonAnswer("What overlaps across both notes?", hybrid), hybrid);
+  assert.equal(
+    scopedAiAnswerText(answer),
+    "Based on 1 retrieved note.\n\nA cited fact. [[A.md]]",
+  );
 });

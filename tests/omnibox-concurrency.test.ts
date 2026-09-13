@@ -291,7 +291,7 @@ test("aborting a cloud @ request closes obsolete consent without sending evidenc
       endpoint: "http://localhost:11434",
       retrieval: {},
       preview: {
-        evidence: [],
+        evidence: [{ path: "Note.md", title: "Note", evidence: "Approved excerpt", score: 1 }],
         preview: {
           model: "gpt-test",
           destination_domain: "api.openai.com",
@@ -359,7 +359,7 @@ test("changing a cloud route away and back invalidates an already-open approval"
       endpoint: "http://localhost:11434",
       retrieval: {},
       preview: {
-        evidence: [],
+        evidence: [{ path: "Note.md", title: "Note", evidence: "Approved excerpt", score: 1 }],
         preview: {
           model: "gpt-test",
           destination_domain: "api.openai.com",

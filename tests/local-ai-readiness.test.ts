@@ -11,13 +11,15 @@ import {
   deriveLocalAiModelCode,
   describeLocalCompletionCatalog,
   describeModelReadiness,
+  localModelNamesMatch,
   localWritingModelIsSelectable,
   localWritingModelOptionLabel,
   mergeInspectedModelEntry,
-  modelIsKnownThinkingOnly,
+  modelIsKnownAnswerBudgetIncompatible,
   modelSupportsCompletion,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
+  oneClickInstallableEmbeddingModel,
   providerMode,
   resolveEmbeddingModelRevision,
   snapshotsMatch,
@@ -55,10 +57,10 @@ const DEFAULT_SETTINGS: OmdHomeSettings = {
   pinnedNotes: [],
 };
 
-const localModel = buildModelEntry({ name: "qwen3:4b-instruct", capabilities: ["completion", "tools"] });
+const localModel = buildModelEntry({ name: "qwen3:4b-instruct", capabilities: ["completion", "thinking", "tools"] });
 const embedModel = buildModelEntry({ name: "nomic-embed", capabilities: ["embedding"] });
 const remoteModel = buildModelEntry({ name: "cloudy", capabilities: ["completion"], remoteModel: "cloudy", remoteHost: "https://example.com" });
-const thinkingOnlyModel = buildModelEntry({ name: "qwen3:4b", capabilities: ["completion", "thinking", "tools"] });
+const boundedAnswerIncompatibleModel = buildModelEntry({ name: "qwen3:4b", capabilities: ["completion", "thinking", "tools"] });
 
 test("normalizeLocalOllamaHost enforces the loopback host contract", () => {
   assert.equal(normalizeLocalOllamaHost("http://localhost:11434/"), "http://localhost:11434");
@@ -91,9 +93,19 @@ test("model helpers classify completion support and remote metadata", () => {
   assert.equal(modelSupportsCompletion(embedModel), false);
   assert.equal(modelSupportsEmbedding(embedModel), true);
   assert.equal(modelSupportsEmbedding(localModel), false);
-  assert.equal(modelIsKnownThinkingOnly(thinkingOnlyModel), true);
-  assert.equal(modelSupportsCompletion(thinkingOnlyModel), false);
+  assert.equal(modelIsKnownAnswerBudgetIncompatible(boundedAnswerIncompatibleModel), true);
+  assert.equal(modelSupportsCompletion(boundedAnswerIncompatibleModel), true);
+  assert.equal(boundedAnswerIncompatibleModel.supportsCompletion, true);
   assert.equal(modelIsCloudBacked(remoteModel), true);
+});
+
+test("thinking-capable completion models remain eligible for text answers", () => {
+  assert.equal(modelIsKnownAnswerBudgetIncompatible(localModel), false);
+  assert.equal(modelSupportsCompletion(localModel), true);
+  assert.equal(localWritingModelIsSelectable(localModel), true);
+  assert.equal(localWritingModelOptionLabel(localModel), "qwen3:4b-instruct");
+  assert.equal(deriveLocalAiModelCode(localModel), "ready");
+  assert.equal(describeModelReadiness(localModel.name, localModel), "qwen3:4b-instruct is available locally for text completion.");
 });
 
 test("explicit cloud ids stay out of every local-only model path when metadata is absent", () => {
@@ -142,6 +154,20 @@ test("embedding model revision resolves from the installed catalog", () => {
   assert.equal(resolveEmbeddingModelRevision(" bge-m3 ", models), "sha256:current");
   assert.equal(resolveEmbeddingModelRevision("missing", models), undefined);
   assert.equal(resolveEmbeddingModelRevision("", models), undefined);
+});
+
+test("bge-m3 latest aliases resolve consistently for catalog matching and one-click install", () => {
+  const installed = buildModelEntry({
+    name: "bge-m3:latest",
+    digest: "sha256:latest",
+    capabilities: [],
+  });
+
+  assert.equal(localModelNamesMatch(" BGE-M3 ", installed.name), true);
+  assert.equal(modelSupportsEmbedding(installed), true);
+  assert.equal(resolveEmbeddingModelRevision("BGE-M3", [installed]), "sha256:latest");
+  assert.equal(oneClickInstallableEmbeddingModel(" bge-m3 "), "bge-m3");
+  assert.equal(oneClickInstallableEmbeddingModel("BGE-M3:latest"), "bge-m3");
 });
 
 test("createWorkflowSnapshot and snapshotsMatch bind the workflow tuple", () => {
@@ -233,7 +259,7 @@ test("aggregateLocalAiState keeps local enrichment and capture readiness visible
   assert.equal(state.workflows.capture.code, "ready");
 });
 
-test("daemon policy accepts only the exact cloud-disabled status shape", () => {
+test("local readiness is independent of reported Ollama Cloud availability", () => {
   assert.equal(deriveLocalAiDaemonCode({ cloud: { disabled: true } }, [localModel]), "ready");
   assert.equal(deriveLocalAiDaemonCode({ cloud: { disabled: false } }, [localModel]), "ready");
   assert.equal(deriveLocalAiDaemonCode({ cloud: {} }, [localModel]), "ready");
@@ -244,21 +270,21 @@ test("daemon policy accepts only the exact cloud-disabled status shape", () => {
 test("model policy distinguishes local completion, incompatible, and remote-backed models", () => {
   assert.equal(deriveLocalAiModelCode(localModel), "ready");
   assert.equal(deriveLocalAiModelCode(embedModel), "selected_model_incompatible");
-  assert.equal(deriveLocalAiModelCode(thinkingOnlyModel), "selected_model_incompatible");
-  assert.match(describeModelReadiness(thinkingOnlyModel.name, thinkingOnlyModel), /qwen3:4b-instruct/u);
+  assert.equal(deriveLocalAiModelCode(boundedAnswerIncompatibleModel), "selected_model_incompatible");
+  assert.match(describeModelReadiness(boundedAnswerIncompatibleModel.name, boundedAnswerIncompatibleModel), /can generate text.+reliable answers in OMD Home/u);
   assert.equal(deriveLocalAiModelCode(remoteModel), "selected_model_remote_blocked");
 });
 
 test("local completion catalog keeps every downloaded model explainable without making unsafe models selectable", () => {
   const unknownLocalModel = buildModelEntry({ name: "future-text:latest" });
-  const models = [localModel, thinkingOnlyModel, embedModel, remoteModel, unknownLocalModel];
+  const models = [localModel, boundedAnswerIncompatibleModel, embedModel, remoteModel, unknownLocalModel];
 
   assert.equal(localWritingModelIsSelectable(localModel), true);
   assert.equal(localWritingModelIsSelectable(unknownLocalModel), true);
-  assert.equal(localWritingModelIsSelectable(thinkingOnlyModel), false);
+  assert.equal(localWritingModelIsSelectable(boundedAnswerIncompatibleModel), false);
   assert.equal(localWritingModelIsSelectable(embedModel), false);
   assert.equal(localWritingModelIsSelectable(remoteModel), false);
-  assert.equal(localWritingModelOptionLabel(thinkingOnlyModel), "qwen3:4b (thinking-only; unavailable for text answers)");
+  assert.equal(localWritingModelOptionLabel(boundedAnswerIncompatibleModel), "qwen3:4b (not supported for OMD Home answers)");
   assert.equal(localWritingModelOptionLabel(embedModel), "nomic-embed (embedding model; unavailable for text answers)");
   assert.equal(localWritingModelOptionLabel(unknownLocalModel), "future-text:latest (completion support unverified)");
   assert.equal(describeLocalCompletionCatalog(models, false), "");

@@ -281,7 +281,7 @@ export class CloudAnswerConsentModal extends Modal {
     this.titleEl.setText("Send selected vault evidence?");
     this.contentEl.createEl("p", {
       cls: "omd-modal-intro",
-      text: "Retrieval happened locally first. Only your question and the selected evidence excerpts are sent if you continue.",
+      text: "Retrieval happened locally first. If you continue, only your question and the quoted excerpt text are sent with opaque source labels. OMD Home does not add vault filenames or paths; text already written inside an excerpt is sent exactly as shown below.",
     });
     new Setting(this.contentEl).setName("Question").setDesc(this.preview.question);
     new Setting(this.contentEl).setName("Provider").setDesc(this.preview.provider);
@@ -295,7 +295,7 @@ export class CloudAnswerConsentModal extends Modal {
       .setDesc(`${this.preview.estimated_input_tokens} tokens from ${this.preview.character_count} characters`);
     new Setting(this.contentEl).setName("Data handling").setDesc(this.preview.data_handling_summary);
     const details = this.contentEl.createEl("details", { cls: "omd-consent-evidence", attr: { open: "open" } });
-    details.createEl("summary", { text: "Review the exact evidence excerpts that will be sent" });
+    details.createEl("summary", { text: "Review the exact excerpt text that will be sent" });
     const evidenceList = details.createDiv({ cls: "omd-consent-evidence-list" });
     for (const hit of this.preview.evidence) {
       const card = evidenceList.createDiv({ cls: "omd-consent-evidence-card" });
@@ -303,13 +303,14 @@ export class CloudAnswerConsentModal extends Modal {
       card.createEl("code", { text: vaultDisplayPath(hit.path) });
       card.createEl("p", { text: hit.evidence.trim() || "No excerpt available." });
     }
-    if (this.preview.policy_url) {
+    const policyUrl = trustedProviderPolicyUrl(this.preview.destination_domain, this.preview.policy_url);
+    if (policyUrl) {
       new Setting(this.contentEl)
         .setName("Provider policy")
-        .setDesc(this.preview.policy_url)
+        .setDesc(policyUrl)
         .addButton((button) => button
           .setButtonText("Open policy")
-          .onClick(() => window.open(this.preview.policy_url || "", "_blank", "noopener,noreferrer")));
+          .onClick(() => window.open(policyUrl, "_blank", "noopener,noreferrer")));
     }
     new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => {
@@ -336,6 +337,26 @@ export class CloudAnswerConsentModal extends Modal {
     if (this.resolved) return;
     this.resolved = true;
     this.resolveDecision(value);
+  }
+}
+
+export function trustedProviderPolicyUrl(destination: string, value: string | null | undefined): string | null {
+  if (!value) return null;
+  const allowedRoots: Record<string, string> = {
+    "api.openai.com": "openai.com",
+    "api.anthropic.com": "anthropic.com",
+    "api.deepseek.com": "deepseek.com",
+    "ollama.com": "ollama.com",
+  };
+  const root = allowedRoots[destination.trim().toLowerCase()];
+  if (!root) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:" || (host !== root && !host.endsWith(`.${root}`))) return null;
+    return url.toString();
+  } catch {
+    return null;
   }
 }
 

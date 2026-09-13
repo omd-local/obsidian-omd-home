@@ -25,6 +25,20 @@ const WORKFLOW_LABELS: Record<LocalAiWorkflowId, string> = {
 
 export const LOCAL_AI_CACHE_TTL_MS = 60_000;
 
+const ONE_CLICK_INSTALLABLE_EMBEDDING_MODELS = new Map([
+  ["bge-m3", "bge-m3"],
+]);
+
+export function oneClickInstallableEmbeddingModel(value: string): string | null {
+  const canonical = value.trim().toLowerCase().replace(/:latest$/u, "");
+  return ONE_CLICK_INSTALLABLE_EMBEDDING_MODELS.get(canonical) ?? null;
+}
+
+export function localModelNamesMatch(left: string, right: string): boolean {
+  const canonical = (value: string): string => value.trim().toLowerCase().replace(/:latest$/u, "");
+  return Boolean(canonical(left)) && canonical(left) === canonical(right);
+}
+
 export function normalizeLocalOllamaHost(input: string): string {
   const trimmed = input.trim().replace(/\/+$/u, "");
   if (LOCAL_OLLAMA_HOSTS.includes(trimmed as (typeof LOCAL_OLLAMA_HOSTS)[number])) return trimmed;
@@ -73,23 +87,23 @@ export function snapshotsMatch(left: LocalAiSnapshot, right: LocalAiSnapshot): b
     && left.enabled === right.enabled;
 }
 
-export function modelIsKnownThinkingOnly(model: Pick<LocalAiModelEntry, "name">): boolean {
-  const normalized = model.name.trim().toLowerCase();
+export function modelIsKnownAnswerBudgetIncompatible(model: Pick<LocalAiModelEntry, "name">): boolean {
+  const normalized = model.name.trim().toLowerCase().replace(/:latest$/u, "");
   return normalized === "qwen3:4b" || normalized.includes("-thinking");
 }
 
-export function modelSupportsCompletion(model: Pick<LocalAiModelEntry, "name" | "capabilities">): boolean {
-  return model.capabilities.includes("completion") && !modelIsKnownThinkingOnly(model);
+export function modelSupportsCompletion(model: Pick<LocalAiModelEntry, "capabilities">): boolean {
+  return model.capabilities.includes("completion");
 }
 
 export function modelSupportsEmbedding(model: Pick<LocalAiModelEntry, "name" | "capabilities">): boolean {
   if (model.capabilities.includes("embedding")) return true;
-  const normalized = model.name.trim().toLowerCase();
+  const normalized = model.name.trim().toLowerCase().replace(/:latest$/u, "");
   return normalized === "bge-m3" || normalized.includes("embed") || normalized.includes("embedding");
 }
 
 export function localWritingModelIsSelectable(model: LocalAiModelEntry): boolean {
-  if (modelIsCloudBacked(model) || modelIsKnownThinkingOnly(model)) return false;
+  if (modelIsCloudBacked(model) || modelIsKnownAnswerBudgetIncompatible(model)) return false;
   if (modelSupportsCompletion(model)) return true;
   // Missing or partial catalog metadata is inconclusive. The execution gate inspects the
   // selected model with /api/show before any vault evidence is sent to it.
@@ -98,7 +112,10 @@ export function localWritingModelIsSelectable(model: LocalAiModelEntry): boolean
 
 export function localWritingModelOptionLabel(model: LocalAiModelEntry): string {
   if (modelIsCloudBacked(model)) return `${model.name} (cloud-backed; unavailable for local text answers)`;
-  if (modelIsKnownThinkingOnly(model) || model.capabilities.includes("thinking")) {
+  if (modelIsKnownAnswerBudgetIncompatible(model)) {
+    return `${model.name} (not supported for OMD Home answers)`;
+  }
+  if (!modelSupportsCompletion(model) && model.capabilities.includes("thinking")) {
     return `${model.name} (thinking-only; unavailable for text answers)`;
   }
   if (modelSupportsEmbedding(model) && !modelSupportsCompletion(model)) {
@@ -139,7 +156,7 @@ export function buildModelEntry(raw: {
     name,
     digest: raw.digest?.trim() || undefined,
     capabilities,
-    supportsCompletion: capabilities.includes("completion") && !modelIsKnownThinkingOnly({ name }),
+    supportsCompletion: capabilities.includes("completion"),
     remoteModel: raw.remoteModel?.trim() || undefined,
     remoteHost: raw.remoteHost?.trim() || undefined,
   };
@@ -172,7 +189,7 @@ export function resolveEmbeddingModelRevision(
 ): string | undefined {
   const trimmed = modelName.trim();
   if (!trimmed) return undefined;
-  return models.find((model) => model.name === trimmed)?.digest?.trim() || undefined;
+  return models.find((model) => localModelNamesMatch(model.name, trimmed))?.digest?.trim() || undefined;
 }
 
 export function deriveLocalAiDaemonCode(
@@ -185,7 +202,9 @@ export function deriveLocalAiDaemonCode(
 
 export function deriveLocalAiModelCode(model: LocalAiModelInfo): LocalAiReadinessCode {
   if (modelIsCloudBacked(model)) return "selected_model_remote_blocked";
-  if (!modelSupportsCompletion(model)) return "selected_model_incompatible";
+  if (modelIsKnownAnswerBudgetIncompatible(model) || !modelSupportsCompletion(model)) {
+    return "selected_model_incompatible";
+  }
   return "ready";
 }
 
@@ -208,10 +227,10 @@ export function describeModelReadiness(model: string, info: LocalAiModelInfo): s
   if (modelIsCloudBacked(info)) {
     return `${model} was identified as cloud-backed and blocked from local-only use.`;
   }
+  if (modelIsKnownAnswerBudgetIncompatible(info)) {
+    return `${model} can generate text, but it is not supported for reliable answers in OMD Home. Choose qwen3:4b-instruct or another answer-compatible local model.`;
+  }
   if (!modelSupportsCompletion(info)) {
-    if (modelIsKnownThinkingOnly(info)) {
-      return `${model} is not suitable for text answers. Choose qwen3:4b-instruct or another completion-capable local model.`;
-    }
     return `${model} does not advertise text completion support. Choose a completion-capable local model.`;
   }
   return `${model} is available locally for text completion.`;
@@ -226,12 +245,12 @@ export function buildModelSelectorState(
   stale: boolean;
   customValue: string;
 } {
-  const knownNames = new Set(models.map((model) => model.name));
   if (!currentValue.trim()) {
     return { optionValue: "__custom__", useCustom: true, stale: false, customValue: "" };
   }
-  if (knownNames.has(currentValue)) {
-    return { optionValue: currentValue, useCustom: false, stale: false, customValue: currentValue };
+  const known = models.find((model) => localModelNamesMatch(model.name, currentValue));
+  if (known) {
+    return { optionValue: known.name, useCustom: false, stale: false, customValue: currentValue };
   }
   return { optionValue: "__stale__", useCustom: true, stale: true, customValue: currentValue };
 }
@@ -262,6 +281,8 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Cloud status unknown";
     case "no_models_installed":
       return "No models installed";
+    case "credentials_invalid":
+      return "API key rejected";
     case "credentials_missing":
       return "API key missing";
     case "provider_unreachable":
@@ -278,6 +299,8 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Remote-backed model blocked";
     case "snapshot_mismatch":
       return "Settings changed";
+    case "provider_destination_mismatch":
+      return "Destination mismatch";
     case "smoke_failed":
       return "Smoke failed";
   }

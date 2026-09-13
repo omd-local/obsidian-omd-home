@@ -181,7 +181,7 @@ test("widget move and resize are locked while omnibox results temporarily own th
 test("model settings keep labels stable while their controls reflow", () => {
   assert.match(stylesSource, /\.omd-settings-model\s*\{[^}]*grid-template-columns:/su);
   assert.match(stylesSource, /\.omd-settings-model \.setting-item-control\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/su);
-  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control :is\(select, input\)\s*\{[^}]*flex:\s*1 1 210px/su);
+  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control :is\(select, input\[type="text"\], input\[type="password"\]\)\s*\{[^}]*flex:\s*1 1 210px/su);
   assert.match(stylesSource, /@media \(max-width: 900px\)[\s\S]*\.omd-settings-model\s*\{[^}]*grid-template-columns:\s*1fr/su);
 });
 

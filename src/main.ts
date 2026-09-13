@@ -16,9 +16,15 @@ import {
   isHostedApiProvider,
   isStoredAiProvider,
   modelIsCloudBacked,
+  modelIsVerifiedOllamaCloud,
   selectedAiModel,
 } from "./ai-provider.ts";
-import { formatAiAnswerForClipboard, formatAnswerElapsedTime } from "./ai-answer";
+import {
+  answerSourceCount,
+  formatAiAnswerForClipboard,
+  formatAnswerElapsedTime,
+  scopedAiAnswerText,
+} from "./ai-answer";
 import { HOME_VIEW_TYPE, OmdHomeView } from "./home-view";
 import { CALENDAR_VIEW_TYPE, OmdCalendarView } from "./calendar-view";
 import { DEFAULT_LAYOUT, migrateLegacyLayout, normalizeLayout } from "./layout";
@@ -95,9 +101,11 @@ import {
   describeModelReadiness,
   getActiveWorkflowModels,
   isFresh,
+  localModelNamesMatch,
   mergeInspectedModelEntry,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
+  oneClickInstallableEmbeddingModel,
   providerMode,
   resolveEmbeddingModelRevision,
 } from "./local-ai-readiness";
@@ -109,6 +117,7 @@ import {
   type HostedAiRuntimeState,
   type HostedAiProvider,
   type LocalAiConnectionSummary,
+  type LocalAiModelEntry,
   type LocalAiModelInfo,
   type LocalAiRuntimeState,
   type LocalAiSnapshot,
@@ -173,6 +182,7 @@ export default class OmdHomePlugin extends Plugin {
   private hostedCredentialHydration: Promise<void> | null = null;
   private hostedCredentialHydrationProvider: HostedAiProvider | null = null;
   private readonly cloudAnswerConsentModals = new Set<CloudAnswerConsentModal>();
+  private readonly cloudAnswerControllers = new Set<AbortController>();
   private cloudAnswerConsentGeneration = 0;
   private hostedAiController: AbortController | null = null;
   private hostedCredentialMutation: symbol | null = null;
@@ -191,6 +201,7 @@ export default class OmdHomePlugin extends Plugin {
   private lastVerifiedOmdExecutable = "";
   private omdCapabilityCheck: Promise<boolean> | null = null;
   private omdCapabilityGeneration = 0;
+  private settingTab: OmdHomeSettingTab | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -265,7 +276,8 @@ export default class OmdHomePlugin extends Plugin {
       name: "Stop recording",
       callback: () => this.stopRecording(),
     });
-    this.addSettingTab(new OmdHomeSettingTab(this.app, this));
+    this.settingTab = new OmdHomeSettingTab(this.app, this);
+    this.addSettingTab(this.settingTab);
 
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
       if (file.path.startsWith("Calendar/Events/")) this.scheduleCalendarRefresh();
@@ -444,11 +456,14 @@ export default class OmdHomePlugin extends Plugin {
       const model = selectedAiModel(this.settings);
       const { catalog, checked } = await this.withLocalAiSignal(async (signal) => {
         const catalog = await this.omdBridge.discoverProviderModels(provider, signal);
+        this.assertProviderDestination(provider, catalog.destinationDomain);
         signal.throwIfAborted();
         if (!model) return { catalog, checked: null };
+        const checked = await this.omdBridge.checkProviderModel(provider, model, signal);
+        this.assertProviderDestination(provider, checked.destinationDomain);
         return {
           catalog,
-          checked: await this.omdBridge.checkProviderModel(provider, model, signal),
+          checked,
         };
       });
       if (!this.isCurrentHostedAiAction(action, provider)) return false;
@@ -531,6 +546,25 @@ export default class OmdHomePlugin extends Plugin {
     this.clearIssue("ai");
     this.setLocalAiFeedback("neutral", "Checking the Ollama app, Cloud availability, and selected cloud model…");
     const actionToken = this.beginLocalAiAction("check-connection");
+    const publishCatalog = (
+      host: string,
+      checkedAt: number,
+      version: string,
+      models: LocalAiModelEntry[],
+    ): void => {
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
+      this.localAiSummaries.set(host, buildConnectionSummary({
+        host,
+        checkedAt,
+        version,
+        daemonCode: "ready",
+        daemonDetail: "Ollama is reachable. Cloud-backed and local models are inspected separately before use.",
+        models,
+        modelChecks: this.localAiSummaries.get(host)?.modelChecks ?? {},
+      }));
+      this.localAiFailure = null;
+      this.syncLocalAiState(this.localAiState.activeAction);
+    };
     try {
       const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
       const checkedAt = Date.now();
@@ -539,13 +573,14 @@ export default class OmdHomePlugin extends Plugin {
         const version = await this.ollamaLocalClient.version(host, signal);
         const status = await this.ollamaLocalClient.status(host, signal);
         const catalog = await this.ollamaLocalClient.tags(host, signal);
+        publishCatalog(host, checkedAt, version.version, catalog);
         if (status.cloud?.disabled !== false) {
           throw new LocalAiError(
             "cloud_features_unknown",
             "Ollama Cloud is not available. Sign in to the Ollama app and enable Cloud, then check setup again.",
           );
         }
-        const cloudModels = catalog.filter(modelIsCloudBacked);
+        const cloudModels = catalog.filter(modelIsVerifiedOllamaCloud);
         if (!cloudModels.length) {
           throw new LocalAiError(
             "no_models_installed",
@@ -560,33 +595,29 @@ export default class OmdHomePlugin extends Plugin {
           };
         }
         const info = await this.ollamaLocalClient.show(host, model, signal);
+        const catalogEntry = catalog.find((entry) => localModelNamesMatch(entry.name, model));
+        const inspectedEntry = buildModelEntry(info);
+        const entryName = catalogEntry?.name || inspectedEntry.name || model;
         const inspected = mergeInspectedModelEntry(
-          catalog.find((entry) => entry.name === model),
-          buildModelEntry(info),
-          model,
+          catalogEntry,
+          inspectedEntry,
+          entryName,
         );
-        if (!modelIsCloudBacked(inspected)) {
-          throw new LocalAiError("selected_model_incompatible", `${model} is not identified as an Ollama Cloud model.`);
+        if (!modelIsVerifiedOllamaCloud(inspected)) {
+          throw new LocalAiError(
+            "selected_model_incompatible",
+            `${model} is not verified as an Ollama Cloud model routed to https://ollama.com.`,
+          );
         }
         const merged = new Map(catalog.map((entry) => [entry.name, entry]));
-        merged.set(model, inspected);
+        merged.set(entryName, inspected);
         return {
           version,
           models: [...merged.values()].sort((left, right) => left.name.localeCompare(right.name)),
           selectedModelReady: true,
         };
       });
-      this.localAiSummaries.set(host, buildConnectionSummary({
-        host,
-        checkedAt,
-        version: checked.version.version,
-        daemonCode: "ready",
-        daemonDetail: "Ollama is reachable. Cloud-backed and local models are inspected separately before use.",
-        models: checked.models,
-        modelChecks: this.localAiSummaries.get(host)?.modelChecks ?? {},
-      }));
-      this.localAiFailure = null;
-      this.syncLocalAiState(this.localAiState.activeAction);
+      publishCatalog(host, checkedAt, checked.version.version, checked.models);
       if (!checked.selectedModelReady) {
         const feedback = "Ollama Cloud models loaded. Choose an answer model, then check setup again.";
         this.setLocalAiFeedback("neutral", feedback);
@@ -599,7 +630,17 @@ export default class OmdHomePlugin extends Plugin {
       return true;
     } catch (error) {
       if (!isAbortError(error)) {
-        this.setLocalAiFailure(error);
+        if (error instanceof LocalAiError && (
+          error.code === "cloud_features_unknown"
+          || error.code === "no_models_installed"
+          || error.code === "selected_model_missing"
+          || error.code === "selected_model_incompatible"
+          || error.code === "model_unavailable"
+        )) {
+          this.recordIssue("ai", error);
+        } else {
+          this.setLocalAiFailure(error);
+        }
         this.setLocalAiFeedback("error", `Ollama Cloud setup failed. ${message(error)}`);
         new Notice(message(error));
       }
@@ -635,7 +676,11 @@ export default class OmdHomePlugin extends Plugin {
         };
         this.setLocalAiFeedback(
           "success",
-          credential.source === "keychain"
+          credential.keychainPresent
+            ? credential.source === "env"
+              ? `${providerLabel(provider)} key saved to macOS Keychain; ${credential.envVar} remains the active override.`
+              : `${providerLabel(provider)} key saved to macOS Keychain.`
+            : credential.source === "keychain"
             ? `${providerLabel(provider)} key saved to macOS Keychain.`
             : `${providerLabel(provider)} key available from ${credential.envVar}.`,
         );
@@ -673,11 +718,18 @@ export default class OmdHomePlugin extends Plugin {
           provider,
           credential,
           checkedAt: Date.now(),
-          code: "credentials_missing",
-          detail: `${providerLabel(provider)} key removed. Add a key before checking this provider again.`,
+          code: credential.source === "missing" ? "credentials_missing" : "unchecked",
+          detail: credential.source === "missing"
+            ? `${providerLabel(provider)} key removed. Add a key before checking this provider again.`
+            : `The stored ${providerLabel(provider)} key was removed. ${credential.envVar} remains active.`,
           activeAction: "delete-key",
         };
-        this.setLocalAiFeedback("success", `${providerLabel(provider)} key removed.`);
+        this.setLocalAiFeedback(
+          "success",
+          credential.source === "missing"
+            ? `${providerLabel(provider)} key removed.`
+            : `Stored ${providerLabel(provider)} key removed; ${credential.envVar} remains active.`,
+        );
         new Notice(this.localAiFeedback?.message ?? "Key removed.");
       } catch (error) {
         if (isAbortError(error) || !this.isCurrentHostedAiAction(action, provider)) return;
@@ -1077,11 +1129,10 @@ export default class OmdHomePlugin extends Plugin {
     const model = selectedAiModel(this.settings).trim();
     output.hidden = false;
     output.empty();
-    let retrievalOptions = this.qaRetrievalOptions();
     output.createDiv({
       cls: "omd-answer-loading",
       text: this.settings.hybridRetrievalEnabled
-        ? "Preparing local hybrid evidence. First use can take longer..."
+        ? "Preparing local semantic search. First use can take longer..."
         : "Retrieving local evidence...",
     });
     const startedAt = performance.now();
@@ -1091,10 +1142,22 @@ export default class OmdHomePlugin extends Plugin {
         await this.requireReadyOmdExecutable();
         requestSignal?.throwIfAborted();
         const preview = await this.previewLocalAnswer(query, requestSignal);
-        retrievalOptions = preview.retrieval;
+        if (!preview.preview.evidence.length) {
+          const detail = "No relevant vault evidence was found. No model request was sent.";
+          this.clearIssue("ai");
+          this.setLocalAiFeedback("neutral", detail);
+          output.empty();
+          output.createDiv({ cls: "omd-answer-empty", text: detail });
+          this.renderRetrievalDiagnostics(
+            output,
+            preview.preview.warnings ?? [],
+            preview.embeddingFallbackModel,
+          );
+          return;
+        }
         output.empty();
         output.createDiv({ cls: "omd-answer-loading", text: "OMD is reading the selected evidence..." });
-        answer = await this.executeLocalAnswer(query, preview.preview, retrievalOptions, requestSignal);
+        answer = await this.executeLocalAnswer(query, preview, requestSignal);
       } else {
         if (!cloudAnswerPermissionEnabled(this.settings)) {
           const detail = `${aiProviderLabel(provider)} answers are off. Enable Allow ${aiProviderLabel(provider)} answers in Settings → OMD Home → AI answers, then ask again.`;
@@ -1108,7 +1171,19 @@ export default class OmdHomePlugin extends Plugin {
         requestSignal?.throwIfAborted();
         const preview = await this.previewCloudAnswer(query, provider, model, requestSignal);
         if (this.unloaded || requestSignal?.aborted) return;
-        retrievalOptions = preview.retrieval;
+        if (!preview.preview.evidence.length) {
+          const detail = "No relevant vault evidence was found. No model request was sent.";
+          this.clearIssue("ai");
+          this.setLocalAiFeedback("neutral", detail);
+          output.empty();
+          output.createDiv({ cls: "omd-answer-empty", text: detail });
+          this.renderRetrievalDiagnostics(
+            output,
+            preview.preview.warnings ?? [],
+            preview.embeddingFallbackModel,
+          );
+          return;
+        }
         output.empty();
         const consentGeneration = this.cloudAnswerConsentGeneration;
         this.assertCloudConsentStillCurrent(preview, consentGeneration);
@@ -1362,7 +1437,7 @@ export default class OmdHomePlugin extends Plugin {
   async checkLocalAiConnection(): Promise<boolean> {
     if (!this.canStartAiSetupAction()) return false;
     this.clearIssue("ai");
-    this.setLocalAiFeedback("neutral", "Checking Ollama, local-only policy, and selected models…");
+    this.setLocalAiFeedback("neutral", "Checking the local Ollama daemon and selected models…");
     const actionToken = this.beginLocalAiAction("check-connection");
     try {
       const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
@@ -1381,8 +1456,10 @@ export default class OmdHomePlugin extends Plugin {
           for (const model of this.activeLocalAiModels()) {
             try {
               const info = await this.safeShowModel(host, model, signal);
-              const entry = mergeInspectedModelEntry(catalogByName.get(model), buildModelEntry(info), model);
-              catalogByName.set(model, entry);
+              const catalogEntry = catalog.find((candidate) => localModelNamesMatch(candidate.name, model));
+              const entryName = catalogEntry?.name ?? model;
+              const entry = mergeInspectedModelEntry(catalogEntry, buildModelEntry(info), entryName);
+              catalogByName.set(entryName, entry);
               const code = deriveLocalAiModelCode(entry);
               modelChecks[model] = {
                 model,
@@ -1400,6 +1477,17 @@ export default class OmdHomePlugin extends Plugin {
                 detail: error.message,
                 supportsCompletion: false,
               };
+            }
+          }
+          const embeddingModel = this.settings.embeddingModel.trim();
+          if (embeddingModel) {
+            try {
+              const info = await this.safeShowModel(host, embeddingModel, signal);
+              const catalogEntry = catalog.find((candidate) => localModelNamesMatch(candidate.name, embeddingModel));
+              const entryName = catalogEntry?.name ?? embeddingModel;
+              catalogByName.set(entryName, mergeInspectedModelEntry(catalogEntry, buildModelEntry(info), entryName));
+            } catch (error) {
+              if (!(error instanceof LocalAiError) || error.code !== "selected_model_missing") throw error;
             }
           }
         }
@@ -1500,8 +1588,10 @@ export default class OmdHomePlugin extends Plugin {
         if (daemonCode !== "ready") throw new LocalAiError(daemonCode, describeDaemonReadiness(daemonCode));
         const selected = await this.safeShowModel(host, model, signal);
         const mergedModels = new Map(models.map((entry) => [entry.name, entry]));
-        const selectedEntry = mergeInspectedModelEntry(mergedModels.get(model), buildModelEntry(selected), model);
-        mergedModels.set(model, selectedEntry);
+        const catalogEntry = models.find((entry) => localModelNamesMatch(entry.name, model));
+        const entryName = catalogEntry?.name ?? model;
+        const selectedEntry = mergeInspectedModelEntry(catalogEntry, buildModelEntry(selected), entryName);
+        mergedModels.set(entryName, selectedEntry);
         this.localAiSummaries.set(host, buildConnectionSummary({
           host,
           checkedAt: Date.now(),
@@ -1531,6 +1621,95 @@ export default class OmdHomePlugin extends Plugin {
       }
     } finally {
       this.finishLocalAiAction(actionToken);
+    }
+  }
+
+  async installEmbeddingModel(expectedModel: string): Promise<boolean> {
+    if (!this.canStartAiSetupAction()) return false;
+    this.clearIssue("ai");
+    const model = oneClickInstallableEmbeddingModel(expectedModel);
+    this.setLocalAiFeedback("neutral", model ? `Installing ${model} with Ollama…` : "Choose an embedding model first.");
+    const actionToken = this.beginLocalAiAction("install-embedding");
+    let installed = false;
+    try {
+      if (!model) {
+        throw new LocalAiError(
+          "selected_model_incompatible",
+          "This model is not available for one-click installation. Open retrieval settings for manual setup guidance.",
+        );
+      }
+      if (!localModelNamesMatch(this.settings.embeddingModel, expectedModel)) {
+        throw new LocalAiError(
+          "snapshot_mismatch",
+          "The embedding model changed after this action was shown. Open retrieval settings and review the current model.",
+        );
+      }
+      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      await this.withLocalAiSignal(async (signal) => {
+        const catalog = await this.ollamaLocalClient.tags(host, signal);
+        const existing = catalog.find((entry) => localModelNamesMatch(entry.name, model));
+        if (!existing) {
+          await this.ollamaLocalClient.pull(host, model, signal);
+        }
+        const inspected = mergeInspectedModelEntry(
+          existing,
+          buildModelEntry(await this.safeShowModel(host, model, signal)),
+          model,
+        );
+        if (modelIsCloudBacked(inspected)) {
+          throw new LocalAiError("selected_model_remote_blocked", `${model} was identified as cloud-backed and was not accepted for local retrieval.`);
+        }
+        if (!modelSupportsEmbedding(inspected)) {
+          throw new LocalAiError("selected_model_incompatible", `${model} does not advertise embedding support.`);
+        }
+      });
+      installed = true;
+      this.clearIssue("ai");
+      const feedback = `${model} is installed and supports local embeddings. Refreshing the local model catalog…`;
+      this.setLocalAiFeedback("success", feedback);
+      new Notice(feedback);
+    } catch (error) {
+      if (!isAbortError(error)) {
+        this.reportLocalAiWorkflowIssue(error);
+        this.setLocalAiFeedback("error", `Embedding model installation failed. ${message(error)}`);
+        new Notice(message(error));
+      }
+    } finally {
+      this.finishLocalAiAction(actionToken);
+    }
+    if (installed) await this.refreshLocalAiCatalog(false);
+    return installed;
+  }
+
+  async useSparseRetrieval(): Promise<boolean> {
+    if (!this.settings.hybridRetrievalEnabled) {
+      new Notice("Keyword search is already selected.");
+      return false;
+    }
+    if (!this.canStartAiSetupAction()) return false;
+    this.settings.hybridRetrievalEnabled = false;
+    this.invalidateLocalAiState("retrieval");
+    await this.saveSettings();
+    this.setLocalAiFeedback("success", "Keyword search selected. Future vault questions will not require an embedding model.");
+    this.refreshHomeViews();
+    new Notice("Keyword search selected for future vault questions.");
+    return true;
+  }
+
+  openRetrievalSettings(): void {
+    const settings = (this.app as App & {
+      setting?: { open?: () => void; openTabById?: (id: string) => void };
+    }).setting;
+    if (!settings || typeof settings.open !== "function" || typeof settings.openTabById !== "function" || !this.settingTab) {
+      new Notice("Open settings → OMD Home → advanced AI controls → vault retrieval.");
+      return;
+    }
+    try {
+      settings.open();
+      settings.openTabById(this.manifest.id);
+      window.setTimeout(() => this.settingTab?.showRetrievalSettings(), 0);
+    } catch {
+      new Notice("Open settings → OMD Home → advanced AI controls → vault retrieval.");
     }
   }
 
@@ -1900,9 +2079,10 @@ export default class OmdHomePlugin extends Plugin {
     const provider = isStoredAiProvider(answer.provider) ? aiProviderLabel(answer.provider) : answer.provider;
     header.createSpan({ text: `${provider} / ${answer.model}` });
     const actions = header.createDiv({ cls: "omd-answer-actions" });
-    actions.createSpan({ text: `${answer.evidence.length} sources` });
+    const sourceCount = answerSourceCount(answer);
+    actions.createSpan({ text: `${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` });
     if (answer.retrieval_mode) {
-      const retrievalLabel = answer.retrieval_mode === "hybrid" ? "Hybrid" : "Sparse";
+      const retrievalLabel = answer.retrieval_mode === "hybrid" ? "Keyword + semantic search" : "Keyword search";
       actions.createSpan({
         cls: "omd-answer-retrieval",
         text: answer.retrieval_model ? `${retrievalLabel} · ${answer.retrieval_model}` : retrievalLabel,
@@ -1920,17 +2100,49 @@ export default class OmdHomePlugin extends Plugin {
       attr: { "aria-label": "Copy OMD result and source links" },
     });
     copy.addEventListener("click", () => void this.copyAiAnswer(copy, answer));
-    if (answer.warnings?.length) {
-      const diagnostics = output.createDiv({ cls: "omd-answer-diagnostics" });
-      for (const warning of answer.warnings) {
-        diagnostics.createSpan({ cls: "omd-answer-warning", text: humanizeRetrievalWarning(warning) });
-      }
-    }
-    output.createEl("p", { cls: "omd-answer-text", text: answer.text });
+    this.renderRetrievalDiagnostics(output, answer.warnings ?? [], answer.embeddingFallbackModel ?? null);
+    output.createEl("p", { cls: "omd-answer-text", text: scopedAiAnswerText(answer) });
     const sources = output.createDiv({ cls: "omd-answer-sources" });
     for (const hit of answer.evidence) {
       const link = sources.createEl("button", { cls: "omd-source-link", type: "button", text: hit.path });
       link.addEventListener("click", () => void this.app.workspace.openLinkText(hit.path, "", false));
+    }
+  }
+
+  private renderRetrievalDiagnostics(
+    output: HTMLElement,
+    warnings: string[],
+    embeddingFallbackModel: string | null,
+  ): void {
+    if (!warnings.length) return;
+    const diagnostics = output.createDiv({ cls: "omd-answer-diagnostics" });
+    for (const warning of warnings) {
+      const diagnostic = diagnostics.createDiv({ cls: "omd-answer-warning" });
+      diagnostic.createSpan({ text: humanizeRetrievalWarning(warning) });
+      if (!isEmbeddingRetrievalWarning(warning)) continue;
+      const warningActions = diagnostic.createDiv({ cls: "omd-answer-warning-actions" });
+      const installableModel = warning === "hybrid_retrieval_model_not_installed"
+        ? oneClickInstallableEmbeddingModel(embeddingFallbackModel ?? "")
+        : null;
+      if (installableModel) {
+        const install = warningActions.createEl("button", { type: "button", text: "Install model" });
+        install.title = `Install ${installableModel} with the configured local Ollama service`;
+        install.disabled = this.aiSetupBusy();
+        install.addEventListener("click", () => void this.installEmbeddingModel(installableModel).then((installed) => {
+          if (installed && install.isConnected) install.textContent = "Installed";
+        }));
+      }
+      const sparse = warningActions.createEl("button", { type: "button", text: "Switch to keyword search" });
+      sparse.title = "Turn off semantic search for future vault questions";
+      sparse.disabled = this.aiSetupBusy();
+      sparse.addEventListener("click", () => void this.useSparseRetrieval().then((selected) => {
+        if (selected && sparse.isConnected) {
+          sparse.textContent = "Keyword search selected";
+          sparse.disabled = true;
+        }
+      }));
+      const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
+      settings.addEventListener("click", () => this.openRetrievalSettings());
     }
   }
 
@@ -2076,9 +2288,10 @@ export default class OmdHomePlugin extends Plugin {
   private async prepareQaRetrieval(signal?: AbortSignal): Promise<{
     options: HybridRetrievalOptions;
     warning: string | null;
+    warningModel: string | null;
   }> {
     const requested = this.qaRetrievalOptions();
-    if (!requested.hybridRetrievalEnabled) return { options: requested, warning: null };
+    if (!requested.hybridRetrievalEnabled) return { options: requested, warning: null, warningModel: null };
     try {
       const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
       const status = await this.ollamaLocalClient.status(host, signal);
@@ -2087,7 +2300,7 @@ export default class OmdHomePlugin extends Plugin {
       if (daemonCode === "no_models_installed") throw new LocalAiError(daemonCode, describeDaemonReadiness(daemonCode));
       const embeddingModel = requested.embeddingModel.trim();
       if (!embeddingModel) throw new LocalAiError("selected_model_missing", "Choose a local embedding model.");
-      const catalogEntry = models.find((model) => model.name === embeddingModel);
+      const catalogEntry = models.find((model) => localModelNamesMatch(model.name, embeddingModel));
       const inspected = mergeInspectedModelEntry(
         catalogEntry,
         buildModelEntry(await this.safeShowModel(host, embeddingModel, signal)),
@@ -2105,9 +2318,11 @@ export default class OmdHomePlugin extends Plugin {
           embeddingModelRevision: inspected.digest ?? catalogEntry?.digest ?? requested.embeddingModelRevision,
         },
         warning: null,
+        warningModel: null,
       };
     } catch (error) {
       if (isAbortError(error)) throw error;
+      const warning = retrievalWarningForError(error, requested.embeddingModel);
       return {
         options: {
           ...requested,
@@ -2115,7 +2330,10 @@ export default class OmdHomePlugin extends Plugin {
           semanticRerankEnabled: false,
           embeddingModelRevision: undefined,
         },
-        warning: "hybrid_retrieval_local_safety_fallback",
+        warning,
+        warningModel: warning === "hybrid_retrieval_model_not_installed"
+          ? requested.embeddingModel.trim()
+          : null,
       };
     }
   }
@@ -2123,10 +2341,12 @@ export default class OmdHomePlugin extends Plugin {
   private async previewLocalAnswer(query: string, requestSignal?: AbortSignal): Promise<{
     preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
     retrieval: HybridRetrievalOptions;
+    embeddingFallbackModel: string | null;
   }> {
     const snapshot = createWorkflowSnapshot("qa", this.settings, true);
     let retrieval = this.qaRetrievalOptions();
     let retrievalWarning: string | null = null;
+    let embeddingFallbackModel: string | null = null;
     const preview = await this.runLocalAiGated(
       snapshot,
       () => createWorkflowSnapshot("qa", this.settings, true),
@@ -2134,6 +2354,7 @@ export default class OmdHomePlugin extends Plugin {
         const prepared = await this.prepareQaRetrieval(signal);
         retrieval = prepared.options;
         retrievalWarning = prepared.warning;
+        embeddingFallbackModel = prepared.warningModel;
         return await this.omdBridge.previewAi(
           this.vaultPath(),
           query,
@@ -2149,6 +2370,7 @@ export default class OmdHomePlugin extends Plugin {
     return {
       preview: retrievalWarning ? mergeRetrievalWarnings(preview, [retrievalWarning]) : preview,
       retrieval,
+      embeddingFallbackModel,
     };
   }
 
@@ -2163,26 +2385,38 @@ export default class OmdHomePlugin extends Plugin {
     endpoint: string;
     preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
     retrieval: HybridRetrievalOptions;
+    embeddingFallbackModel: string | null;
   }> {
     if (provider === "ollama") {
       throw new Error("Cloud preview is unavailable for the local Ollama provider.");
     }
-    if (!model) {
-      throw new LocalAiError(
-        "selected_model_missing",
-        `Choose an answer model for ${aiProviderLabel(provider)} before continuing.`,
-      );
-    }
     let retrieval = this.qaRetrievalOptions();
     let retrievalWarning: string | null = null;
+    let embeddingFallbackModel: string | null = null;
     const endpoint = provider === "ollama-cloud"
       ? normalizeLocalOllamaHost(this.settings.ollamaHost)
       : this.currentLocalAiHost() ?? DEFAULT_SETTINGS.ollamaHost;
-    const preview = await this.withLocalAiSignal(async (signal) => {
+    const preview = await this.withCloudAnswerSignal(async (signal) => {
+      if (isHostedApiProvider(provider)) {
+        const credential = await this.omdBridge.hostedCredentialState(provider, signal);
+        if (credential.source === "missing") {
+          throw new LocalAiError(
+            "credentials_missing",
+            `Add a ${aiProviderLabel(provider)} developer API key in Settings → OMD Home → AI answers before continuing.`,
+          );
+        }
+      }
+      if (!model) {
+        throw new LocalAiError(
+          "selected_model_missing",
+          `Choose an answer model for ${aiProviderLabel(provider)} before continuing.`,
+        );
+      }
       const prepared = await this.prepareQaRetrieval(signal);
       retrieval = prepared.options;
       retrievalWarning = prepared.warning;
-      return await this.omdBridge.previewAi(
+      embeddingFallbackModel = prepared.warningModel;
+      const providerPreview = await this.omdBridge.previewAi(
         this.vaultPath(),
         query,
         provider,
@@ -2191,6 +2425,8 @@ export default class OmdHomePlugin extends Plugin {
         retrieval,
         signal,
       );
+      this.assertProviderDestination(provider, providerPreview.preview.destination_domain);
+      return providerPreview;
     }, requestSignal);
     return {
       provider,
@@ -2198,13 +2434,17 @@ export default class OmdHomePlugin extends Plugin {
       endpoint,
       preview: retrievalWarning ? mergeRetrievalWarnings(preview, [retrievalWarning]) : preview,
       retrieval,
+      embeddingFallbackModel,
     };
   }
 
   private async executeLocalAnswer(
     query: string,
-    preview: Awaited<ReturnType<OmdBridge["previewAi"]>>,
-    retrieval: HybridRetrievalOptions,
+    prepared: {
+      preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
+      retrieval: HybridRetrievalOptions;
+      embeddingFallbackModel: string | null;
+    },
     requestSignal?: AbortSignal,
   ): Promise<AiAnswer> {
     const snapshot = createWorkflowSnapshot("qa", this.settings, true);
@@ -2218,13 +2458,16 @@ export default class OmdHomePlugin extends Plugin {
         gatedSnapshot.model,
         gatedSnapshot.host,
         false,
-        preview.consent_grant ?? null,
-        retrieval,
+        prepared.preview.consent_grant ?? null,
+        prepared.retrieval,
         signal,
       ),
       requestSignal,
     );
-    return mergeRetrievalWarnings(answer, preview.warnings ?? []);
+    return withEmbeddingFallbackModel(
+      mergeRetrievalWarnings(answer, prepared.preview.warnings ?? []),
+      prepared.embeddingFallbackModel,
+    );
   }
 
   private async executeCloudAnswer(
@@ -2235,10 +2478,11 @@ export default class OmdHomePlugin extends Plugin {
       endpoint: string;
       preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
       retrieval: HybridRetrievalOptions;
+      embeddingFallbackModel: string | null;
     },
     requestSignal?: AbortSignal,
   ): Promise<AiAnswer> {
-    const answer = await this.withLocalAiSignal(async (signal) => await this.omdBridge.executeAi(
+    const answer = await this.withCloudAnswerSignal(async (signal) => await this.omdBridge.executeAi(
       this.vaultPath(),
       query,
       preview.provider,
@@ -2249,7 +2493,20 @@ export default class OmdHomePlugin extends Plugin {
       preview.retrieval,
       signal,
     ), requestSignal);
-    return mergeRetrievalWarnings(answer, preview.preview.warnings ?? []);
+    return withEmbeddingFallbackModel(
+      mergeRetrievalWarnings(answer, preview.preview.warnings ?? []),
+      preview.embeddingFallbackModel,
+    );
+  }
+
+  private assertProviderDestination(provider: StoredAiProvider, actual: string): void {
+    const expected = aiProviderDestination(provider);
+    if (actual.trim().toLowerCase() !== expected.toLowerCase()) {
+      throw new LocalAiError(
+        "provider_destination_mismatch",
+        `The provider returned an unexpected request destination. Expected ${expected}; nothing was sent.`,
+      );
+    }
   }
 
   private assertCloudPreviewStillCurrent(preview: {
@@ -2334,11 +2591,11 @@ export default class OmdHomePlugin extends Plugin {
         }
         throw error;
       }
-      const catalogEntry = models.find((model) => model.name === snapshot.model);
+      const catalogEntry = models.find((model) => localModelNamesMatch(model.name, snapshot.model));
       const modelEntry = mergeInspectedModelEntry(
         catalogEntry,
         buildModelEntry(selectedModelShow),
-        snapshot.model,
+        catalogEntry?.name ?? snapshot.model,
       );
       const modelCode = deriveLocalAiModelCode(modelEntry);
       this.storeLiveGateModelResult(snapshot, models, {
@@ -2387,6 +2644,28 @@ export default class OmdHomePlugin extends Plugin {
       return result;
     } finally {
       parentSignal?.removeEventListener("abort", relayAbort);
+      this.localAiControllers.delete(controller);
+    }
+  }
+
+  private async withCloudAnswerSignal<T>(
+    task: (signal: AbortSignal) => Promise<T>,
+    parentSignal?: AbortSignal,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (this.unloaded || this.hostedCredentialMutation || parentSignal?.aborted) controller.abort();
+    else parentSignal?.addEventListener("abort", relayAbort, { once: true });
+    this.cloudAnswerControllers.add(controller);
+    this.localAiControllers.add(controller);
+    try {
+      controller.signal.throwIfAborted();
+      const result = await task(controller.signal);
+      controller.signal.throwIfAborted();
+      return result;
+    } finally {
+      parentSignal?.removeEventListener("abort", relayAbort);
+      this.cloudAnswerControllers.delete(controller);
       this.localAiControllers.delete(controller);
     }
   }
@@ -2480,7 +2759,9 @@ export default class OmdHomePlugin extends Plugin {
     const previous = this.localAiSummaries.get(snapshot.host);
     const catalog = new Map(models.map((model) => [model.name, model]));
     if (modelEntry) {
-      catalog.set(snapshot.model, mergeInspectedModelEntry(catalog.get(snapshot.model), modelEntry, snapshot.model));
+      const catalogEntry = models.find((model) => localModelNamesMatch(model.name, snapshot.model));
+      const entryName = catalogEntry?.name ?? snapshot.model;
+      catalog.set(entryName, mergeInspectedModelEntry(catalogEntry, modelEntry, entryName));
     }
     this.localAiSummaries.set(snapshot.host, buildConnectionSummary({
       host: snapshot.host,
@@ -2591,6 +2872,8 @@ export default class OmdHomePlugin extends Plugin {
   private beginHostedCredentialMutation(): symbol {
     const mutation = Symbol("hosted-credential-mutation");
     this.hostedCredentialMutation = mutation;
+    this.invalidateCloudAnswerConsent();
+    this.cancelCloudAnswerRequests();
     return mutation;
   }
 
@@ -2608,6 +2891,11 @@ export default class OmdHomePlugin extends Plugin {
   private cancelHostedAiAction(): void {
     this.hostedAiController?.abort();
     this.hostedAiController = null;
+  }
+
+  private cancelCloudAnswerRequests(): void {
+    for (const controller of this.cloudAnswerControllers) controller.abort();
+    this.cloudAnswerControllers.clear();
   }
 
   invalidateCloudAnswerConsent(): void {
@@ -2759,7 +3047,9 @@ function buildHostedState(provider: HostedAiProvider): HostedAiRuntimeState {
 }
 
 function mapHostedErrorCode(error: unknown): HostedAiRuntimeState["code"] {
+  if (error instanceof LocalAiError) return error.code;
   const detail = message(error).toLowerCase();
+  if (/rejected.+(?:developer )?api key|api key.+rejected/u.test(detail)) return "credentials_invalid";
   if (/credential|api key|keychain/u.test(detail)) return "credentials_missing";
   if (/model.+(?:unavailable|missing|not found)/u.test(detail)) return "model_unavailable";
   if (/catalog|validate provider models|model check/u.test(detail)) return "provider_catalog_unavailable";
@@ -2841,26 +3131,85 @@ function mergeRetrievalWarnings<T extends { warnings?: string[] }>(value: T, war
   return { ...value, warnings: unique };
 }
 
+function withEmbeddingFallbackModel<T extends AiAnswer>(value: T, model: string | null): T {
+  if (!model) return value;
+  return { ...value, embeddingFallbackModel: model };
+}
+
 function humanizeRetrievalWarning(value: string): string {
   if (value === "hybrid_retrieval_unsupported_by_omd") {
-    return "This OMD build does not support hybrid retrieval yet, so the answer used sparse retrieval only.";
+    return "This OMD build does not support semantic search yet, so this answer used keyword search only.";
   }
   if (value === "hybrid_retrieval_model_missing") {
-    return "No local embedding model is selected, so the answer used sparse retrieval only.";
+    return "No local embedding model is selected, so this answer used keyword search only.";
+  }
+  if (value === "hybrid_retrieval_model_not_installed") {
+    return "The selected embedding model is not installed in Ollama, so this answer used keyword search only.";
+  }
+  if (value === "hybrid_retrieval_daemon_unreachable") {
+    return "The local Ollama service could not be reached, so this answer used keyword search only.";
+  }
+  if (value === "hybrid_retrieval_model_unsupported") {
+    return "The selected Ollama model does not support embeddings, so this answer used keyword search only.";
+  }
+  if (value === "hybrid_retrieval_model_remote_blocked") {
+    return "The selected embedding model is cloud-backed and cannot be used for local search, so this answer used keyword search only.";
+  }
+  if (value === "hybrid_retrieval_endpoint_invalid") {
+    return "The Ollama endpoint is not an accepted loopback address, so this answer used keyword search only.";
+  }
+  if (value === "hybrid_retrieval_check_failed") {
+    return "The embedding check could not finish, so this answer used keyword search only. Open retrieval settings for details.";
   }
   if (value === "hybrid_retrieval_failed") {
-    return "Hybrid retrieval fell back to sparse retrieval for this answer.";
+    return "Semantic search was unavailable, so this answer used keyword search only.";
   }
   if (value === "hybrid_retrieval_local_safety_fallback") {
-    return "The local embedding setup could not be verified, so this answer used sparse vault search only.";
+    return "The local embedding setup could not be verified, so this answer used keyword search only.";
   }
   if (value === "semantic_recall_unavailable") {
-    return "Semantic recall was unavailable for this answer, so sparse retrieval stayed in effect.";
+    return "Semantic search was unavailable for this answer, so keyword search stayed in effect.";
   }
   if (value === "semantic_rerank_unavailable") {
-    return "Semantic reranking was unavailable for this answer, so the sparse-first evidence order was kept.";
+    return "Semantic reranking was unavailable for this answer, so the keyword search order was kept.";
+  }
+  if (value === "answer_citation_coverage_incomplete") {
+    return "Some generated claims did not include an inline citation. Treat those claims as unverified and retry before relying on them.";
+  }
+  if (value === "answer_provenance_labels_missing") {
+    return "The generated answer did not clearly separate source statements from model inference. Treat unlabeled synthesis as model-generated.";
   }
   return value.replaceAll("_", " ");
+}
+
+function retrievalWarningForError(error: unknown, embeddingModel: string): string {
+  if (!(error instanceof LocalAiError)) return "hybrid_retrieval_check_failed";
+  if (error.code === "invalid_host") return "hybrid_retrieval_endpoint_invalid";
+  if (error.code === "daemon_unreachable" || error.code === "version_unavailable") {
+    return "hybrid_retrieval_daemon_unreachable";
+  }
+  if (error.code === "status_unavailable") return "hybrid_retrieval_check_failed";
+  if (error.code === "no_models_installed") return "hybrid_retrieval_model_not_installed";
+  if (error.code === "selected_model_missing") {
+    return embeddingModel.trim() ? "hybrid_retrieval_model_not_installed" : "hybrid_retrieval_model_missing";
+  }
+  if (error.code === "selected_model_incompatible") return "hybrid_retrieval_model_unsupported";
+  if (error.code === "selected_model_remote_blocked") return "hybrid_retrieval_model_remote_blocked";
+  return "hybrid_retrieval_check_failed";
+}
+
+function isEmbeddingRetrievalWarning(value: string): boolean {
+  return value === "hybrid_retrieval_model_missing"
+    || value === "hybrid_retrieval_model_not_installed"
+    || value === "hybrid_retrieval_daemon_unreachable"
+    || value === "hybrid_retrieval_model_unsupported"
+    || value === "hybrid_retrieval_model_remote_blocked"
+    || value === "hybrid_retrieval_endpoint_invalid"
+    || value === "hybrid_retrieval_check_failed"
+    || value === "hybrid_retrieval_local_safety_fallback"
+    || value === "hybrid_retrieval_unsupported_by_omd"
+    || value === "semantic_recall_unavailable"
+    || value === "semantic_rerank_unavailable";
 }
 
 function localAiWorkflowLabel(workflow: LocalAiWorkflowId): string {

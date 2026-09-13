@@ -13,6 +13,7 @@ export type LocalAiReadinessCode =
   | "cloud_features_enabled"
   | "cloud_features_unknown"
   | "no_models_installed"
+  | "credentials_invalid"
   | "credentials_missing"
   | "provider_unreachable"
   | "provider_catalog_unavailable"
@@ -21,6 +22,7 @@ export type LocalAiReadinessCode =
   | "selected_model_incompatible"
   | "selected_model_remote_blocked"
   | "snapshot_mismatch"
+  | "provider_destination_mismatch"
   | "smoke_failed"
   | "unchecked"
   | "ready";
@@ -123,7 +125,7 @@ export interface LocalAiRuntimeState {
   workflows: Record<LocalAiWorkflowId, LocalAiWorkflowDisplayState>;
   models: LocalAiModelEntry[];
   modelChecks: Record<string, LocalAiCheckedModel>;
-  activeAction: "" | "refresh-models" | "check-connection" | "test-embeddings" | `smoke:${LocalAiWorkflowId}`;
+  activeAction: "" | "refresh-models" | "check-connection" | "install-embedding" | "test-embeddings" | `smoke:${LocalAiWorkflowId}`;
 }
 
 export interface LocalAiActionFeedback {
@@ -137,6 +139,8 @@ export interface HostedAiCredentialState {
   envVar: string;
   source: "missing" | "env" | "keychain";
   keychainSupported: boolean;
+  envPresent: boolean;
+  keychainPresent: boolean;
 }
 
 export interface HostedAiCatalog {

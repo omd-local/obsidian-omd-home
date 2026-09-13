@@ -108,6 +108,25 @@ export function modelIsCloudBacked(
     .includes("cloud");
 }
 
+export function modelIsVerifiedOllamaCloud(
+  model: Pick<LocalAiModelEntry, "remoteModel" | "remoteHost">,
+): boolean {
+  if (!model.remoteModel?.trim() || !model.remoteHost?.trim()) return false;
+  try {
+    const remote = new URL(model.remoteHost);
+    return remote.protocol === "https:"
+      && remote.hostname === "ollama.com"
+      && (remote.port === "" || remote.port === "443")
+      && remote.username === ""
+      && remote.password === ""
+      && (remote.pathname === "" || remote.pathname === "/")
+      && remote.search === ""
+      && remote.hash === "";
+  } catch {
+    return false;
+  }
+}
+
 export function providerSetupDescription(provider: StoredAiProvider): string {
   switch (provider) {
     case "ollama":

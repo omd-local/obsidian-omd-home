@@ -181,6 +181,10 @@ test("Phase 2 settings expose an explicit provider choice and inline provider bo
   assert.match(source, /for \(const value of AI_PROVIDER_VALUES\) dropdown\.addOption\(value, aiProviderLabel\(value\)\)/u);
   assert.match(source, /setDesc\(`Choose where @ questions are answered\. \$\{providerSetupDescription\(provider\)\}`\)/u);
   assert.match(source, /providerSetupDescription\(provider\)/u);
+  assert.match(source, /setName\("Request destination"\)/u);
+  assert.match(source, /text: aiProviderDestination\(provider\)/u);
+  assert.match(stylesSource, /\.omd-settings-fixed-value/u);
+  assert.match(stylesSource, /\.omd-settings-destination \.setting-item-control/u);
   assert.match(source, /setName\(`Allow \$\{aiProviderLabel\(provider\)\} answers`\)/u);
   assert.match(source, /allowedCloudAnswerProviders/u);
   assert.match(source, /bounded evidence excerpts/u);
@@ -193,12 +197,14 @@ test("Phase 2 settings expose an explicit provider choice and inline provider bo
   assert.doesNotMatch(source, /setName\("Provider boundary"\)/u);
 });
 
-test("answer model labels stay plain and move local readiness into a status rail", () => {
+test("answer model labels stay consistent and move local readiness into a status rail", () => {
   const answerModelBlock = extractFunctionBody(source, "private answerModelSetting");
   assert.doesNotMatch(answerModelBlock, /use an instruct model/iu);
+  assert.match(answerModelBlock, /const title = "Answer model"/u);
+  assert.match(answerModelBlock, /Choose the local Ollama model used to answer read-only @ questions/iu);
   assert.match(answerModelBlock, /qwen3:4b-instruct is the default/iu);
   assert.match(answerModelBlock, /describeLocalCompletionCatalog\(this\.plugin\.localAiState\.models, catalogChecked\)/u);
-  assert.match(answerModelBlock, /modelReadinessRail\(container, "Text completion model", qaWorkflow, selector\.stale\)/u);
+  assert.match(answerModelBlock, /modelReadinessRail\(container, "Answer model", qaWorkflow, selector\.stale\)/u);
   assert.doesNotMatch(answerModelBlock, /describeReadinessCode\(/u);
   assert.match(answerModelBlock, /Custom model id saved\. Run Check setup to verify it is installed\./u);
 });
@@ -208,14 +214,16 @@ test("local Vault Q&A reuses the local completion selector policy without changi
   assert.match(answerModelBlock, /const localModels = this\.plugin\.localAiState\.models\.filter\(\(model\) => !modelIsCloudBacked\(model\)\)/u);
   assert.match(answerModelBlock, /provider === "ollama" \? localWritingModelOptionLabel\(model\) : model\.name/u);
   assert.match(answerModelBlock, /disableUnavailableLocalModelOptions\(dropdown\.selectEl, models\)/u);
-  assert.match(answerModelBlock, /provider === "ollama-cloud"\s*\? this\.plugin\.localAiState\.models\.filter\(modelIsCloudBacked\)/u);
+  assert.match(answerModelBlock, /provider === "ollama-cloud"\s*\? this\.plugin\.localAiState\.models\.filter\(modelIsVerifiedOllamaCloud\)/u);
+  assert.match(answerModelBlock, /const ollamaCatalogProvider = provider === "ollama" \|\| provider === "ollama-cloud"/u);
+  assert.match(answerModelBlock, /optionValue: known \? matchingOllamaModel\?\.name \?\? current : "__stale__"/u);
   assert.match(answerModelBlock, /this\.plugin\.hostedAiState\?\.provider === provider \? this\.plugin\.hostedAiState\.models : \[\]/u);
   assert.match(answerModelBlock, /options\.__custom__ = "Custom…"/u);
   assert.match(answerModelBlock, /\(saved, unavailable for local answers\)/u);
   assert.match(answerModelBlock, /\(saved, not installed\)/u);
   assert.match(answerModelBlock, /value === "__custom__" \|\| value === "__stale__"/u);
   assert.match(answerModelBlock, /buildModelSelectorState/u);
-  assert.match(answerModelBlock, /const showCustom = custom \|\| \(!current && selector\.useCustom\)/u);
+  assert.match(answerModelBlock, /const showCustom = !credentialBlocked && \(custom \|\| \(!current && selector\.useCustom\)\)/u);
   assert.match(answerModelBlock, /omd-settings-model/u);
 });
 
@@ -262,15 +270,21 @@ test("hybrid retrieval settings keep embedding choices local and expose an embed
   assert.match(source, /hybridRetrievalEnabled:\s*true/u);
   assert.match(source, /embeddingModel:\s*"bge-m3"/u);
   assert.match(source, /semanticRerankEnabled:\s*false/u);
-  assert.match(source, /setName\("Hybrid retrieval"\)/u);
+  assert.match(source, /setName\("Keyword \+ semantic search"\)/u);
+  assert.match(source, /Turn off to use keyword search only/u);
   assert.match(source, /setName\("Embedding model"\)/u);
   assert.match(source, /modelSupportsEmbedding\(model\)\s*&&\s*!modelIsCloudBacked\(model\)/u);
   assert.match(source, /setButtonText\([^)]*"Test embeddings"/u);
   assert.match(source, /testLocalEmbeddings\(\)/u);
-  assert.match(source, /The saved embedding model is unavailable locally/u);
-  assert.match(source, /Copy download command/u);
-  assert.match(source, /navigator\.clipboard\.writeText\("ollama pull bge-m3"\)/u);
-  assert.match(source, /never installs models automatically/u);
+  assert.match(source, /The saved embedding model is not installed/u);
+  assert.match(source, /The saved model is cloud-backed and cannot be used for local Vault retrieval/u);
+  assert.match(source, /The saved model is installed but does not advertise embedding support/u);
+  assert.match(source, /setButtonText\(this\.plugin\.localAiState\.activeAction === "install-embedding" \? "Installing…" : "Install model"\)/u);
+  assert.match(source, /this\.plugin\.installEmbeddingModel\(installableModel\)/u);
+  assert.match(source, /The saved model is not installed/u);
+  assert.match(source, /omd-settings-embedding-model/u);
+  assert.match(stylesSource, /\.omd-answer-warning-actions/u);
+  assert.match(stylesSource, /\.omd-answer-warning/u);
   assert.equal([...source.matchAll(/invalidateLocalAiState\("retrieval"\)/gu)].length, 3);
 });
 
@@ -300,6 +314,19 @@ test("AI answer settings rerender only their section and expose durable action f
   assert.equal([...source.matchAll(/settingsDisclosure\(\s*container,\s*"(?:Search quality|Local capture and links|Ollama troubleshooting)"/gu)].length, 0);
 });
 
+test("settings use one readable layout for headings, cloud consent, keys, and endpoint errors", () => {
+  assert.match(source, /omd-settings-heading/u);
+  assert.match(source, /omd-settings-subheading/u);
+  assert.match(source, /permission\.settingEl\.addClass\("omd-settings-model", "omd-settings-cloud-permission"\)/u);
+  assert.match(source, /endpoint\.settingEl\.addClass\("omd-settings-model", "omd-settings-endpoint"\)/u);
+  assert.match(stylesSource, /\.omd-settings-endpoint-validation\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/su);
+  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control :is\(select, input\[type="text"\], input\[type="password"\]\)/u);
+  assert.match(stylesSource, /\.omd-settings-heading \.setting-item-name/u);
+  assert.match(stylesSource, /\.omd-settings-advanced > p/u);
+  assert.match(stylesSource, /\.omd-settings-local-ai\s*\{[^}]*container:\s*omd-settings\s*\/\s*inline-size/su);
+  assert.match(stylesSource, /@container omd-settings \(max-width: 580px\)\s*\{[^}]*\.omd-settings-model\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/su);
+});
+
 test("local completion selectors show every downloaded local model while disabling unsafe choices", () => {
   assert.match(source, /disableUnavailableLocalModelOptions/u);
   assert.match(source, /option\.disabled = true/u);
@@ -313,7 +340,10 @@ test("local completion selectors show every downloaded local model while disabli
 
 test("unchecked catalogs remain neutral and only checked missing models become unavailable", () => {
   assert.match(source, /const catalogChecked = typeof this\.plugin\.localAiState\.catalogCheckedAt === "number"/u);
-  assert.match(source, /const savedUnavailable = catalogChecked &&/u);
+  assert.match(source, /const savedMissing = catalogChecked &&/u);
+  assert.match(source, /const savedRemote = catalogChecked &&/u);
+  assert.match(source, /const savedUnsupported = catalogChecked &&/u);
+  assert.match(source, /const savedUnavailable = savedMissing \|\| savedRemote \|\| savedUnsupported/u);
   assert.match(source, /state\.code === "unchecked"/u);
   assert.match(source, /is-neutral/u);
   assert.match(source, /Embedding model installed/u);
@@ -369,7 +399,8 @@ test("hosted setup disables route controls and rerenders at action boundaries", 
   assert.match(localAiSection, /\.setDisabled\(aiSetupBusy\)\s*\.onChange\(async \(enabled\)/u);
   assert.match(localAiSection, /\.setDisabled\(aiSetupBusy \|\| !this\.plugin\.settings\.hybridRetrievalEnabled\)/u);
   assert.match(localAiSection, /text\.setValue\(this\.plugin\.settings\.ollamaHost\)\.setDisabled\(aiSetupBusy\)/u);
-  assert.match(answerModel, /dropdown\.setValue\(showCustom \? "__custom__" : selector\.optionValue\)\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(answerModel, /setDisabled\(aiSetupBusy \|\| \(isHostedApiProvider\(provider\) && !hostedCredentialReady\)\)/u);
+  assert.match(answerModel, /"Add developer key first"/u);
   assert.match(answerModel, /setButtonText\("Save model"\)\s*\.setDisabled\(aiSetupBusy\)/u);
   assert.match(credential, /runAiSetupAction\(\(\) => this\.plugin\.saveHostedApiKey/u);
   assert.match(credential, /runAiSetupAction\(\(\) => this\.plugin\.deleteHostedApiKey/u);
@@ -383,6 +414,94 @@ test("hosted setup disables route controls and rerenders at action boundaries", 
   assert.match(writingModel, /text\.setValue\(selector\.customValue\)\.setDisabled\(aiSetupBusy\)/u);
   assert.match(writingModel, /setButtonText\("Save model"\)\s*\.setDisabled\(aiSetupBusy\)/u);
   assert.match(embeddings, /runAiSetupAction\(\(\) => this\.plugin\.testLocalEmbeddings/u);
+  assert.match(credential, /"Save & check"/u);
+  assert.match(credential, /if \(saved\) \{\s*await this\.runAiSetupAction\(\(\) => this\.plugin\.checkHostedAiConnection\(\)\);\s*\}/u);
+});
+
+test("rapid provider, model, and permission callbacks preserve provider-scoped state and serialize saves", async () => {
+  const notices: string[] = [];
+  const firstSave = deferredResult<void>();
+  const snapshots: Array<Record<string, unknown>> = [];
+  let saveCalls = 0;
+  let activeSaves = 0;
+  let maxActiveSaves = 0;
+  const tab = loadSettingTabMethods([
+    "saveSettingsInOrder",
+    "changeAnswerProvider",
+    "changeCloudAnswerPermission",
+    "saveAnswerModel",
+  ], {
+    isStoredAiProvider: (value: string) => ["ollama", "ollama-cloud", "openai", "anthropic", "deepseek"].includes(value),
+    isCloudAiProvider: (provider: string) => provider !== "ollama",
+    aiProviderLabel: (provider: string) => provider,
+    Notice: class {
+      constructor(message: string) {
+        notices.push(message);
+      }
+    },
+  });
+  tab.settingsSaveQueue = Promise.resolve();
+  tab.customModelModes = new Set(["qa"]);
+  tab.rerenderLocalAiSection = () => {};
+  tab.plugin = {
+    settings: {
+      aiProvider: "openai",
+      aiModel: "o3-mini",
+      aiModels: {
+        ollama: "qwen3:4b-instruct",
+        "ollama-cloud": "",
+        openai: "o3-mini",
+        anthropic: "claude-sonnet",
+        deepseek: "deepseek-chat",
+      },
+      allowedCloudAnswerProviders: [],
+    },
+    invalidateLocalAiState: () => {},
+    invalidateCloudAnswerConsent: () => {},
+    async saveSettings() {
+      saveCalls += 1;
+      activeSaves += 1;
+      maxActiveSaves = Math.max(maxActiveSaves, activeSaves);
+      snapshots.push(structuredClone(this.settings));
+      if (saveCalls === 1) {
+        await firstSave.promise;
+      }
+      activeSaves -= 1;
+    },
+  };
+
+  const pending = [
+    tab.changeCloudAnswerPermission("openai", true),
+    tab.changeAnswerProvider("anthropic"),
+    tab.changeCloudAnswerPermission("openai", false),
+    tab.saveAnswerModel("anthropic", "claude-sonnet-new"),
+    tab.changeCloudAnswerPermission("anthropic", true),
+    tab.changeAnswerProvider("deepseek"),
+    tab.saveAnswerModel("anthropic", "stale-anthropic-model"),
+    tab.saveAnswerModel("deepseek", "deepseek-reasoner"),
+    tab.changeCloudAnswerPermission("anthropic", false),
+    tab.changeAnswerProvider("openai"),
+  ];
+
+  assert.equal(await pending[2], false, "a detached OpenAI permission control must be ignored");
+  assert.equal(await pending[6], false, "a detached Anthropic model control must be ignored");
+  assert.equal(await pending[8], false, "a detached Anthropic permission control must be ignored");
+  assert.equal(tab.plugin.settings.aiProvider, "openai");
+  assert.equal(tab.plugin.settings.aiModel, "o3-mini");
+  assert.equal(tab.plugin.settings.aiModels.openai, "o3-mini");
+  assert.equal(tab.plugin.settings.aiModels.anthropic, "claude-sonnet-new");
+  assert.equal(tab.plugin.settings.aiModels.deepseek, "deepseek-reasoner");
+  assert.deepEqual(tab.plugin.settings.allowedCloudAnswerProviders, ["openai", "anthropic"]);
+
+  await Promise.resolve();
+  assert.equal(saveCalls, 1, "the second persistence call must wait for the first one");
+  assert.equal(activeSaves, 1);
+  firstSave.resolve(undefined);
+  await Promise.all(pending);
+  assert.equal(maxActiveSaves, 1);
+  assert.equal(saveCalls, 7);
+  assert.deepEqual(snapshots.at(-1), tab.plugin.settings);
+  assert.equal(notices.length, 2);
 });
 
 test("hosted credential drafts survive provider and setup rerenders", async () => {
@@ -432,6 +551,7 @@ test("a successful hosted key save clears only the exact submitted draft", async
   const harness = createHostedCredentialHarness();
   const saves: Array<ReturnType<typeof deferredResult<boolean>>> = [];
   const submitted: string[] = [];
+  let setupChecks = 0;
   harness.tab.plugin = {
     aiSetupBusy() { return Boolean(this.localAiState.activeAction || this.hostedAiState?.activeAction); },
     localAiState: { activeAction: "" },
@@ -446,6 +566,7 @@ test("a successful hosted key save clears only the exact submitted draft", async
         harness.tab.plugin.hostedAiState = { provider: "openai", activeAction: "" };
       });
     },
+    checkHostedAiConnection: async () => { setupChecks += 1; return true; },
     deleteHostedApiKey: async () => {},
   };
   harness.tab.rerenderLocalAiSection = () => {
@@ -461,6 +582,7 @@ test("a successful hosted key save clears only the exact submitted draft", async
   saves[0]?.resolve(true);
   await firstSave;
   assert.deepEqual(submitted, ["sk-first"]);
+  assert.equal(setupChecks, 1);
   assert.equal(harness.inputs.at(-1)?.value, "sk-replacement");
 
   const secondSave = harness.saveButtons.at(-1)?.click();
@@ -468,6 +590,7 @@ test("a successful hosted key save clears only the exact submitted draft", async
   saves[1]?.resolve(true);
   await secondSave;
   assert.deepEqual(submitted, ["sk-first", "sk-replacement"]);
+  assert.equal(setupChecks, 2);
   assert.equal(harness.inputs.at(-1)?.value, "");
 });
 

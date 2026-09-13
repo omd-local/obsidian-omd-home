@@ -105,6 +105,8 @@ test("Vault Q&A requires provider-scoped cloud opt-in and a per-request consent 
 test("cloud answers stay pinned to the selected provider and never fall back across providers", () => {
   assert.match(mainSource, /async checkHostedAiConnection\(\): Promise<boolean>/u);
   assert.match(mainSource, /async checkOllamaCloudConnection\(\): Promise<boolean>/u);
+  assert.match(mainSource, /const cloudModels = catalog\.filter\(modelIsVerifiedOllamaCloud\)/u);
+  assert.match(mainSource, /if \(!modelIsVerifiedOllamaCloud\(inspected\)\)/u);
   assert.match(mainSource, /provider !== preview\.provider[\s\S]+model !== preview\.model[\s\S]+endpoint !== preview\.endpoint/u);
   assert.doesNotMatch(mainSource, /provider === "openai"[\s\S]{0,160}anthropic|provider === "anthropic"[\s\S]{0,160}openai|provider === "deepseek"[\s\S]{0,160}openai/su);
 });
@@ -117,12 +119,24 @@ test("hybrid retrieval falls back to sparse search when local embedding safety c
   assert.match(mainSource, /if \(!modelSupportsEmbedding\(inspected\)\)/u);
   assert.match(mainSource, /hybridRetrievalEnabled:\s*false/u);
   assert.match(mainSource, /semanticRerankEnabled:\s*false/u);
-  assert.match(mainSource, /warning:\s*"hybrid_retrieval_local_safety_fallback"/u);
+  assert.match(mainSource, /const warning = retrievalWarningForError\(error, requested\.embeddingModel\)/u);
+  assert.match(mainSource, /warning,\s*warningModel:/u);
+  for (const reason of [
+    "hybrid_retrieval_model_not_installed",
+    "hybrid_retrieval_daemon_unreachable",
+    "hybrid_retrieval_model_unsupported",
+  ]) {
+    assert.match(mainSource, new RegExp(reason, "u"));
+  }
+  assert.match(mainSource, /text: "Install model"/u);
+  assert.match(mainSource, /text: "Switch to keyword search"/u);
+  assert.match(mainSource, /text: "Open retrieval settings"/u);
 });
 
 test("local smoke and embedding gates reject explicit cloud ids even without remote metadata", () => {
   assert.match(mainSource, /modelIsCloudBacked\(\{\s*name: gatedSnapshot\.model,\s*remoteModel: smoke\.remoteModel,\s*remoteHost: smoke\.remoteHost/u);
-  assert.match(mainSource, /const selectedEntry = mergeInspectedModelEntry\(mergedModels\.get\(model\), buildModelEntry\(selected\), model\);/u);
+  assert.match(mainSource, /const catalogEntry = models\.find\(\(entry\) => localModelNamesMatch\(entry\.name, model\)\);/u);
+  assert.match(mainSource, /const selectedEntry = mergeInspectedModelEntry\(catalogEntry, buildModelEntry\(selected\), entryName\);/u);
   assert.match(mainSource, /if \(modelIsCloudBacked\(selectedEntry\)\)/u);
   assert.match(mainSource, /const modelEntry = mergeInspectedModelEntry\([\s\S]+snapshot\.model,[\s\S]+const modelCode = deriveLocalAiModelCode\(modelEntry\)/u);
 });

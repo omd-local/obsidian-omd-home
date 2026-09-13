@@ -86,8 +86,8 @@ test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures 
   assert.match(readme, /sends only the question plus the selected local evidence snippets; it never sends the whole vault/iu);
   assert.match(readme, /there is no silent fallback across providers or auto-switch to another provider/iu);
   assert.match(readme, /\*\*Check setup\*\* for the selected provider, model, and safety boundary/iu);
-  assert.match(readme, /\*\*Test embeddings\*\* for local hybrid retrieval/iu);
-  assert.match(readme, /On macOS, paste the actual API key into the password field and press\s+\*\*Save key\*\* to store it in macOS Keychain\. On Windows and\s+Linux, set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`\s+before starting Obsidian/iu);
+  assert.match(readme, /\*\*Test embeddings\*\* for local semantic search/iu);
+  assert.match(readme, /On macOS, paste the actual API key into the password field and press\s+\*\*Save & check\*\* to store it in macOS Keychain and immediately check the\s+provider connection\. On Windows and\s+Linux, set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`\s+before starting Obsidian/iu);
   assert.match(readme, /OpenAI API billing\s+stays separate from ChatGPT subscriptions, and Anthropic API billing stays\s+separate from Claude subscriptions/iu);
   assert.match(readme, /OMD Home: Refresh local AI models/iu);
   assert.match(readme, /does not auto-pull, auto-install, auto-select models, or auto-switch\s+providers/iu);

@@ -3,7 +3,31 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
-import { aiProviderDestination, aiProviderEnvVar, aiProviderLabel, isHostedApiProvider, selectedAiModel } from "../src/ai-provider.ts";
+import {
+  aiProviderDestination,
+  aiProviderEnvVar,
+  aiProviderLabel,
+  isHostedApiProvider,
+  modelIsCloudBacked,
+  modelIsVerifiedOllamaCloud,
+  selectedAiModel,
+} from "../src/ai-provider.ts";
+import {
+  aggregateLocalAiState,
+  buildConnectionSummary,
+  buildModelEntry,
+  deriveLocalAiDaemonCode,
+  deriveLocalAiModelCode,
+  describeDaemonReadiness,
+  describeLocalCompletionCatalog,
+  describeModelReadiness,
+  localModelNamesMatch,
+  mergeInspectedModelEntry,
+  modelSupportsEmbedding,
+  normalizeLocalOllamaHost,
+  oneClickInstallableEmbeddingModel,
+} from "../src/local-ai-readiness.ts";
+import { LocalAiError, type LocalAiModelInfo, type LocalAiRuntimeState } from "../src/ollama-local-types.ts";
 
 // Execute the production methods with injected Obsidian/bridge boundaries. This
 // keeps async race regressions runnable without loading the desktop application.
@@ -18,7 +42,7 @@ function loadMethods(file: string, names: string[], dependencies: Record<string,
     return member.getText(source);
   });
   const helpers = source.statements.filter((node) => ts.isFunctionDeclaration(node)
-    && ["buildHostedState", "mapHostedErrorCode", "message", "isAbortError", "isModelReadinessCode", "remapLocalAiError", "waitForSharedPromise"].includes(node.name?.text ?? ""));
+    && ["buildHostedState", "humanizeRetrievalWarning", "isEmbeddingRetrievalWarning", "mapHostedErrorCode", "message", "isAbortError", "isModelReadinessCode", "remapLocalAiError", "retrievalWarningForError", "waitForSharedPromise"].includes(node.name?.text ?? ""));
   const compiled = ts.transpileModule(
     `${helpers.map((node) => node.getText(source)).join("\n")}\nclass Harness { ${methods.join("\n")} }`,
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
@@ -42,7 +66,8 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     "beginHostedAiAction", "isCurrentHostedAiAction", "finishHostedAiAction", "checkHostedAiConnection",
     "hostedAiSignal", "cancelHostedAiAction", "invalidateCloudAnswerConsent", "saveHostedApiKey",
     "deleteHostedApiKey", "assertCloudConsentStillCurrent", "withLocalAiSignal", "aiSetupBusy", "canStartAiSetupAction",
-    "beginHostedCredentialMutation", "finishHostedCredentialMutation", ...extraMethods,
+    "beginHostedCredentialMutation", "finishHostedCredentialMutation", "assertProviderDestination", "renderRetrievalDiagnostics",
+    "withCloudAnswerSignal", "cancelCloudAnswerRequests", ...extraMethods,
   ], {
     Notice: class { constructor(value: string) { notices.push(value); } },
     providerLabel: aiProviderLabel,
@@ -50,6 +75,8 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     aiProviderLabel,
     aiProviderDestination,
     isHostedApiProvider,
+    LocalAiError,
+    oneClickInstallableEmbeddingModel,
     selectedAiModel,
     ...dependencies,
   });
@@ -58,6 +85,7 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     unloaded: false,
     localAiActionToken: 0,
     localAiControllers: new Set<AbortController>(),
+    cloudAnswerControllers: new Set<AbortController>(),
     hostedCredentialHydration: null,
     hostedCredentialHydrationProvider: null,
     hostedAiController: null,
@@ -86,7 +114,535 @@ function deferred<T>() {
   return { promise, resolve: resolveValue, reject };
 }
 
-const credential = { provider: "openai", source: "keychain", keychainSupported: true, envVar: "OPENAI_API_KEY" };
+function localSetupHarness(model: LocalAiModelInfo, remote = false): { plugin: Harness; calls: string[]; vaultCalls: string[] } {
+  const calls: string[] = [];
+  const vaultCalls: string[] = [];
+  const host = "http://localhost:11434";
+  const plugin = mainHarness([
+    "checkLocalAiConnection",
+    "activeLocalAiModels",
+    "safeShowModel",
+    "beginLocalAiAction",
+    "finishLocalAiAction",
+  ], {
+    LocalAiError,
+    aggregateLocalAiState,
+    buildConnectionSummary,
+    buildModelEntry,
+    deriveLocalAiDaemonCode,
+    deriveLocalAiModelCode,
+    describeDaemonReadiness,
+    describeLocalCompletionCatalog,
+    describeModelReadiness,
+    getActiveWorkflowModels: (settings: Harness) => [{ model: settings.aiModel }],
+    localModelNamesMatch,
+    mergeInspectedModelEntry,
+    normalizeLocalOllamaHost,
+  });
+  const catalogEntry = buildModelEntry({
+    ...model,
+    remoteModel: remote ? model.name : undefined,
+    remoteHost: remote ? "https://ollama.com" : undefined,
+  });
+  Object.assign(plugin, {
+    settings: {
+      aiProvider: "ollama",
+      aiModel: model.name,
+      localWritingModel: model.name,
+      embeddingModel: "bge-m3",
+      ollamaHost: host,
+      capturePolish: false,
+    },
+    localAiActionToken: 0,
+    localAiControllers: new Set<AbortController>(),
+    localAiSummaries: new Map(),
+    localAiFailure: null,
+    ollamaLocalClient: {
+      version: async (receivedHost: string) => { calls.push(`version:${receivedHost}`); return { version: "0.33.3" }; },
+      status: async (receivedHost: string) => { calls.push(`status:${receivedHost}`); return { cloud: { disabled: false } }; },
+      tags: async (receivedHost: string) => { calls.push(`tags:${receivedHost}`); return [catalogEntry]; },
+      show: async (receivedHost: string, receivedModel: string) => {
+        calls.push(`show:${receivedHost}:${receivedModel}`);
+        if (!localModelNamesMatch(receivedModel, model.name)) {
+          throw new LocalAiError("selected_model_missing", `${receivedModel} is not installed.`);
+        }
+        return { ...model, remoteModel: catalogEntry.remoteModel, remoteHost: catalogEntry.remoteHost };
+      },
+      smoke: async () => assert.fail("Check setup must not generate model output"),
+      embed: async () => assert.fail("Check setup must not generate embeddings"),
+      pull: async () => assert.fail("Check setup must not download models"),
+    },
+    omdBridge: {
+      search: async () => { vaultCalls.push("search"); },
+      answer: async () => { vaultCalls.push("answer"); },
+    },
+  });
+  plugin.syncLocalAiState = (activeAction: LocalAiRuntimeState["activeAction"]) => {
+    const summary = plugin.localAiSummaries.get(host) ?? null;
+    plugin.localAiState = aggregateLocalAiState(plugin.settings, summary, summary?.models ?? [], activeAction);
+  };
+  plugin.syncLocalAiState("");
+  return { plugin, calls, vaultCalls };
+}
+
+function embeddingInstallHarness(savedModel: string, catalog: LocalAiModelInfo[] = []): { plugin: Harness; calls: string[] } {
+  const calls: string[] = [];
+  const plugin = mainHarness(["installEmbeddingModel"], {
+    buildModelEntry,
+    localModelNamesMatch,
+    mergeInspectedModelEntry,
+    modelIsCloudBacked,
+    modelSupportsEmbedding,
+    normalizeLocalOllamaHost,
+    oneClickInstallableEmbeddingModel,
+  });
+  Object.assign(plugin.settings, {
+    embeddingModel: savedModel,
+    ollamaHost: "http://localhost:11434",
+  });
+  plugin.canStartAiSetupAction = () => true;
+  plugin.beginLocalAiAction = (action: string) => {
+    calls.push(`begin:${action}`);
+    return 1;
+  };
+  plugin.finishLocalAiAction = (token: number) => { calls.push(`finish:${token}`); };
+  plugin.withLocalAiSignal = async (task: (signal: AbortSignal) => Promise<unknown>) => await task(new AbortController().signal);
+  plugin.reportLocalAiWorkflowIssue = (error: unknown) => { plugin.issues.push(error); };
+  plugin.safeShowModel = async (_host: string, model: string) => {
+    calls.push(`show:${model}`);
+    return { name: model, capabilities: ["embedding"] };
+  };
+  plugin.ollamaLocalClient = {
+    tags: async () => {
+      calls.push("tags");
+      return catalog.map((entry) => buildModelEntry(entry));
+    },
+    pull: async (_host: string, model: string) => { calls.push(`pull:${model}`); },
+  };
+  plugin.refreshLocalAiCatalog = async (force: boolean) => { calls.push(`refresh:${String(force)}`); };
+  return { plugin, calls };
+}
+
+const credential = {
+  provider: "openai",
+  source: "keychain",
+  keychainSupported: true,
+  envVar: "OPENAI_API_KEY",
+  envPresent: false,
+  keychainPresent: true,
+};
+
+test("local setup accepts a model that advertises both thinking and completion", async () => {
+  const { plugin, calls, vaultCalls } = localSetupHarness({
+    name: "qwen3:4b-instruct",
+    capabilities: ["completion", "thinking", "tools"],
+  });
+
+  assert.equal(await plugin.checkLocalAiConnection(), true);
+  const checked = plugin.localAiSummaries.get("http://localhost:11434").modelChecks["qwen3:4b-instruct"];
+  assert.equal(checked.code, "ready");
+  assert.equal(checked.supportsCompletion, true);
+  assert.deepEqual(calls, [
+    "version:http://localhost:11434",
+    "status:http://localhost:11434",
+    "tags:http://localhost:11434",
+    "show:http://localhost:11434:qwen3:4b-instruct",
+    "show:http://localhost:11434:bge-m3",
+  ]);
+  assert.deepEqual(vaultCalls, []);
+});
+
+test("local setup blocks an exposed cloud-backed custom model without touching the vault", async () => {
+  const { plugin, calls, vaultCalls } = localSetupHarness({
+    name: "gpt-oss:20b-cloud",
+    capabilities: ["completion"],
+  }, true);
+
+  assert.equal(await plugin.checkLocalAiConnection(), false);
+  const checked = plugin.localAiSummaries.get("http://localhost:11434").modelChecks["gpt-oss:20b-cloud"];
+  assert.equal(checked.code, "selected_model_remote_blocked");
+  assert.equal(checked.supportsCompletion, true);
+  assert.deepEqual(calls, [
+    "version:http://localhost:11434",
+    "status:http://localhost:11434",
+    "tags:http://localhost:11434",
+    "show:http://localhost:11434:gpt-oss:20b-cloud",
+    "show:http://localhost:11434:bge-m3",
+  ]);
+  assert.deepEqual(vaultCalls, []);
+});
+
+test("one-click embedding installation enforces its allowlist and stale-action snapshot before network access", async () => {
+  const unsupported = embeddingInstallHarness("nomic-embed-text");
+  assert.equal(await unsupported.plugin.installEmbeddingModel("nomic-embed-text"), false);
+  assert.deepEqual(unsupported.calls, ["begin:install-embedding", "finish:1"]);
+
+  const stale = embeddingInstallHarness("other-model");
+  assert.equal(await stale.plugin.installEmbeddingModel("bge-m3"), false);
+  assert.deepEqual(stale.calls, ["begin:install-embedding", "finish:1"]);
+});
+
+test("one-click embedding installation canonicalizes aliases and downloads only when explicitly requested", async () => {
+  const installed = embeddingInstallHarness("BGE-M3", [{
+    name: "bge-m3:latest",
+    capabilities: ["embedding"],
+  }]);
+  assert.equal(await installed.plugin.installEmbeddingModel("BGE-M3:latest"), true);
+  assert.deepEqual(installed.calls, [
+    "begin:install-embedding",
+    "tags",
+    "show:bge-m3",
+    "finish:1",
+    "refresh:false",
+  ]);
+
+  const missing = embeddingInstallHarness("bge-m3");
+  assert.equal(await missing.plugin.installEmbeddingModel("bge-m3"), true);
+  assert.deepEqual(missing.calls, [
+    "begin:install-embedding",
+    "tags",
+    "pull:bge-m3",
+    "show:bge-m3",
+    "finish:1",
+    "refresh:false",
+  ]);
+});
+
+test("Switch to keyword search persists the retrieval choice once and leaves an already-keyword setup unchanged", async () => {
+  const plugin = mainHarness(["useSparseRetrieval"]);
+  const calls: string[] = [];
+  plugin.settings.hybridRetrievalEnabled = true;
+  plugin.invalidateLocalAiState = (reason: string) => { calls.push(`invalidate:${reason}`); };
+  plugin.saveSettings = async () => { calls.push("save"); };
+  plugin.refreshHomeViews = () => { calls.push("refresh"); };
+
+  assert.equal(await plugin.useSparseRetrieval(), true);
+  assert.equal(plugin.settings.hybridRetrievalEnabled, false);
+  assert.deepEqual(calls, ["invalidate:retrieval", "save", "refresh"]);
+  assert.match(plugin.feedback.at(-1) ?? "", /Keyword search selected/u);
+
+  assert.equal(await plugin.useSparseRetrieval(), false);
+  assert.deepEqual(calls, ["invalidate:retrieval", "save", "refresh"]);
+  assert.equal(plugin.notices.at(-1), "Keyword search is already selected.");
+});
+
+test("Switch to keyword search cannot invalidate an in-flight AI setup action", async () => {
+  const plugin = mainHarness(["useSparseRetrieval"]);
+  const calls: string[] = [];
+  plugin.settings.hybridRetrievalEnabled = true;
+  plugin.hostedCredentialMutation = Symbol("saving-key");
+  plugin.invalidateLocalAiState = (reason: string) => { calls.push(`invalidate:${reason}`); };
+  plugin.saveSettings = async () => { calls.push("save"); };
+  plugin.refreshHomeViews = () => { calls.push("refresh"); };
+
+  assert.equal(await plugin.useSparseRetrieval(), false);
+
+  assert.equal(plugin.settings.hybridRetrievalEnabled, true);
+  assert.deepEqual(calls, []);
+  assert.match(plugin.notices.at(-1) ?? "", /Another AI setup action is already running/u);
+  assert.match(
+    readMethod("src/main.ts", "renderRetrievalDiagnostics"),
+    /useSparseRetrieval\(\)\.then\(\(selected\)\s*=>\s*\{\s*if \(selected && sparse\.isConnected\)/su,
+    "the warning button must claim success only when the persisted action returns true",
+  );
+});
+
+test("invalid hosted credentials retain an actionable runtime state", async () => {
+  const plugin = mainHarness();
+  plugin.omdBridge = {
+    hostedCredentialState: async () => {
+      throw new Error("OpenAI rejected the developer API key. Replace it in Settings → OMD Home → AI answers, then check setup again.");
+    },
+  };
+
+  await plugin.ensureHostedCredentialState("openai");
+
+  assert.equal(plugin.hostedAiState.code, "credentials_invalid");
+  assert.match(plugin.hostedAiState.detail, /rejected the developer API key/iu);
+});
+
+test("Open retrieval settings uses feature-detected navigation and falls back to manual guidance", async () => {
+  const runtime = globalThis as typeof globalThis & { window?: unknown };
+  const previousWindow = runtime.window;
+  Object.defineProperty(runtime, "window", {
+    value: { setTimeout },
+    configurable: true,
+    writable: true,
+  });
+  try {
+    const plugin = mainHarness(["openRetrievalSettings"]);
+    const calls: string[] = [];
+    plugin.manifest = { id: "omd-home" };
+    plugin.settingTab = { showRetrievalSettings: () => { calls.push("show-retrieval"); } };
+    plugin.app = { setting: {
+      open: () => { calls.push("open"); },
+      openTabById: (id: string) => { calls.push(`tab:${id}`); },
+    } };
+    plugin.openRetrievalSettings();
+    await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 0));
+    assert.deepEqual(calls, ["open", "tab:omd-home", "show-retrieval"]);
+
+    const unavailable = mainHarness(["openRetrievalSettings"]);
+    unavailable.app = { setting: { open: () => {} } };
+    unavailable.settingTab = {};
+    unavailable.openRetrievalSettings();
+    assert.equal(unavailable.notices.at(-1), "Open settings → OMD Home → advanced AI controls → vault retrieval.");
+
+    const failed = mainHarness(["openRetrievalSettings"]);
+    failed.manifest = { id: "omd-home" };
+    failed.settingTab = { showRetrievalSettings() {} };
+    failed.app = { setting: {
+      open: () => { throw new Error("Settings unavailable"); },
+      openTabById() {},
+    } };
+    failed.openRetrievalSettings();
+    assert.equal(failed.notices.at(-1), "Open settings → OMD Home → advanced AI controls → vault retrieval.");
+  } finally {
+    if (previousWindow === undefined) Reflect.deleteProperty(runtime, "window");
+    else Object.defineProperty(runtime, "window", { value: previousWindow, configurable: true, writable: true });
+  }
+});
+
+test("hosted preview checks credentials before model selection or vault retrieval", async () => {
+  const plugin = mainHarness(["previewCloudAnswer"], {
+    DEFAULT_SETTINGS: { ollamaHost: "http://localhost:11434" },
+    LocalAiError,
+    normalizeLocalOllamaHost,
+  });
+  const calls: string[] = [];
+  Object.assign(plugin.settings, { aiProvider: "openai", aiModel: "", ollamaHost: "http://localhost:11434" });
+  plugin.currentLocalAiHost = () => null;
+  plugin.qaRetrievalOptions = () => ({
+    hybridRetrievalEnabled: true,
+    embeddingModel: "bge-m3",
+    semanticRerankEnabled: false,
+  });
+  plugin.prepareQaRetrieval = async () => {
+    calls.push("retrieval");
+    return { options: plugin.qaRetrievalOptions(), warning: null };
+  };
+  plugin.omdBridge = {
+    hostedCredentialState: async () => {
+      calls.push("credential");
+      return { ...credential, source: "missing" };
+    },
+    previewAi: async () => {
+      calls.push("preview");
+      return {};
+    },
+  };
+
+  await assert.rejects(
+    plugin.previewCloudAnswer("What is in my vault?", "openai", ""),
+    (error: unknown) => error instanceof LocalAiError && error.code === "credentials_missing",
+  );
+  assert.deepEqual(calls, ["credential"]);
+});
+
+test("hosted preview checks model selection only after credentials are available", async () => {
+  const plugin = mainHarness(["previewCloudAnswer"], {
+    DEFAULT_SETTINGS: { ollamaHost: "http://localhost:11434" },
+    LocalAiError,
+    normalizeLocalOllamaHost,
+  });
+  const calls: string[] = [];
+  Object.assign(plugin.settings, { aiProvider: "openai", aiModel: "", ollamaHost: "http://localhost:11434" });
+  plugin.currentLocalAiHost = () => null;
+  plugin.qaRetrievalOptions = () => ({
+    hybridRetrievalEnabled: true,
+    embeddingModel: "bge-m3",
+    semanticRerankEnabled: false,
+  });
+  plugin.prepareQaRetrieval = async () => {
+    calls.push("retrieval");
+    return { options: plugin.qaRetrievalOptions(), warning: null };
+  };
+  plugin.omdBridge = {
+    hostedCredentialState: async () => {
+      calls.push("credential");
+      return credential;
+    },
+    previewAi: async () => {
+      calls.push("preview");
+      return {};
+    },
+  };
+
+  await assert.rejects(
+    plugin.previewCloudAnswer("What is in my vault?", "openai", ""),
+    (error: unknown) => error instanceof LocalAiError && error.code === "selected_model_missing",
+  );
+  assert.deepEqual(calls, ["credential"]);
+});
+
+for (const provider of ["ollama", "openai"] as const) {
+  test(`${provider} answer stops before consent or generation when local retrieval finds no evidence`, async () => {
+    let consentOpened = false;
+    let executed = false;
+    const plugin = mainHarness(["askOmd"], {
+      cloudAnswerPermissionEnabled: () => true,
+      CloudAnswerConsentModal: class {
+        constructor() { consentOpened = true; }
+      },
+    });
+    Object.assign(plugin.settings, {
+      aiProvider: provider,
+      aiModel: provider === "ollama" ? "qwen3:4b-instruct" : "o3-mini",
+      hybridRetrievalEnabled: false,
+    });
+    plugin.previewLocalAnswer = async () => ({ preview: { evidence: [] }, retrieval: {} });
+    plugin.previewCloudAnswer = async () => ({
+      provider: "openai",
+      model: "o3-mini",
+      endpoint: "http://localhost:11434",
+      preview: { evidence: [] },
+      retrieval: {},
+    });
+    plugin.executeLocalAnswer = async () => { executed = true; return {}; };
+    plugin.executeCloudAnswer = async () => { executed = true; return {}; };
+    const messages: string[] = [];
+    const output = {
+      hidden: true,
+      empty() { messages.length = 0; },
+      createDiv(options: { text?: string }) { messages.push(options.text ?? ""); return {}; },
+    };
+
+    await plugin.askOmd("Question without matching notes", output);
+
+    assert.equal(consentOpened, false);
+    assert.equal(executed, false);
+    assert.deepEqual(messages, ["No relevant vault evidence was found. No model request was sent."]);
+  });
+}
+
+for (const [warning, model, expectedButtons] of [
+  ["hybrid_retrieval_model_not_installed", "bge-m3", ["Install model", "Switch to keyword search", "Open retrieval settings"]],
+  ["hybrid_retrieval_daemon_unreachable", null, ["Switch to keyword search", "Open retrieval settings"]],
+  ["hybrid_retrieval_model_unsupported", null, ["Switch to keyword search", "Open retrieval settings"]],
+] as const) {
+  test(`zero-evidence Ask preserves ${warning} recovery actions`, async () => {
+    const plugin = mainHarness(["askOmd"]);
+    Object.assign(plugin.settings, {
+      aiProvider: "ollama",
+      aiModel: "qwen3:4b-instruct",
+      hybridRetrievalEnabled: true,
+    });
+    plugin.previewLocalAnswer = async () => ({
+      preview: { evidence: [], warnings: [warning] },
+      retrieval: { hybridRetrievalEnabled: false },
+      embeddingFallbackModel: model,
+    });
+    plugin.executeLocalAnswer = async () => assert.fail("No model request may run without evidence");
+
+    const texts: string[] = [];
+    const buttons: string[] = [];
+    const element = (): Record<string, any> => ({
+      isConnected: true,
+      createDiv(options: { text?: string } = {}) {
+        if (options.text) texts.push(options.text);
+        return element();
+      },
+      createSpan(options: { text?: string } = {}) {
+        if (options.text) texts.push(options.text);
+        return element();
+      },
+      createEl(_tag: string, options: { text?: string } = {}) {
+        if (options.text) buttons.push(options.text);
+        return { isConnected: true, disabled: false, addEventListener() {} };
+      },
+    });
+    const output = Object.assign(element(), {
+      hidden: true,
+      empty() {
+        texts.length = 0;
+        buttons.length = 0;
+      },
+    });
+
+    await plugin.askOmd("Question without matching notes", output);
+
+    assert.match(texts.join(" "), /No relevant vault evidence was found/u);
+    assert.match(texts.join(" "), warning === "hybrid_retrieval_model_not_installed"
+      ? /not installed in Ollama/u
+      : warning === "hybrid_retrieval_daemon_unreachable"
+        ? /could not be reached/u
+        : /does not support embeddings/u);
+    assert.deepEqual(buttons, expectedButtons);
+  });
+}
+
+for (const [code, warning] of [
+  ["selected_model_missing", "hybrid_retrieval_model_not_installed"],
+  ["daemon_unreachable", "hybrid_retrieval_daemon_unreachable"],
+  ["selected_model_incompatible", "hybrid_retrieval_model_unsupported"],
+] as const) {
+  test(`hybrid retrieval classifies ${code} before falling back to sparse`, async () => {
+    const plugin = loadMethods("src/main.ts", ["prepareQaRetrieval"], {
+      LocalAiError,
+      normalizeLocalOllamaHost,
+    });
+    plugin.settings = { ollamaHost: "http://localhost:11434" };
+    plugin.qaRetrievalOptions = () => ({
+      hybridRetrievalEnabled: true,
+      embeddingModel: "bge-m3",
+      embeddingModelRevision: "sha256:saved",
+      semanticRerankEnabled: true,
+    });
+    plugin.ollamaLocalClient = {
+      status: async () => { throw new LocalAiError(code, `Injected ${code}`); },
+    };
+
+    const prepared = await plugin.prepareQaRetrieval();
+    assert.equal(prepared.warning, warning);
+    assert.deepEqual(prepared.options, {
+      hybridRetrievalEnabled: false,
+      embeddingModel: "bge-m3",
+      embeddingModelRevision: undefined,
+      semanticRerankEnabled: false,
+    });
+  });
+}
+
+for (const [stage, injectedCode] of [
+  ["catalog", "provider_catalog_unavailable"],
+  ["model inspection", "model_unavailable"],
+] as const) {
+  test(`hybrid retrieval reports a setup-check failure when reachable Ollama ${stage} fails`, async () => {
+    const plugin = loadMethods("src/main.ts", ["prepareQaRetrieval"], {
+      LocalAiError,
+      buildModelEntry,
+      deriveLocalAiDaemonCode,
+      describeDaemonReadiness,
+      localModelNamesMatch,
+      mergeInspectedModelEntry,
+      modelIsCloudBacked,
+      modelSupportsEmbedding,
+      normalizeLocalOllamaHost,
+    });
+    plugin.settings = { ollamaHost: "http://localhost:11434" };
+    plugin.qaRetrievalOptions = () => ({
+      hybridRetrievalEnabled: true,
+      embeddingModel: "bge-m3",
+      embeddingModelRevision: "sha256:saved",
+      semanticRerankEnabled: true,
+    });
+    plugin.ollamaLocalClient = {
+      status: async () => ({ cloud: { disabled: true } }),
+      tags: async () => {
+        if (stage === "catalog") throw new LocalAiError(injectedCode, `Injected ${injectedCode}`);
+        return [buildModelEntry({ name: "bge-m3", capabilities: ["embedding"] })];
+      },
+    };
+    plugin.safeShowModel = async () => {
+      throw new LocalAiError(injectedCode, `Injected ${injectedCode}`);
+    };
+
+    const prepared = await plugin.prepareQaRetrieval();
+    assert.equal(prepared.warning, "hybrid_retrieval_check_failed");
+    assert.equal(prepared.options.hybridRetrievalEnabled, false);
+    assert.equal(prepared.options.semanticRerankEnabled, false);
+  });
+}
 
 test("failed OMD hydration records one attempt and Check setup explicitly retries", async () => {
   const plugin = mainHarness();
@@ -110,6 +666,32 @@ test("failed OMD hydration records one attempt and Check setup explicitly retrie
   assert.equal(plugin.hostedAiState.credential, credential);
   assert.equal(plugin.hostedAiState.code, "selected_model_missing");
   assert.equal(plugin.hostedAiState.activeAction, "");
+});
+
+test("hosted setup rejects an unexpected provider destination before checking a model", async () => {
+  const plugin = mainHarness([], { LocalAiError });
+  let modelChecks = 0;
+  Object.assign(plugin.settings, {
+    aiProvider: "openai",
+    aiModel: "test-model",
+    aiModels: { openai: "test-model" },
+  });
+  plugin.omdBridge = {
+    discoverProviderModels: async () => ({
+      models: ["test-model"],
+      credential,
+      destinationDomain: "unexpected.example",
+    }),
+    checkProviderModel: async () => {
+      modelChecks += 1;
+      throw new Error("The model check must not run after a destination mismatch");
+    },
+  };
+
+  assert.equal(await plugin.checkHostedAiConnection(), false);
+  assert.equal(modelChecks, 0);
+  assert.equal(plugin.hostedAiState.code, "provider_destination_mismatch");
+  assert.match(plugin.hostedAiState.detail, /unexpected request destination/iu);
 });
 
 test("failed credential bridge hydration remains attempted until explicitly forced", async () => {
@@ -323,6 +905,94 @@ test("hosted credential drain completion refreshes Home exactly once", () => {
 
   plugin.finishHostedCredentialMutation(mutation);
   assert.equal(refreshes, 1, "a stale owner must not publish another completion refresh");
+});
+
+test("starting a hosted credential mutation aborts an active cloud preview before consent or provider execution", async () => {
+  const previewEntered = deferred<void>();
+  let consentOpened = false;
+  let executeCalls = 0;
+  const plugin = mainHarness(["askOmd", "previewCloudAnswer", "executeCloudAnswer"], {
+    DEFAULT_SETTINGS: { ollamaHost: "http://localhost:11434" },
+    cloudAnswerPermissionEnabled: () => true,
+    normalizeLocalOllamaHost,
+    CloudAnswerConsentModal: class {
+      constructor() { consentOpened = true; }
+    },
+  });
+  Object.assign(plugin.settings, {
+    aiProvider: "openai",
+    aiModel: "o3-mini",
+    aiModels: { openai: "o3-mini" },
+    hybridRetrievalEnabled: false,
+    ollamaHost: "http://localhost:11434",
+  });
+  plugin.currentLocalAiHost = () => null;
+  plugin.qaRetrievalOptions = () => ({ hybridRetrievalEnabled: false });
+  plugin.prepareQaRetrieval = async () => ({
+    options: { hybridRetrievalEnabled: false },
+    warning: null,
+    warningModel: null,
+  });
+  plugin.omdBridge = {
+    hostedCredentialState: async () => credential,
+    previewAi: async (
+      _vault: string,
+      _query: string,
+      _provider: string,
+      _model: string,
+      _endpoint: string,
+      _retrieval: unknown,
+      signal: AbortSignal,
+    ) => {
+      previewEntered.resolve();
+      return await new Promise((_resolve, reject) => signal.addEventListener(
+        "abort",
+        () => reject(new DOMException("Credential changed", "AbortError")),
+        { once: true },
+      ));
+    },
+    executeAi: async () => {
+      executeCalls += 1;
+      return {};
+    },
+  };
+  plugin.vaultPath = () => "/test-vault";
+  const output = { hidden: false, empty() {}, createDiv() { return {}; } };
+
+  const asking = plugin.askOmd("Summarise the note", output);
+  await previewEntered.promise;
+  plugin.beginHostedCredentialMutation();
+  await asking;
+
+  assert.equal(consentOpened, false);
+  assert.equal(executeCalls, 0);
+  assert.deepEqual(plugin.issues, []);
+});
+
+test("cloud provider execution cannot start while a hosted credential mutation is pending", async () => {
+  let executeCalls = 0;
+  const plugin = mainHarness(["executeCloudAnswer"]);
+  plugin.hostedCredentialMutation = Symbol("replacing-key");
+  plugin.omdBridge = {
+    executeAi: async () => {
+      executeCalls += 1;
+      return {};
+    },
+  };
+  plugin.vaultPath = () => "/test-vault";
+
+  await assert.rejects(
+    plugin.executeCloudAnswer("Question", {
+      provider: "openai",
+      model: "o3-mini",
+      endpoint: "http://localhost:11434",
+      preview: { consent_grant: "grant", warnings: [] },
+      retrieval: { hybridRetrievalEnabled: false },
+      embeddingFallbackModel: null,
+    }),
+    { name: "AbortError" },
+  );
+  assert.equal(executeCalls, 0);
 });
 
 test("a cloud-consent generation rejects an away-and-back route before any send", () => {
@@ -618,6 +1288,180 @@ test("AI setup actions refuse to overlap across local and hosted controls", () =
   }
 });
 
+test("Ollama Cloud setup canonicalizes a saved alias to the catalog model", async () => {
+  const host = "http://localhost:11434";
+  const catalogModel = buildModelEntry({
+    name: "cloud-alias:latest",
+    capabilities: ["completion"],
+    remoteModel: "gpt-oss:20b",
+    remoteHost: "https://ollama.com",
+  });
+  const plugin = mainHarness(["checkOllamaCloudConnection"], {
+    buildConnectionSummary,
+    buildModelEntry,
+    localModelNamesMatch,
+    mergeInspectedModelEntry,
+    modelIsVerifiedOllamaCloud,
+    normalizeLocalOllamaHost,
+  });
+  Object.assign(plugin, {
+    settings: {
+      aiProvider: "ollama-cloud",
+      aiModel: "cloud-alias",
+      aiModels: { "ollama-cloud": "cloud-alias" },
+      ollamaHost: host,
+    },
+    localAiSummaries: new Map(),
+    localAiFailure: null,
+    localAiActionToken: 1,
+    canStartAiSetupAction: () => true,
+    beginLocalAiAction: () => 1,
+    finishLocalAiAction() {},
+    syncLocalAiState() {},
+    ollamaLocalClient: {
+      version: async () => ({ version: "0.33.3" }),
+      status: async () => ({ cloud: { disabled: false } }),
+      tags: async () => [catalogModel],
+      show: async (_receivedHost: string, receivedModel: string) => {
+        assert.equal(receivedModel, "cloud-alias");
+        return {
+          name: receivedModel,
+          capabilities: ["completion"],
+          remoteModel: "gpt-oss:20b",
+          remoteHost: "https://ollama.com",
+        };
+      },
+    },
+  });
+
+  assert.equal(await plugin.checkOllamaCloudConnection(), true);
+  const models = plugin.localAiSummaries.get(host).models;
+  assert.deepEqual(models.map((model: LocalAiModelInfo) => model.name), ["cloud-alias:latest"]);
+  assert.equal(models[0].remoteModel, "gpt-oss:20b");
+});
+
+test("Ollama Cloud setup publishes a fresh catalog when the saved model was removed", async () => {
+  const host = "http://localhost:11434";
+  const replacement = buildModelEntry({
+    name: "cloud-b:latest",
+    capabilities: ["completion"],
+    remoteModel: "gpt-oss:120b",
+    remoteHost: "https://ollama.com",
+  });
+  const plugin = mainHarness(["checkOllamaCloudConnection"], {
+    buildConnectionSummary,
+    buildModelEntry,
+    localModelNamesMatch,
+    mergeInspectedModelEntry,
+    modelIsVerifiedOllamaCloud,
+    normalizeLocalOllamaHost,
+  });
+  Object.assign(plugin, {
+    settings: {
+      aiProvider: "ollama-cloud",
+      aiModel: "cloud-a:latest",
+      aiModels: { "ollama-cloud": "cloud-a:latest" },
+      ollamaHost: host,
+    },
+    localAiSummaries: new Map(),
+    localAiFailure: null,
+    localAiActionToken: 1,
+    localAiState: { activeAction: "check-connection" },
+    canStartAiSetupAction: () => true,
+    beginLocalAiAction: () => 1,
+    finishLocalAiAction() {},
+    syncLocalAiState() {},
+    setLocalAiFailure() {},
+    ollamaLocalClient: {
+      version: async () => ({ version: "0.33.3" }),
+      status: async () => ({ cloud: { disabled: false } }),
+      tags: async () => [replacement],
+      show: async () => {
+        throw new LocalAiError("selected_model_missing", "cloud-a:latest is no longer installed.");
+      },
+    },
+  });
+
+  assert.equal(await plugin.checkOllamaCloudConnection(), false);
+  assert.deepEqual(
+    plugin.localAiSummaries.get(host).models.map((model: LocalAiModelInfo) => model.name),
+    ["cloud-b:latest"],
+  );
+  assert.match(plugin.feedback.at(-1) ?? "", /cloud-a:latest is no longer installed/u);
+});
+
+for (const failure of ["no-cloud-model", "incompatible-cloud-model", "cloud-model-inspection-unavailable"] as const) {
+  test(`Ollama Cloud ${failure} feedback does not overwrite healthy local daemon readiness`, async () => {
+    const host = "http://localhost:11434";
+    const healthy = buildConnectionSummary({
+      host,
+      checkedAt: 1,
+      version: "0.33.3",
+      daemonCode: "ready",
+      daemonDetail: "Ollama is reachable.",
+      models: [buildModelEntry({ name: "qwen3:4b", capabilities: ["completion"] })],
+      modelChecks: {},
+    });
+    const verifiedCloudModel = buildModelEntry({
+      name: "gpt-oss:20b-cloud",
+      capabilities: ["completion"],
+      remoteModel: "gpt-oss:20b",
+      remoteHost: "https://ollama.com",
+    });
+    const plugin = mainHarness(["checkOllamaCloudConnection"], {
+      buildConnectionSummary,
+      buildModelEntry,
+      localModelNamesMatch,
+      mergeInspectedModelEntry,
+      modelIsVerifiedOllamaCloud,
+      normalizeLocalOllamaHost,
+    });
+    Object.assign(plugin, {
+      settings: {
+        aiProvider: "ollama-cloud",
+        aiModel: failure === "no-cloud-model"
+          ? ""
+          : failure === "cloud-model-inspection-unavailable" ? "gpt-oss:20b-cloud" : "local-not-cloud:latest",
+        aiModels: {
+          "ollama-cloud": failure === "no-cloud-model"
+            ? ""
+            : failure === "cloud-model-inspection-unavailable" ? "gpt-oss:20b-cloud" : "local-not-cloud:latest",
+        },
+        ollamaHost: host,
+      },
+      localAiSummaries: new Map([[host, healthy]]),
+      localAiFailure: null,
+      canStartAiSetupAction: () => true,
+      beginLocalAiAction: () => 1,
+      finishLocalAiAction() {},
+      syncLocalAiState() {},
+      ollamaLocalClient: {
+        version: async () => ({ version: "0.33.3" }),
+        status: async () => ({ cloud: { disabled: false } }),
+        tags: async () => failure === "no-cloud-model" ? [] : [verifiedCloudModel],
+        show: async () => {
+          if (failure === "cloud-model-inspection-unavailable") {
+            throw new LocalAiError("model_unavailable", "The selected Ollama Cloud model could not be inspected.");
+          }
+          return {
+            name: "local-not-cloud:latest",
+            capabilities: ["completion"],
+          };
+        },
+      },
+    });
+    let localFailureWrites = 0;
+    plugin.setLocalAiFailure = () => { localFailureWrites += 1; };
+
+    assert.equal(await plugin.checkOllamaCloudConnection(), false);
+    assert.equal(localFailureWrites, 0);
+    assert.equal(plugin.localAiSummaries.get(host), healthy);
+    assert.equal(plugin.localAiFailure, null);
+    assert.match(plugin.feedback.at(-1) ?? "", /Ollama Cloud setup failed/u);
+    assert.equal(plugin.issues.length, 1);
+  });
+}
+
 test("a deferred AI setup operation rejects a second public setup action", async () => {
   const plugin = mainHarness();
   const pendingSave = deferred<typeof credential>();
@@ -683,11 +1527,13 @@ test("password input forwards the typed API key to Keychain and clears only conf
   tab.rerenderLocalAiSection = () => tab.hostedCredentialSetting(container, "openai");
   const saved: string[] = [];
   let confirmed = false;
+  let setupChecks = 0;
   tab.plugin = {
     aiSetupBusy: () => false,
     hostedAiState: null,
     localAiState: { activeAction: "" },
     saveHostedApiKey: async (value: string) => { saved.push(value); return confirmed; },
+    checkHostedAiConnection: async () => { setupChecks += 1; return true; },
     settings: {},
   };
   tab.hostedCredentialSetting(container, "openai");
@@ -695,9 +1541,11 @@ test("password input forwards the typed API key to Keychain and clears only conf
   inputs[0].setValue("sk-actual-typed-secret").change("sk-actual-typed-secret");
   await buttons[0].click();
   assert.equal(inputs.at(-1)?.value, "sk-actual-typed-secret");
+  assert.equal(setupChecks, 0);
   confirmed = true;
   await buttons[0].click();
   assert.deepEqual(saved, ["sk-actual-typed-secret", "sk-actual-typed-secret"]);
+  assert.equal(setupChecks, 1);
   assert.equal(inputs.at(-1)?.value, "");
   assert.deepEqual(tab.plugin.settings, {});
 });
@@ -721,7 +1569,14 @@ test("unload closes cloud consent and blocks even an approval queued just before
     omdCapabilityService: { dispose() {} },
     omdEnrichmentRunner: { dispose() {} },
     qaRetrievalOptions: () => ({}),
-    previewCloudAnswer: async () => ({ provider: "openai", retrieval: {}, preview: { preview: {}, evidence: [] } }),
+    previewCloudAnswer: async () => ({
+      provider: "openai",
+      retrieval: {},
+      preview: {
+        preview: {},
+        evidence: [{ path: "Note.md", title: "Note", evidence: "Approved excerpt", score: 1 }],
+      },
+    }),
     executeCloudAnswer: async () => { assert.fail("No evidence may be sent after unload"); },
     assertCloudPreviewStillCurrent: () => {},
   });
