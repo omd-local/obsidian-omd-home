@@ -91,39 +91,47 @@ node -p 'require("./manifest.json").version'
 
 | 字段 | 值 |
 | --- | --- |
-| 日期与时间 | 2026-09-09 02:12 NZST |
+| 日期与时间 | 2026-09-13 22:37 NZST |
 | 测试者 | shion |
 | 上一轮已记录 baseline commit | `6adac24442caa450a76184c728284ca26bdb086f` |
-| 当前安装候选来源 | branch `agent/omd-home-baseline`；reviewed code commit `1a577e880beaeb04deec71694d02a3369ecb4eb2`；2026-09-09 02:12 NZST 从该 commit 重新构建并安装到 test-vault；准确 bundle 身份以下方 SHA-256 为准 |
+| 当前安装候选来源 | branch `agent/omd-home-baseline`，代码与测试 commit `8849dc7`；包含 hosted-answer、embedding recovery、grounding contract、隐私边界、错误分类、Ollama Cloud alias、malformed model metadata fail-closed、hosted key Save & check、检索方式英文文案与 Settings UI-01–03 修复；2026-09-13 22:37 NZST 重新构建并安装到 test-vault；准确 bundle 身份以下方 SHA-256 为准 |
 | manifest 版本 | `0.1.1` |
 | Obsidian 版本 | `1.13.7` |
-| macOS 版本 | `26.5.2` |
+| macOS 版本 | `26.6.2` |
 | vault 绝对路径 | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
-| OMD 版本/commit | `0.3.0b2` / `d9829166c15d4590a90fb3bd733c21ad51345092`；`/opt/homebrew/bin/omd` 是不兼容的旧 Homebrew launcher，兼容候选为 `/opt/homebrew/Caskroom/miniconda/base/bin/omd` 与源码 `.venv/bin/omd`；人工测试时仍以 Settings 实际解析路径为准 |
+| OMD 版本/commit | `0.3.0b2` / `0d8765fca55ff7a93bd970a00a2d7c0d20b50fe4`；`/opt/homebrew/bin/omd` 是不兼容的旧 Homebrew launcher，兼容候选为 `/opt/homebrew/Caskroom/miniconda/base/bin/omd` 与源码 `.venv/bin/omd`；人工测试时仍以 Settings 实际解析路径为准 |
 | Ollama 版本 | client / daemon `0.33.3`；`/api/status` 为 `cloud.disabled: false`、`source: none`；Cloud 状态仅作环境记录，本地模型测试不要求 `cloud.disabled: true` |
 | Completion model | `qwen3:4b-instruct` 与 `qwen3:0.6b`（本地已安装）；另有 cloud-backed `gpt-oss:20b-cloud`，不得出现在 local-only model 路径 |
 | Embedding model | Settings 已保存 `bge-m3`，但尚未安装；执行 AI-09 前再运行 `ollama pull bge-m3` |
-| 自动化门禁 | TypeScript、ESLint、production build、`git diff --check` 均通过；自动测试 `407/407`；production dependency audit 为 0 vulnerabilities |
+| 自动化门禁 | `npm run check` 通过：TypeScript、ESLint、`495/495` 自动测试与 production build；`git diff --check` 通过。`npm audit --omit=dev` 本轮因外部 registry 访问被安全审查拒绝，不能据上次结果宣称本轮无漏洞；发布前需另行获准运行或由 CI 执行 |
 
 不要只写“最新版本”；commit SHA 才能准确复现。
 
-当前安装到 test-vault 的 code-commit 候选资产 SHA-256（2026-09-09 02:12 NZST 重新执行
+当前安装到 test-vault 的候选资产 SHA-256（2026-09-13 22:37 NZST 重新执行
 `npm run build` 与 `npm run install:test-vault`；source 与 test-vault 安装副本已逐项核对一致）：
 
 | 资产 | SHA-256 |
 | --- | --- |
-| `main.js` | `aec4135e9480f1f270b38f07c4acc0ff5ac3ba01baacd950f9fd7132072d3e64` |
+| `main.js` | `fb7ea4ef8c3622a50f95ab2ad47e99ddd07de23427f8c0ce2825c08c79f6d3a3` |
 | `manifest.json` | `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
-| `styles.css` | `06b1d27bdc10a53eeeb5a64bc16a3fb38a567bd6ce11d75c5f5c4642379936ce` |
+| `styles.css` | `8eaab08b7a639beb57fabc9ff892f90d351fcd6c1e491026ee1e3f91d8e4188d` |
 | `omd-eventkit` | `78db9fd4c4df14602adcbc5d888406f4ac51185b3bc798697551ed580444a33c` |
 
 `data.json` 仍保留既有测试身份与设置，未作为发布资产重新生成；当前 SHA-256 为
-`6f1deb4e7030a342c9942fe7719c478636b6d760aa9525528ffaa486af589fe1`。
+`4715cd9dea18878c7c78ffbee52e083c70d0ecb87d1263b9f16a2360046285b6`。
+
+2026-09-11 上一轮安装后的安全检查只读取字段名和凭证是否存在，不读取凭证值：当时 `data.json` 没有
+secret-like 字段名或已知 key pattern；准确的 OpenAI Keychain entry 当前为 **PRESENT**，启动本次
+Terminal 的 `OPENAI_API_KEY` 为 **UNSET**。兼容 OMD bridge 已成功从 Keychain 识别凭证，读取
+`api.openai.com` 的 model catalog，并确认 `o3-mini` 可用；preview-only smoke test 也成功生成了只含
+1 条本地检索证据的 consent preview，未执行 provider answer。继续 AI-04 B/C 前只需在插件内
+**Check setup**；除非要替换 key，否则不要重复 **Save & check**。
 
 2026-09-07 的首次安装曾准备到 **Install-00 第 4 步完成**：当时插件目录只有三项基础资产，
 尚无 `data.json`。这是历史基线，不是当前目录应满足的清理条件。当前测试已推进到
-**[AI-02 第 4 步后的暂停／交接点](#test-ai-02)**；继续测试时保留现有 `data.json`、笔记和测试
-进度，按该交接点恢复 endpoint、启动 Ollama 并重新 **Check setup**，不重跑 clean install。
+**AI-02 暂时记为 `NOT RUN`**；继续测试时保留现有 `data.json`、笔记和测试进度。进入
+AI-07/CAP-02 前确认 endpoint 为 `http://localhost:11434`、Ollama 已启动，并重新
+**Check setup**；不重跑 clean install。
 更新候选版只替换同一次 build 的 `main.js`、`manifest.json`、`styles.css`；可选
 `omd-eventkit` 可以另行保留或安装，不计入三项发布资产。当前源目录中的
 `dist/omd-eventkit` 是可选 helper 的构建产物。`Manual Test Notes/` 中预装的 5 篇 Markdown fixtures 是受控
@@ -467,9 +475,10 @@ shasum -a 256 "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugin
 [移除旧安装](#guide-clean-install)。需要输入文件时查看
 [已准备的测试素材](#guide-test-fixtures)。
 
-> 本轮恢复位置是 **[AI-02 第 4 步后的暂停／交接点](#test-ai-02)**。保留当前 `data.json`
-> 和测试进度，恢复有效 endpoint 与 daemon 后重新 Check setup；无需重新清理安装。
-> 上方 SHA-256 是上一轮记录，更新候选资产后须另行核对，不能冒用为新 build 的身份。
+> 本轮将 **[AI-02](#test-ai-02)** 暂时记为 `NOT RUN`。保留当前 `data.json` 和测试进度；
+> 进入 AI-07/CAP-02 前恢复有效 endpoint 与 daemon，并重新 **Check setup**，无需重新
+> 清理安装。上方 SHA-256 是当前已安装候选的身份；此后如果再次 rebuild/reinstall，必须
+> 同步更新时间和 hash。
 
 ### 阶段 A：干净安装与无外部依赖 UI
 
@@ -495,18 +504,18 @@ shasum -a 256 "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugin
 
 12. **[AI-00：Settings 信息架构、文案与响应式布局](#test-ai-00)**（Core）— 先验证 AI 设置主流程的结构。
 13. **[AI-01：本地 Ollama、模型目录与默认 local-only 选择](#test-ai-01)**（Core）— 建立本地 daemon 和 text model 基线。
-14. **[AI-02：Ollama daemon、Cloud 可用状态与本地模型隔离](#test-ai-02)**（Core）— 在正常连接通过后验证 daemon/endpoint 状态分离。
+14. **[AI-02：Ollama daemon、endpoint 与本地模型隔离](#test-ai-02)**（Core）— 在正常连接通过后验证 daemon/endpoint/model 状态分离。
 15. **[AI-07：本地 Omnibox 结果、证据、复制与返回用时](#test-ai-07)**（Core）— 先证明真实本地问答主链路可用。
 16. **[CAP-02：本地 AI 生成 links/tags，Review 后才写入](#test-cap-02)**（Core）— 同时依赖成功 Capture 与可用本地模型。
 17. **[AI-06：Command Palette 诊断、后台任务与 Cancel](#test-ai-06)**（Extended）— 正常 AI 路径通过后再测诊断和取消。
 18. **[CAP-06：后台继续、unload 和退出取消](#test-cap-06)**（Core）— 复用已经验证的后台任务生命周期。
 19. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Extended）— 在基本 RAG 可用后评估答案质量。
-20. **[AI-09：Multilingual hybrid retrieval 与 semantic rerank](#test-ai-09)**（Extended）— 以 sparse/benchmark 基线对照 hybrid retrieval。
 
 ### 阶段 E：云端回答与多 Provider 隔离
 
-21. **[AI-03：Ollama Cloud 设置入口与逐题 preview](#test-ai-03)**（Core）— 本地路径稳定后再改变 Ollama Cloud 环境。
-22. **[AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口](#test-ai-04)**（Core）— 逐一验证 hosted credential、preview 与发送边界。
+20. **[AI-03：Ollama Cloud 设置入口与逐题 preview](#test-ai-03)**（Core）— 保持 `bge-m3` 未安装，先验证 Cloud preview 和“未安装”降级。
+21. **[AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口](#test-ai-04)**（Core）— 保持 `bge-m3` 未安装，逐一验证 credential、preview、发送边界和准确的 embedding 降级原因。
+22. **[AI-09：Multilingual hybrid retrieval 与 semantic rerank](#test-ai-09)**（Extended）— AI-03/04 完成 missing-model 分支后，才安装 `bge-m3` 并建立 Keyword + semantic search 基线。
 23. **[AI-05：Provider 切换、每个 provider 的 model 记忆与本地工作流隔离](#test-ai-05)**（Core）— 必须在多个 provider 已配置后执行。
 24. **[AI-11：Credential 状态、逐题证据与并发取消回归](#test-ai-11)**（Core）— 在正常本地/hosted 路径通过后测试状态刷新、provider 切换与待批准请求的取消。
 
@@ -515,9 +524,10 @@ shasum -a 256 "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugin
 25. **[AI-10：Stale model、reload/unload 与故障恢复](#test-ai-10)**（Extended）— 故障注入可能改变当前环境，因此放在所有正常路径之后。
 26. **[REL-01：干净 vault 与三项 bundle](#test-rel-01)**（Core）— 使用最终 clean build 做最后发布验收。
 
-如果本轮只跑 Core，请按以上顺序跳过标记为 Extended 的 17、19、20、25，不能因为跳过而把它们
+如果本轮只跑 Core，请按以上顺序跳过标记为 Extended 的 17、19、22、25，不能因为跳过而把它们
 记录为 PASS；应记录为 `NOT RUN` 并写明原因。若 Core 中没有可用 hosted developer key，仍完成
-AI-04 的无 key、opt-in 关闭和 preview/cancel 边界，真实网络分支记录为 `NOT RUN`。
+AI-04 的无 key与 opt-in 关闭边界；需要有效 key/model 的 catalog、preview、cancel 和真实网络
+分支记录为 `NOT RUN`，不得假装无 key 也能打开发送 preview。
 
 每个案例记录：
 
@@ -553,12 +563,14 @@ AI-04 的无 key、opt-in 关闭和 preview/cancel 边界，真实网络分支�
     - OMD：先不要填写路径；等待主状态卡自动发现，再完成 `OMD-01`。
     - Advanced OMD paths：默认保持折叠；只有自动发现失败的诊断测试才打开。
     - Python executable override：先留空；macOS/Linux 测试从检测到的 OMD shebang 自动发现，Windows 测试从 OMD launcher 所在的虚拟环境自动发现 `python.exe`。
-    - OMD Home bridge override：先留空，使用打包在 `main.js` 内的 bridge。
+    - OMD Home bridge override：先留空，使用打包在 `main.js` 内的 bridge。自定义 bridge 属于
+      开发／恢复路径；它的 answer JSON 必须包含 `grounding_contract_version: 1`，否则插件应在
+      发送任何模型结果前拒绝该输出，并提示改回 bundled bridge 或升级自定义 bridge。
     - EventKit helper：只在 Calendar 阶段安装。
     - Ollama 与模型：只在 Local AI 阶段启动。
-11. 完成 `AI-00` 至 `AI-05` 以及 `AI-07`。没有 hosted developer key 时，将 `AI-04` 的
-    真实连接分支记录为 `NOT RUN`，但仍完成无 key、provider opt-in 关闭、preview / cancel
-    边界这三类检查。
+11. 完成 `AI-00` 至 `AI-05` 以及 `AI-07`。没有 hosted developer key 时，将 `AI-04` 中需要
+    catalog、preview / cancel 或真实发送的分支记录为 `NOT RUN`；仍完成无 key 与 provider
+    opt-in 关闭边界，但不得绕过 credential 前置条件来伪造 preview。
 12. 测试保留设置的重装：
     - 不删除 `data.json`。
     - 记录其 SHA-256。
@@ -710,8 +722,9 @@ ollama list
 5. 云端 provider 测试会联系设置页明确显示的 destination。只使用你愿意用于测试的 developer
 API key。ChatGPT 或 Claude 的消费者订阅不等于 API 额度。没有可用 developer key 时，把对应
 网络案例记为 `NOT RUN`，不要使用个人主账号密钥截图或粘贴进测试记录。
-6. 如果你只是在验证本地模型，Ollama 的 Cloud 可用状态不需要先关闭。只有当你要做
-   Ollama 自身 local-only 政策检查时，才额外修改 `server.json` 或 `OLLAMA_NO_CLOUD`。
+6. 验证本地模型和 AI-02 时，不修改 Ollama 的 Cloud 设置。只有进入 AI-03、且
+   测试者自己曾用 `server.json` 或 `OLLAMA_NO_CLOUD` 强制 local-only 时，才撤销自己设置的
+   override。不要为了制造另一种 Cloud 状态而改动用户全局配置。
 
 <a id="test-ai-00"></a>
 
@@ -721,16 +734,17 @@ API key。ChatGPT 或 Claude 的消费者订阅不等于 API 额度。没有可�
 2. 确认顶层顺序稳定：**Startup → OMD → AI answers → Calendar**。
 3. 在 **AI answers** 主流程中只应看到：
    - **Answer provider**
+   - 云端 provider 下的只读 **Request destination**
    - 当前云端 provider 下的 **Allow … answers** 授权开关
    - Hosted API 时的 **Developer key**
-   - **Text completion model**（本地 Ollama）或 **Answer model**（云端 provider）
+   - **Answer model**（本地 Ollama 或当前云端 provider）
    - **Answer setup** 与唯一主操作 **Check setup**
 4. 确认本地或云端边界说明直接写在主描述文案里，而不是单独再出现一个
    **Local-only boundary** 或 **Cloud boundary** setting。
 5. 确认设置页没有单独的 **Refresh models**、**Model catalog** 或三组 Smoke 按钮。
    这些低频诊断只保留在 Command Palette。
    **Check setup** 结果必须把「本机模型总数」与「可用于回答的 text/completion 模型」明确
-   分开；不能把「已下载」暗示成可回答。**Text completion model** 下拉框应列出每个本机已下载
+   分开；不能把「已下载」暗示成可回答。本地 **Answer model** 下拉框应列出每个本机已下载
    模型：可回答的模型可以选择，embedding-only、thinking-only 或已确认不兼容的模型保留可见但
    必须禁用，并直接在 option label 解释原因。Cloud-backed 条目不混入这份本机列表。
 6. **Advanced AI controls** 默认折叠。展开后只包含：
@@ -749,14 +763,24 @@ API key。ChatGPT 或 Claude 的消费者订阅不等于 API 额度。没有可�
    新 capture 会记住最近一次已提交的选择，并且 Retry 保留失败任务的选择。
 8. 来回选择五个 provider。确认 section 只局部更新，不闪回页面顶部，不改变外层滚动位置，
    也不显示上一个 provider 的成功或错误反馈。
-9. 对任一已通过检查的 provider 更换 **Answer model** 或 **Text completion model**。旧的成功状态应立即失效，并提示重新
+9. 对任一已通过检查的 provider 更换 **Answer model**。旧的成功状态应立即失效，并提示重新
    **Check setup**，不能继续把上一个 model 显示为 ready。未检查的 **Unchecked** 使用中性的
    相邻状态条，不得伪装成错误；成功 **Ready** 与缺少模型、daemon 不可达等真实错误使用更醒目、
    可区分的相邻状态条。不得只靠颜色区分，也不得把状态词藏在一大段说明文字中。
-10. 缩窄设置面板到单列宽度，再恢复。确认 label 字号和左边界不变化，dropdown、secret input
-   与按钮自然换行，不盖住说明文字。
-11. 用键盘 Tab 遍历 dropdown、secret input、button、toggle 与 disclosure；焦点必须可见。
-12. 检查文案一致性：主流程统一使用 **Check setup**，不混用 Refresh、Smoke 或 Check connection。
+10. 先缩窄整个 Obsidian 窗口，再在宽窗口里单独缩窄 Settings 内容面板（例如加宽左侧设置导航栏），
+    最后恢复。两种情况下都应按内容面板宽度切到单列；确认 label 字号和左边界不变化，dropdown、
+    secret input 与按钮自然换行，不盖住说明文字，也不产生横向滚动。
+11. 对照 **Startup → OMD → AI answers → Calendar** 四个同级 section：标题的字号、字重、
+    间距保持一致；紧随标题的说明使用同一较弱但清楚可读的字体层级。再对照 **Advanced AI
+    controls** 内的 **Vault retrieval**、**Local writing tools**、**Ollama troubleshooting**：同级
+    小标题及其说明各自一致，且不与字段 label、错误或成功状态混淆。宽、窄面板均不能截断、
+    重叠或让说明贴到控件边缘。
+12. 选择 **DeepSeek API**，对照 **Allow DeepSeek API answers** 与 **Developer key** 两张设置卡：
+    label、说明和右侧开关／密钥操作采用一致的左右对齐与垂直间距。在宽面板及缩窄到单列后
+    分别检查；password 输入、**Save & check**、帮助文字及开关都应完整显示，不覆盖
+    彼此，且授权开关的显式 opt-in 含义仍清楚可见。不要在本项粘贴真实 key。
+13. 用键盘 Tab 遍历 dropdown、secret input、button、toggle 与 disclosure；焦点必须可见。
+14. 检查文案一致性：主流程统一使用 **Check setup**，不混用 Refresh、Smoke 或 Check connection。
 
 通过条件：普通用户不展开 Advanced 也能选择 provider、选择 model 并检查 setup；setup 摘要能
 区分已下载、answer-eligible 与 embedding 模型，所有 eligible text model 均可选；高级参数不抢
@@ -772,10 +796,13 @@ API key。ChatGPT 或 Claude 的消费者订阅不等于 API 额度。没有可�
 3. 点击 **Check setup**。第一次检查应同时读取 daemon 版本、`/api/status` 和本地 model catalog。
 4. 对照 `ollama list` 与 **Check setup** 结果，确认目录完整且分类正确：
    - 结果给出本机 model 总数与 answer-eligible 数量；
-   - **Text completion model** 下拉列出全部本机已下载 model；已确认 answer-eligible 的 text model
+   - **Answer model** 下拉列出全部本机已下载 model；已确认 answer-eligible 的 text model
      和缺少 capability metadata、标为 unverified 的本机 model 可选择，后者须经 Check setup
      或执行前检查；已确认 embedding-only、thinking-only 或非 text-capable model 可见、禁用并带原因；
-   - thinking-only alias 不会伪装成推荐选项；默认应优先落在 `qwen3:4b-instruct` 这类 instruct model；
+   - 同时报告 `thinking` 与 `completion` 的 model 仍属于 answer-eligible，不得误标为
+     thinking-only；只有缺少 completion 能力，或已知无法稳定返回 OMD Home 可见答案的
+     alias 才能禁用；UI 不向普通用户暴露内部 token budget 术语；
+     默认应优先落在 `qwen3:4b-instruct` 这类 instruct model；
    - 插件不会隐藏、自动 pull 或静默替换 model。
 5. 选择另一个已安装 text model，再点 **Check setup**。
 6. 选择 **Custom model id…**，输入一个已安装 model 的准确 ID 并检查。
@@ -791,9 +818,17 @@ model、版本或 readiness 与时间戳。
 
 <a id="test-ai-02"></a>
 
-### AI-02：Ollama daemon、Cloud 可用状态与本地模型隔离
+### AI-02：Ollama daemon、endpoint 与本地模型隔离
 
-1. 保持 endpoint 为 `http://localhost:11434`，点击 **Check setup**。
+本节验证 OMD Home 能否把 daemon、endpoint 和 model 问题准确分开。核心流程不会修改
+`~/.ollama/server.json` 或 `OLLAMA_NO_CLOUD`；Ollama Cloud 的启用流程由 AI-03 单独验证。
+本地 provider 的 answer model 与 embedding 都依赖同一个 daemon；daemon 停止时，本地答案本身
+也无法生成，因此不要在本节把 answer failure 误判成 embedding fallback。Hosted answer 仍可生成
+时的 embedding-to-keyword 降级在 AI-04 D 验证。
+
+1. **Answer provider** 选择 **Ollama on this computer**，**Answer model** 选择一个已安装、
+   answer-eligible 的本地模型。保持 endpoint 为 `http://localhost:11434`，点击
+   **Check setup**。记录成功状态、时间戳、Ollama 版本和模型名称。
 2. 完全退出 Ollama。只关窗口不一定停止 daemon。先从 Ollama 菜单选择 **Quit Ollama**，然后运行：
 
 ```bash
@@ -802,63 +837,90 @@ curl -sS --max-time 2 http://localhost:11434/api/status
 
 只有 connection refused/failed 才证明 daemon 已停止。若 App 拒绝退出，可在 Activity Monitor
 中退出名称为 `Ollama` 或 `ollama` 的相关进程。不要结束其他不相关进程。
-3. 此时点击 **Check setup**。应显示 daemon unreachable，并在 macOS 提供 **Open Ollama**。
-   点击后等待 daemon 启动，再点 **Check setup**。
-4. 在 **Advanced AI controls → Ollama troubleshooting** 把 endpoint 临时改成
-   `http://localhost:9999`。输入后应立即在 endpoint 字段旁显示醒目的 unsupported endpoint
-   状态，并直接列出仅允许的 `http://localhost:11434` 与 `http://127.0.0.1:11434`；
-   该无效值不得覆盖最后一个有效设置，也不必等待发送任何内容。
-   恢复
-   `http://localhost:11434` 后，该字段旁的错误必须立刻清除，再以 **Check setup** 取得新的
-   readiness 结果。
+3. 此时点击 **Check setup**。应显示 daemon unreachable，而不是 model unavailable；在 macOS
+   应提供 **Open Ollama app**。点击后等待 daemon 启动，再点 **Check setup**。
+4. 确认恢复后显示同一个 **Answer model** 可用，model catalog 与 `ollama list` 一致，停止 daemon
+   期间产生的旧错误不会继续覆盖新的成功状态。
 
-   **暂停／交接点（第 4 步后）**：若要在这里退出测试，先恢复默认 endpoint 并确认字段旁错误
-   已清除；重新启动 Ollama，记录当前 Answer model、daemon 状态和最后一次 Check setup 的时间。
-   恢复测试时，先重新打开 **Settings → OMD Home → AI answers**，确认 endpoint 仍为
-   `http://localhost:11434`，再运行 **Check setup**。只有这一步通过后，才继续第 5 步或后续
-   AI-07/CAP-02；不得把临时 `:9999` endpoint 或已停止 daemon 留给下一位测试者。
-5. 查看当前 Cloud 状态：
+   **暂停／交接点（第 4 步后）**：若要在这里退出测试，确认 Ollama 已重新启动，记录当前
+   Answer model、daemon 状态和最后一次 Check setup 的时间。恢复测试时，先重新打开
+   **Settings → OMD Home → AI answers** 并运行 **Check setup**。只有这一步通过后，才继续
+   第 5 步或后续 AI-07/CAP-02。
+5. 在 **Advanced AI controls → Ollama troubleshooting** 把 endpoint 临时改成
+   `http://localhost:9999`。输入后应立即在输入框下方的独立整行区域显示醒目的 unsupported
+   endpoint 提示，并直接列出仅允许的 `http://localhost:11434` 与
+   `http://127.0.0.1:11434`；提示不得与输入框并排争抢宽度。缩窄再加宽设置面板，确认
+   错误文字、输入框和卡片边缘留白正常，无重叠、贴边、横向溢出或异常断行。错误出现时焦点
+   应留在可编辑输入框；用键盘或辅助功能检查，该字段应呈现 invalid 状态，且错误与字段有关联
+   （例如 `aria-invalid` 和 `aria-describedby`），不能只靠颜色表达错误。该无效值不得覆盖最后
+   一个有效设置，也不必等待发送任何内容。离开再重新打开设置，确认字段恢复为最后一个有效
+   endpoint。
+6. 把 endpoint 改成允许的替代值 `http://127.0.0.1:11434`，确认输入框下方的 validation
+   error 立即消失、字段不再呈现 invalid 状态，再点 **Check setup**。成功后恢复
+   `http://localhost:11434` 并再次检查；不得把替代值或 `:9999` 留给后续测试。
+7. 确认 `gpt-oss:20b-cloud` 等 cloud-backed model 不会出现在本地 **Answer model** 的正常可选
+   列表中。只有当 `ollama list` 或当前 daemon catalog 已显示一个 cloud-backed model 时，
+   才用 **Custom…** 输入它的准确 ID；**Check setup** 必须明确显示该 model 被本地路径
+   阻止，且此检查不得读取或发送 Vault 内容。当前 daemon 没有这类 model 时，把该
+   手动子测试记为 `NOT RUN`，不得为此 pull Cloud model，也不得把 `selected_model_missing`
+   误判为隔离失败。随后恢复本地 model。
+8. 只观察当前 Cloud 状态，不为本节修改配置：
 
 ```bash
 curl -sS http://localhost:11434/api/status
 ```
 
-记录 `cloud.disabled` 与 `source`。命令只输出 JSON，不会额外打印 PASS。
-6. 如果需要测试 Cloud-available 分支，先完全退出 daemon 并备份配置：
+命令只输出 JSON，不会额外打印 PASS。记录 `cloud.disabled`：若当前为 `false`，再次确认本地
+**Answer model** 仍可通过 **Check setup**；若当前为 `true`，本节不为了制造另一个状态而修改
+用户配置，把 Cloud-available 的 GUI 覆盖留给 AI-03。自动化测试应继续覆盖 `true`、`false`、
+缺少 Cloud 字段三种 status 均不改变已验证本地 model 的 eligibility。
 
-```bash
-cp ~/.ollama/server.json ~/.ollama/server.json.omd-home-backup
-```
-
-保留无关 JSON key，只移除 `"disable_ollama_cloud": true`，并运行：
-
-```bash
-launchctl unsetenv OLLAMA_NO_CLOUD
-launchctl getenv OLLAMA_NO_CLOUD
-```
-
-第二条应无输出。重启 Ollama 后确认 `cloud.disabled` 为 `false`。
-7. 切回 **Ollama on this computer** 并点击 **Check setup**。只要所选 model 仍是本地可用，
-   本地 `@`、enrichment、Polish Markdown、embedding retrieval 仍应保持可用，不应因为 Cloud
-   available 就被阻止。
-8. 如果你要额外验证 Ollama 自身的 local-only 政策，再恢复备份，或在有效 JSON 中加入
-   `"disable_ollama_cloud": true`；完全重启 Ollama，确认 `cloud.disabled` 为 `true`，再点
-   **Check setup**。这一步是可选的 Ollama daemon 政策检查，不是普通本地模型测试的前置条件。
-
-通过条件：daemon、invalid host、Cloud available、Cloud unknown 和 local-only ready 是不同
-状态；invalid endpoint 的错误即时且紧贴字段、恢复默认值后立即消失；本地模型不会因为 Cloud
-可用而失效；无法证明 local-only 时，不发送任何 Vault 内容。
+通过条件：daemon unreachable、invalid endpoint、model unavailable 和 cloud-backed model blocked
+得到彼此准确的提示；invalid endpoint 不会被保存；两个允许的 loopback endpoint 均可恢复连接；
+同时具备 `thinking + completion` 的本地 model 可正常选择；Cloud availability 不会自动改变或阻止
+所选本地 model，也不会导致任何 Vault 内容被发送；不得把 completion model 与 embedding model
+的错误混为一谈。
 
 <a id="test-ai-03"></a>
 
 ### AI-03：Ollama Cloud 设置入口与逐题 preview
 
-1. 在 Ollama App 登录并允许 Cloud，确认 `/api/status` 的 `cloud.disabled` 为 `false`。
+1. 在 Ollama App 登录，然后运行 `curl -sS http://localhost:11434/api/status`，确认
+   `cloud.disabled` 为 `false`。已经是 `false` 时直接继续，不要编辑配置。
+
+   只有当它是 `true`，而且测试者确认是自己此前为测试 local-only 而创建的
+   override，才执行以下恢复；如果不知道配置来源，把 AI-03 记为 `NOT RUN`，不要改动
+   用户环境：
+
+   1. 完全退出 Ollama daemon。
+   2. 如果 `~/.ollama/server.json` 由测试者改过且包含
+      `"disable_ollama_cloud": true`，先备份：
+
+      ```bash
+      cp ~/.ollama/server.json ~/.ollama/server.json.omd-home-backup
+      ```
+
+      在有效 JSON 中只移除 `disable_ollama_cloud` 这一个 key，保留所有无关 key；不要删除
+      整个文件。
+   3. 如果测试者此前设置过 launchd 环境变量，运行：
+
+      ```bash
+      launchctl unsetenv OLLAMA_NO_CLOUD
+      launchctl getenv OLLAMA_NO_CLOUD
+      ```
+
+      第二条应无输出。
+   4. 重启 Ollama，再查 `/api/status`，只有 `cloud.disabled: false` 才继续 AI-03。
+
+   这是 AI-03 使用 Cloud provider 的前置恢复，不是 AI-02 额外的状态分支测试。
 2. **Answer provider** 选择 **Ollama Cloud**。
 3. 不选 model，先点 **Check setup**：
    - OMD Home 读取本地 Ollama App 返回的 Cloud 状态与 model metadata；
    - 如果本地还没有 Cloud model metadata，提示先在 Ollama 中运行一次 cloud model；
-   - 如果发现 models，dropdown 被填充，并提示选择后再次检查。
+   - 只有 metadata 同时报告 remote model，且 remote host 严格为 `https://ollama.com`（默认
+     HTTPS 端口）时，model 才能进入 Ollama Cloud dropdown；model 名称含 `cloud` 不足以证明
+     它可用，其他 remote host 必须在 `/api/chat` 前被阻止；
+   - 如果发现符合条件的 models，dropdown 被填充，并提示选择后再次检查。
 4. 选择 cloud-backed model，再点 **Check setup**。成功只代表 credential/session 与 model
    metadata 可用。
 5. 确认当前 provider 对应的 **Allow … answers** 默认关闭。这个按钮名称应直接复用当前
@@ -872,30 +934,80 @@ launchctl getenv OLLAMA_NO_CLOUD
 预期显示“先在 Settings → OMD Home → AI answers 启用当前 provider 的 Allow … answers”一类的显式提示，而不是 silent fallback。
 6. 打开当前 provider 对应的 **Allow … answers**，重新提交同一个问题。预览 modal 应先显示 provider、model、
    destination、bounded evidence excerpts、取消按钮与发送按钮。
-7. 先点 **Cancel**，确认没有把 Vault evidence 发送到云端，也没有产生 result。再重复一次并
-   点 **Send and answer**，确认 result 区显示回答、sources、elapsed time 与 cloud provenance。
-8. 成功结果中的 source chips 与批准的证据是预期 UI。检查错误详情、Needs attention、Notice
-   和 Console：不得泄漏 note excerpt、凭证或不必要的绝对路径，也不得出现跨 provider fallback。
+7. 先点 **Cancel**，确认没有发送 Vault evidence，也没有产生 result。准备下面这个可稳定命中
+   单篇笔记的唯一短语问题：
 
-通过条件：Ollama Cloud 的设置入口可检查；云端答案必须经过 preview 与逐题确认；取消时不发送；
-成功时只发送 bounded evidence excerpts，不发送整个 vault。
+   ```text
+   @Using only the note with the phrase “amber lighthouse checklist”, what does the source explicitly say about the lighthouse review, and what is one cautious planning inference? Label the two parts.
+   ```
+
+8. 先提交一个确定无法命中测试素材的唯一乱码问题，例如
+   `@zzqvnoevidence7391`。预期显示 **No relevant vault evidence was found. No model request was
+   sent.**；不得打开 consent preview，也不得调用 Ollama Cloud。然后再提交第 7 步的单来源问题。
+9. 预览中的 **Selected evidence** 必须显示 `1 source`，且只包含
+   `Manual Test Notes/English Markdown Note.md`。点击 **Send and answer**。
+   vault-relative path 只用于这一个本机 preview，帮助测试者识别来源；真正的 provider prompt
+   只能包含问题、获批片段和 `[S1]` 这类不透明标签，不能包含 Vault 文件名或路径。
+10. 成功结果必须满足：
+   - header 显示 `1 source`，正文第一行准确显示 **Based on 1 retrieved note.**；
+   - 不得写成 “the Vault contains …”“all Vault notes …”或以其他方式暗示覆盖整个 Vault；
+   - 正文中的 **Source states:** 与 **Model inference:** 各出现一次，按此顺序排列；
+     不显示 provider 返回的原始 JSON、`source_states` / `model_inference` 字段名或重复标题；
+   - **Source states:** 写出原文明确说明的 Thursday 10:30 和 owner Morgan；
+     **Model inference:** 给出题目要求的一条审慎规划推论，并使用 “may / suggests” 等审慎表达。
+     若题目没有要求推论且证据不足，允许显示 **Model inference:** 下的 **None.**，但本题不能
+     用 **None.** 代替所要求的推论；
+   - 每个实质性事实、列表项和推论都紧邻至少一个本次批准来源的 wiki-link 引用；
+     只有末尾 source chips 或总 `Sources:` 列表不算逐结论引用；
+   - 不得出现 `[S1]`、`[E1]` 等内部 placeholder。
+11. 点击 **Copy result**，确认复制结果同样保留单来源范围句、逐结论引用和去重后的 `Sources:`。
+12. 如果 **Keyword + semantic search** 因已保存但未安装的 `bge-m3` 降级，结果仍应成功并显示：
+    **The selected embedding model is not installed in Ollama, so this answer used keyword search only.**
+    同一 warning 下应有 **Install model**、**Switch to keyword search**、**Open retrieval settings**：
+    - 本阶段只确认 **Install model** 存在，不要点击；页面加载、Check setup 和提问均不得自动下载；
+      保持 `bge-m3` 未安装，供 AI-04 D 的“未安装”分支复测，实际安装留到 AI-09；
+    - **Switch to keyword search** 应关闭 **Keyword + semantic search** 并保存此选择，影响之后的问题；
+    - **Open retrieval settings** 应打开
+      **Settings → OMD Home → AI answers → Advanced AI controls → Vault retrieval**，
+      并定位到 **Embedding model**。
+13. 检查错误详情、Needs attention、Notice 和 Console：不得泄漏 evidence excerpt、凭证、
+    request body 或不必要的绝对路径，也不得跨 provider fallback。
+
+若第 9 步发送后出现 **did not cite every claim**、**did not separate Source states from Model inference**
+或 **did not provide the required Source states / Model inference structure**，本次应记为
+`FAIL: grounded answer contract`，而不是 Cloud 连接或 embedding 降级通过。未经验证的正文不得显示；
+插件也不得自动重发。重试必须重新提交问题、检查新的逐题 preview 并再次点击 **Send and answer**。
+
+通过条件：Ollama Cloud 逐题 preview/批准边界成立；单来源答案明确限定为 retrieved note；
+每个关键结论有来源；原文陈述与模型归纳明确分开；embedding 不可用时安全降级为 **Keyword search**，
+而不是把整次云端回答标记为失败。
 
 <a id="test-ai-04"></a>
 
 ### AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口
 
 对 **OpenAI API**、**Anthropic API**、**DeepSeek API** 逐一执行。没有真实 developer key 时，
-先完成 A 和 D，B/C 记为 `NOT RUN`。
+完成 A，以及 C 第 1 步的 Allow 关闭前置阻止测试；B、C 第 2 步以后、D/E 和 provider 网络错误
+分支记为 `NOT RUN`。不得把缺少 key 误记为缺少 answer model，也不得在没有 key/model 时期待
+preview 出现。
 
 #### A. 无 key 与设置文案
 
-1. 选择 provider。
-2. 确认 provider 区块里的 destination 说明显示固定目标域名：
-   - OpenAI: `api.openai.com`
-   - Anthropic: `api.anthropic.com`
-   - DeepSeek: `api.deepseek.com`
-3. 确认说明写明：Check setup 会认证并读取 model catalog，但不发送 Vault 内容。
-4. 不填写 key，点击 **Check setup**。应显示 credential missing，不得回退其他 provider。
+1. 打开 **Settings → OMD Home → AI answers**，在 **Answer provider** 下拉框选择 provider。
+   `provider` 不是另一个菜单或页面。
+2. 在 **Answer provider** 正下方找到独立的 **Request destination** 行，并确认固定值：
+   - OpenAI API：`api.openai.com`
+   - Anthropic API：`api.anthropic.com`
+   - DeepSeek API：`api.deepseek.com`
+   说明必须写明只有逐题 preview 中显示的问题和 evidence excerpts 才可能发送。
+3. 未提供 key 时，**Answer model** 应 disabled，并显示 **Add developer key first**；不得先显示
+   **Choose an answer model**。
+4. 点击 **Check setup**。应显示 credential missing，并说明检查不会读取 Vault 内容；
+   不得请求 model catalog，也不得回退到其他 provider。
+5. 为单独验证执行顺序，暂时打开当前 provider 的 **Allow … answers**，在 Home 提交
+   `@What is in my vault?`。应先提示在
+   **Settings → OMD Home → AI answers** 添加 developer API key；不得显示 model missing，
+   不得执行 Vault retrieval，也不得打开发送预览。完成后恢复 Allow 开关。
 
 #### B. 提供并验证 developer key
 
@@ -905,18 +1017,48 @@ launchctl getenv OLLAMA_NO_CLOUD
 **macOS Keychain 路径**
 
 1. 在 **Developer key** 的 password 输入框直接粘贴有效测试 key，输入应默认遮蔽；这里接受的是
-   真正的 API key，不是 Obsidian SecretStorage 的条目名称或下拉选择。点击 **Save key**。
-2. 输入框必须清空，状态明确写出 **macOS Keychain**，并出现 **Remove key**。
+   真正的 API key，不是 Obsidian SecretStorage 的条目名称或下拉选择。点击 **Save & check**。
+2. 输入框必须清空，状态明确写出 **macOS Keychain**，并出现 **Remove key**。同一次操作必须立即
+   执行 provider setup check：有可用 credential 时加载真实 model catalog；尚未选择 model 时提示
+   选择 model，而不是要求用户再寻找或记住另一个 **Check setup** 按钮。保存失败时不得继续检查。
 3. key 不得出现在 Notice、Console、Needs attention 或
    `test-vault/.obsidian/plugins/omd-home/data.json`。
-4. 点击 **Check setup**。若还未选 model，应先加载 model catalog，并提示选择 model。
-5. 选择 model 后再次点击。成功信息应显示 provider、model、destination，并明确说明这一步只是在验证
+
+   不要用 `cat data.json`，也不要运行会输出 key 的 `security ... -w`。可用以下只输出字段名
+   或 PASS/FAIL 的方式核验当前 test-vault：
+
+   ```bash
+   OMD_HOME_DATA_FILE="/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/data.json"
+
+   jq -r 'paths(scalars) as $p | $p | map(tostring) | join(".")' "$OMD_HOME_DATA_FILE" \
+     | rg -i 'api.?key|secret|token|credential|authorization' \
+     || echo "PASS: no secret-like setting names"
+
+   if rg -qi 'sk-(proj-|ant-)?[A-Za-z0-9_-]{12,}|OPENAI_API_KEY|ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|Bearer[[:space:]]+[A-Za-z0-9._-]+' "$OMD_HOME_DATA_FILE"; then
+     echo "FAIL: possible credential material in data.json"
+   else
+     echo "PASS: no known credential pattern in data.json"
+   fi
+   ```
+
+   在 macOS 只验证 Keychain entry 存在，不读取其值：
+
+   ```bash
+   security find-generic-password -s "omd/openai/api-key" -a "OPENAI_API_KEY" >/dev/null \
+     && echo "PASS: OpenAI key is in macOS Keychain"
+   ```
+
+   Anthropic 和 DeepSeek 分别替换为
+   `omd/anthropic/api-key` / `ANTHROPIC_API_KEY` 与
+   `omd/deepseek/api-key` / `DEEPSEEK_API_KEY`。
+4. 若 **Save & check** 后还未选 model，应已加载 model catalog 并提示选择 model。
+5. 选择 model 后点击 **Check setup**。成功信息应显示 provider、model、destination，并明确说明这一步只是在验证
    credential 与 model catalog；真正发送 Vault 问题仍然要回到 Home，显式打开云端答案，并经过 preview
    与逐题确认。
 
 **Windows/Linux 环境变量路径**
 
-1. 确认 Settings 不显示 secret input、**Save key** 或 **Remove key**，而是显示当前 provider
+1. 确认 Settings 不显示 secret input、**Save & check** 或 **Remove key**，而是显示当前 provider
    的准确环境变量名称。
 2. 完全退出 Obsidian。在启动 Obsidian 的同一用户环境中设置对应变量，再重新打开 Obsidian。
    Linux 临时测试可在一个新的 Terminal 中运行以下命令；输入不会写入 shell history：
@@ -935,25 +1077,224 @@ obsidian
 两条平台路径都要检查：如 provider 返回空 catalog、权限错误、rate limit 或网络错误，记录
 HTTP 类别即可；UI 不得显示 key、Authorization header 或 request body。
 
-#### C. 移除或撤销 key
+#### C. 云回答 preview、答案范围与 billing 边界
+
+1. 使用已通过 B 的 key 和 model。先关闭当前 provider 的 **Allow … answers**，在 Home 提交问题；
+   应在 retrieval 前提示启用当前 provider，不得 silent fallback。
+2. 打开 Allow 后，先提交唯一乱码问题 `@zzqvnoevidence7391`。必须显示
+   **No relevant vault evidence was found. No model request was sent.**；不得打开 preview、消耗
+   provider 请求或 fallback。然后提交 AI-03 的 `amber lighthouse checklist` 单来源问题。
+   预览必须显示当前
+   provider、model、固定 destination、`1 source` 及完整的本次有界 evidence excerpts。
+   预览中显示的 vault-relative path 只是本机给用户核对的标签；发给 provider 的 prompt 使用
+   不透明 source ID，OMD Home 不会额外附加来源文件名或路径。预览中的正文片段会原样发送，因此
+   如果笔记正文自己写有名称或路径，它仍属于用户本次批准发送的 excerpt；确认窗必须准确说明这一点。
+3. 先取消一次，确认不发送；再次提交并批准。在 preview 打开后改名或修改命中的来源，再尝试
+   批准时必须判定 consent 已失效并要求重新 preview，不能用旧批准发送不同的来源身份或内容。
+4. 成功结果必须重复满足 AI-03 的结果合同：
+   - **Based on 1 retrieved note.**
+   - 每个关键事实或推论均有本次批准来源的 wiki-link 引用；
+   - **Source states:** 与 **Model inference:** 各出现一次且顺序固定；不显示原始 JSON 或内部
+     `[S1]` / `[E1]` 标签。Thursday 10:30、Morgan 属于原文事实；审慎安排建议属于模型推论；
+   - 不暗示检索或阅读了整个 Vault；
+   - provider/model、sources、retrieval mode 和 elapsed time 正确。
+5. 确认 UI 没有暗示 ChatGPT Plus/Pro 或 Claude consumer subscription 包含 API 额度。
+6. provider 返回错误时必须显示安全、可行动的类别：400 为 request/model compatibility，
+   401 为 key rejected，403 为 access denied，429 为 rate/quota，5xx 为 provider temporary
+   failure，timeout/transport 为 network failure；provider 返回结构化 `credentials_invalid` 时也必须
+   明确显示 key 被拒绝并要求替换，不能误报 model catalog unavailable。只有 bridge process 本身无法启动或解析时才可显示
+   **OMD Home bridge failed**；任何错误都不得显示 key、Authorization header、response body
+   或 evidence excerpt。若 Keychain entry 仍存在但 provider 已撤销或拒绝该 key，预期是 **key rejected**；
+   这只通过本条 401 分支。若在插件内点击 **Remove key**，预期应是 **credential missing**，属于 E，
+   两者不可互相代替。
+
+**OpenAI `o3-mini` 回归**
+
+7. 仅当真实 OpenAI catalog 返回 `o3-mini` 且测试 key 有权使用时，选择 `o3-mini` 并重新
+   **Check setup**；否则明确记为 `NOT RUN`，不要用相似名称冒充。
+8. 提交上述单来源问题，检查 preview 后点击 **Send and answer**。请求必须成功返回
+   OpenAI / `o3-mini` 结果，不得因发送不受支持的 temperature 参数而返回 HTTP 400，也不得退化成
+   **OMD Home bridge failed**。人工测试不要求查看 raw HTTP request：确认结果元数据确实为
+   **OpenAI API / `o3-mini`**，且请求成功返回、没有 HTTP 400，即通过真实网络回归。还可在 repo 根目录
+   运行以下定向自动测试，直接验证 OpenAI task 的 `temperature` 为 `null`（序列化时省略），其他
+   provider 仍为 `0`：
+
+   ```bash
+   node --test --experimental-strip-types \
+     --test-name-pattern='hosted OpenAI tasks omit temperature' \
+     tests/omd-bridge.test.ts
+   ```
+
+   预期匹配用例为 `pass`；同一文件中其他不匹配用例显示 `skipped` 是正常现象。
+
+<a id="test-ai-04-structured"></a>
+
+**结构化答案与失败分类回归（各 provider 共用）**
+
+1. 检查本节 C 第 4 步已有的成功结果，不必为此额外付费发送：两段标题由 OMD Home 固定生成，
+   各结论旁有来源引用；复制结果也应保持相同分区和引用。引用指向获批来源并不自动证明结论受
+   原文支持，仍须人工核对 Thursday 10:30、Morgan 及推论的证据关系。
+2. 正常 provider 不一定能稳定制造坏 JSON 或漏引用；不要通过反复发送真实 Vault 内容来碰运气。
+   在 repo 根目录运行以下受控回归，使用模拟响应，不读取 Vault，也不调用云 API：
+
+   ```bash
+   node --test --experimental-strip-types \
+     --test-name-pattern='AI tasks request a bounded structured answer|structured AI answers render fixed sections and reject unverified citations|OmdBridge rejects malformed or ungrounded AI answers before they reach the UI|maps hosted provider failures to safe actionable messages' \
+     tests/omd-bridge.test.ts
+   ```
+
+   预期匹配的 `4` 个用例均为 `pass`；不同 Node 版本可能省略其他用例或将其标为 `skipped`。
+   依次核对：provider task
+   请求包含结构化 schema；缺失/错误结构或空白 claim 被拒绝且不回显原始模型正文；缺失、无效或
+   不属于本次检索的引用被拒绝；格式错误和引用错误在结果区得到不同的安全提示。
+3. 错误归类应准确：缺少或无效引用提示 **did not cite every claim**；受控测试中 bridge 报告
+   分区校验 warning 时提示 **did not separate Source states from Model inference**；provider 未返回可解析的
+   结构化结果提示 **did not provide the required Source states / Model inference structure**。
+   三者都不能展示未经验证的正文，也不能变成笼统的 **OMD Home bridge failed**。如果真实请求
+   偶发命中其中一类，记录 provider/model 与类别；重新发送前必须重新 preview 和确认。
+
+#### D. Hosted answer 时的本地 embedding 降级
+
+本节验证的是：Hosted provider 继续负责生成答案；本机 Ollama 只负责可选的 embedding。
+因此 embedding 失败时，检索应退回 **Keyword search**，不能把整个云回答标记为失败。
+Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其呈现为固定的
+**Source states:** / **Model inference:** 两段，并在显示前校验每项引用。D1/D2 只有在
+**答案正文与 Keyword search 降级诊断同时可见**时才通过；仅看到 preview 或降级 warning 不算通过。
+
+**固定测试例子与前置状态**
+
+1. 选择一个已通过 C 的直连 hosted provider，例如 **OpenAI API / `o3-mini`**，保持该 provider
+   的 **Allow … answers** 已开启。Anthropic API 或 DeepSeek API 也可以，但下列步骤必须始终使用
+   同一个 provider/model。
+2. **本节不要使用 Ollama Cloud 作为 answer provider**。停止 Ollama daemon 会同时让 Ollama Cloud
+   provider 不可用，无法隔离验证“云回答正常、只有本地 embedding 降级”。
+3. 确认以下 fixture 仍存在：
+   `Manual Test Notes/English Markdown Note.md`。所有手工分支都提交同一个稳定的单来源问题：
+
+   ```text
+   @Using only the note with the phrase “amber lighthouse checklist”, what does the source explicitly say about the lighthouse review, and what is one cautious planning inference? Label the two parts.
+   ```
+
+4. 在 **Settings → OMD Home → AI answers → Advanced AI controls → Vault retrieval**：
+   - 开启 **Keyword + semantic search**；
+   - **Embedding model** 选择 `bge-m3`；
+   - 关闭 **Semantic rerank**，以便只观察 embedding-to-keyword 降级；
+   - 本节不要点击 **Install model**，实际安装留到 AI-09。
+
+**D1. `bge-m3` 未安装（手工 Core）**
+
+1. 在 Terminal 运行 `ollama list`，确认输出中没有 `bge-m3`；Settings 中应显示
+   `bge-m3 (saved, not installed)`。如果它已经安装，不要为了本测试删除用户模型；本分支记为
+   `NOT RUN: bge-m3 already installed`，继续 D2。
+2. 提交上面的固定问题。即使 embedding 预检查失败，仍应打开逐题 preview；确认显示当前 hosted
+   provider/model、`api.openai.com`（或当前 provider 的准确 destination）、`1 source`，且证据只来自
+   `Manual Test Notes/English Markdown Note.md`。
+3. 点击 **Send and answer**。预期云回答成功，而不是 **OMD Home bridge failed**、provider 被切换，
+   或再次要求选择 answer model。
+4. 结果必须同时满足：
+   - header 仍显示测试开始时选择的 hosted provider/model 和 `1 source`；
+   - retrieval badge 显示 **Keyword search**，不能显示 **Keyword + semantic search · bge-m3**；
+   - 正文以 **Based on 1 retrieved note.** 开头；**Source states:** 写出原文明确说明的
+     Thursday 10:30 与 owner Morgan，**Model inference:** 给出有标签的审慎安排建议；
+     两段的每项关键结论都有这篇笔记的引用，不得只在末尾统一列来源；
+   - warning 精确显示：**The selected embedding model is not installed in Ollama, so this answer used keyword search only.**
+   - warning 下只显示 **Install model**、**Switch to keyword search**、**Open retrieval settings** 三个动作；
+   - 没有自动下载模型、自动重新发送、自动切换 provider 或把 `bge-m3` 当 answer model。
+5. 先点击 **Open retrieval settings**，预期直接打开 AI answers、展开 Advanced AI controls，并定位到
+   **Embedding model**。返回结果后点击 **Switch to keyword search**，预期按钮变为
+   **Keyword search selected**，且 **Keyword + semantic search** 被关闭并保存。为了继续 D2，
+   随后手动重新开启 **Keyword + semantic search**，仍选择 `bge-m3`。
+
+**D2. Ollama daemon 不可达（手工 Core）**
+
+1. 保持同一个直连 hosted provider、answer model 和 Allow 开关。确认 **Keyword + semantic search** 已重新开启、embedding
+   model 仍为 `bge-m3`。
+2. 按 [AI-02 第 2 步](#test-ai-02)停止 Ollama：从菜单选择 **Quit Ollama**；若 daemon 仍在运行，在 Activity
+   Monitor 中只退出 `Ollama` / `ollama` 相关进程。运行：
+
+   ```bash
+   curl -sS --max-time 2 http://localhost:11434/api/status
+   ```
+
+   只有显示 connection refused/failed 才继续；如果仍返回 JSON，本分支的前置状态尚未建立。
+3. 再次提交固定问题，检查 `1 source` preview 后点击 **Send and answer**。
+4. 结果必须同时满足：
+   - hosted provider 的答案仍成功返回，provider/model 没有改变；
+   - retrieval badge 为 **Keyword search**；
+   - 正文满足 D1 的单来源、两段标签与逐项引用要求；
+   - warning 精确显示：**The local Ollama service could not be reached, so this answer used keyword search only.**
+   - warning 下只显示 **Switch to keyword search** 与 **Open retrieval settings**；绝对不能显示 **Install model**；
+   - 不得误报 `bge-m3` 未安装、developer key 无效或整个 bridge failed。
+5. 测试后立即重新打开 Ollama，等待下面命令重新返回 JSON，再继续其他案例：
+
+   ```bash
+   curl -sS --max-time 2 http://localhost:11434/api/status
+   ```
+
+**D3. 已安装模型不支持 embedding（自动化；手工 `NOT RUN`）**
+
+正常 dropdown 会过滤或禁用 completion-only model。手工测试不要编辑 `data.json`、不要把
+`qwen3:4b-instruct` 强塞进 embedding setting。把本分支记录为
+`NOT RUN: requires controlled incompatible-model injection`，然后在 repo 根目录运行：
+
+```bash
+node --test --experimental-strip-types \
+  --test-name-pattern='selected_model_incompatible|hybrid_retrieval_model_unsupported' \
+  tests/main-runtime-regressions.test.ts
+```
+
+预期 `2 pass`：一个用例验证预检查把 `selected_model_incompatible` 分类为 embedding unsupported
+并关闭本次语义检索；另一个验证结果 warning 使用 **does not support embeddings**，且只提供
+**Switch to keyword search**、**Open retrieval settings**，不提供 **Install model**。
+
+**D4. daemon 可达，但 catalog/model inspection 失败（自动化；手工 `NOT RUN`）**
+
+这需要让 `/api/status` 成功，同时只让 `/api/tags` 或 `/api/show` 返回受控错误。普通手工环境不要
+代理或篡改 Ollama 响应；记录为 `NOT RUN: requires controlled catalog/show failure injection`，运行：
+
+```bash
+node --test --experimental-strip-types \
+  --test-name-pattern='reachable Ollama catalog fails|reachable Ollama model inspection fails' \
+  tests/main-runtime-regressions.test.ts
+```
+
+预期 `2 pass`：catalog failure 与 model-inspection failure 都归类为
+**The embedding check could not finish, so this answer used keyword search only.**，而不是 daemon
+unreachable 或 model not installed；恢复动作只有 **Switch to keyword search** 与 **Open retrieval settings**。
+
+**与 embedding 降级独立的答案校验失败**：如果 D1/D2 发送后出现缺少引用、
+分区格式错误或结构化答案无效等 grounded-answer 错误，记录本次为
+`FAIL: grounded answer contract`，附上 provider/model、错误类别及是否显示 Keyword search 诊断；
+**不得**把它记为 embedding 降级通过，也不要推断这次回答来自本地模型。未经校验的回答不应展示。
+插件不得自动再次发送；若要重试，重新提交同一问题、检查新的 evidence preview，
+再亲自点击 **Send and answer**。重试成功也要保留第一次失败记录，以便追踪间歇性问题。
+三类错误的准确提示及无需真实 API 的复现步骤见上方 **结构化答案与失败分类回归**；不要把
+“标题正确但模型没有返回问题所要求的推论”记为通过。
+
+| 分支 | 回答是否成功 | Retrieval | 必须出现的动作 | 禁止出现 |
+| --- | --- | --- | --- | --- |
+| D1 未安装 | 是 | Keyword search | Install model / Switch to keyword search / Open retrieval settings | 自动下载、provider 切换 |
+| D2 daemon 不可达 | 是 | Keyword search | Switch to keyword search / Open retrieval settings | Install model、model-not-installed 误报 |
+| D3 不支持 embedding | 自动化验证 | Keyword search | Switch to keyword search / Open retrieval settings | Install model |
+| D4 catalog/show 失败 | 自动化验证 | Keyword search | Switch to keyword search / Open retrieval settings | Install model、daemon-unreachable 误报 |
+
+通过条件：D1、D2 的答案及 Keyword search 诊断同时满足各自全部预期；D3、D4 的定向自动测试各 `2 pass`；四个分支都不
+自动切换 provider、不自动发送第二次请求，且 **Install model** 只出现在确知模型未安装的 D1。
+
+#### E. 最后移除或撤销 key
+
+必须在 C/D 的 preview、真实发送和 embedding 降级都完成后才执行，避免提前删 key 使后续步骤
+无法测试。
 
 1. macOS Keychain 路径点击 **Remove key**，再点 **Check setup**，应回到 credential missing。
 2. Windows/Linux 环境变量路径不能由插件删除。完全退出 Obsidian，删除环境变量，重新打开后
    点 **Check setup**，应回到 credential missing。
 3. UI 必须准确说明 key 来源，不能在环境变量路径上假装已经保存或能够删除凭证。
 
-#### D. 云回答 preview 与 billing 边界
-
-1. 保持该 provider 选中，在 Home 输入 `@What is in my vault?`。
-2. 如果当前 provider 对应的 **Allow … answers** 仍关闭，确认在 retrieval 前明确提示需要先启用云端答案。
-3. 打开当前 provider 对应的 **Allow … answers** 后再次提交相同问题，确认预览 modal 会先显示 provider、
-   model、destination 与 bounded evidence excerpts。
-4. 确认取消不会发送，确认发送只在明确批准后发生。
-5. 确认 UI 没有暗示 ChatGPT Plus/Pro 或 Claude consumer subscription 包含 API 额度。
-
 通过条件：credentials 不写入插件设置；macOS 只通过 Keychain 提供 in-app Save/Remove；
-Windows/Linux 只显示环境变量路径；Check setup 只做认证/model catalog；真实 Vault Q&A 需要
-逐题 preview 与确认；错误不泄漏 secrets。
+Windows/Linux 只显示环境变量路径；credential → model → retrieval → preview → send 的顺序成立；
+hosted 答案具备准确范围、逐结论引用和 provenance；三类 embedding 原因不互相混淆；错误安全、
+可行动且不泄漏 secrets。
 
 <a id="test-ai-05"></a>
 
@@ -963,7 +1304,7 @@ Windows/Linux 只显示环境变量路径；Check setup 只做认证/model catal
 2. 按 `Ollama on this computer → OpenAI API → Anthropic API → Ollama Cloud → Ollama on this computer`
    切换，再确认每个 provider 恢复自己的 model，不把一个 provider 的 ID 带到另一个。
 3. 在 hosted provider 下展开 **Advanced AI controls**。确认：
-   - Hybrid retrieval 与 embedding model 仍明确标注为本地；
+   - **Keyword + semantic search** 与 embedding model 仍明确标注为本地；
    - Local writing model 仍然是单一共享模型，Review links and tags 与 Polish Markdown 只是在不同动作中使用它；
    - Answer provider 不会改变 capture/enrichment 的 provider。
 4. 在 hosted provider 选中时运行一次 **Suggest links and tags** 或 **Polish Markdown**。若未显式
@@ -1008,22 +1349,31 @@ Promise rejection 或僵尸进程。
 
 1. 选择 **Ollama on this computer**，使用已通过 AI-02 的 text model。
 2. Python executable 与 bridge override 都留空。
-3. 在 Home 先输入：
+3. 先输入唯一乱码问题 `@zzqvnoevidence7391`。预期显示
+   **No relevant vault evidence was found. No model request was sent.**；不得调用本地 completion
+   model，也不得留下空的 result shell。
+4. 在 Home 输入：
    `@Who owns the lighthouse review, and when is it scheduled?`
-   预期回答 Morgan、Thursday 10:30，并引用 `[[Manual Test Notes/English Markdown Note]]`。
+   预期 **Source states:** 回答 Morgan、Thursday 10:30，并逐项引用
+   `[[Manual Test Notes/English Markdown Note.md]]`；题目未要求推论时，**Model inference:** 可以为
+   **None.**，不得编造额外计划。
    再输入：
    `@中文测试笔记里谁负责检查阳台番茄，什么时候检查？`
-   预期回答小林、周五下午三点，并引用 `[[Manual Test Notes/中文 Markdown 测试笔记]]`。
-4. 确认回答出现在独立结果区域，不与 Home widgets 重叠。
-5. Header 显示 provider/model、source 数、Sparse 或 Hybrid，以及 **Returned in …**。
-6. 点击 **Copy result**，粘贴到临时 Markdown 笔记。
-7. 复制内容应包含完整回答与去重后的 `Sources:`，来源使用 Obsidian wiki links。
-8. Copy 按钮短暂变成 **Copied**；键盘也能触发。
-9. 滚动长结果，切换 light/dark theme，再关闭结果；widgets 应自然回流。
-10. 重复一次问题，确认不存在 `[S#]` 或 `[E#]` placeholder。
+   预期 **Source states:** 回答小林、周五下午三点，并逐项引用
+   `[[Manual Test Notes/中文 Markdown 测试笔记.md]]`。
+5. 确认回答出现在独立结果区域，不与 Home widgets 重叠。
+6. Header 显示 provider/model、source 数、**Keyword search** 或 **Keyword + semantic search**，以及 **Returned in …**。
+7. 点击 **Copy result**，粘贴到临时 Markdown 笔记。
+8. 复制内容应包含固定顺序、各出现一次的 **Source states:** / **Model inference:**、完整回答
+   与去重后的 `Sources:`；来源使用 Obsidian wiki links，不含原始 JSON 或 `[S1]` / `[E1]`。
+9. Copy 按钮短暂变成 **Copied**；键盘也能触发。
+10. 滚动长结果，切换 light/dark theme，再关闭结果；widgets 应自然回流。
+11. 重复一次问题，确认不存在 `[S#]` 或 `[E#]` placeholder。
 
 通过条件：Copy 不修改原笔记；时间从用户提交问题开始计算到最终结果；中文及含空格路径可
-准确恢复；错误显示在结果区并同步到带时间戳的 Needs attention。
+准确恢复；每个实质性结论有邻近来源引用且原文事实/模型推论不混写。结构或引用不合格时不显示
+未经验证的正文，错误显示在结果区并同步到带时间戳的 Needs attention；失败分类复现见
+[AI-04 的结构化答案回归](#test-ai-04-structured)。
 
 <a id="test-ai-08"></a>
 
@@ -1060,8 +1410,11 @@ cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Release Checklist.md" \
 5. **P05**：
    `@Summarise the phase 2 answer flow in one paragraph, using only the two primary notes.`
 6. 每次记录：回答、Copy result、sources、retrieval mode、warnings、elapsed time、4 分制得分。
-7. P01/P02/P03/P04 必须 4/4；P05 至少 3/4。任何 distractor citation、编造 cloud 发送路径或
-   placeholder 泄漏都是 release blocker。
+   所有非空答案均应由固定的 **Source states:** / **Model inference:** 两段组成，每个关键
+   事实、行动、比较或推论旁都有对应 primary note 引用；推论不能伪装成原文事实。P01、P02、P05
+   若没有合理推论，**Model inference:** 可以为 **None.**。查看 Copy result 时也要核对分区和引用。
+7. P01/P02/P03/P04 必须 4/4；P05 至少 3/4。任何 distractor citation、编造 cloud 发送路径、
+   缺少逐结论引用、分区错误或 `[S#]` / `[E#]` placeholder 泄漏都是 release blocker。
 
 通过条件：section evidence 不退化成 title-only；计数、分类、overlap 与 abstention 正确；
 sources 精确且不包含 distractors。
@@ -1088,41 +1441,50 @@ cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
 calendar event 是 distractors。准确答案和评分位于 `docs/benchmark-vault/benchmark-cases.md`。
 
 1. 先确认已保存的推荐 embedding model `bge-m3` 尚未下载时，**Vault retrieval** 中显示为
-   missing/unavailable，而不是 Ready 或可直接运行。界面必须在该模型附近提供可复制的明确指导：
+   missing/unavailable，而不是 Ready 或可直接运行。界面必须在该模型附近提供 **Install model**。
+   页面加载、**Check setup** 和提问都不得自动下载；只有测试者明确点击 **Install model** 后，
+   插件才可调用本地 Ollama pull，并应显示 installing、success 或准确的 failure 状态。
+   如果要验证手动替代路径，不点按钮，改在 Terminal 运行：
 
    ```bash
    ollama pull bge-m3
    ```
 
-   插件不得自动执行该命令。复制该指导后在 Terminal 执行，等待完成并重新打开/刷新本地模型状态。
-2. 命令完成后点击 **Check setup**，确认 `bge-m3` 在 text model 下拉中作为禁用的 embedding
+   两条路径二选一，不要同时运行。等待完成并重新打开/刷新本地模型状态。
+2. 命令完成后点击 **Check setup**，确认 `bge-m3` 在 **Answer model** 下拉中作为禁用的 embedding
    model 可见，而不能被选作回答模型；在 **Embedding model** 中则可选择。也可以用 Command
-   Palette 运行 **OMD Home: Refresh local AI models**；插件不得自行 pull。
-3. 在 **Advanced AI controls → Vault retrieval** 开启 **Hybrid retrieval**，Embedding model
+   Palette 运行 **OMD Home: Refresh local AI models**；除明确点击 **Install model** 外，插件不得
+   自行 pull。
+3. 在 **Advanced AI controls → Vault retrieval** 开启 **Keyword + semantic search**，Embedding model
 选择 `bge-m3`，先关闭 **Semantic rerank**，点击 **Test embeddings**。
    点击后 **Advanced AI controls** disclosure 必须仍保持展开，以便直接看到 embedding model、
    Test embeddings 结果和相邻的 readiness/error 状态。
-4. 测试必须返回同维度且大于 0 的 vectors；不得 auto-pull、接受 remote-backed model 或把
+4. 测试必须返回同维度且大于 0 的 vectors；不得因 Test embeddings 自动 pull、接受 remote-backed model 或把
    vector 写进 note/frontmatter。
 5. 连续三次运行 **D01**：
    `@这些阳台番茄笔记给新手哪些建议？`
 6. 运行 **M01**：
    `@Summarise the tomato mistakes in Chinese, then restate the fixes in English.`
 7. 每次应命中相应 tomato notes，不引用 lettuce/calendar；header 显示
-**Hybrid · bge-m3**。
-8. 开启 **Semantic rerank**，重复 D01 与 B04。顺序可变，但不得引入 distractor 或移除正确
-overlap evidence。
-9. 关闭 Hybrid，再问 D01。Header 应显示 **Sparse** 且不发 embedding request；之后恢复。
-10. 可选：暂时让 embedding model unavailable。回答应降级为 Sparse 并显示明确、紧贴 retrieval
-控件的 warning，而不是完全失败或把 Ready/Unchecked 写进长说明。恢复 model 后再次
-**Test embeddings**，并确认 Advanced AI controls 仍展开。
+**Keyword + semantic search · bge-m3**。
+8. 开启 **Semantic rerank**，重复 D01，并直接运行 B04：
+   `@Which recommendations overlap across both tomato notes? Cite each overlap.`
+   顺序可变，但不得引入 distractor、移除正确 overlap evidence，或把单篇来源内容伪装成两篇
+   都明确支持的 overlap。成功答案仍须使用固定的 **Source states:** / **Model inference:**；
+   B04 的每项明确交集须引用两篇 tomato notes，不能只在末尾列出 sources。若只是模型推测的
+   相似点，应放在 **Model inference:** 并以审慎措辞说明，不能写成双方原文都确认的交集。
+9. 关闭 **Keyword + semantic search**，再问 D01。Header 应显示 **Keyword search** 且不发 embedding request；之后恢复。
+10. 可选：暂时让 embedding model unavailable。回答应降级为 **Keyword search**，并按准确原因显示 warning：
+    未安装时提供 **Install model**、**Switch to keyword search**、**Open retrieval settings**；daemon 不可达或
+    model 不支持 embedding 时只提供后两个动作，不得错误建议安装。恢复 model 后再次
+    **Test embeddings**，并确认 Advanced AI controls 仍展开。
 11. 修改一篇 fixture 后重问，再撤销测试修改。已变更 note 应重新 embedding，未变更 note 可复用
 cache；query embedding 不持久化。
 
 通过条件：embedding traffic 只到默认 loopback Ollama；cache 在 Vault 笔记之外并按 model
-digest 隔离；missing `bge-m3` 提供可复制的 `ollama pull bge-m3` 指导而不自动下载；Test embeddings
-后 Advanced disclosure 保持展开；missing、timeout、malformed 或 dimension mismatch 都以相邻
-醒目状态安全降级为 Sparse。
+digest 隔离；除明确点击 **Install model** 外不自动下载；按钮安装与手动 `ollama pull bge-m3`
+都可被验证且不会并发重复；Test embeddings 后 Advanced disclosure 保持展开；missing、daemon
+unreachable、unsupported、timeout、malformed 或 dimension mismatch 都以相邻醒目状态安全降级为 Keyword search。
 
 <a id="test-ai-10"></a>
 
@@ -1160,12 +1522,12 @@ process 或跨 provider 反馈；Capture 后的 link/tag enrichment 不会把自
 1. 选择一个 hosted provider，等待 credential 状态加载结束。保持 Settings 打开 30 秒，再展开
    Advanced、滚动、切走并切回 provider。状态检查应在完成后停止：无持续 loading、重复进程、
    按钮闪烁或 Console 报错循环；成功或缺少凭证均不得触发无限 hydration/re-render。
-2. 不点击 **Save key**，在 provider A 的 **Developer key** 输入一个明确的非真实测试草稿，例如
+2. 不点击 **Save & check**，在 provider A 的 **Developer key** 输入一个明确的非真实测试草稿，例如
    `not-a-real-key-a`。点击 **Check setup**，再切到 provider B 输入 `not-a-real-key-b`，最后切回 A；
    每次重绘后 password 输入仍应保留该 provider 自己的草稿，不能串到另一个 provider，也不能因
    hydration 或 Check setup 被清空。删除这些测试草稿，不要保存。之后如用真实测试 key 验证保存，
    只有 Keychain 明确确认成功后才清空刚提交且未被替换的输入；失败或较新的草稿必须保留。
-3. 在 provider A 的 **Check setup** 或 **Save key** 仍运行时切到 provider B。此时 B 的
+3. 在 provider A 的 **Check setup** 或 **Save & check** 仍运行时切到 provider B。此时 B 的
    **Check setup**、credential 保存/删除、embedding 检查等共用 AI setup 动作必须清楚显示为
    busy/disabled，不能并行启动第二项。等待 A 完成后再执行 B 的检查。A 的迟到成功、失败或取消
    不得覆盖 B 的 model、credential 来源、反馈或按钮状态；回到 A 时不得显示属于 B 的 ready。
@@ -1180,8 +1542,10 @@ process 或跨 provider 反馈；Capture 后的 link/tag enrichment 不会把自
 6. 用至少两个可检索的 synthetic notes 发起 hosted 问题。批准前确认 preview 显示准确的 question、
    provider、model、destination，以及**完整的本次已选有界证据片段**和 vault-relative source paths；
    不是只显示标题、source count、摘要或再次截短的片段。此处“完整”指将发送的选定片段，不是整篇笔记。
-   对照本轮 synthetic 预览/测试请求记录，确认批准后的请求只使用该次批准的 question 和 evidence，
-   不重新检索并替换为未预览的证据；不要在日志中保存真实凭证或私人正文。
+   path 仅在本机 preview 显示，provider prompt 必须以不透明 source ID 代替文件名。对照本轮
+   synthetic 预览/测试请求记录，确认批准后的请求只使用该次批准的 question 和 evidence，
+   不重新检索并替换为未预览的证据；来源 identity 或内容在 preview 后发生变化时旧 consent
+   必须失效。不要在日志中保存真实凭证或私人正文。
 7. hosted Q1 的 preview 保持打开时提交 Q2。Q1 preview 必须立即关闭或失效；只有 Q2 可以被批准
    和发送。然后分别用 **Cancel**、Escape 和关闭 modal 取消预览。每次都不得发送云请求；再次提问必须重新
    preview。更改 provider/model、撤销该 provider 的 Allow answers 或启动替代问题后，旧预览不能
@@ -1595,7 +1959,8 @@ source/detail；failed capture 的 Retry 不会被无关 issue 覆盖；missing 
 
 测试结束后：
 
-- 恢复 AI-02 备份的 Ollama `server.json`。
+- 如果 AI-03 中撤销了测试者自己创建的 Ollama local-only override，按测试前记录恢复；
+  AI-02 本身不创建 `server.json` 备份。
 - 恢复删除的模型或记录未恢复原因。
 - 删除 disposable vault，或明确标记它不能作为日常 vault。
 - 需要保留旧设置时，从 vault 外备份恢复 `data.json`。

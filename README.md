@@ -111,9 +111,9 @@ does not get to silently rewrite the vault.
 
 <img src="docs/assets/omd-home-vault-ai.svg" alt="OMD Home vault Q&A flow" />
 
-Hybrid retrieval can combine sparse recall with a locally installed embedding
-model. If semantic recall fails, OMD Home labels the sparse fallback instead of
-claiming a hybrid result. Optional semantic reranking is off by default.
+Keyword + semantic search combines keyword matches with a locally installed embedding
+model. If semantic search fails, OMD Home labels the keyword-only fallback instead of
+claiming a combined result. Optional semantic reranking is off by default.
 
 OMD Home supports explicit answer-provider setup for local Ollama on this computer,
 Ollama Cloud through the local Ollama app, OpenAI API, Anthropic API, and
@@ -133,8 +133,8 @@ Local-first rules still apply where they matter:
 - Hosted answer providers only receive the question plus bounded evidence
   excerpts after the preview and your explicit approval. They never receive
   your whole vault.
-- If local hybrid retrieval cannot be verified safely, Vault Q&A falls back to
-  sparse retrieval and labels that fallback instead of pretending it stayed hybrid.
+- If local semantic search cannot be verified safely, Vault Q&A falls back to
+  keyword search and labels that fallback instead of pretending semantic search worked.
 
 Cloud access is provider-scoped and explicit:
 
@@ -150,7 +150,7 @@ Cloud access is provider-scoped and explicit:
 Settings provide:
 
 - **Check setup** for the selected provider, model, and safety boundary.
-- **Test embeddings** for local hybrid retrieval.
+- **Test embeddings** for local semantic search.
 - `OMD Home: Refresh local AI models` from the command palette when you want to
   rescan local Ollama models without changing the saved selection.
 
@@ -245,10 +245,16 @@ preset fails, install the named Tesseract language pack and check
 | URL and file capture | A compatible local OMD install, discovered automatically when possible | Submitted URL or file; URLs contact their source |
 | Link and tag proposals | A compatible OMD executable and local Ollama | Review-first; no write before Apply |
 | Local Vault Q&A | OMD with retrieval support, a Python interpreter, and local Ollama | Bounded evidence over loopback; read-only |
-| Hosted answer providers | OMD with `ai_service`, provider-model discovery, credential support, and per-question consent grants | Retrieval stays local; only the question and bounded selected evidence are sent after approval |
-| Hybrid retrieval | A local embedding model selected in settings | Derived vectors stay local; query vectors are not persisted |
+| Hosted answer providers | OMD with `ai_service`, provider-model discovery, credential support, and per-question consent grants | Retrieval stays local; after approval the provider receives only the question, bounded excerpts, and opaque source IDs. OMD Home does not add source filenames or paths; text already written inside an approved excerpt is sent exactly as previewed. |
+| Keyword + semantic search | A local embedding model selected in settings | Derived vectors stay local; query vectors are not persisted |
 | Apple Calendar sync | macOS 14+, EventKit helper, Calendar permission | Explicitly selected calendars only |
 | Google or Outlook calendar sync | Account already added to macOS Calendar | Uses the same selected EventKit calendars |
+
+Vault answers describe the evidence actually retrieved, not the whole Vault. A one-source
+answer begins with **Based on 1 retrieved note.** Source-backed conclusions are labeled
+**Source states:**, model synthesis is labeled **Model inference:**, and each substantive
+claim must carry an inline source citation. Vault links are restored locally after a cloud
+answer returns.
 
 <details>
 <summary><strong>ASK VAULT SETUP // local by default, cloud by per-request approval</strong></summary>
@@ -261,15 +267,18 @@ preset fails, install the named Tesseract language pack and check
    ollama pull qwen3:4b-instruct
    ```
 
-3. To use hybrid retrieval, install a local embedding model such as `bge-m3`:
+3. To add semantic search to keyword search, install a local embedding model such as `bge-m3`:
 
    ```bash
    ollama pull bge-m3
    ```
 
    Choose it under **Advanced AI controls > Vault retrieval**, then press
-   **Test embeddings**. Missing-model guidance can copy the download command;
-   the plugin never runs it for you.
+   **Test embeddings**. If a result reports that the selected embedding model is
+   missing, **Install model** runs the equivalent Ollama download only after you
+   click it. Opening settings, checking setup, and asking a question never download
+   a model automatically. **Switch to keyword search** turns off semantic search for
+   future vault questions and saves that choice; keyword search needs no embedding model.
 4. In **Settings > OMD Home > AI answers**, choose an answer provider.
    - For **Ollama on this computer**, choose a local model and press **Check setup**.
      A downloaded model marked **unverified** is still selectable when Ollama
@@ -277,9 +286,10 @@ preset fails, install the named Tesseract language pack and check
    - For **Ollama Cloud**, follow [Ollama Cloud](#ollama-cloud) for the
      first-run sign-in, model selection, and per-request preview flow.
    - For **OpenAI API**, **Anthropic API**, or **DeepSeek API**, configure a
-     developer API key, press **Check setup** to load models, then choose one.
+     developer API key, then choose a model from the catalog.
      On macOS, paste the actual API key into the password field and press
-     **Save key** to store it in macOS Keychain. On Windows and
+     **Save & check** to store it in macOS Keychain and immediately check the
+     provider connection. On Windows and
      Linux, set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`
      before starting Obsidian. Keys never enter notes or plugin settings.
      OpenAI API billing stays separate from ChatGPT subscriptions, and Anthropic API billing stays separate from Claude subscriptions.
