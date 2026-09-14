@@ -1,8 +1,12 @@
 # Multiline enrichment evidence acceptance
 
 Reviewed on 2026-09-14 against [OMD issue 6](https://github.com/omd-local/markdown-everything/issues/6)
-and public OMD commit `e84bafec58a5c9d5dc8603f88a8eb00913f7f2ff`
+and merged public OMD commit `3274f1536936ddba9de69777e93c10e0388b51fc`
 ([PR 7](https://github.com/omd-local/markdown-everything/pull/7)).
+
+The server PR was squash-merged on the review date. Its merged tree is identical
+to reviewed commit `e84bafec58a5c9d5dc8603f88a8eb00913f7f2ff`; the fixture manifest
+and its regression expectation now reference the commit on public `main`.
 
 The companion client changes reject prohibited raw controls before whitespace
 folding and truncation, map the optional evidence-validation category to fixed
