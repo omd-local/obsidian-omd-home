@@ -478,6 +478,11 @@ GitHub release assets contain exactly `main.js`, `manifest.json`, and
 `styles.css`. External helpers remain optional manual prerequisites and must not
 be assumed present after a Community Plugins install.
 
+Pushing a tag matching the manifest version builds a draft GitHub release.
+Verify the three downloaded assets and install them in a clean test vault before
+publishing the draft. Mark releases with incomplete desktop acceptance as
+prereleases and describe the remaining validation gaps in their release notes.
+
 ## License
 
 OMD Home is source-available under the
