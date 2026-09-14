@@ -25,7 +25,7 @@ import {
   type OmdEnrichRequest,
 } from "./contract.ts";
 import type { EnrichmentCatalogCandidate, EnrichmentFileRecord } from "./catalog.ts";
-import { OmdEnrichmentError } from "./errors.ts";
+import { INVALID_CANDIDATE_EVIDENCE_MESSAGE, OmdEnrichmentError } from "./errors.ts";
 import { normalizeRelativeMarkdownPath } from "./path-safety.ts";
 
 export interface BuildEnrichmentRequestResult {
@@ -121,12 +121,19 @@ function normalizeCandidate(candidate: EnrichmentCatalogCandidate, targetPath: s
   };
 }
 
-function normalizeEvidence(value: string): string {
-  const sanitized = value
-    .trim()
-    .replace(/\r\n?/gu, "\n")
-    .replace(/\t/g, " ")
-    .replace(/\s+/gu, " ");
+function normalizeEvidence(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new OmdEnrichmentError("invalid_candidate_evidence", INVALID_CANDIDATE_EVIDENCE_MESSAGE);
+  }
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    if ((code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) || code === 0x7f) {
+      throw new OmdEnrichmentError("invalid_candidate_evidence", INVALID_CANDIDATE_EVIDENCE_MESSAGE);
+    }
+  }
+  // Check the entire raw snippet before folding or truncating. White_Space
+  // includes U+0085 and preserves U+FEFF, matching OMD's text normalization.
+  const sanitized = value.replace(/\p{White_Space}+/gu, " ").replace(/^ +| +$/gu, "");
   return truncateCodePoints(sanitized, ENRICH_NOTE_MAX_EVIDENCE_CHARS);
 }
 

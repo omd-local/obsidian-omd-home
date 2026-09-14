@@ -8,9 +8,9 @@ test("extractEvidence skips frontmatter and headings", () => {
 });
 
 test("extractEvidence truncates by Unicode code points without splitting a surrogate pair", () => {
-  const evidence = extractEvidence("😀".repeat(401));
+  const evidence = extractEvidence("\u{1f600}".repeat(401));
   assert.equal([...evidence].length, 400);
-  assert.equal(evidence.endsWith("😀"), true);
+  assert.equal(evidence.endsWith("\u{1f600}"), true);
 });
 
 test("buildEnrichmentCatalog ranks linked notes first and normalizes vault tags", () => {
@@ -128,21 +128,21 @@ test("buildEnrichmentCatalog preserves target alias matches and unsegmented-lang
 
   const chineseCatalog = buildEnrichmentCatalog({
     target: {
-      path: "Inbox/中文.md",
-      basename: "中文",
-      content: "这个日历工作流需要连接知识捕获流程。",
+      path: "Inbox/\u4e2d\u6587.md",
+      basename: "\u4e2d\u6587",
+      content: "\u8fd9\u4e2a\u65e5\u5386\u5de5\u4f5c\u6d41\u9700\u8981\u8fde\u63a5\u77e5\u8bc6\u6355\u83b7\u6d41\u7a0b\u3002",
       aliases: [],
       tags: [],
       outgoingLinks: [],
       incomingLinks: [],
     },
     files: [
-      note("Notes/中立.md", "中立"),
-      note("Notes/知识捕获.md", "知识捕获"),
+      note("Notes/\u4e2d\u7acb.md", "\u4e2d\u7acb"),
+      note("Notes/\u77e5\u8bc6\u6355\u83b7.md", "\u77e5\u8bc6\u6355\u83b7"),
     ],
     vaultTags: [],
   });
-  assert.equal(chineseCatalog.candidates[0]?.path, "Notes/知识捕获.md");
+  assert.equal(chineseCatalog.candidates[0]?.path, "Notes/\u77e5\u8bc6\u6355\u83b7.md");
 });
 
 function note(path: string, basename: string) {

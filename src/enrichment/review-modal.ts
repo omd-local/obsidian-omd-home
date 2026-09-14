@@ -238,6 +238,7 @@ export class EnrichmentReviewModal extends Modal {
     }
     if (phase === "error" || phase === "conflict") {
       this.button(parent, "Close", false, () => this.closeWithoutCallback());
+      if (this.state.canRetry === false) return;
       const retry = this.button(parent, "Generate again", true, async () => {
         if (!this.callbacks.onRetry) return;
         this.actionHandled = true;

@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
+import ts from "typescript";
+import { describeEnrichmentFailure, mapOmdErrorKind } from "../src/enrichment/errors.ts";
+import {
+  canApplyEnrichment,
+  emptyReviewState,
+  selectedSuggestions,
+  type EnrichmentReviewState,
+  type EnrichmentSelection,
+} from "../src/enrichment/workflow.ts";
 
 const controllerSource = readFileSync(resolve("src/enrichment/controller.ts"), "utf8");
 const reviewModalSource = readFileSync(resolve("src/enrichment/review-modal.ts"), "utf8");
@@ -80,6 +89,80 @@ test("an unavailable note closes instead of retrying a vanished target", () => {
     /if \(phase === "unavailable"\) \{\s*this\.button\(parent, "Close", false, \(\) => this\.closeWithoutCallback\(\)\);\s*return;\s*\}/u,
   );
 });
+
+test("candidate evidence failure renders only Close while unknown errors retain retry", async () => {
+  const known = mapOmdErrorKind("invalid_request", undefined, "private terminal text", {
+    field: "candidate.evidence", reason: "incompatible_text",
+  });
+  const state = {
+    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
+    ...describeEnrichmentFailure(known, "generation"),
+  };
+  const blocked = renderActions(state);
+  assert.deepEqual(blocked.buttons.map((button) => button.label), ["Close"]);
+  await blocked.buttons[0].action();
+  assert.equal(blocked.closed, true);
+  assert.equal(blocked.retries, 0);
+
+  const unknown = mapOmdErrorKind("invalid_request", undefined, undefined, {
+    field: "candidate.evidence", reason: "unknown",
+  });
+  const retriable = renderActions({
+    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
+    ...describeEnrichmentFailure(unknown, "generation"),
+  });
+  assert.deepEqual(retriable.buttons.map((button) => button.label), ["Close", "Generate again"]);
+  await retriable.buttons[1].action();
+  assert.equal(retriable.retries, 1);
+});
+
+test("review still requires an explicit Apply action before selected suggestions are written", async () => {
+  const review = renderActions({
+    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
+    phase: "review",
+    existingTags: [{ id: "tag-1", kind: "existing-tag", label: "#writing", selected: true }],
+  }, { selectedIds: { "tag-1": true } });
+  assert.deepEqual(review.buttons.map((button) => button.label), ["Cancel", "Apply"]);
+  assert.equal(review.applies, 0);
+  await review.buttons[1].action();
+  assert.equal(review.applies, 1);
+});
+
+function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelection = { selectedIds: {} }): {
+  buttons: Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>;
+  closed: boolean;
+  retries: number;
+  applies: number;
+} {
+  const source = ts.createSourceFile("review-modal.ts", reviewModalSource, ts.ScriptTarget.Latest, true);
+  const member = source.statements
+    .flatMap((node) => ts.isClassDeclaration(node) ? [...node.members] : [])
+    .find((node) => node.name?.getText(source) === "renderActions");
+  assert.ok(member, "The production modal must define renderActions");
+  const compiled = ts.transpileModule(`class Harness { ${member.getText(source)} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+  const harness = new Function("canApplyEnrichment", "selectedSuggestions", `${compiled}\nreturn new Harness();`)(
+    canApplyEnrichment, selectedSuggestions,
+  ) as { renderActions: (parent: unknown) => void };
+  const result = { buttons: [] as Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>, closed: false, retries: 0, applies: 0 };
+  Object.assign(harness, {
+    state, selection,
+    callbacks: {
+      onRetry() { result.retries += 1; },
+      onApply() { result.applies += 1; },
+    },
+    closeWithoutCallback() { result.closed = true; },
+    close() { result.closed = true; },
+    button(_parent: unknown, label: string, _primary: boolean, action: () => void | Promise<void>) {
+      const button = { label, action, disabled: false, setAttribute() {} };
+      result.buttons.push(button);
+      return button;
+    },
+  });
+  harness.renderActions({});
+  return result;
+}
 
 function extractMember(source: string, signature: string): string {
   const start = source.indexOf(signature);

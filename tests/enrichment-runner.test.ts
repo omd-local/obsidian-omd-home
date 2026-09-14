@@ -24,9 +24,14 @@ test("parseStrictStdout requires one trailing newline and one JSON object", () =
 
 test("runner validates stdout and ignores stale stderr events", async () => {
   const request = sampleRequest();
+  const observed: unknown[] = [];
   const runner = new OmdEnrichmentRunner(async (_command, args, options) => {
     assert.deepEqual(args, ["enrich-note", "--request-json", "-", "--json-events"]);
     options?.onStderrLine?.("{\"v\":1,\"ts\":1,\"event\":\"progress\",\"request_id\":\"other\"}");
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1, ts: 1, event: "progress", request_id: request.request_id,
+      stage: "catalog", percent: 50, additive: "retained",
+    }));
     options?.onStderrLine?.("{\"v\":1,\"ts\":2,\"event\":\"done\",\"request_id\":\"request-1\"}");
     return {
       code: 0,
@@ -63,9 +68,15 @@ test("runner validates stdout and ignores stale stderr events", async () => {
     };
   });
 
-  const result = await runner.run({ executable: "omd", request });
+  const result = await runner.run({ executable: "omd", request, onEvent: (event) => observed.push(event) });
   assert.equal(result.response.proposal.summary, "Summary");
   assert.equal(result.terminalEvent?.event, "done");
+  assert.equal(result.events.length, 2);
+  assert.deepEqual(result.events[0], {
+    v: 1, ts: 1, event: "progress", request_id: request.request_id,
+    stage: "catalog", percent: 50, additive: "retained",
+  });
+  assert.deepEqual(observed, result.events);
 });
 
 test("runner maps non-zero exits into process errors", async () => {
@@ -75,6 +86,43 @@ test("runner maps non-zero exits into process errors", async () => {
     return { code: 1, stderr: "", stdout: "" };
   });
   await assert.rejects(runner.run({ executable: "omd", request }), /selected Ollama model is not installed/i);
+});
+
+test("runner carries candidate validation into safe errors and public progress", async () => {
+  const request = sampleRequest();
+  const observed: unknown[] = [];
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1, ts: 1, event: "error", request_id: request.request_id, kind: "invalid_request",
+      message: "private terminal text", stage: "private stage", detail: "private note text",
+      validation: { field: "candidate.evidence", reason: "incompatible_text", evidence: "private snippet" },
+    }));
+    return { code: 1, stderr: "private stderr", stdout: "" };
+  });
+  await assert.rejects(runner.run({ executable: "omd", request, onEvent: (event) => observed.push(event) }),
+    (error: unknown) => error instanceof OmdEnrichmentError
+      && error.code === "invalid_candidate_evidence"
+      && /candidate note snippet/iu.test(error.message)
+      && !/private/iu.test(error.message));
+  assert.equal(observed.length, 1);
+  assert.doesNotMatch(JSON.stringify(observed), /private/iu);
+});
+
+test("runner safely handles unknown validation categories without treating them as candidate failures", async () => {
+  const request = sampleRequest();
+  const observed: unknown[] = [];
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1, ts: 1, event: "error", request_id: request.request_id, kind: "invalid_request",
+      message: "private terminal text",
+      validation: { field: "candidate.evidence", reason: "private unknown reason" },
+    }));
+    return { code: 1, stderr: "", stdout: "" };
+  });
+  await assert.rejects(runner.run({ executable: "omd", request, onEvent: (event) => observed.push(event) }),
+    (error: unknown) => error instanceof OmdEnrichmentError && error.code === "invalid_request"
+      && !/private/iu.test(error.message));
+  assert.doesNotMatch(JSON.stringify(observed), /private/iu);
 });
 
 test("runner explains a rejected local-model proposal without calling it a setup failure", async () => {
