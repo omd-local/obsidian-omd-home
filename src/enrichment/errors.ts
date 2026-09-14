@@ -8,6 +8,7 @@ export type EnrichmentErrorCode =
   | "capability_timeout"
   | "capability_invalid_json"
   | "invalid_request"
+  | "invalid_candidate_evidence"
   | "invalid_response"
   | "invalid_event"
   | "request_too_large"
@@ -22,6 +23,8 @@ export type EnrichmentErrorCode =
   | "generation_timeout"
   | "output_overflow"
   | "omd_failed";
+
+export const INVALID_CANDIDATE_EVIDENCE_MESSAGE = "A candidate note snippet contains text that OMD cannot use for suggestions.";
 
 export class OmdEnrichmentError extends Error {
   readonly code: EnrichmentErrorCode;
@@ -40,6 +43,9 @@ export function isEnrichmentError(value: unknown): value is OmdEnrichmentError {
 }
 
 export function toUserFacingEnrichmentMessage(error: unknown): string {
+  if (error instanceof OmdEnrichmentError && error.code === "invalid_candidate_evidence") {
+    return INVALID_CANDIDATE_EVIDENCE_MESSAGE;
+  }
   if (error instanceof OmdEnrichmentError) return error.message;
   if (error instanceof LocalAiError) return error.message;
   if (error instanceof Error && error.name === "AbortError") return "OMD enrichment was cancelled.";
@@ -50,6 +56,7 @@ export interface EnrichmentFailurePresentation {
   phase: "cancelled" | "conflict" | "unavailable" | "error";
   statusText: string;
   detailText: string;
+  canRetry?: boolean;
 }
 
 export type EnrichmentFailureContext = "generation" | "apply";
@@ -59,6 +66,16 @@ export function describeEnrichmentFailure(
   context: EnrichmentFailureContext,
 ): EnrichmentFailurePresentation {
   const statusText = toUserFacingEnrichmentMessage(error);
+  if (error instanceof OmdEnrichmentError && error.code === "invalid_candidate_evidence") {
+    return {
+      phase: "error",
+      statusText,
+      detailText: context === "generation"
+        ? "Your note is unchanged. Close this view and check the related note snippets for incompatible text."
+        : "Close this view and review the target note and related note snippets for incompatible text.",
+      canRetry: false,
+    };
+  }
   if ((error instanceof OmdEnrichmentError && error.code === "cancelled")
     || (error instanceof Error && error.name === "AbortError")) {
     return {
@@ -94,11 +111,14 @@ export function describeEnrichmentFailure(
   };
 }
 
-export function mapOmdErrorKind(kind: string, model?: string, terminalMessage?: string): OmdEnrichmentError {
+export function mapOmdErrorKind(kind: string, model?: string, terminalMessage?: string, validation?: unknown): OmdEnrichmentError {
   switch (kind) {
     case "unsupported_schema":
       return new OmdEnrichmentError("unsupported_schema", "Update OMD to a build that supports enrichment schema v1.");
     case "invalid_request":
+      if (isCandidateEvidenceValidation(validation)) {
+        return new OmdEnrichmentError("invalid_candidate_evidence", INVALID_CANDIDATE_EVIDENCE_MESSAGE);
+      }
       return new OmdEnrichmentError("invalid_request", invalidRequestMessage(terminalMessage));
     case "path_outside_vault":
       return new OmdEnrichmentError("invalid_request", "OMD rejected a note path because it was outside this vault. Generate again from a note inside this vault.");
@@ -128,6 +148,12 @@ export function mapOmdErrorKind(kind: string, model?: string, terminalMessage?: 
     default:
       return new OmdEnrichmentError("omd_failed", "OMD enrichment failed. Check the local OMD output and try again.");
   }
+}
+
+function isCandidateEvidenceValidation(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const validation = value as Record<string, unknown>;
+  return validation.field === "candidate.evidence" && validation.reason === "incompatible_text";
 }
 
 function generationRecoveryDetail(error: unknown): string {

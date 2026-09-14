@@ -292,8 +292,8 @@ function languageCapabilities() {
         separator: "+",
         presets: [
           { id: "english", label: "English", value: "eng" },
-          { id: "simplified-chinese-english", label: "简体中文 + English", value: "chi_sim+eng" },
-          { id: "traditional-chinese-english", label: "繁體中文 + English", value: "chi_tra+eng" },
+          { id: "simplified-chinese-english", label: "Simplified Chinese + English", value: "chi_sim+eng" },
+          { id: "traditional-chinese-english", label: "Traditional Chinese + English", value: "chi_tra+eng" },
         ],
       },
       asr: {

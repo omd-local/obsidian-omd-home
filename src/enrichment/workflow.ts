@@ -29,6 +29,7 @@ export interface EnrichmentReviewState {
   warnings: string[];
   statusText?: string;
   detailText?: string;
+  canRetry?: boolean;
 }
 
 export interface EnrichmentSelection { selectedIds: Record<string, boolean>; }

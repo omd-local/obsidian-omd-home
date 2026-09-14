@@ -27,7 +27,7 @@ test("capability validation preserves optional build and capture language metada
         aliases: ["--ocr-lang", "--lang"],
         composite: true,
         separator: "+",
-        presets: [{ id: "mixed", label: "简体中文 + English", value: "chi_sim+eng" }],
+        presets: [{ id: "mixed", label: "Simplified Chinese + English", value: "chi_sim+eng" }],
         readiness: {
           available: true,
           ready: false,
@@ -65,7 +65,8 @@ test("capabilitySupportsEnrichNote accepts additive capability fields", () => {
 });
 
 test("utf8 helpers hash and count exact bytes", () => {
-  assert.equal(utf8ByteLength("本地AI"), Buffer.byteLength("本地AI", "utf8"));
+  const unicodeText = "\u{1f642} AI";
+  assert.equal(utf8ByteLength(unicodeText), Buffer.byteLength(unicodeText, "utf8"));
   assert.equal(sha256HexUtf8("hello"), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
 });
 
@@ -176,7 +177,7 @@ test("fixture manifest stays in sync with copied OMD contract fixtures", () => {
   };
 
   assert.equal(manifest.source_version, "0.3.0b2");
-  assert.equal(manifest.source_commit, "d9829166c15d4590a90fb3bd733c21ad51345092");
+  assert.equal(manifest.source_commit, "e84bafec58a5c9d5dc8603f88a8eb00913f7f2ff");
 
   for (const [name, expectedHash] of Object.entries(manifest.files)) {
     const bytes = readFileSync(path.join(fixtureDir, name));
@@ -186,7 +187,7 @@ test("fixture manifest stays in sync with copied OMD contract fixtures", () => {
 });
 
 test("validateEnrichResponse accepts the copied canonical OMD fixture", () => {
-  const request = localizedFixtureRequest();
+  const request = canonicalFixtureRequest();
   const fixture = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "fixtures/enrich-note/v1/valid-response.json"), "utf8"));
   const response = validateEnrichResponse(fixture, request, candidateMap(request));
   assert.equal(response.generation.endpoint_class, "local_loopback");
@@ -295,8 +296,8 @@ function sampleRequest(): OmdEnrichRequest {
   };
 }
 
-function localizedFixtureRequest(): OmdEnrichRequest {
-  const content = "本地 AI 可以辅助个人知识工作流。";
+function canonicalFixtureRequest(): OmdEnrichRequest {
+  const content = "Local AI can support personal knowledge workflows.";
   return {
     schema_version: 1,
     request_id: "request-1",
@@ -311,9 +312,9 @@ function localizedFixtureRequest(): OmdEnrichRequest {
       id: "candidate-1",
       path: "Notes/Local AI.md",
       title: "Local AI",
-      aliases: ["本地 AI"],
+      aliases: ["On-device AI"],
       tags: ["ai/local", "research"],
-      evidence: "本地 AI 与个人知识工作流。",
+      evidence: "Local AI and personal knowledge workflows.",
     }],
     vault_tags: ["ai/local", "research", "workflow"],
     model: "qwen3:4b-instruct",
