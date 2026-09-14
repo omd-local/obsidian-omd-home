@@ -117,8 +117,17 @@ function normalizeCandidate(candidate: EnrichmentCatalogCandidate, targetPath: s
     title: truncateCodePoints(boundedRequired(candidate.title, "candidate title", 10_000), ENRICH_NOTE_MAX_TITLE_CHARS),
     aliases: normalizeStrings(candidate.aliases, ENRICH_NOTE_MAX_ALIASES, ENRICH_NOTE_MAX_ALIAS_CHARS),
     tags: normalizeTags(candidate.tags).slice(0, ENRICH_NOTE_MAX_CANDIDATE_TAGS),
-    evidence: truncateCodePoints(candidate.evidence.trim(), ENRICH_NOTE_MAX_EVIDENCE_CHARS),
+    evidence: normalizeEvidence(candidate.evidence),
   };
+}
+
+function normalizeEvidence(value: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/\r\n?/gu, "\n")
+    .replace(/\t/g, " ")
+    .replace(/\s+/gu, " ");
+  return truncateCodePoints(sanitized, ENRICH_NOTE_MAX_EVIDENCE_CHARS);
 }
 
 function normalizeStrings(values: string[], itemLimit: number, characterLimit: number): string[] {

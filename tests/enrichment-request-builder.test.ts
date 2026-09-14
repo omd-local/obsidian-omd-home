@@ -43,3 +43,73 @@ test("buildEnrichmentRequest trims lowest-priority candidates to fit the request
   assert.equal(result.retainedCandidates[0]?.id, "candidate-1");
   assert.equal(result.request.note.path, "Inbox/example.md");
 });
+
+test("buildEnrichmentRequest normalizes multiline evidence into safe single-line text", () => {
+  const result = buildEnrichmentRequest({
+    requestId: "request-2",
+    vaultPath: "/vault",
+    target: {
+      path: "Inbox/example.md",
+      basename: "Example",
+      content: "Body",
+      aliases: [],
+      tags: [],
+      outgoingLinks: [],
+      incomingLinks: [],
+    },
+    candidates: [
+      {
+        id: "candidate-1",
+        path: "Notes/Candidate.md",
+        title: "Candidate",
+        aliases: [],
+        tags: [],
+        evidence: "line one\nline two\tline three\r\nline four",
+        relationScore: 100,
+        exactMatchScore: 0,
+        lexicalOverlapScore: 0,
+      },
+    ],
+    vaultTags: [],
+    model: "qwen3:4b-instruct",
+    host: "http://localhost:11434",
+  });
+
+  assert.equal(result.request.candidates[0].evidence, "line one line two line three line four");
+  assert.equal(result.retainedCandidates[0]?.id, "candidate-1");
+});
+
+test("buildEnrichmentRequest truncates oversized evidence after normalization", () => {
+  const result = buildEnrichmentRequest({
+    requestId: "request-3",
+    vaultPath: "/vault",
+    target: {
+      path: "Inbox/example.md",
+      basename: "Example",
+      content: "Body",
+      aliases: [],
+      tags: [],
+      outgoingLinks: [],
+      incomingLinks: [],
+    },
+    candidates: [
+      {
+        id: "candidate-1",
+        path: "Notes/Candidate.md",
+        title: "Candidate",
+        aliases: [],
+        tags: [],
+        evidence: `alpha ${"beta ".repeat(300)}\n${"gamma ".repeat(300)}`,
+        relationScore: 100,
+        exactMatchScore: 0,
+        lexicalOverlapScore: 0,
+      },
+    ],
+    vaultTags: [],
+    model: "qwen3:4b-instruct",
+    host: "http://localhost:11434",
+  });
+
+  assert.ok(result.request.candidates[0].evidence.length <= 400);
+  assert.ok(!result.request.candidates[0].evidence.includes("\n"));
+});
