@@ -236,7 +236,8 @@ def validate_selected_model(provider, model, api_key, timeout_seconds):
     }, baseEnv);
     assert.equal(saved.ok, true);
     assert.equal(saved.credential?.source, "keychain");
-    assert.equal(saved.credential?.keychainPresent, true);
+    assert.equal(saved.credential?.keychainSupported, process.platform === "darwin");
+    assert.equal(saved.credential?.keychainPresent, process.platform === "darwin");
     assert.equal(saved.credential?.envPresent, false);
     assert.doesNotMatch(JSON.stringify(saved), /stdin-secret-value/u);
 
