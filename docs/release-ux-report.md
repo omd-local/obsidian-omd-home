@@ -12,8 +12,9 @@
 目标笔记已有 Related notes，状态仍是 inbox。保留原始现场，具体失败根因待诊断；
 现有 565 项测试通过不能替代此原生失败。UI-06 同时记录写入故障和缺失恢复入口。
 
-Summary preview 当前不参与 Apply 写入，现有提示却暗示 Apply 后会保存，已记录 UI-05；
-生成等待标识不明显仍见 UI-04。此轮仅记录和澄清，没有安装新代码或操作用户笔记。
+Summary 当前不参与 Apply 写入。UI-05 已在源码中改为 **Proposal summary**，并明确
+Apply 只写选中的 links / tags，摘要不会加入 note；待与 UI-06 一起原生重载复测。
+生成等待标识不明显仍见 UI-04。UI-05 修复尚未安装，本轮没有操作用户笔记。
 [截图 / 文件证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/evidence.json>)。
 
 ## CAP-01A 人工反馈与源码修复（22:50 已安装）

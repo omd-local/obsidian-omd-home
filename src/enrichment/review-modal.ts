@@ -133,9 +133,12 @@ export class EnrichmentReviewModal extends Modal {
 
   private renderProposal(shell: HTMLElement): void {
     const summary = shell.createDiv({ cls: "omd-enrichment-summary" });
-    summary.createDiv({ cls: "omd-enrichment-section-label", text: "Summary preview" });
+    summary.createDiv({ cls: "omd-enrichment-section-label", text: "Proposal summary" });
     summary.createDiv({ cls: "omd-enrichment-summary-text", text: this.state.summary || "No summary was generated." });
-    summary.createDiv({ cls: "omd-enrichment-summary-footnote", text: "Preview only. Nothing is written until you choose Apply." });
+    summary.createDiv({
+      cls: "omd-enrichment-summary-footnote",
+      text: "For review only. Apply writes selected links and tags; this summary is not added to the note.",
+    });
 
     const sections = shell.createDiv({ cls: "omd-enrichment-sections" });
     this.renderSuggestionSection(sections, "Existing links", this.state.existingLinks);

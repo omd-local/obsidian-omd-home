@@ -128,6 +128,15 @@ test("review still requires an explicit Apply action before selected suggestions
   assert.equal(review.applies, 1);
 });
 
+test("proposal summary states exactly what Apply writes", () => {
+  assert.match(reviewModalSource, /text: "Proposal summary"/u);
+  assert.match(
+    reviewModalSource,
+    /Apply writes selected links and tags; this summary is not added to the note\./u,
+  );
+  assert.doesNotMatch(reviewModalSource, /Summary preview|Nothing is written until you choose Apply/u);
+});
+
 function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelection = { selectedIds: {} }): {
   buttons: Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>;
   closed: boolean;

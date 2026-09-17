@@ -78,7 +78,7 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 
 ## UI-05：Summary preview 暗示 Apply 会保存摘要，实际不会写入
 
-**状态：Open，已记录，尚未实现。**
+**状态：Fixed in source；待与 UI-06 一起完成原生重载复测。**
 
 **证据与背景：** 2026-09-17 CAP-02 用户反馈：Review 中有 Summary preview，但 Apply 后笔记没有摘要。
 源码确认当前 Apply 只写所选 links / tags 和 reviewed 状态，不写 summary；
@@ -88,6 +88,9 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 **改进方向与验收：** 明确摘要仅帮助检查建议、不会写入笔记；Review 与成功 / 失败终态的文字
 各自准确，不暗示 Apply 会保存整个预览。若以后支持保存摘要，需独立可选操作与写入保护，
 不得通过修文案顺便把模型摘要自动写入。保留 minimal 风格；人工核对保存范围和提示一致。
+
+**实现：** 标题改为 **Proposal summary**，固定说明 Apply 只写入选中的 links / tags，
+摘要仅供审阅且不会加入 note；终态不再显示“点 Apply 前什么都不会写入”的误导文案。
 
 ## UI-06：Apply 部分写入后显示 Review required，缺少明确恢复操作
 
