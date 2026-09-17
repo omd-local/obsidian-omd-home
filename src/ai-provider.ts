@@ -130,7 +130,7 @@ export function modelIsVerifiedOllamaCloud(
 export function providerSetupDescription(provider: StoredAiProvider): string {
   switch (provider) {
     case "ollama":
-      return "Vault evidence and answer generation stay on this computer. Cloud availability in the Ollama app does not change the selected model; OMD Home rejects explicit Cloud model ids and models that report remote metadata.";
+      return "Answers and vault evidence stay on this computer. Choose a downloaded Ollama text model.";
     case "ollama-cloud":
       return "Retrieval stays on this computer. After a per-request preview, the question and selected evidence are sent through the signed-in local Ollama app to Ollama Cloud.";
     case "openai":

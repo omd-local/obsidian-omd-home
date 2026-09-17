@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
+import { isLocalImageSource } from "../src/omnibox-utils.ts";
 
 type Harness = Record<string, any>;
 
@@ -71,6 +72,7 @@ function omniboxHarness(looksCapturable: (query: string) => boolean = () => fals
     "dispose",
   ], {
     looksCapturable,
+    isLocalImageSource,
     captureRequestFromSettings: (source: string) => source,
     normalizeCaptureSource: (source: string) => source,
   });
@@ -196,6 +198,12 @@ test("submitting +, captures, and commands clears a pending @ result shell", asy
       },
     },
     {
+      query: "/fixtures/简体中文.png",
+      setup(box: Harness) {
+        box.plugin.openCaptureModal = () => {};
+      },
+    },
+    {
       query: ">run",
       setup(box: Harness) {
         box.commands = {
@@ -207,7 +215,7 @@ test("submitting +, captures, and commands clears a pending @ result shell", asy
   ]) {
     const pending = deferred<void>();
     let signal: AbortSignal | undefined;
-    const box = omniboxHarness((query) => query.startsWith("https://"));
+    const box = omniboxHarness((query) => query.startsWith("https://") || query.startsWith("/"));
     box.plugin = {
       settings: {},
       async askOmd(_query: string, output: FakeElement, requestSignal: AbortSignal) {

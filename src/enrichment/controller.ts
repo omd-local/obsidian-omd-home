@@ -37,6 +37,10 @@ export class EnrichmentWorkflowController {
     this.plugin = plugin;
   }
 
+  get phase(): EnrichmentReviewState["phase"] | null {
+    return this.active?.state.phase ?? null;
+  }
+
   /**
    * Cancellation is safe only before Apply starts writing to the vault.  Keep
    * this signal separate from `enrichmentActive`: Apply remains active so the

@@ -129,19 +129,19 @@ test("retry survives unrelated issue replacement and only clears the issue owned
 test("modal and omnibox build requests from vault defaults while capture choices have one clear owner", () => {
   const openModalBody = extractMethodBody(mainSource, "openCaptureModal(initialSource:");
   assert.match(mainSource, /captureRequestFromSettings\(initialSource, this\.settings\)/u);
-  assert.match(omniboxSource, /captureRequestFromSettings\(normalizeCaptureSource\(query\), this\.plugin\.settings\)/u);
+  assert.match(omniboxSource, /captureRequestFromSettings\(source, this\.plugin\.settings\)/u);
   assert.match(modalSource, /this\.modalEl\.addClass\("omd-capture-modal"\)/u);
   assert.match(modalSource, /summary", \{ text: "Recognition \(optional\)" \}/u);
   assert.match(modalSource, /setName\("Image text language"\)/u);
   assert.match(modalSource, /setName\("Speech language"\)/u);
   assert.match(modalSource, /No language preference/u);
   assert.match(modalSource, /does not translate/iu);
-  assert.match(modalSource, /does not translate text or add scanned-PDF page OCR\./u);
-  assert.match(modalSource, /Changes here apply only to this capture\. A retry repeats the failed capture's choices\./iu);
+  assert.match(modalSource, /does not translate[^"\n]*(?:scanned.*PDF|PDF.*scanned)/iu);
+  assert.match(modalSource, /apply[^"\n]*this capture only/iu);
   assert.match(modalSource, /setName\("Optional local AI"\)\.setHeading\(\)/u);
   assert.match(modalSource, /setName\("Polish Markdown"\)/u);
   assert.match(modalSource, /setName\("Review links and tags"\)/u);
-  assert.match(modalSource, /Submitting saves these choices for next time; cancelling does not/iu);
+  assert.match(modalSource, /choices[^"\n]*remembered[^"\n]*capture/iu);
   assert.doesNotMatch(modalSource, /Inherit OMD|Inherit adapter default|Use OMD default|Use adapter default/u);
   assert.match(mainSource, /will be validated against the detected OMD build when you press Capture/iu);
   assert.match(modalSource, /languageAvailability\.status === "unsupported"/u);

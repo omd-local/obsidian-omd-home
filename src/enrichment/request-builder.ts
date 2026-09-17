@@ -198,6 +198,7 @@ function normalizeGeneratedTag(value: string): string {
     .replace(/_/gu, "-")
     .replace(/ /gu, "-")
     .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff/-]+/gu, "-")
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{M}\p{N}/-]+/gu, "-")
     .replace(/^-+|-+$/gu, "");
 }

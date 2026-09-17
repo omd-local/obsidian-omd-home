@@ -12,6 +12,11 @@ import {
 } from "./path-safety.ts";
 import { buildEnrichmentRequest as buildBoundedRequest } from "./request-builder.ts";
 
+// Function words cannot establish a useful relationship between note titles.
+const LEXICAL_STOP_WORDS = new Set(
+  "a an and are as at be been being but by can could did do does doing for from had has have how i if in into is it its of on or our should so than that the their them there these they this those through to too under up use used using very was we were what when where which while who will with would you your".split(" "),
+);
+
 export interface EnrichmentFileRecord {
   path: string;
   basename: string;
@@ -161,13 +166,14 @@ export function buildEnrichmentCatalog(input: {
   if (!targetPath) throw new Error("Target note path is not safe for enrichment.");
 
   const target = { ...input.target, path: targetPath };
-  const targetText = target.content.toLocaleLowerCase();
+  const targetText = relevanceText(target.content).toLocaleLowerCase();
   const targetIdentityPhrases = new Set(normalizeIdentityPhrases([target.basename, ...target.aliases]));
+  const targetIdentityTokens = new Set(normalizeTokens([target.basename, ...target.aliases]));
+  const targetTags = new Set(normalizeVaultTags(target.tags).map((tag) => tag.toLocaleLowerCase()));
   const targetTokens = new Set(normalizeTokens([
     target.basename,
     ...target.aliases,
-    ...target.tags,
-    target.content,
+    targetText,
   ]));
   const targetOutgoing = new Set(target.outgoingLinks.map((value) => normalizeRelativeMarkdownPath(value)).filter(Boolean) as string[]);
 
@@ -185,10 +191,13 @@ export function buildEnrichmentCatalog(input: {
           + (containsIdentityPhrase(targetText, phrase) ? 1 : 0),
         0,
       );
-      const lexicalOverlapScore = countTokenOverlap(
-        targetTokens,
-        new Set(normalizeTokens([file.basename, ...file.aliases, ...file.tags])),
-      );
+      const candidateIdentityTokens = new Set(normalizeTokens([file.basename, ...file.aliases]));
+      const identityOverlap = countTokenOverlap(targetIdentityTokens, candidateIdentityTokens);
+      const contentOverlap = countTokenOverlap(targetTokens, candidateIdentityTokens);
+      const sharedTags = countTokenOverlap(targetTags, new Set(file.tags.map((tag) => tag.toLocaleLowerCase())));
+      // A single incidental body word is weak evidence for a multiword title.
+      // Shared tags are deliberate metadata; body mentions of e.g. "audio" are not.
+      const lexicalOverlapScore = sharedTags + (identityOverlap > 0 || contentOverlap >= 2 ? contentOverlap : 0);
       return {
         id: "",
         path: file.path,
@@ -201,6 +210,7 @@ export function buildEnrichmentCatalog(input: {
         lexicalOverlapScore,
       } satisfies EnrichmentCatalogCandidate;
     })
+    .filter((candidate) => candidate.relationScore > 0 || candidate.exactMatchScore > 0 || candidate.lexicalOverlapScore > 0)
     .sort(compareCandidates)
     .slice(0, ENRICH_NOTE_MAX_CANDIDATES)
     .map((candidate, index) => ({ ...candidate, id: `candidate-${index + 1}` }));
@@ -289,7 +299,8 @@ function normalizeIdentityPhrases(values: string[]): string[] {
 }
 
 function containsIdentityPhrase(text: string, phrase: string): boolean {
-  if (!phrase) return false;
+  const words = phrase.match(/[\p{Letter}\p{Number}]+/gu) ?? [];
+  if (words.length === 0 || words.every((word) => LEXICAL_STOP_WORDS.has(word))) return false;
   if (containsUnsegmentedScript(phrase)) {
     return [...phrase].length >= 2 && text.includes(phrase);
   }
@@ -316,7 +327,15 @@ function normalizeTokens(values: string[]): string[] {
   return values
     .flatMap((value) => value.toLocaleLowerCase().split(/[^0-9\p{Letter}/_-]+/u))
     .map((token) => token.trim())
-    .filter((token) => token.length >= 2);
+    .filter((token) => token.length >= 2 && !LEXICAL_STOP_WORDS.has(token));
+}
+
+function relevanceText(content: string): string {
+  return stripFrontmatter(content.replace(/^\uFEFF/u, ""))
+    // OMD capture provenance and URL/query text describe transport, not the topic.
+    .replace(/^>\s*\[Source\]\([^\n]*\)\s*·\s*Captured:[^\n]*$/gmu, "")
+    .replace(/\]\([^\n)]*\)/gu, "]")
+    .replace(/https?:\/\/[^\s<>]+/gu, "");
 }
 
 function dedupeStrings(values: string[]): string[] {
@@ -351,7 +370,10 @@ function metadataRecord(
     content: "",
     aliases: extractAliases(cache?.frontmatter),
     tags: extractTags(cache?.frontmatter, cache?.tags?.map((entry) => entry.tag) ?? []),
-    outgoingLinks: (cache?.links ?? []).map((entry) => entry.link),
+    outgoingLinks: dedupeStrings([
+      ...Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {}),
+      ...(cache?.links ?? []).map((entry) => entry.link),
+    ]),
     incomingLinks,
   };
 }

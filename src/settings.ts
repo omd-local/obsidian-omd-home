@@ -107,6 +107,7 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
 export class OmdHomeSettingTab extends PluginSettingTab {
   private readonly plugin: OmdHomePlugin;
   private readonly customModelModes = new Set<LocalAiWorkflowId>();
+  private readonly customModelDrafts = new Map<string, string>();
   private readonly hostedCredentialDrafts = new Map<HostedAiProvider, string>();
   private settingsSaveQueue: Promise<void> = Promise.resolve();
   private localAiAdvancedExpanded = false;
@@ -119,6 +120,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("omd-settings");
 
     new Setting(containerEl).setName("Startup").setHeading().settingEl.addClass("omd-settings-heading");
 
@@ -127,7 +129,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .setDesc("Open once when Obsidian starts without closing restored tabs.")
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.openOnLaunch).onChange(async (value) => {
         this.plugin.settings.openOnLaunch = value;
-        await this.plugin.saveSettings();
+        await this.saveSettingsInOrder();
       }));
 
     new Setting(containerEl).setName("OMD").setHeading().settingEl.addClass("omd-settings-heading");
@@ -180,7 +182,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       || reconciledSettings.selectedCalendarIds.join("\u0000") !== this.plugin.settings.selectedCalendarIds.join("\u0000")
     ) {
       this.plugin.settings = reconciledSettings;
-      void this.plugin.saveSettings();
+      void this.saveSettingsInOrder();
     }
 
     if (!calendars.length) {
@@ -204,7 +206,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
               ...this.plugin.settings,
               selectedCalendarIds: [...selected],
             }, calendars);
-            await this.plugin.saveSettings();
+            await this.saveSettingsInOrder();
             await this.plugin.refreshCalendarEvents();
             if (container.isConnected) this.renderCalendarSection(container);
           }));
@@ -224,7 +226,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
             ...this.plugin.settings,
             defaultExternalCalendarId: value,
           }, calendars);
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
         });
       });
 
@@ -244,14 +246,14 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.eventKitHelperPath)
         .onChange(async (value) => {
           this.plugin.settings.eventKitHelperPath = value.trim();
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
         }));
     if (this.plugin.settings.eventKitHelperPath) {
       helperSetting.addButton((button) => button
         .setButtonText("Use bundled")
         .onClick(async () => {
           this.plugin.settings.eventKitHelperPath = "";
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
           if (container.isConnected) this.renderCalendarSection(container);
         }));
     }
@@ -342,7 +344,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.semanticRerankEnabled = value;
           this.plugin.invalidateLocalAiState("retrieval");
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
         }));
 
     new Setting(advanced)
@@ -383,7 +385,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           if (!updateValidation(value)) return;
           this.plugin.settings.ollamaHost = value.trim();
           this.plugin.invalidateLocalAiState("host");
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
         });
       });
     validation = endpoint.settingEl.createDiv({ cls: "omd-settings-endpoint-validation" });
@@ -401,7 +403,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
 
   private saveSettingsInOrder(): Promise<void> {
     const pending = this.settingsSaveQueue.then(() => this.plugin.saveSettings());
-    this.settingsSaveQueue = pending.catch(() => {});
+    this.settingsSaveQueue = pending.catch(() => {
+      new Notice("Could not save settings. Your changes remain in this session. Try the change again.");
+    });
     return pending;
   }
 
@@ -521,6 +525,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   }
 
   private answerModelSetting(container: HTMLElement, provider: StoredAiProvider): void {
+    const draftKey = `answer:${provider}`;
     const aiSetupBusy = this.plugin.aiSetupBusy();
     const qaWorkflow = this.plugin.localAiState.workflows.qa;
     const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
@@ -591,6 +596,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       options.__credential__ = "Add developer key first";
     }
     const showCustom = !credentialBlocked && (custom || (!current && selector.useCustom));
+    selector.customValue = this.customModelDrafts.get(draftKey) ?? selector.customValue;
     const title = "Answer model";
     const catalogDescription = provider === "ollama"
       ? describeLocalCompletionCatalog(this.plugin.localAiState.models, catalogChecked)
@@ -625,6 +631,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
             return;
           }
           this.customModelModes.delete("qa");
+          this.customModelDrafts.delete(draftKey);
           await this.saveAnswerModel(provider, value);
         });
       });
@@ -637,6 +644,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           .setDisabled(aiSetupBusy)
           .onChange((value) => {
             draft = value.trim();
+            this.customModelDrafts.set(draftKey, value);
           });
       });
       setting.addButton((button) => button
@@ -810,7 +818,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       && missingInstalledOcrPacks(savedOcrLanguage, languageAvailability.ocrInstalledPacks).length === 0;
     const ocrSetting = new Setting(recognition)
       .setName("Image text language")
-      .setDesc("Default for new image captures. Choose a language only when image text is recognized incorrectly.")
+      .setDesc(savedOcrLanguage && (!recognitionReady || !savedOcrReady)
+        ? "The saved image text preference is unavailable in the detected converter. Choose an installed language or clear the preference."
+        : "Default for new image captures. Choose a language only when image text is recognized incorrectly.")
       .addDropdown((dropdown) => {
         dropdown.addOption("", "No language preference");
         if (recognitionReady) {
@@ -822,18 +832,23 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         if (recognitionReady && savedOcrReady && savedCustom) {
           dropdown.addOption(savedOcrLanguage, `Custom: ${savedOcrLanguage}`);
         }
+        if (savedOcrLanguage && (!recognitionReady || !savedOcrReady)) {
+          dropdown.addOption(savedOcrLanguage, `${savedOcrLanguage} (saved, unavailable)`);
+          const unavailable = Array.from(dropdown.selectEl.options).find((option) => option.value === savedOcrLanguage);
+          if (unavailable) unavailable.disabled = true;
+        }
         dropdown
-          .setValue(recognitionReady && savedOcrReady ? savedOcrLanguage : "")
+          .setValue(savedOcrLanguage)
           .setDisabled(!recognitionReady || (readyOcrPresets.length === 0 && !savedCustom))
           .onChange(async (value) => {
           this.plugin.settings.captureOcrLanguage = value;
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
           });
       });
     if ((!recognitionReady || !savedOcrReady) && savedOcrLanguage) {
       ocrSetting.addButton((button) => button.setButtonText("Clear preference").onClick(async () => {
         this.plugin.settings.captureOcrLanguage = "";
-        await this.plugin.saveSettings();
+        await this.saveSettingsInOrder();
         this.display();
       }));
     }
@@ -846,8 +861,8 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .addText((text) => {
           text.setPlaceholder("Example: deu+eng").setValue(customValue);
           text.inputEl.addEventListener("change", () => {
-            const value = normalizeOcrLanguageSet(text.getValue());
-            if (!value) {
+            const value = text.getValue().trim() ? normalizeOcrLanguageSet(text.getValue()) : "";
+            if (value === null) {
               new Notice(INVALID_CUSTOM_OCR_NOTICE);
               return;
             }
@@ -857,13 +872,19 @@ export class OmdHomeSettingTab extends PluginSettingTab {
               return;
             }
             this.plugin.settings.captureOcrLanguage = value;
-            void this.plugin.saveSettings().then(() => this.display());
+            void this.saveSettingsInOrder().then(() => this.display());
           });
         });
     }
+    const savedAsrLanguage = this.plugin.settings.captureAsrLanguage;
+    const savedAsrReady = savedAsrLanguage === "inherit-adapter-default"
+      || (recognitionReady && (savedAsrLanguage === "auto-detect"
+        ? languageAvailability.asrAutoDetect : languageAvailability.asrExplicit));
     const asrSetting = new Setting(recognition)
       .setName("Speech language")
-      .setDesc("Default for new audio and video captures. Choose auto-detect when the recording's language is unknown.")
+      .setDesc(savedAsrReady
+        ? "Default for new audio and video captures. Choose auto-detect when the recording's language is unknown."
+        : "The saved speech preference is unavailable in the detected converter. Choose a supported language or clear the preference.")
       .addDropdown((dropdown) => {
         dropdown.addOption("inherit-adapter-default", "No language preference");
         if (recognitionReady && languageAvailability.asrAutoDetect) {
@@ -872,18 +893,24 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         if (recognitionReady && languageAvailability.asrExplicit) {
           dropdown.addOption("en", "English").addOption("zh", "Chinese");
         }
+        if (!savedAsrReady) {
+          const label = savedAsrLanguage === "auto-detect" ? "Auto-detect speech" : savedAsrLanguage === "zh" ? "Chinese" : "English";
+          dropdown.addOption(savedAsrLanguage, `${label} (saved, unavailable)`);
+          const unavailable = Array.from(dropdown.selectEl.options).find((option) => option.value === savedAsrLanguage);
+          if (unavailable) unavailable.disabled = true;
+        }
         dropdown
-          .setValue(recognitionReady ? this.plugin.settings.captureAsrLanguage : "inherit-adapter-default")
+          .setValue(savedAsrLanguage)
           .setDisabled(!recognitionReady)
           .onChange(async (value) => {
           this.plugin.settings.captureAsrLanguage = normalizeCaptureAsrLanguage(value);
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
           });
       });
-    if (!recognitionReady && this.plugin.settings.captureAsrLanguage !== "inherit-adapter-default") {
+    if (!savedAsrReady) {
       asrSetting.addButton((button) => button.setButtonText("Clear preference").onClick(async () => {
         this.plugin.settings.captureAsrLanguage = "inherit-adapter-default";
-        await this.plugin.saveSettings();
+        await this.saveSettingsInOrder();
         this.display();
       }));
     }
@@ -916,7 +943,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
               .setDesc("The executable override changed. OMD Home will validate it when you leave the field.");
             setting.settingEl.removeClass("is-ready", "is-unavailable", "is-checking");
             setting.settingEl.addClass("is-unchecked");
-            await this.plugin.saveSettings();
+            await this.saveSettingsInOrder();
           });
         text.inputEl.addEventListener("blur", () => {
           if (!executableOverrideChanged) return;
@@ -945,7 +972,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.pythonExecutable)
         .onChange(async (value) => {
           this.plugin.settings.pythonExecutable = value.trim();
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
         }));
 
     const pythonBridgeSetting = new Setting(advanced)
@@ -960,14 +987,14 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.pythonBridgePath)
         .onChange(async (value) => {
           this.plugin.settings.pythonBridgePath = value.trim();
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
         }));
     if (this.plugin.settings.pythonBridgePath) {
       pythonBridgeSetting.addButton((button) => button
         .setButtonText("Use bundled")
         .onClick(async () => {
           this.plugin.settings.pythonBridgePath = "";
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
           this.display();
         }));
     }
@@ -986,6 +1013,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     key: "localWritingModel",
     workflow: LocalAiWorkflowId,
   ): void {
+    const draftKey = `writing:${workflow}`;
     const aiSetupBusy = this.plugin.aiSetupBusy();
     const workflowState = this.plugin.localAiState.workflows[workflow];
     const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
@@ -1013,6 +1041,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
             ? { ...checked, optionValue: matchingLocalModel.name, useCustom: false }
             : checked;
         })();
+    selector.customValue = this.customModelDrafts.get(draftKey) ?? selector.customValue;
     const options = localModels
       .reduce<Record<string, string>>((result, model) => {
         result[model.name] = localWritingModelOptionLabel(model);
@@ -1041,9 +1070,10 @@ export class OmdHomeSettingTab extends PluginSettingTab {
             return;
           }
           this.customModelModes.delete(workflow);
+          this.customModelDrafts.delete(draftKey);
           this.plugin.settings[key] = value;
           this.plugin.invalidateLocalAiState("model");
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
           this.rerenderLocalAiSection();
         });
     });
@@ -1054,6 +1084,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         text.setValue(selector.customValue).setDisabled(aiSetupBusy);
         text.onChange((value) => {
           draft = value.trim();
+          this.customModelDrafts.set(draftKey, value);
         });
       });
       setting.addButton((button) => button
@@ -1080,7 +1111,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   ): Promise<void> {
     this.plugin.settings[key] = value.trim();
     this.plugin.invalidateLocalAiState("model");
-    await this.plugin.saveSettings();
+    await this.saveSettingsInOrder();
   }
 
   private hybridRetrievalSetting(container: HTMLElement): void {
@@ -1094,7 +1125,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.hybridRetrievalEnabled = value;
           this.plugin.invalidateLocalAiState("retrieval");
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
           this.rerenderLocalAiSection();
         }));
   }
@@ -1149,7 +1180,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           if (value === "__saved__") return;
           this.plugin.settings.embeddingModel = value;
           this.plugin.invalidateLocalAiState("retrieval");
-          await this.plugin.saveSettings();
+          await this.saveSettingsInOrder();
           this.rerenderLocalAiSection();
         });
       })

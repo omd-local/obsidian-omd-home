@@ -3,8 +3,11 @@ import type OmdHomePlugin from "./main";
 import { captureRequestFromSettings } from "./capture-request.ts";
 import {
   captureSourceFromDataTransfer,
+  isPluginRecordingWrapperCommand,
+  isLocalImageSource,
   looksCapturable,
   normalizeCaptureSource,
+  recordingQuickActions,
   safeFileName,
 } from "./omnibox-utils";
 
@@ -40,6 +43,7 @@ export class Omnibox {
   private resultPanel!: HTMLElement;
   private results!: HTMLElement;
   private actionBar!: HTMLElement;
+  private quickActionSignature = "";
   private previewTimer: number | null = null;
   private resultGeneration = 0;
   private resultController: AbortController | null = null;
@@ -55,6 +59,7 @@ export class Omnibox {
   mount(container: HTMLElement): void {
     if (!this.root) this.render();
     if (!this.root) return;
+    this.renderQuickActions();
     if (this.root.parentElement === container && container.childElementCount === 1) return;
     container.empty();
     container.appendChild(this.root);
@@ -79,11 +84,7 @@ export class Omnibox {
     const hint = form.createSpan({ cls: "omd-omnibox-hint", text: ">  +  @" });
     hint.setAttribute("aria-hidden", "true");
     this.actionBar = this.root.createDiv({ cls: "omd-omnibox-actions" });
-    this.quickAction(this.actionBar, "link", "Capture URL or file", () => this.plugin.openCaptureModal());
-    this.quickAction(this.actionBar, "calendar-plus", "New event", () => void this.plugin.createCalendarEvent());
-    this.quickAction(this.actionBar, "terminal-square", "Commands", () => this.usePrefix(">"));
-    this.quickAction(this.actionBar, "sparkles", "Ask vault", () => this.usePrefix("@"));
-    this.quickAction(this.actionBar, "mic", "Recording", () => void this.plugin.toggleRecording());
+    this.renderQuickActions();
     this.resultPanel = this.root.createDiv({ cls: "omd-omnibox-result-panel" });
     const resultBar = this.resultPanel.createDiv({ cls: "omd-omnibox-result-bar" });
     resultBar.createSpan({ text: "OMD result" });
@@ -142,6 +143,31 @@ export class Omnibox {
     button.addEventListener("click", action);
   }
 
+  private renderQuickActions(): void {
+    const recording = recordingQuickActions(this.commands.listCommands().filter(
+      (command) => !isPluginRecordingWrapperCommand(command.id, this.plugin.manifest.id),
+    ));
+    const signature = recording.map((action) => action.id).join("|");
+    if (this.actionBar.childElementCount && signature === this.quickActionSignature) return;
+    this.quickActionSignature = signature;
+    this.actionBar.empty();
+    this.quickAction(this.actionBar, "link", "Capture URL or file", () => this.plugin.openCaptureModal());
+    this.quickAction(this.actionBar, "calendar-plus", "New event", () => void this.plugin.createCalendarEvent());
+    this.quickAction(this.actionBar, "terminal-square", "Commands", () => this.usePrefix(">"));
+    this.quickAction(this.actionBar, "sparkles", "Ask vault", () => this.usePrefix("@"));
+    if (!recording.length) {
+      this.quickAction(this.actionBar, "mic", "Recording", () => this.plugin.toggleRecording());
+    }
+    for (const action of recording) {
+      this.quickAction(this.actionBar, action.icon, action.label, () => {
+        if (action.label === "Start recording") this.plugin.startRecording();
+        else if (action.label === "Stop recording") this.plugin.stopRecording();
+        else this.plugin.toggleRecording();
+        this.renderQuickActions();
+      });
+    }
+  }
+
   private get commands(): CommandRegistry {
     return (this.app as App & { commands: CommandRegistry }).commands;
   }
@@ -167,7 +193,9 @@ export class Omnibox {
       this.showRows(commands.map((command) => ({
         title: command.name,
         detail: command.id,
-        action: () => this.commands.executeCommandById(command.id),
+        action: () => {
+          if (!this.commands.executeCommandById(command.id)) new Notice("This command is unavailable in the current view.");
+        },
       })));
       return;
     }
@@ -204,14 +232,21 @@ export class Omnibox {
       return;
     }
     if (looksCapturable(query)) {
+      const source = normalizeCaptureSource(query);
+      if (isLocalImageSource(source)) {
+        this.plugin.openCaptureModal(source);
+        return;
+      }
       await this.plugin.captureWithOmd(
-        captureRequestFromSettings(normalizeCaptureSource(query), this.plugin.settings),
+        captureRequestFromSettings(source, this.plugin.settings),
       );
       return;
     }
     if (query.startsWith(">")) {
       const first = this.commands.listCommands().find((command) => command.name.toLowerCase().includes(query.slice(1).trim().toLowerCase()));
-      if (first) this.commands.executeCommandById(first.id);
+      if (first) {
+        if (!this.commands.executeCommandById(first.id)) new Notice("This command is unavailable in the current view.");
+      }
       else new Notice("No matching command");
       return;
     }

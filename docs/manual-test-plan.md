@@ -80,6 +80,53 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
+### 1.3A 当前候选与 CAP-02 交接（2026-09-17 22:54 NZST）
+
+本次按用户要求安装之前完成的 OCR 图片入口、识别选项排版及 Suggested note topics / Idea only 文案修复。
+使用已通过 `npm run check` 565 项测试、类型检查、ESLint、构建的相同源码；安装资产与构建哈希一致。
+原生停用 / 启用插件后，Check setup ready，图片路径先打开预填 Capture、Recognition 自动展开，
+简中选择完整可见；取消再打开恢复默认。前后 23 份 Markdown 与插件设置内容一致。
+
+- `main.js`：`9f809a4cd8a9e6f7705e7f7d2c1a899e7bf07594040881dee0b0da1be548e903`
+- `styles.css`：`4ce5a0511df5db332b459095bf363494d6ebfa3bd2a7da0307e7e928801cb857`
+- `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
+
+语音测试：**PASS（用户确认）**；未把未提供的逐模式细项自动填为 PASS。
+CAP-02 已停在 `capture/small-local-file.html` 的 Capture 草稿，Review links and tags 开启、
+Polish Markdown 关闭、Tags 留空，尚未提交。模型仍为 qwen3:0.6b。
+
+本轮功能验收使用原有已验证的 `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`。
+自动发现探测解析 `/opt/homebrew/bin/omd`，其最小能力响应支持 enrich_note v1，但无 package / protocol 身份，
+不能确认含本轮后端修复；已恢复原路径。**自动发现与旧安装跳过子项仍待单独验收**，不计入本次功能通过。
+[原生交接证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-update/native-handoff.md>)。
+
+### 1.3A.1 2026-09-17 20:45 历史候选
+
+本节保留 20:45 安装身份；当前身份见上方 22:54 记录。后面的 2026-09-13 记录同样保留为历史。不要为继续测试重新安装、清空 vault 或重置 Settings。
+
+| 字段 | 当前记录 |
+| --- | --- |
+| 构建 / 原生复测时间 | 2026-09-17 20:43–20:45 NZST |
+| 候选来源 | HEAD `bb531beb20fbc4f84d41fb0b8cf980c95da44b04` 加当前未提交修复；下面资产哈希才是本轮准确安装身份，并非已发布 Release |
+| manifest / Obsidian | `0.1.1` / `1.13.7` |
+| 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
+| 自动化 | `npm run check`：563 / 563，TypeScript / ESLint / production build 通过；`git diff --check` 通过。上一轮后端 1627 项通过；本次 CSS 修正未重复运行后端 |
+| UI 复测 | minimal 风格恢复；48 组浏览器布局检查通过；插件停用 / 启用后原生 Pin、Settings、Capture、Event 校验通过 |
+| 数据状态 | 原生复测前后 22 份 Markdown 与插件设置内容一致；无运行中的任务 |
+| 测试边界 | 未将 OCR / ASR、云请求、真实日历写入等尚未实测项目标为 PASS；未重跑 dependency audit |
+
+当前安装资产 SHA-256：
+
+- `main.js`：`9c17c6764603be67020876f42fde7a3a479a82964e9658950767408600a6cf6b`
+- `styles.css`：`d1b7ee54247f6763d6ffeb0d31ffba3ad5dc1f34497fe7b099fd85b079787784`
+- `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
+
+**建议续测入口：CAP-01A 第 1、2 步。** 先检查 Recognition defaults 与 Capture 的语言选项，再分别使用 `eng`、`chi_sim+eng`、`chi_tra+eng` 转换三张现成图片。素材与预期见 `docs/manual-test-fixtures/README.md` 和 CAP-01A；继续记录 Case、预期、实际、结果及截图。首次识别测试可关闭 Optional local AI 的两个选项，以便单独判断 OCR / ASR 输出；之后按 CAP-02 单独检查 enrichment。
+
+保留当前模型与环境，暂不为本轮补下载 `bge-m3`；按既有 AI-03 / AI-04 缺模型与 AI-09 安装顺序执行。不要把未执行的旧案例自动改成 PASS。后续若更换插件资产，应另记新的哈希和复测范围。
+
+### 1.3B 历史身份（2026-09-13）
+
 开始前运行：
 
 ```bash
@@ -1108,6 +1155,14 @@ HTTP 类别即可；UI 不得显示 key、Authorization header 或 request body�
    这只通过本条 401 分支。若在插件内点击 **Remove key**，预期应是 **credential missing**，属于 E，
    两者不可互相代替。
 
+**2026-09-14 已观察到的模型兼容性失败**：测试者选择 OpenAI API / `gpt-4` 后，实际回答请求返回
+HTTP 400；换成同一 provider 的 `gpt-4o-mini` 后可收到有来源引用的回答。当前 provider catalog
+仅证明模型 ID 可见，不能证明该模型支持本插件要求的严格结构化答案。`gpt-4` 的这个失败记录为
+**FAIL：Answer model eligibility / Check setup 未在发送前拦截不兼容模型**，不是 key 或本地 embedding
+失败；详见 [ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答)。
+修复后用模拟 provider 请求验证 `gpt-4` 在预览/发送前得到清楚提示，再用真实目录中有权限的
+`gpt-4o-mini` 完成一次经用户批准的合成笔记问答；不得静默切换模型或绕过逐题 preview。
+
 **OpenAI `o3-mini` 回归**
 
 7. 仅当真实 OpenAI catalog 返回 `o3-mini` 且测试 key 有权使用时，选择 `o3-mini` 并重新
@@ -1230,6 +1285,18 @@ Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其�
    ```bash
    curl -sS --max-time 2 http://localhost:11434/api/status
    ```
+
+**2026-09-14 人工反馈记录（D2 替代问题）**：使用 **OpenAI API / `gpt-4o-mini`**
+询问 `Sources/PDFs/Presentation - Deep Learning in Nematode Detection.md`，已收到以
+**Based on 1 retrieved note.** 开头的回答；`Source states:` 的各项结论均带该笔记的逐项引用，
+`Model inference:` 为 `None`。测试者报告 hosted provider/model 保持不变、badge 为
+**Keyword search**，warning 准确为 **The local Ollama service could not be reached, so this answer used
+keyword search only.**，且只有 **Switch to keyword search** 与 **Open retrieval settings**，没有
+**Install model**、missing-model、key 或 bridge 错误。**D2 的 hosted-answer/本地 embedding
+故障隔离变体：PASS（依据测试者反馈；未独立核对 UI 截图或 daemon 停止命令）。**
+这次并非上方固定的 `amber lighthouse checklist` 问题，且没有需要审慎推论的回答，因此
+**固定题 D2 仍待执行**；须使用固定问题并核对 Thursday 10:30、Morgan、审慎建议和每项引用，
+才能将完整 D2 标为 PASS。不要把这条记录当成 `bge-m3` 的语义检索成功证明。
 
 **D3. 已安装模型不支持 embedding（自动化；手工 `NOT RUN`）**
 
@@ -1807,6 +1874,24 @@ Calendar 测试步骤。
 
 所有输入都是 synthetic，无个人数据。PDF 已验证为一页 image-only 文档；音频约 7 秒。
 
+本节中“简体中文 + English / No language preference”分别指 **Image text language / Speech language**
+两个控件。图片的 **No language preference** 不代表自动检测：它使用 OMD 配置或默认值，
+当前测试环境实际为 `eng`。请在 Capture 弹窗选择图片语言后提交；单次选择不会覆盖 Settings 默认值。
+
+2026-09-17 人工发现：从首页搜索框直接提交简中图片绕过语言选择，侧车记录
+`requested=null / effective=eng / source=default`，原始 OCR 已乱码。记为 **FAIL，待修复安装后原生复测**。
+已合入源码修复：首页本地图片进入预填 Capture 并展开 Recognition，下拉框完整显示语言；
+565 项自动测试及 6 个布局场景通过；22:50 已安装 / 原生重载，图片入口与语言显示检查通过（1.3A）。原始 OCR 内容用例仍保留失败记录，待你显式选语言复测。
+独立 CLI 对照：`chi_sim+eng` 恢复中文主体（仍有标点 / 空格差异），网页三种语言正文相同，
+扫描 PDF 退出失败且无笔记；这些不替代你的原生 UI 验收记录。
+
+扫描 PDF 原生验收补充：用户截图时间 **17 Sept 22:26**，显示 **Capture failed**，
+并明确说明无法提取可读内容，建议改用页面图片 OCR 或带文字层的 PDF。
+读取 test-vault 未发现该来源生成的 Markdown。本项记为 **PASS（不支持功能的限制处理）**，
+不表示扫描 PDF OCR 转换成功；相同文件和设置直接 Retry 不能解除此限制。
+[用户截图](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ocr-simplified-investigation/scanned-pdf-native-user.png>)。
+
+
 1. 首次测试或先在 **Settings → OMD Home → Recognition defaults** 把两个选项都设为
    **No language preference**，然后打开 Capture 并展开
    **Recognition (optional)**。确认 **Image text language** 从 **No language preference**
@@ -1819,9 +1904,21 @@ Calendar 测试步骤。
 2. 分别以 `eng`、`chi_sim+eng`、`chi_tra+eng` capture 三张截图，确认文字与语言相符。
    再用缺少其中一个 pack 的隔离测试环境重测，不要改动日常安装；确认错误指出缺失 pack，并提示
    诊断/安装后重试。
-3. 对纯文字网页轮换 OCR preset，确认网页正文不被送进 OCR，结果不因 preset 改变。
-4. Capture 扫描版 PDF，确认 OCR preset 不会声称或执行 PDF page OCR；界面应清楚说明当前
-   document-parser 限制，不得把 polish 当成 OCR 补救。
+3. 点击首页 **Capture URL or file** 按钮（或 Cmd+P → **OMD Home: Capture URL or file**），
+   将 `docs/manual-test-fixtures/capture/plain-text-web-page.html` 的完整本地路径填入 **URL or file path**。
+   展开 **Recognition (optional)**，在 **Image text language** 中选 **English**，
+   **Speech language** 保持 **No language preference**。关闭 **Polish Markdown** 与
+   **Review links and tags**，点击 **Capture**。重新打开弹窗，对同一文件再转换两次，
+   分别选 **简体中文 + English**、**繁體中文 + English**。
+   三份笔记的 **Full Content 正文**应完全一致，均含 `Stable token: copper-river-204.`；
+   文件名编号、Source、Captured 时间及元数据不参与比较。此项验证文字网页不会受图片 OCR 语言影响。
+4. 同样从 Capture 弹窗提交 `generated/scanned-bilingual-page.pdf` 的完整路径，
+   **Image text language** 可选 **简体中文 + English**，两个 AI 开关保持关闭。
+   此文件只有扫描图片、没有文字层。当前支持单张图片 OCR 和 PDF 文字层提取，
+   不支持直接对 PDF 页面做 OCR；更换识别语言或开启润色不能补救。
+   预期界面提示无法提取内容，并建议将页面作为图片捕获或使用带文字层的 PDF。
+   清楚说明限制且不生成空笔记，才是本项“限制提示”测试的 PASS；这不表示已支持扫描 PDF OCR。
+   模糊错误、无下一步提示，或空正文仍显示成功，均记录 FAIL 并保存截图。
 5. 对同一个语音样本分别选择 ASR **Auto-detect** 与 `zh`，确认前者传递明确 auto-detect，
    后者传递明确中文 hint；再验证 **No language preference** 不等同于 Auto-detect。
 6. 用尚不存在的准确路径
@@ -1848,6 +1945,10 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 
 ### CAP-02：本地 AI 生成 links/tags，Review 后才写入
 
+**当前人工轮次说明（2026-09-17 22:54）**：为使用工作区后端修复，本轮保留已验证的自定义 OMD 路径，
+先执行下方功能步骤。原计划的自动发现前置与第 11 步自动路径断言仍待单独运行，不能以本轮替代；
+详见 1.3A。本轮不要求你现在改 Settings。语音测试已按用户确认记为 PASS。
+
 前置：保持 **OMD executable override** 为空，确认自动发现的是兼容 OMD；记录 Settings 中的
 实际 executable。若环境存在旧 Homebrew launcher，保留它作为自动跳过旧候选的回归条件，
 不要为通过测试而手动指定新路径。
@@ -1859,11 +1960,21 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 4. 保持 proposal 的 Review 弹窗打开，尝试再次打开 **Capture URL or file**。预期提示另一个 OMD
    动作仍在进行，并且不打开第二个 Capture。取消 Review 后应可正常打开 Capture。反向再用一个
    较慢 capture 验证：capture 进行时运行 **Suggest links and tags**，也应被阻止，不能同时写 vault。
-5. 查看 existing/new tag、links、concepts 和 warnings。
+5. 查看 existing/new tag、links、Suggested note topics 和 warnings。Idea only 表示独立笔记主题建议，Apply 不会创建笔记或把主题写作 tags。
 6. 取消选择至少一个建议，再点击 **Apply**。
 7. 确认只写入已选 links/tags，并设置 `omd_home_status: reviewed`。
 8. 再打开 Capture，确认 toggle 记住上次选择。
-9. 在 Generate 与 Apply 之间修改目标 note；Apply 应提示 conflict，不能覆盖新修改。
+9. 单独测试旧 proposal 与笔记修改冲突（请用测试笔记副本，不修改上面部分失败的现场）：
+   - 先复制一份普通测试笔记，在副本运行 **Suggest links and tags / AI tags**。
+     等待 **Review proposal** 出现，勾选至少一项，暂不点击 Apply。
+   - 保持这个 Review 弹窗打开；从右上 **TARGET** 核对具体 `.md` 路径。
+     用 Finder 找到 test-vault 下的同一个文件，通过 **打开方式 → 文本编辑**打开。
+     不要关闭 Review，不要修改原 `.html` / `.raw.md`，也不要再次 Generate。
+   - 在 Markdown 正文末尾加一行 `CAP-02 conflict test: keep this line.`，按 Cmd+S 保存到磁盘。
+   - 回到仍打开的原 Review，点击 **Apply**。
+   - 预期 **Note changed** / conflict，提示重新生成；刚加的一行保留，旧 proposal 的 links / tags
+     没有被写入。若显示成功、覆盖该行，或发生部分写入，记 FAIL 并保留前后文件和截图。
+     conflict 本身是这个保护测试的预期结果，不代表正常 Apply 测试通过。
 10. 如果 Generate 阶段被 OMD 拒绝，核对错误分类：模型 proposal 格式、tag 或 candidate 校验失败
    应提示重新生成或更换 **Local writing model**；目标 note/candidate 消失应显示
    **Note unavailable**，只允许关闭并从仍存在的 Markdown note 重新开始；
@@ -1875,6 +1986,12 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 
 通过条件：Generate/Review 阶段零写入；新 tags 默认 unchecked；Apply 可选择；失败不声称成功，
 frontmatter 失败时回滚或明确报告 recoverable partial failure。
+
+**2026-09-17 本轮人工反馈：** Summary preview 未写入符合当前代码范围，但说明有歧义（UI-05）。
+点击 Apply 后出现 Review required；目标笔记已有 Related notes，`omd_home_status` 仍为 inbox。
+**CAP-02 正常 Apply：FAIL / 部分写入，待诊断修复**（UI-06）；不能只因显示保护性失败提示就标 PASS。
+原现场已只读存档，未替用户修改。以上第 9 步的冲突保护测试尚未收到人工结果，不自动标记通过。
+
 
 <a id="test-cap-03"></a>
 

@@ -128,19 +128,7 @@ export function describeLocalCompletionCatalog(models: LocalAiModelEntry[], cata
   if (!catalogChecked) return "";
   const localModels = models.filter((model) => !modelIsCloudBacked(model));
   const availableModels = localModels.filter(localWritingModelIsSelectable);
-  const unavailableModels = localModels.filter((model) => !localWritingModelIsSelectable(model));
-  const remoteCount = models.length - localModels.length;
-  const sentences = [
-    `${localModels.length} local ${localModels.length === 1 ? "model" : "models"} found.`,
-    `${availableModels.length} can answer text questions.`,
-  ];
-  if (unavailableModels.length) {
-    sentences.push(`${humanJoin(unavailableModels.map((model) => model.name))} ${unavailableModels.length === 1 ? "is" : "are"} shown but unavailable for text answers.`);
-  }
-  if (remoteCount) {
-    sentences.push(`${remoteCount} cloud-backed ${remoteCount === 1 ? "model is" : "models are"} not shown in this local list.`);
-  }
-  return sentences.join(" ");
+  return `${availableModels.length} of ${localModels.length} local models available for text.`;
 }
 
 export function buildModelEntry(raw: {
@@ -162,11 +150,6 @@ export function buildModelEntry(raw: {
   };
 }
 
-function humanJoin(values: string[]): string {
-  if (values.length < 2) return values[0] ?? "";
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
-}
 
 export function mergeInspectedModelEntry(
   catalogEntry: LocalAiModelEntry | undefined,
@@ -411,10 +394,10 @@ export function aggregateLocalAiState(
     daemonDetail = activeSummary.daemonDetail;
     if (workflowCodes.length && workflowCodes.every((code) => code === "ready")) {
       daemonCode = "ready";
-      daemonDetail = "The local daemon and all active workflow models are ready.";
+      daemonDetail = "The selected local text models are ready.";
     } else if (workflowCodes.some((code) => code === "ready")) {
       daemonCode = "partial";
-      daemonDetail = "At least one workflow model is ready, but another still needs attention.";
+      daemonDetail = "Some local text models are ready; check the model status below.";
     } else if (workflowCodes.some((code) => code !== "unchecked")) {
       const blocking = Object.values(workflows).find((state) => state.enabled && state.code !== "ready");
       if (blocking) {

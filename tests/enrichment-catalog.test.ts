@@ -59,7 +59,7 @@ test("buildEnrichmentCatalog ranks linked notes first and normalizes vault tags"
   assert.deepEqual(catalog.vaultTags, ["project/research", "workflow"]);
 });
 
-test("buildEnrichmentCatalog uses source content and a stable path tie-breaker", () => {
+test("buildEnrichmentCatalog uses source content and excludes unrelated notes", () => {
   const catalog = buildEnrichmentCatalog({
     target: {
       path: "Inbox/example.md",
@@ -80,8 +80,6 @@ test("buildEnrichmentCatalog uses source content and a stable path tie-breaker",
 
   assert.deepEqual(catalog.candidates.map((candidate) => candidate.path), [
     "Notes/Gamma.md",
-    "Notes/Alpha.md",
-    "Notes/beta.md",
   ]);
 });
 
@@ -104,7 +102,7 @@ test("buildEnrichmentCatalog does not treat a short alias inside another word as
   });
 
   assert.equal(catalog.candidates[0]?.path, "Notes/Gamma.md");
-  assert.equal(catalog.candidates.find((candidate) => candidate.path === "Notes/AI.md")?.exactMatchScore, 0);
+  assert.equal(catalog.candidates.some((candidate) => candidate.path === "Notes/AI.md"), false);
 });
 
 test("buildEnrichmentCatalog preserves target alias matches and unsegmented-language mentions", () => {

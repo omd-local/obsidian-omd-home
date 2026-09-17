@@ -1,7 +1,13 @@
 import { homedir } from "node:os";
 
 export function looksCapturable(value: string): boolean {
-  return /^https?:\/\//i.test(value) || value.startsWith("/") || value.startsWith("~/");
+  const source = normalizeCaptureSource(value);
+  return /^https?:\/\//i.test(source) || source.startsWith("/");
+}
+
+export function isLocalImageSource(value: string): boolean {
+  const source = normalizeCaptureSource(value);
+  return source.startsWith("/") && /\.(?:png|jpe?g|webp|tiff|bmp)$/iu.test(source);
 }
 
 export function normalizeCaptureSource(value: string): string {

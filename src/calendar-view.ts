@@ -33,6 +33,8 @@ interface CalendarEventContentArg {
 export class OmdCalendarView extends ItemView {
   private calendar?: Calendar;
   private hostEl?: HTMLDivElement;
+  private syncButton?: HTMLButtonElement;
+  private syncing = false;
   private readonly plugin: OmdHomePlugin;
   private enabledSources = normalizeSourceFilters();
 
@@ -88,7 +90,7 @@ export class OmdCalendarView extends ItemView {
             const time = content.createSpan({ cls: "omd-calendar-event-time", text: info.timeText });
             time.setAttribute("aria-hidden", "true");
           }
-          content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title });
+          content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title, attr: { dir: "auto" } });
           if (!monthView) {
             const statusLabel = calendarStatusLabel(info.event.extendedProps.syncState as string | undefined);
             if (statusLabel) content.createSpan({ cls: "omd-calendar-event-status", text: ` • ${statusLabel}` });
@@ -197,6 +199,12 @@ export class OmdCalendarView extends ItemView {
   }
 
   private async syncEvents(): Promise<void> {
+    if (this.syncing) return;
+    this.syncing = true;
+    if (this.syncButton) {
+      this.syncButton.disabled = true;
+      this.syncButton.setText("Syncing…");
+    }
     const plugin = this.plugin as OmdHomePlugin & CalendarViewPluginActions;
     try {
       if (plugin.synchronizeCalendarEvents) await plugin.synchronizeCalendarEvents();
@@ -204,6 +212,12 @@ export class OmdCalendarView extends ItemView {
       this.render();
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Could not sync calendars");
+    } finally {
+      this.syncing = false;
+      if (this.syncButton) {
+        this.syncButton.disabled = false;
+        this.syncButton.setText("Sync");
+      }
     }
   }
 
@@ -242,8 +256,9 @@ export class OmdCalendarView extends ItemView {
     legendFilterButton(legend, this.enabledSources, "external", "Calendar", () => this.toggleSource("external"));
     legendFilterButton(legend, this.enabledSources, "linked", "Linked", () => this.toggleSource("linked"));
     const sync = topbar.createEl("button", { cls: "omd-action-button", type: "button", text: "Sync" });
+    this.syncButton = sync;
     sync.addEventListener("click", () => void this.syncEvents());
-    const create = topbar.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "+ new event" });
+    const create = topbar.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "New event" });
     create.addEventListener("click", () => this.createEvent());
     this.hostEl = shell.createDiv({ cls: "omd-calendar-host" });
   }
@@ -264,23 +279,20 @@ class EventConflictModal extends Modal {
   }
 
   onOpen(): void {
+    this.modalEl.addClass("omd-event-conflict-modal");
     this.titleEl.setText("Calendar conflict");
     this.contentEl.createEl("p", { text: `“${this.event.title}” changed in both its note and Calendar.` });
     this.contentEl.createEl("p", { cls: "omd-conflict-help", text: "Choose which version should become the linked event. Nothing is overwritten until you choose." });
-    new Setting(this.contentEl)
+    const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Keep note").onClick(async () => this.resolve("vault")))
       .addButton((button) => button.setCta().setButtonText("Keep calendar").onClick(async () => this.resolve("external")));
+    actions.settingEl.addClass("omd-modal-actions");
   }
 
   onClose(): void { this.contentEl.empty(); }
 
   private async resolve(choice: "vault" | "external"): Promise<void> {
-    try {
-      await this.onResolve(choice);
-      this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not resolve Calendar conflict");
-    }
+    await runCalendarModalAction(this, () => this.onResolve(choice), "Could not resolve Calendar conflict");
   }
 }
 
@@ -292,6 +304,7 @@ class SyncRequiredModal extends Modal {
   ) { super(app); }
 
   onOpen(): void {
+    this.modalEl.addClass("omd-sync-required-modal");
     const failed = this.event.syncState === "error";
     this.titleEl.setText(failed ? "Calendar sync paused" : "Calendar has newer changes");
     this.contentEl.createEl("p", {
@@ -299,16 +312,12 @@ class SyncRequiredModal extends Modal {
         ? "OMD Home could not safely read Calendar. Retry before editing, recreating, or deleting this linked event."
         : "Import the newer Calendar version before editing this linked note, so the external change is not overwritten.",
     });
-    new Setting(this.contentEl)
+    const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
       .addButton((button) => button.setCta().setButtonText(failed ? "Retry sync" : "Import Calendar change").onClick(async () => {
-        try {
-          await this.onSync();
-          this.close();
-        } catch (error) {
-          new Notice(error instanceof Error ? error.message : "Could not sync Calendar");
-        }
+        await runCalendarModalAction(this, this.onSync, "Could not sync Calendar");
       }));
+    actions.settingEl.addClass("omd-modal-actions");
   }
 
   onClose(): void { this.contentEl.empty(); }
@@ -337,6 +346,7 @@ class EventEditorModal extends Modal {
   }
 
   onOpen(): void {
+    this.modalEl.addClass("omd-event-modal");
     const capabilities = calendarEditorCapabilities(this.draft);
     const fieldsReadOnly = this.initialSource === "external" && Boolean(this.draft.readOnly);
     this.titleEl.setText(this.draft.title ? "Edit event" : "New event");
@@ -350,12 +360,20 @@ class EventEditorModal extends Modal {
       .setValue(this.draft.title)
       .setDisabled(fieldsReadOnly)
       .onChange((value) => { this.draft.title = value; }));
-    this.renderBoundaryInput("Start", "Event start date and time in your local timezone.", fieldsReadOnly, "start");
-    this.renderBoundaryInput("End", "Event end date and time in your local timezone.", fieldsReadOnly, "end");
+    this.renderBoundaryInput("Start", this.draft.allDay
+      ? "The first day of this event."
+      : "Event start date and time in your local timezone.", fieldsReadOnly, "start");
+    this.renderBoundaryInput("End", this.draft.allDay
+      ? "The end date is excluded. For a one-day event, choose the following date."
+      : "Event end date and time in your local timezone.", fieldsReadOnly, "end");
     new Setting(this.contentEl).setName("All day").setDesc("Store this event as calendar dates instead of times.").addToggle((toggle) => toggle
       .setValue(this.draft.allDay)
       .setDisabled(fieldsReadOnly)
       .onChange((value) => {
+        if (pendingCalendarActions.has(this)) {
+          toggle.setValue(this.draft.allDay);
+          return;
+        }
         const range = calendarEditorRangeForMode(this.draft.start, this.draft.end, value);
         if (range) {
           this.draft.start = range.start;
@@ -385,6 +403,7 @@ class EventEditorModal extends Modal {
     this.renderActionHooks();
     const footer = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()));
+    footer.settingEl.addClass("omd-modal-actions");
     if (capabilities.showSave) {
       footer.addButton((button) => button.setCta().setButtonText("Save").onClick(async () => {
           await this.saveDraft();
@@ -427,7 +446,7 @@ class EventEditorModal extends Modal {
         .setName("Detach link")
         .setDesc("Keep the note and stop syncing it to Apple Calendar.")
         .addButton((button) => button.setButtonText("Detach").onClick(async () => {
-          await this.runDetachAction(false, "Detach is not available until main.ts wires detachCalendarEvent(event, false).");
+          await this.runDetachAction(false, "Detach is unavailable. Reopen Calendar and try again.");
         }));
       if (syncState === "unavailable") {
         new Setting(this.contentEl)
@@ -443,12 +462,9 @@ class EventEditorModal extends Modal {
         .setName("Create linked vault note")
         .setDesc("Save this read-only calendar event as a linked Markdown note. Apple Calendar will not be modified.")
         .addButton((button) => button.setCta().setButtonText("Create note").onClick(async () => {
-          try {
-            await this.onSave({ ...this.draft, source: "linked", syncState: "clean" });
-            this.close();
-          } catch (error) {
-            new Notice(error instanceof Error ? error.message : "Could not create linked note");
-          }
+          await runCalendarModalAction(this,
+            () => this.onSave({ ...this.draft, source: "linked", syncState: "clean" }),
+            "Could not create linked note");
         }));
     }
     if (capabilities.showDelete) {
@@ -460,7 +476,7 @@ class EventEditorModal extends Modal {
         .addButton((button) => {
           button.buttonEl.addClass("mod-warning");
           button.setButtonText("Delete").onClick(async () => {
-            await this.runDetachAction(true, "Delete is not available until main.ts wires detachCalendarEvent(event, true).");
+            await this.runDetachAction(true, "Delete is unavailable. Reopen Calendar and try again.");
           });
         });
     }
@@ -471,24 +487,20 @@ class EventEditorModal extends Modal {
     if (!title) return void new Notice("Event title is required");
     const validationError = validateCalendarEventRange(this.draft.start, this.draft.end);
     if (validationError) return void new Notice(validationError);
-    if (!this.defaultCalendar) {
+    const defaultCalendar = this.defaultCalendar;
+    if (!defaultCalendar) {
       return void new Notice("Choose a writable default calendar in OMD Home settings first");
     }
-    try {
-      await this.onSave({
+    await runCalendarModalAction(this, () => this.onSave({
         ...this.draft,
         title,
         source: "linked",
-        appleCalendarId: this.defaultCalendar.id,
+        appleCalendarId: defaultCalendar.id,
         appleItemId: undefined,
         appleExternalId: undefined,
         occurrenceDate: undefined,
         syncState: "pending",
-      });
-      this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not recreate Calendar copy");
-    }
+      }), "Could not recreate Calendar copy");
   }
 
   private async runDetachAction(deleteExternal: boolean, missingActionMessage: string): Promise<void> {
@@ -496,12 +508,9 @@ class EventEditorModal extends Modal {
       new Notice(missingActionMessage);
       return;
     }
-    try {
-      await this.actions.detachCalendarEvent(this.draft, deleteExternal);
-      this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not update Calendar link");
-    }
+    await runCalendarModalAction(this,
+      () => this.actions.detachCalendarEvent!(this.draft, deleteExternal),
+      "Could not update Calendar link");
   }
 
   private async saveDraft(): Promise<void> {
@@ -514,12 +523,28 @@ class EventEditorModal extends Modal {
     if (this.draft.source === "linked" && !this.draft.appleCalendarId && !this.defaultCalendar) {
       return void new Notice("Choose a writable default calendar in OMD Home settings first");
     }
-    try {
-      await this.onSave({ ...this.draft, title });
-      this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not save event");
-    }
+    await runCalendarModalAction(this, () => this.onSave({ ...this.draft, title }), "Could not save event");
+  }
+}
+
+const pendingCalendarActions = new WeakSet<Modal>();
+
+async function runCalendarModalAction(modal: Modal, action: () => Promise<void>, failureMessage: string): Promise<void> {
+  if (pendingCalendarActions.has(modal)) return;
+  pendingCalendarActions.add(modal);
+  const controls = Array.from(modal.contentEl.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>("input, select, button"))
+    .map((control) => ({ control, disabled: control.disabled }));
+  for (const { control } of controls) control.disabled = true;
+  modal.contentEl.setAttribute("aria-busy", "true");
+  try {
+    await action();
+    modal.close();
+  } catch (error) {
+    new Notice(error instanceof Error ? error.message : failureMessage);
+  } finally {
+    for (const { control, disabled } of controls) control.disabled = disabled;
+    modal.contentEl.removeAttribute("aria-busy");
+    pendingCalendarActions.delete(modal);
   }
 }
 

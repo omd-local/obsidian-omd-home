@@ -10,9 +10,9 @@ import {
   type CaptureRequest,
 } from "./capture-request.ts";
 import type { OmdSearchHit } from "./model";
-import { captureSourceFromDataTransfer, normalizeCaptureSource } from "./omnibox-utils";
+import { captureSourceFromDataTransfer, isLocalImageSource, normalizeCaptureSource } from "./omnibox-utils";
 
-const IMAGE_TEXT_BOUNDARY = "Recognition only; it does not translate text or add scanned-PDF page OCR.";
+const IMAGE_TEXT_BOUNDARY = "Does not translate text or recognize scanned PDF pages.";
 
 export class CaptureModal extends Modal {
   private source = "";
@@ -24,6 +24,9 @@ export class CaptureModal extends Modal {
   private readonly vaultCustomOcrLanguage: string | null;
   private sourceInput?: HTMLInputElement;
   private dropZone?: HTMLElement;
+  private sourceError?: HTMLElement;
+  private focusTimer: number | null = null;
+  private submitting = false;
 
   constructor(
     app: App,
@@ -43,44 +46,61 @@ export class CaptureModal extends Modal {
   }
 
   onOpen(): void {
+    this.contentEl.empty();
     this.modalEl.addClass("omd-capture-modal");
-    this.titleEl.setText("Capture with OMD");
+    this.titleEl.setText("Capture URL or file");
     this.contentEl.createEl("p", {
       cls: "omd-modal-intro",
-      text: "Paste a URL or local file path. OMD saves a recoverable Markdown note in this vault.",
+      text: "Save a web page or local file as Markdown in this vault.",
     });
-    new Setting(this.contentEl)
-      .setName("URL or file")
-      .setDesc("For example: https://… or /Users/…/document.pdf")
+    const sourceSetting = new Setting(this.contentEl)
+      .setName("URL or file path")
       .addText((text) => {
         text.inputEl.addClass("omd-capture-source");
-        text.setPlaceholder("Example URL or file path")
+        text.inputEl.setAttribute("aria-label", "URL or file path");
+        text.setPlaceholder("https://… or /Users/…/document.pdf")
           .setValue(this.source)
-          .onChange((value) => { this.source = normalizeCaptureSource(value); });
+          .onChange((value) => {
+            this.source = normalizeCaptureSource(value);
+            this.clearSourceError();
+          });
+        text.inputEl.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" || event.isComposing) return;
+          event.preventDefault();
+          void this.submit();
+        });
         this.sourceInput = text.inputEl;
-        window.setTimeout(() => text.inputEl.focus(), 0);
+        this.focusTimer = window.setTimeout(() => {
+          this.focusTimer = null;
+          text.inputEl.focus();
+        }, 0);
       });
+    sourceSetting.settingEl.addClass("omd-capture-source-setting");
+    this.sourceError = this.contentEl.createDiv({ cls: "omd-capture-error", attr: { role: "alert" } });
+    this.sourceError.hidden = true;
     this.dropZone = this.contentEl.createDiv({ cls: "omd-capture-dropzone" });
     this.dropZone.createEl("strong", { text: "Drop a local file here" });
-    this.dropZone.createSpan({ text: "The path is filled in without invoking a shell." });
+    this.dropZone.createSpan({ text: "Or paste its full path above." });
     this.bindDropTarget(this.dropZone);
-    new Setting(this.contentEl)
+    const tagsSetting = new Setting(this.contentEl)
       .setName("Tags")
-      .setDesc("Optional comma-separated Obsidian tags. Nested tags such as project/research are supported.")
+      .setDesc("Optional. Separate tags with commas.")
       .addText((text) => text
         .setPlaceholder("Example: inbox, research/calendar")
         .setValue(this.tags)
         .onChange((value) => { this.tags = value; }));
+    tagsSetting.settingEl.addClass("omd-capture-tags-setting");
 
     const recognition = this.contentEl.createEl("details", { cls: "omd-capture-recognition" });
+    recognition.open = isLocalImageSource(this.source);
     recognition.createEl("summary", { text: "Recognition (optional)" });
     recognition.createEl("p", {
       cls: "omd-capture-help",
-      text: "New captures start with the recognition defaults in settings. Changes here apply only to this capture. A retry repeats the failed capture's choices.",
+      text: "Language choices apply to this capture only.",
     });
     new Setting(recognition)
       .setName("Image text language")
-      .setDesc(`For screenshots and image files. Choose a language only when image text is recognized incorrectly. ${IMAGE_TEXT_BOUNDARY} ${this.languageAvailability.message}`)
+      .setDesc(`For images and screenshots. ${IMAGE_TEXT_BOUNDARY} ${this.languageAvailability.message}`)
       .addDropdown((dropdown) => {
         dropdown.addOption("", "No language preference");
         const readyPresets = filterReadyOcrPresets(
@@ -106,7 +126,7 @@ export class CaptureModal extends Modal {
       });
     new Setting(recognition)
       .setName("Speech language")
-      .setDesc("For audio or video. Choose auto-detect when the recording's language is unknown.")
+      .setDesc("For audio and video recordings.")
       .addDropdown((dropdown) => {
         dropdown.addOption("inherit-adapter-default", "No language preference");
         if (this.languageAvailability.asrAutoDetect) {
@@ -125,50 +145,75 @@ export class CaptureModal extends Modal {
     new Setting(localAi).setName("Optional local AI").setHeading();
     localAi.createEl("p", {
       cls: "omd-capture-help",
-      text: `Runs after conversion with ${this.polishModel}. Submitting saves these choices for next time; cancelling does not. A retry repeats the failed capture's choices.`,
+      text: `Local writing model: ${this.polishModel}. Choices are remembered when you capture.`,
     });
     new Setting(localAi)
       .setName("Polish Markdown")
-      .setDesc("Improve formatting after structural conversion. The captured Markdown remains recoverable. Long pages can take several minutes.")
+      .setDesc("Improve Markdown formatting after conversion. Long documents may take several minutes.")
       .addToggle((toggle) => toggle.setValue(this.polish).onChange((value) => {
         this.polish = value;
       }));
     new Setting(localAi)
       .setName("Review links and tags")
-      .setDesc("After the note is saved, generate a proposal for review. Nothing changes until you approve it.")
+      .setDesc("Suggest links and tags after capture. Review them before applying.")
       .addToggle((toggle) => toggle.setValue(this.suggest).onChange((value) => {
         this.suggest = value;
       }));
-    new Setting(this.contentEl)
+    const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((button) => button.setCta().setButtonText("Capture").onClick(async () => {
-        if (!this.source) return;
-        const tags = this.tags.split(",").map((tag) => tag.trim()).filter(Boolean);
-        let request: CaptureRequest;
-        try {
-          request = createCaptureRequest({
-            source: this.source,
-            tags,
-            polish: this.polish,
-            suggest: this.suggest,
-            ocr: this.ocr,
-            asr: this.asr,
-          });
-          const languageError = captureLanguageSelectionError(request, this.languageAvailability);
-          if (languageError) {
-            new Notice(languageError);
-            return;
-          }
-        } catch (error) {
-          new Notice(error instanceof Error ? error.message : "Choose valid recognition options.");
-          return;
-        }
-        this.close();
-        await this.onCapture(request);
-      }));
+      .addButton((button) => button.setCta().setButtonText("Capture").onClick(() => this.submit()));
+    actions.settingEl.addClass("omd-modal-actions");
   }
 
-  onClose(): void { this.contentEl.empty(); }
+  onClose(): void {
+    if (this.focusTimer !== null) {
+      window.clearTimeout(this.focusTimer);
+      this.focusTimer = null;
+    }
+    this.contentEl.empty();
+  }
+
+  private async submit(): Promise<void> {
+    if (this.submitting) return;
+    const sourceError = captureSourceError(this.source);
+    if (sourceError) {
+      this.sourceError?.setText(sourceError);
+      if (this.sourceError) this.sourceError.hidden = false;
+      this.sourceInput?.setAttribute("aria-invalid", "true");
+      this.sourceInput?.focus();
+      return;
+    }
+    const tags = this.tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+    let request: CaptureRequest;
+    try {
+      request = createCaptureRequest({ source: this.source, tags, polish: this.polish, suggest: this.suggest, ocr: this.ocr, asr: this.asr });
+      const languageError = captureLanguageSelectionError(request, this.languageAvailability);
+      if (languageError) {
+        new Notice(languageError);
+        return;
+      }
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Choose valid recognition options.");
+      return;
+    }
+    this.submitting = true;
+    this.close();
+    try {
+      await this.onCapture(request);
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        new Notice(`Capture failed: ${error instanceof Error ? error.message : "Try again."}`);
+        this.open();
+      }
+    } finally {
+      this.submitting = false;
+    }
+  }
+
+  private clearSourceError(): void {
+    if (this.sourceError) this.sourceError.hidden = true;
+    this.sourceInput?.removeAttribute("aria-invalid");
+  }
 
   private ocrSelection(): string {
     if (this.ocr.mode === "inherit") return "";
@@ -242,12 +287,13 @@ export class CaptureModal extends Modal {
       const source = captureSourceFromDataTransfer(event.dataTransfer);
       if (!source) {
         if (event.dataTransfer?.files.length) {
-          new Notice("OMD Home could not read this file's local path. Paste its full path into URL or file.");
+          new Notice("Could not read this file's path. Paste its full path above.");
         }
         return;
       }
       this.source = source;
       if (this.sourceInput) this.sourceInput.value = this.source;
+      this.clearSourceError();
     });
   }
 }
@@ -278,10 +324,11 @@ export class CloudAnswerConsentModal extends Modal {
   }
 
   onOpen(): void {
-    this.titleEl.setText("Send selected vault evidence?");
+    this.modalEl.addClass("omd-consent-modal");
+    this.titleEl.setText("Send selected excerpts?");
     this.contentEl.createEl("p", {
       cls: "omd-modal-intro",
-      text: "Retrieval happened locally first. If you continue, only your question and the quoted excerpt text are sent with opaque source labels. OMD Home does not add vault filenames or paths; text already written inside an excerpt is sent exactly as shown below.",
+      text: "Send your question and the excerpts below to the selected provider. Filenames and paths are excluded unless they appear in the excerpt text.",
     });
     new Setting(this.contentEl).setName("Question").setDesc(this.preview.question);
     new Setting(this.contentEl).setName("Provider").setDesc(this.preview.provider);
@@ -295,13 +342,13 @@ export class CloudAnswerConsentModal extends Modal {
       .setDesc(`${this.preview.estimated_input_tokens} tokens from ${this.preview.character_count} characters`);
     new Setting(this.contentEl).setName("Data handling").setDesc(this.preview.data_handling_summary);
     const details = this.contentEl.createEl("details", { cls: "omd-consent-evidence", attr: { open: "open" } });
-    details.createEl("summary", { text: "Review the exact excerpt text that will be sent" });
+    details.createEl("summary", { text: "Excerpts to send" });
     const evidenceList = details.createDiv({ cls: "omd-consent-evidence-list" });
     for (const hit of this.preview.evidence) {
       const card = evidenceList.createDiv({ cls: "omd-consent-evidence-card" });
       card.createEl("strong", { text: hit.title || fileNameFromVaultPath(hit.path) });
       card.createEl("code", { text: vaultDisplayPath(hit.path) });
-      card.createEl("p", { text: hit.evidence.trim() || "No excerpt available." });
+      card.createEl("p", { text: hit.evidence.trim() ? hit.evidence : "No excerpt available." });
     }
     const policyUrl = trustedProviderPolicyUrl(this.preview.destination_domain, this.preview.policy_url);
     if (policyUrl) {
@@ -312,7 +359,7 @@ export class CloudAnswerConsentModal extends Modal {
           .setButtonText("Open policy")
           .onClick(() => window.open(policyUrl, "_blank", "noopener,noreferrer")));
     }
-    new Setting(this.contentEl)
+    const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => {
         this.finish(false);
         this.close();
@@ -321,6 +368,7 @@ export class CloudAnswerConsentModal extends Modal {
         this.finish(true);
         this.close();
       }));
+    actions.settingEl.addClass("omd-modal-actions");
   }
 
   async openAndWait(): Promise<boolean> {
@@ -338,6 +386,20 @@ export class CloudAnswerConsentModal extends Modal {
     this.resolved = true;
     this.resolveDecision(value);
   }
+}
+
+function captureSourceError(source: string): string | null {
+  if (!source) return "Enter a URL or full local file path.";
+  if (/^https?:\/\//iu.test(source)) {
+    try {
+      new URL(source);
+      return null;
+    } catch {
+      return "Enter a valid web address, such as https://example.com/article.";
+    }
+  }
+  if (source.startsWith("/") && !source.includes("\0")) return null;
+  return "Enter a URL starting with https:// or a full local file path.";
 }
 
 export function trustedProviderPolicyUrl(destination: string, value: string | null | undefined): string | null {

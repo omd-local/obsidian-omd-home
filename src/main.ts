@@ -885,6 +885,10 @@ export default class OmdHomePlugin extends Plugin {
     return this.enrichmentWorkflowController?.canCancel ?? false;
   }
 
+  get enrichmentPhase(): EnrichmentWorkflowController["phase"] {
+    return this.enrichmentWorkflowController?.phase ?? null;
+  }
+
   captureFailureForCurrentIssue(): CaptureFailureRecord | null {
     return captureFailureForIssue(this.lastCaptureFailure, this.lastIssueId);
   }
@@ -1102,6 +1106,9 @@ export default class OmdHomePlugin extends Plugin {
 
   async searchWithOmd(query: string, output: HTMLElement, requestSignal?: AbortSignal): Promise<void> {
     if (this.unloaded || requestSignal?.aborted) return;
+    output.hidden = false;
+    output.empty();
+    output.createDiv({ cls: "omd-answer-loading", text: "Searching your vault…" });
     try {
       await this.requireReadyOmdExecutable();
       requestSignal?.throwIfAborted();
@@ -1118,7 +1125,10 @@ export default class OmdHomePlugin extends Plugin {
       }
     } catch (error) {
       if (this.unloaded || requestSignal?.aborted || isAbortError(error)) return;
-      new Notice(message(error));
+      const detail = message(error);
+      output.empty();
+      output.createDiv({ cls: "omd-answer-error", text: detail });
+      new Notice(detail);
     }
   }
 

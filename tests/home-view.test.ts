@@ -167,7 +167,7 @@ test("Home note surfaces and vault search results expose the shared pin action",
   assert.match(omniboxSource, /action: \(\) => void this\.app\.workspace\.openLinkText\(file\.path,[\s\S]{0,100}file,/u);
   assert.match(extractMethodBody(omniboxSource, "private showRows("), /if \(row\.file\) this\.createPinButton\(parent, row\.file\)/u);
   assert.match(mainSource, /onClick\(\(\) => void this\.toggleNotePinned\(file\.path\)\)/u);
-  assert.match(stylesSource, /\.omd-inbox-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 64px 82px/su);
+  assert.match(stylesSource, /\.omd-inbox-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--omd-pin-column\) var\(--omd-suggest-column\)/su);
   assert.match(stylesSource, /\.omd-pin-action\s*\{[^}]*border-left:\s*1px solid var\(--omd-line\)/su);
   assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
 });

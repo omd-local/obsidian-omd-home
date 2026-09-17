@@ -205,6 +205,10 @@ function invalidRequestMessage(detail: string | undefined): string {
 
 function invalidModelProposalMessage(detail: string | undefined): string {
   switch (detail) {
+    case "model classified an existing note or wikilink as a new concept":
+      return "The local model listed an existing note as a new concept. Generate again to request a corrected proposal.";
+    case "model output has an invalid object shape":
+      return "The local model returned an incomplete proposal. Generate again or choose another local writing model.";
     case "model selected an unknown vault tag":
     case "model classified an unknown vault tag as existing":
       return "The local model suggested a tag outside the current vault catalog. Generate again or choose another local writing model.";

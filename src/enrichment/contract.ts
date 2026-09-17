@@ -515,13 +515,13 @@ function validateTagSuggestions(
   if (array.length > max) {
     throw new EnrichmentError("invalid_response", `OMD returned too many tag suggestions (${array.length}).`);
   }
-  const vaultTags = new Map(request.vault_tags.map((tag) => [tag.toLocaleLowerCase(), tag]));
+  const vaultTags = new Map(request.vault_tags.map((tag) => [tag.toLowerCase().normalize("NFC"), tag]));
   const seen = new Set<string>();
   return array.map((entry, index) => {
     const record = expectRecord(entry, `${path}[${index}]`);
     const rawTag = expectTag(record.tag, `${path}[${index}].tag`);
     const tag = kind === "new" ? normalizeGeneratedTag(rawTag) : rawTag;
-    const key = tag.toLocaleLowerCase();
+    const key = tag.toLowerCase().normalize("NFC");
     if (!tag || seen.has(key)) {
       throw new EnrichmentError("invalid_response", `OMD returned an invalid or duplicate ${kind} tag suggestion.`);
     }
@@ -698,8 +698,9 @@ function normalizeGeneratedTag(value: string): string {
     .trim()
     .replace(/^#+/u, "")
     .replace(/[ _]/gu, "-")
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff/-]+/gu, "-")
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{M}\p{N}/-]+/gu, "-")
     .replace(/^-+|-+$/gu, "");
 }
 

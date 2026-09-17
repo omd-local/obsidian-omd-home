@@ -76,10 +76,14 @@ export class EnrichmentReviewModal extends Modal {
   private render(): void {
     if (this.focusTimer !== null) window.clearTimeout(this.focusTimer);
     const focusKey = this.currentFocusKey();
+    const scrollTop = this.focusNextRender
+      ? 0
+      : this.contentEl.querySelector<HTMLElement>(".omd-enrichment-scroll")?.scrollTop ?? 0;
     this.contentEl.empty();
     const shell = this.contentEl.createDiv({ cls: "omd-enrichment-shell" });
+    const scroll = shell.createDiv({ cls: "omd-enrichment-scroll" });
     const phase = describeEnrichmentPhase(this.state.phase);
-    const header = shell.createDiv({ cls: "omd-enrichment-header" });
+    const header = scroll.createDiv({ cls: "omd-enrichment-header" });
     const title = header.createDiv({ cls: "omd-enrichment-title-block" });
     title.createSpan({ cls: "omd-enrichment-eyebrow", text: "OMD ENRICHMENT" });
     title.createEl("h2", { text: phase.title });
@@ -98,12 +102,12 @@ export class EnrichmentReviewModal extends Modal {
       });
     }
 
-    const status = shell.createDiv({ cls: "omd-enrichment-status", attr: { role: "status", "aria-live": "polite" } });
+    const status = scroll.createDiv({ cls: "omd-enrichment-status", attr: { role: "status", "aria-live": "polite" } });
     status.createSpan({ cls: `omd-enrichment-status-badge tone-${phase.tone}`, text: phase.title });
     status.createSpan({ cls: "omd-enrichment-status-copy", text: this.state.statusText || phase.detail });
 
-    if (showsProposal(this.state.phase)) this.renderProposal(shell);
-    else if (this.state.warnings.length) this.renderWarnings(shell, this.state.warnings);
+    if (showsProposal(this.state.phase)) this.renderProposal(scroll);
+    else if (this.state.warnings.length) this.renderWarnings(scroll, this.state.warnings);
 
     const footer = shell.createDiv({ cls: "omd-enrichment-footer" });
     const footerCopy = footer.createDiv({ cls: "omd-enrichment-footer-copy" });
@@ -114,14 +118,15 @@ export class EnrichmentReviewModal extends Modal {
     });
     footerCopy.createDiv({ cls: "omd-enrichment-footer-note", text: footerNote(this.state.phase) });
     this.renderActions(footer.createDiv({ cls: "omd-enrichment-actions" }));
+    scroll.scrollTop = scrollTop;
     if (focusKey || this.focusNextRender) {
       this.focusNextRender = false;
       this.focusTimer = window.setTimeout(() => {
         this.focusTimer = null;
         const preserved = focusKey ? this.findFocusableByKey(focusKey) : null;
-        const firstAvailable = this.contentEl.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled])");
+        const firstAvailable = this.contentEl.querySelector<HTMLElement>(".omd-enrichment-actions button:not([disabled])");
         const focusTarget = preserved ?? firstAvailable ?? null;
-        focusTarget?.focus();
+        focusTarget?.focus({ preventScroll: true });
       }, 0);
     }
   }
@@ -136,7 +141,7 @@ export class EnrichmentReviewModal extends Modal {
     this.renderSuggestionSection(sections, "Existing links", this.state.existingLinks);
     this.renderSuggestionSection(sections, "Existing tags", this.state.existingTags);
     this.renderSuggestionSection(sections, "New tags", this.state.newTags);
-    this.renderSuggestionSection(sections, "New concepts", this.state.concepts, true);
+    this.renderSuggestionSection(sections, "Suggested note topics", this.state.concepts, true);
     this.renderWarnings(sections, this.state.warnings);
   }
 
@@ -151,6 +156,12 @@ export class EnrichmentReviewModal extends Modal {
     const header = section.createDiv({ cls: "omd-enrichment-section-header" });
     header.createEl("h3", { text: label });
     header.createSpan({ cls: "omd-enrichment-section-count", text: String(suggestions.length) });
+    if (displayOnly) {
+      section.createEl("p", {
+        cls: "omd-enrichment-section-description",
+        text: "Ideas for separate notes. Apply does not create notes or add these topics as tags.",
+      });
+    }
     const list = section.createDiv({ cls: "omd-enrichment-list" });
     const editable = this.state.phase === "review" && !displayOnly;
 
@@ -181,7 +192,12 @@ export class EnrichmentReviewModal extends Modal {
       labelRow.createDiv({ cls: "omd-enrichment-item-label", text: suggestion.label });
       labelRow.createSpan({ cls: "omd-enrichment-item-kind tone-idle", text: suggestionKindLabel(suggestion) });
       if (suggestion.path) {
-        const pathButton = labelRow.createEl("button", { cls: "omd-enrichment-path", type: "button", text: suggestion.path });
+        const pathButton = body.createEl("button", {
+          cls: "omd-enrichment-path",
+          type: "button",
+          text: suggestion.path,
+          attr: { "aria-label": `Open note: ${suggestion.path}`, title: suggestion.path },
+        });
         pathButton.dataset.omdFocusKey = `path:${suggestion.id}`;
         pathButton.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -206,13 +222,15 @@ export class EnrichmentReviewModal extends Modal {
     header.createEl("h3", { text: "Warnings" });
     header.createSpan({ cls: "omd-enrichment-section-count", text: String(warnings.length) });
     const list = section.createDiv({ cls: "omd-enrichment-warning-list" });
-    for (const warning of warnings) list.createDiv({ cls: "omd-enrichment-warning", text: warning });
+    for (const warning of warnings) {
+      list.createDiv({ cls: "omd-enrichment-warning", text: warningDescription(warning), attr: { title: warning } });
+    }
   }
 
   private renderMeta(parent: HTMLElement, label: string, value: string): void {
     const row = parent.createDiv({ cls: "omd-enrichment-meta-row" });
     row.createSpan({ cls: "omd-enrichment-meta-label", text: label });
-    row.createEl("code", { cls: "omd-enrichment-meta-value", text: value });
+    row.createEl("code", { cls: "omd-enrichment-meta-value", text: value, attr: { title: value } });
   }
 
   private renderActions(parent: HTMLElement): void {
@@ -314,8 +332,27 @@ function suggestionKindLabel(suggestion: EnrichmentSuggestion): string {
     case "existing-link": return "Existing note";
     case "existing-tag": return "Existing tag";
     case "new-tag": return "New tag";
-    case "new-concept": return "Display only";
+    case "new-concept": return "Idea only";
     default: return "Suggestion";
+  }
+}
+
+function warningDescription(warning: string): string {
+  switch (warning) {
+    case "source_truncated_for_model_context":
+      return "Only part of this note fit in the model's context. Suggestions may miss content from the rest of the note.";
+    case "candidate_catalog_truncated_for_model_context":
+      return "Only some candidate notes fit in the model's context. Other relevant notes may be missing from these suggestions.";
+    case "vault_tags_truncated_for_model_context":
+      return "Only some vault tags fit in the model's context. Other relevant tags may be missing from these suggestions.";
+    case "existing_tag_already_present":
+      return "A suggested tag is already on this note and was left out of the proposal.";
+    case "existing_concept_omitted":
+      return "A suggested concept already has a note in this vault and was left out of the proposal.";
+    case "unexplained_tag_omitted":
+      return "Tag suggestions without a useful explanation were left out of the proposal.";
+    default:
+      return warning;
   }
 }
 

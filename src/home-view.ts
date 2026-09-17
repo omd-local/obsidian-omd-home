@@ -17,11 +17,15 @@ export class OmdHomeView extends ItemView {
   private grid!: HTMLElement;
   private manageWidgetsButton?: HTMLElement;
   private manageWidgetsBadge?: HTMLElement;
+  private greetingEl?: HTMLElement;
+  private dateEl?: HTMLElement;
   private readonly widgetEls = new Map<WidgetId, HTMLElement>();
   private readonly widgetBodies = new Map<WidgetId, HTMLElement>();
   private omnibox?: Omnibox;
   private omniboxExpanded = false;
   private renderTimer: number | null = null;
+  private clockTimer: number | null = null;
+  private clockDay: string | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: OmdHomePlugin) {
     super(leaf);
@@ -34,6 +38,8 @@ export class OmdHomeView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.render();
+    if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
+    this.clockTimer = window.setInterval(() => this.refreshClock(), 60_000);
     this.registerEvent(this.app.vault.on("create", () => this.scheduleRender()));
     this.registerEvent(this.app.vault.on("delete", () => this.scheduleRender()));
     this.registerEvent(this.app.vault.on("rename", () => this.scheduleRender()));
@@ -42,6 +48,7 @@ export class OmdHomeView extends ItemView {
 
   render(): void {
     if (!this.grid?.isConnected) this.buildShell();
+    this.refreshClock();
     this.syncManageWidgetsButton();
     this.syncWidgets();
     this.refreshWidgets();
@@ -49,6 +56,9 @@ export class OmdHomeView extends ItemView {
 
   async onClose(): Promise<void> {
     if (this.renderTimer !== null) window.clearTimeout(this.renderTimer);
+    this.renderTimer = null;
+    if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
+    this.clockTimer = null;
     this.omnibox?.dispose();
     this.omnibox = undefined;
   }
@@ -68,8 +78,8 @@ export class OmdHomeView extends ItemView {
     const header = contentEl.createDiv({ cls: "omd-home-header" });
     const title = header.createDiv({ cls: "omd-home-title" });
     title.createSpan({ cls: "omd-home-mark", text: "OMD" });
-    title.createEl("h1", { text: greeting() });
-    title.createEl("p", { text: longDate() });
+    this.greetingEl = title.createEl("h1", { text: greeting() });
+    this.dateEl = title.createEl("p", { text: longDate() });
     const controls = header.createDiv({ cls: "omd-home-controls" });
     const capture = controls.createEl("button", { cls: "omd-action-button", type: "button", text: "Capture URL or file" });
     capture.addEventListener("click", () => this.plugin.openCaptureModal());
@@ -97,6 +107,25 @@ export class OmdHomeView extends ItemView {
 
   focusOmnibox(): void { this.omnibox?.focus(); }
 
+  private refreshClock(): void {
+    const now = new Date();
+    const day = now.toDateString();
+    const dayChanged = this.clockDay !== null && this.clockDay !== day;
+    this.clockDay = day;
+    const nextGreeting = greeting(now);
+    const nextDate = longDate(now);
+    if (this.greetingEl && this.greetingEl.textContent !== nextGreeting) this.greetingEl.setText(nextGreeting);
+    if (this.dateEl && this.dateEl.textContent !== nextDate) this.dateEl.setText(nextDate);
+    if (dayChanged) {
+      for (const id of ["today", "upcoming"] as const) {
+        const body = this.widgetBodies.get(id);
+        if (!body) continue;
+        body.empty();
+        this.renderWidgetBody(id, body);
+      }
+    }
+  }
+
   private syncManageWidgetsButton(): void {
     if (!this.manageWidgetsBadge) return;
     const hiddenCount = this.plugin.deviceLayout.filter((item) => item.hidden).length;
@@ -105,6 +134,8 @@ export class OmdHomeView extends ItemView {
   }
 
   private syncWidgets(): void {
+    const active = this.grid.ownerDocument.activeElement;
+    const focused = active && this.grid.contains(active) ? active as HTMLElement : null;
     const visible = this.runtimeLayout().filter((item) => !item.hidden);
     const visibleIds = new Set(visible.map((item) => item.id));
     for (const [id, element] of this.widgetEls) {
@@ -118,6 +149,9 @@ export class OmdHomeView extends ItemView {
       if (!widget) widget = this.createWidget(placement);
       applyPlacement(widget, placement);
       this.grid.appendChild(widget);
+    }
+    if (focused?.isConnected && focused.ownerDocument.activeElement !== focused) {
+      focused.focus({ preventScroll: true });
     }
   }
 
@@ -152,9 +186,10 @@ export class OmdHomeView extends ItemView {
     const menuButton = controls.createEl("button", { cls: "clickable-icon", attr: { "aria-label": `Options for ${label.textContent}` } });
     setIcon(menuButton, "more-horizontal");
     menuButton.addEventListener("click", (event) => this.openWidgetMenu(event, placement.id));
-    const drag = controls.createEl("button", { cls: "clickable-icon omd-widget-drag", attr: { "aria-label": `Move ${label.textContent}` } });
+    const drag = controls.createEl("button", { cls: "clickable-icon omd-widget-drag", type: "button", attr: { "aria-label": `Move ${label.textContent}. Use arrow keys or drag.` } });
     setIcon(drag, "grip");
     this.bindPointerTransform(drag, widget, placement.id, "move");
+    this.bindKeyboardMove(drag, placement.id);
     const body = widget.createDiv({ cls: "omd-widget-body" });
     const resize = widget.createDiv({
       cls: "omd-widget-resize",
@@ -187,7 +222,7 @@ export class OmdHomeView extends ItemView {
         const row = body.createEl("button", { cls: "omd-event-row", type: "button" });
         row.createSpan({ cls: `omd-source-mark is-${event.source}`, attr: { "aria-label": event.source } });
         row.createSpan({ cls: "omd-event-time", text: event.allDay ? "ALL" : shortTime(event.start) });
-        row.createSpan({ cls: "omd-event-title", text: event.title });
+        row.createSpan({ cls: "omd-event-title", text: event.title, attr: { dir: "auto", title: event.title } });
         if (event.syncState === "conflict") row.addClass("has-conflict");
         row.addEventListener("click", () => event.notePath
           ? void this.app.workspace.openLinkText(event.notePath, "", false)
@@ -207,6 +242,12 @@ export class OmdHomeView extends ItemView {
       return this.renderFileList(body, files, "Use a Pin button on a note to keep it here");
     }
     if (id === "processing") {
+      if (this.plugin.enrichmentPhase === "review" && !this.plugin.captureActive) {
+        return emptyState(body, "Ready to review", "Choose suggestions in the OMD enrichment window.");
+      }
+      if (this.plugin.enrichmentPhase === "applying" && !this.plugin.captureActive) {
+        return this.renderProcessingSection(body, "Active now", [{ label: "Applying suggestions", value: "working", tone: "active" }]);
+      }
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
       if (!activity.active) return emptyState(body, "No task running", "Captures continue when this tab is in the background.");
       if (activity.active) {
@@ -321,7 +362,7 @@ export class OmdHomeView extends ItemView {
     }
     if (id === "status") {
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
-      statusLine(body, "OMD", activity.active ? "active" : activity.recent.length ? "idle" : "ready");
+      statusLine(body, "OMD", this.plugin.enrichmentPhase === "review" ? "awaiting review" : activity.active ? "active" : activity.recent.length ? "idle" : "ready");
       statusLine(body, "OMD executable", this.plugin.enrichmentCapability.status);
       if (activity.recent[0]) statusLine(body, "Last run", activity.recent[0].value);
       statusLine(body, "Calendar", this.plugin.externalCalendars.length ? "connected" : "vault only");
@@ -351,7 +392,9 @@ export class OmdHomeView extends ItemView {
   }
 
   private get captureActive(): boolean {
-    return this.plugin.captureActive || this.plugin.enrichmentActive;
+    const phase = this.plugin.enrichmentPhase;
+    return this.plugin.captureActive
+      || phase === "capability" || phase === "catalog" || phase === "generating" || phase === "applying";
   }
 
   private renderInbox(body: HTMLElement, files: TFile[]): void {
@@ -361,10 +404,10 @@ export class OmdHomeView extends ItemView {
       const open = row.createEl("button", {
         cls: "omd-note-row omd-inbox-open",
         type: "button",
-        attr: { "aria-label": `Open ${file.basename}` },
+        attr: { "aria-label": `Open ${file.basename}`, title: file.path },
       });
-      open.createSpan({ cls: "omd-note-title", text: file.basename });
-      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
+      open.createSpan({ cls: "omd-note-title", text: file.basename, attr: { dir: "auto" } });
+      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/", attr: { dir: "auto" } });
       open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
       this.createPinButton(row, file);
       const suggest = row.createEl("button", {
@@ -395,9 +438,9 @@ export class OmdHomeView extends ItemView {
     if (!files.length) return emptyState(body, empty, "This panel fills itself as you work.");
     for (const file of files) {
       const row = body.createDiv({ cls: "omd-note-action-row" });
-      const open = row.createEl("button", { cls: "omd-note-row", type: "button" });
-      open.createSpan({ cls: "omd-note-title", text: file.basename });
-      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
+      const open = row.createEl("button", { cls: "omd-note-row", type: "button", attr: { "aria-label": `Open ${file.basename}`, title: file.path } });
+      open.createSpan({ cls: "omd-note-title", text: file.basename, attr: { dir: "auto" } });
+      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/", attr: { dir: "auto" } });
       open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
       this.createPinButton(row, file);
     }
@@ -486,6 +529,7 @@ export class OmdHomeView extends ItemView {
     mode: "move" | "resize",
   ): void {
     handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
       if (!this.allowLayoutEditing()) return;
       event.preventDefault();
       const placement = this.plugin.deviceLayout.find((item) => item.id === id);
@@ -520,8 +564,13 @@ export class OmdHomeView extends ItemView {
         widget.removeClass("is-moving", "is-resizing");
         this.grid.removeClass("is-rearranging");
         this.grid.querySelectorAll<HTMLElement>(".is-displaced").forEach((element) => element.removeClass("is-displaced"));
-        await this.plugin.saveDeviceLayout(previewLayout);
-        this.render();
+        try {
+          if (end.type !== "pointercancel") await this.plugin.saveDeviceLayout(previewLayout);
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : "Could not save widget layout");
+        } finally {
+          this.render();
+        }
       };
       const onEndWrapper = (end: PointerEvent): void => {
         void onEnd(end);
@@ -559,6 +608,24 @@ export class OmdHomeView extends ItemView {
         h: placement.h + (event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0),
       };
       void this.plugin.saveDeviceLayout(movePlacement(this.plugin.deviceLayout, id, next)).then(() => this.render());
+    });
+  }
+
+  private bindKeyboardMove(handle: HTMLElement, id: WidgetId): void {
+    handle.addEventListener("keydown", (event) => {
+      if (!event.key.startsWith("Arrow") || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (!this.allowLayoutEditing()) return;
+      const placement = this.plugin.deviceLayout.find((item) => item.id === id);
+      if (!placement) return;
+      event.preventDefault();
+      const next = {
+        ...placement,
+        x: placement.x + (event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0),
+        y: placement.y + (event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0),
+      };
+      void this.plugin.saveDeviceLayout(movePlacement(this.plugin.deviceLayout, id, next))
+        .then(() => this.render())
+        .catch((error: unknown) => new Notice(error instanceof Error ? error.message : "Could not move widget"));
     });
   }
 
@@ -717,13 +784,13 @@ function statusLine(container: HTMLElement, label: string, value: string): void 
   row.createSpan({ cls: "omd-status-value", text: value });
 }
 
-function greeting(): string {
-  const hour = new Date().getHours();
+function greeting(now = new Date()): string {
+  const hour = now.getHours();
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
 
-function longDate(): string {
-  return new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(new Date());
+function longDate(now = new Date()): string {
+  return new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(now);
 }
 
 function shortTime(value: string): string {

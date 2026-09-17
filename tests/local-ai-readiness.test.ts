@@ -125,7 +125,7 @@ test("explicit cloud ids stay out of every local-only model path when metadata i
   assert.equal(modelIsCloudBacked(metadataAbsentCloudEmbedding), true);
   assert.match(
     describeLocalCompletionCatalog([metadataAbsentCloudCompletion], true),
-    /0 local models found\. 0 can answer text questions\. 1 cloud-backed model is not shown/u,
+    /0 of 0 local models available for text/u,
   );
 });
 
@@ -290,7 +290,7 @@ test("local completion catalog keeps every downloaded model explainable without 
   assert.equal(describeLocalCompletionCatalog(models, false), "");
   assert.equal(
     describeLocalCompletionCatalog(models, true),
-    "4 local models found. 2 can answer text questions. qwen3:4b and nomic-embed are shown but unavailable for text answers. 1 cloud-backed model is not shown in this local list.",
+    "2 of 4 local models available for text.",
   );
 });
 
