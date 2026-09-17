@@ -41,6 +41,13 @@ test("phase copy labels review and generating states distinctly", () => {
     terminal: true,
     canApply: false,
   });
+  assert.deepEqual(describeEnrichmentPhase("partial-failure"), {
+    title: "Apply incomplete",
+    detail: "Some selected links may be present, but the note's Properties were not finalized.",
+    tone: "danger",
+    terminal: true,
+    canApply: false,
+  });
 });
 
 test("selection defaults existing suggestions on and new tags off", () => {

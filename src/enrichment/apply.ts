@@ -27,7 +27,7 @@ export interface ApplyServices<FileRef> {
   resolveMarkdown(path: string): Promise<FileRef | null>;
   validate(file: FileRef): Promise<boolean>;
   read(file: FileRef): Promise<string>;
-  process(file: FileRef, update: (current: string) => string): Promise<void>;
+  process(file: FileRef, update: (current: string) => string): Promise<FileRef>;
   processFrontMatter(file: FileRef, update: (frontmatter: Record<string, unknown>) => void): Promise<void>;
   generateMarkdownLink(file: FileRef, sourcePath: string, display: string): string;
   contentHash?: (content: string) => string;
@@ -47,7 +47,7 @@ export async function applyEnrichmentSelection<FileRef>(
     throw new OmdEnrichmentError("invalid_request", "The proposal snapshot hash is invalid. Generate a fresh proposal.");
   }
 
-  const target = await services.resolveMarkdown(plan.targetPath);
+  let target = await services.resolveMarkdown(plan.targetPath);
   if (!target) return conflict("The target note is no longer available. Generate a fresh proposal.");
 
   const candidatesById = new Map(plan.linkCandidates.map((candidate) => [candidate.id, candidate]));
@@ -81,7 +81,7 @@ export async function applyEnrichmentSelection<FileRef>(
     });
     let hashConflict = false;
     try {
-      await services.process(target, (current) => {
+      target = await services.process(target, (current) => {
         if (hash(current) !== plan.originalHash) {
           hashConflict = true;
           return current;
@@ -93,6 +93,7 @@ export async function applyEnrichmentSelection<FileRef>(
         return result.content;
       });
     } catch (error) {
+      if (changedBody) return partialFailure(plan.targetPath);
       if (error instanceof OmdEnrichmentError && error.code === "note_conflict") {
         return conflict("The target note changed after its path was validated. Generate a fresh proposal.");
       }
@@ -224,7 +225,7 @@ function partialFailure(targetPath: string): ApplyEnrichmentResult {
   return {
     status: "partial-failure",
     changedBody: true,
-    message: `Links may be present in ${targetPath}, but frontmatter was not finalized. Review the managed Related notes block before retrying.`,
+    message: `Some selected links may be present in ${targetPath}, but its Properties were not finalized. Open the note and review Related notes and Properties before generating again.`,
   };
 }
 

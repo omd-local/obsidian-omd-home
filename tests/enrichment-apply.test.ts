@@ -11,6 +11,7 @@ import {
   type ApplyServices,
 } from "../src/enrichment/apply.ts";
 import { sha256HexUtf8 } from "../src/enrichment/contract.ts";
+import { OmdEnrichmentError } from "../src/enrichment/errors.ts";
 
 test("upsertManagedLinksBlock inserts before a real Full Content heading", () => {
   const source = "# Note\n\nBody\n\n## Full Content\n\nMore";
@@ -85,6 +86,38 @@ test("applyEnrichmentSelection returns conflict when a selected candidate moved 
     message: "A selected note moved or became unavailable. Generate again.",
   });
   assert.equal(harness.counts.process, 0);
+  assert.equal(harness.counts.processFrontMatter, 0);
+});
+
+test("applyEnrichmentSelection preserves an external edit made after Generate and before Apply", async () => {
+  const harness = createHarness(
+    {
+      "Inbox/target.md": { content: "# Target\n\nBody\n" },
+      "Notes/alpha.md": { content: "# Alpha\n" },
+    },
+    {
+      beforeProcessUpdate: ({ file, current }) => {
+        if (file.path === "Inbox/target.md") current.content += "\nCAP-02 conflict test: keep this line.\n";
+      },
+    },
+  );
+  const plan = createPlan({
+    originalContent: "# Target\n\nBody\n",
+    linkCandidates: [{ id: "alpha", path: "Notes/alpha.md", display: "Alpha" }],
+    selectedCandidateIds: ["alpha"],
+    selectedTags: ["reviewed-by-test"],
+  });
+
+  const result = await applyEnrichmentSelection(plan, harness.services);
+
+  assert.deepEqual(result, {
+    status: "conflict",
+    changedBody: false,
+    message: "The note changed after the proposal was generated. Generate again before applying.",
+  });
+  assert.match(harness.content("Inbox/target.md"), /CAP-02 conflict test: keep this line\./u);
+  assert.doesNotMatch(harness.content("Inbox/target.md"), /Related notes|\[\[Alpha\]\]/u);
+  assert.deepEqual(harness.frontmatter("Inbox/target.md"), {});
   assert.equal(harness.counts.processFrontMatter, 0);
 });
 
@@ -219,7 +252,7 @@ test("applyEnrichmentSelection returns partial-failure when another edit lands b
     status: "partial-failure",
     changedBody: true,
     message:
-      "Links may be present in Inbox/target.md, but frontmatter was not finalized. Review the managed Related notes block before retrying.",
+      "Some selected links may be present in Inbox/target.md, but its Properties were not finalized. Open the note and review Related notes and Properties before generating again.",
   });
   assert.match(harness.content("Inbox/target.md"), /\[\[Alpha\]\]/);
   assert.match(harness.content("Inbox/target.md"), /Concurrent edit\./);
@@ -251,10 +284,70 @@ test("applyEnrichmentSelection returns partial-failure when rollback is blocked 
     status: "partial-failure",
     changedBody: true,
     message:
-      "Links may be present in Inbox/target.md, but frontmatter was not finalized. Review the managed Related notes block before retrying.",
+      "Some selected links may be present in Inbox/target.md, but its Properties were not finalized. Open the note and review Related notes and Properties before generating again.",
   });
   assert.match(harness.content("Inbox/target.md"), /\[\[Alpha\]\]/);
   assert.match(harness.content("Inbox/target.md"), /External edit\./);
+  assert.deepEqual(harness.frontmatter("Inbox/target.md"), {});
+});
+
+test("applyEnrichmentSelection reports a partial write when its post-write binding cannot refresh", async () => {
+  const harness = createHarness(
+    {
+      "Inbox/target.md": { content: "# Target\n\nBody\n" },
+      "Notes/alpha.md": { content: "# Alpha\n" },
+    },
+    {
+      afterFirstProcess: () => {
+        throw new OmdEnrichmentError("note_conflict", "The owned write completed but its file binding changed.");
+      },
+    },
+  );
+  const plan = createPlan({
+    originalContent: "# Target\n\nBody\n",
+    linkCandidates: [{ id: "alpha", path: "Notes/alpha.md", display: "Alpha" }],
+    selectedCandidateIds: ["alpha"],
+  });
+
+  const result = await applyEnrichmentSelection(plan, harness.services);
+
+  assert.deepEqual(result, {
+    status: "partial-failure",
+    changedBody: true,
+    message:
+      "Some selected links may be present in Inbox/target.md, but its Properties were not finalized. Open the note and review Related notes and Properties before generating again.",
+  });
+  assert.match(harness.content("Inbox/target.md"), /\[\[Alpha\]\]/u);
+  assert.deepEqual(harness.frontmatter("Inbox/target.md"), {});
+});
+
+test("applyEnrichmentSelection reports a partial write when a generic error follows the body write", async () => {
+  const harness = createHarness(
+    {
+      "Inbox/target.md": { content: "# Target\n\nBody\n" },
+      "Notes/alpha.md": { content: "# Alpha\n" },
+    },
+    {
+      afterFirstProcess: () => {
+        throw new Error("The body write completed before an I/O acknowledgement failed.");
+      },
+    },
+  );
+  const plan = createPlan({
+    originalContent: "# Target\n\nBody\n",
+    linkCandidates: [{ id: "alpha", path: "Notes/alpha.md", display: "Alpha" }],
+    selectedCandidateIds: ["alpha"],
+  });
+
+  const result = await applyEnrichmentSelection(plan, harness.services);
+
+  assert.deepEqual(result, {
+    status: "partial-failure",
+    changedBody: true,
+    message:
+      "Some selected links may be present in Inbox/target.md, but its Properties were not finalized. Open the note and review Related notes and Properties before generating again.",
+  });
+  assert.match(harness.content("Inbox/target.md"), /\[\[Alpha\]\]/u);
   assert.deepEqual(harness.frontmatter("Inbox/target.md"), {});
 });
 
@@ -290,6 +383,7 @@ type FileRef = {
 };
 
 type HarnessHooks = {
+  beforeProcessUpdate?: (context: { file: FileRef; current: FileState }) => void;
   afterFirstProcess?: (context: { file: FileRef; current: FileState }) => void;
   onProcessFrontMatter?: (context: { file: FileRef; current: FileState }) => void;
 };
@@ -334,9 +428,11 @@ function createHarness(
     async process(file, update) {
       counts.process += 1;
       const current = mustGet(files, file.path);
+      hooks.beforeProcessUpdate?.({ file, current });
       current.content = update(current.content);
       processCalls += 1;
       if (processCalls === 1) hooks.afterFirstProcess?.({ file, current });
+      return file;
     },
     async processFrontMatter(file, update) {
       counts.processFrontMatter += 1;

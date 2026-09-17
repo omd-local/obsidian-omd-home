@@ -81,8 +81,8 @@ export class EnrichmentWorkflowController {
         await this.plugin.checkEnrichmentCapability(true);
         await this.start(file);
       },
-      onOpenPath: (path) => {
-        void this.plugin.app.workspace.openLinkText(path, file.path, false);
+      onOpenPath: async (path) => {
+        await this.plugin.app.workspace.openLinkText(path, file.path, false);
       },
     });
     Object.assign(active, { token, file, modal, state, abortController });

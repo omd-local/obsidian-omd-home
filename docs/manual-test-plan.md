@@ -1964,17 +1964,20 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 6. 取消选择至少一个建议，再点击 **Apply**。
 7. 确认只写入已选 links/tags，并设置 `omd_home_status: reviewed`。
 8. 再打开 Capture，确认 toggle 记住上次选择。
-9. 单独测试旧 proposal 与笔记修改冲突（请用测试笔记副本，不修改上面部分失败的现场）：
-   - 先复制一份普通测试笔记，在副本运行 **Suggest links and tags / AI tags**。
-     等待 **Review proposal** 出现，勾选至少一项，暂不点击 Apply。
-   - 保持这个 Review 弹窗打开；从右上 **TARGET** 核对具体 `.md` 路径。
-     用 Finder 找到 test-vault 下的同一个文件，通过 **打开方式 → 文本编辑**打开。
-     不要关闭 Review，不要修改原 `.html` / `.raw.md`，也不要再次 Generate。
-   - 在 Markdown 正文末尾加一行 `CAP-02 conflict test: keep this line.`，按 Cmd+S 保存到磁盘。
-   - 回到仍打开的原 Review，点击 **Apply**。
-   - 预期 **Note changed** / conflict，提示重新生成；刚加的一行保留，旧 proposal 的 links / tags
-     没有被写入。若显示成功、覆盖该行，或发生部分写入，记 FAIL 并保留前后文件和截图。
-     conflict 本身是这个保护测试的预期结果，不代表正常 Apply 测试通过。
+9. 冲突保护改为发布自动回归，不再要求普通用户保持模态 Review 弹窗的同时，
+   再用 Finder / 文本编辑精确修改同一 `.md` 文件。旧步骤在本轮**没有执行，不计 PASS**。
+   发布前运行：
+
+   ```bash
+   node --experimental-strip-types --test \
+     tests/enrichment-apply.test.ts \
+     tests/enrichment-obsidian-adapter.test.ts
+   ```
+
+   回归必须验证：Generate 后、Apply 前的外部正文修改返回 **Note changed**；用户新增行保留；
+   旧 proposal 的 managed links / tags / reviewed 状态都不写入；OMD Home 自己的原子写入刷新
+   inode / `TFile` 后可重新绑定，而写入前的外部身份变化仍被拒绝。自动冲突测试不代替
+   本用例中的正常 Apply 原生复测。
 10. 如果 Generate 阶段被 OMD 拒绝，核对错误分类：模型 proposal 格式、tag 或 candidate 校验失败
    应提示重新生成或更换 **Local writing model**；目标 note/candidate 消失应显示
    **Note unavailable**，只允许关闭并从仍存在的 Markdown note 重新开始；
@@ -1987,11 +1990,17 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 通过条件：Generate/Review 阶段零写入；新 tags 默认 unchecked；Apply 可选择；失败不声称成功，
 frontmatter 失败时回滚或明确报告 recoverable partial failure。
 
-**2026-09-17 本轮人工反馈：** Summary preview 未写入符合当前代码范围，但说明有歧义（UI-05）。
-点击 Apply 后出现 Review required；目标笔记已有 Related notes，`omd_home_status` 仍为 inbox。
-**CAP-02 正常 Apply：FAIL / 部分写入，待诊断修复**（UI-06）；不能只因显示保护性失败提示就标 PASS。
-原现场已只读存档，未替用户修改。以上第 9 步的冲突保护测试尚未收到人工结果，不自动标记通过。
+**2026-09-17 本轮人工反馈与复测：** 原生正常 Apply 曾返回 partial failure：目标笔记已有
+Related notes，`omd_home_status` 仍为 inbox。源码诊断为 OMD Home 写完正文后仍使用旧 inode /
+`TFile` 绑定，把自己的原子写入误判为外部冲突。原现场已只读存档，未替用户修改。
 
+修复安装后已真正停用 / 启用插件并通过 Check setup，再以独立测试笔记和 `qwen3:0.6b`
+执行正常 Apply。结果为 **PASS**：终态显示 **Applied**，保存 5 个选中 links、4 个 tags，
+`omd_home_status` 为 `reviewed`；保存内容不含 Proposal summary，也没有再出现 Review required。
+这只关闭 UI-05 和 UI-06 的正常 Apply 阻塞，不替代第 11 步尚未完成的自动发现验收。
+
+旧的 Finder / 文本编辑冲突步骤没有执行，**不计人工通过**；现改为上述确定性自动回归。
+frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不要求普通用户制造文件系统竞态。
 
 <a id="test-cap-03"></a>
 

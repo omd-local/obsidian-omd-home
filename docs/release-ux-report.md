@@ -1,21 +1,39 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查日期：2026-09-17。使用 design-review、qa、visual-verdict 的审查方法。改动已同步回 OMD Home 与 OMD 项目，构建已安装到当前 test-vault；没有提交、推送或对外发布。
+检查日期：2026-09-17。使用 design-review、qa、visual-verdict 的审查方法。改动已同步回 OMD Home 与 OMD 项目，构建已安装到当前 test-vault；没有推送或对外发布。
 
 **20:45 候选结果（后续新发现见下方）：当时已发现的界面与交互缺陷已修复，完整前端 563 项、后端 1627 项测试通过，前端类型检查 / ESLint / 构建通过。恢复 minimal 风格后，36 组常规布局 + 8 组 Pin 对齐 + 4 组原生设置宽度模拟，共 48 组浏览器检查通过。**
 
 2026-09-17 20:43–20:45 NZST 已在解锁后的 Obsidian 1.13.7 中停用 / 启用插件，完成最终构建的原生复测。Settings 长状态卡片、Check setup、Pin / Unpin、Capture 空白反馈 / 长路径 / 取消、全天事件说明 / 空标题反馈均通过。窗口已交还，当前无转换任务。本报告不把所有材料、语言与云模型都标记为实测通过。
 
-## CAP-02 最新人工阻塞（2026-09-17 23:11）
+## CAP-02 UI-05 / UI-06 复测（2026-09-17 23:51）
 
-**正常 Apply 验收失败，当前不能视为发布通过。** 用户点击 Apply 后收到 Review required，
-目标笔记已有 Related notes，状态仍是 inbox。保留原始现场，具体失败根因待诊断；
-现有 565 项测试通过不能替代此原生失败。UI-06 同时记录写入故障和缺失恢复入口。
+**正常 Apply 原生重载复测：PASS。** 早先用户点击 Apply 后收到 Review required，目标笔记已有
+Related notes、状态仍是 inbox；该次记录继续作为历史 partial failure 证据。诊断确认 Obsidian
+完成 OMD Home 自有正文写入后会刷新 inode 和 / 或 `TFile`，适配器未重新绑定，后续 Properties
+写入因此把自有写入误判为外部冲突。修复在自有写入后只对同一安全路径和 device 重新绑定，
+写入前的路径、device、inode、`TFile` 校验仍保持严格。
 
-Summary 当前不参与 Apply 写入。UI-05 已在源码中改为 **Proposal summary**，并明确
-Apply 只写选中的 links / tags，摘要不会加入 note；待与 UI-06 一起原生重载复测。
-生成等待标识不明显仍见 UI-04。UI-05 修复尚未安装，本轮没有操作用户笔记。
-[截图 / 文件证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/evidence.json>)。
+安装生产 bundle 后真正停用 / 启用插件，Check setup 的 OMD、Local AI、Vault Q&A、Note
+enrichment 均 ready。使用独立测试笔记与 `qwen3:0.6b` 重新生成并 Apply，原生终态为
+**Applied**，写入 5 个 links、4 个 tags，`omd_home_status` 为 `reviewed`，没有再出现
+Review required。**Proposal summary** 只用于检查；保存后的笔记不含摘要，与界面说明一致。
+
+部分失败终态已改为 **Apply incomplete**，只陈述可验证的部分写入，并提供 **Open note**
+打开精确 target；导航失败时保留弹窗并显示提示。长多语言 target 在 390px、150% 字体和深浅
+主题下没有横向溢出或遮挡。8 个 Review / partial-failure 视觉场景全部通过。
+
+最终 `npm run check` 通过：TypeScript、ESLint、572 / 572 自动测试与 production build 全部成功；
+enrichment 定向测试 29 / 29。两次独立代码 / 架构复审均为 APPROVE / CLEAR，无剩余实质阻塞。
+
+旧的 Finder / 文本编辑冲突步骤对普通用户不可执行，本轮没有执行、**不计 PASS**；已从普通
+用户计划移除，改由确定性自动回归验证 Generate 与 Apply 之间的外部修改不会被覆盖。磁盘 /
+frontmatter 故障和保护性回滚也使用故障注入测试验证，没有在人工作业中制造文件系统竞态。
+生成等待标识不明显仍见 UI-04；自动发现旧 Homebrew launcher 的独立子项仍未完成。
+
+[原始失败证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/evidence.json>) ·
+[修复后的原生复测](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ui05-ui06/native-verification.md>) ·
+[8 组视觉结果](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ui05-ui06/visual-results.json>)
 
 ## CAP-01A 人工反馈与源码修复（22:50 已安装）
 

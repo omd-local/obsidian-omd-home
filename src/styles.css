@@ -1369,6 +1369,12 @@
 }
 
 @media (max-width: 480px) {
+  .omd-enrichment-meta-row.is-target .omd-enrichment-meta-value {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
   .omd-enrichment-item-labelrow {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;

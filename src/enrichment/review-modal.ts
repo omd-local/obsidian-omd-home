@@ -1,4 +1,4 @@
-import { App, Modal } from "obsidian";
+import { App, Modal, Notice } from "obsidian";
 import {
   canApplyEnrichment,
   createEnrichmentSelection,
@@ -23,7 +23,7 @@ export interface EnrichmentReviewModalCallbacks {
   onCancel: () => void | Promise<void>;
   onApply: (payload: EnrichmentApplyPayload) => void | Promise<void>;
   onRetry?: () => void | Promise<void>;
-  onOpenPath?: (path: string) => void;
+  onOpenPath?: (path: string) => void | Promise<void>;
 }
 
 export class EnrichmentReviewModal extends Modal {
@@ -204,7 +204,7 @@ export class EnrichmentReviewModal extends Modal {
         pathButton.dataset.omdFocusKey = `path:${suggestion.id}`;
         pathButton.addEventListener("click", (event) => {
           event.stopPropagation();
-          this.callbacks.onOpenPath?.(suggestion.path!);
+          void this.callbacks.onOpenPath?.(suggestion.path!);
         });
       }
       if (suggestion.evidence) body.createDiv({ cls: "omd-enrichment-item-evidence", text: suggestion.evidence });
@@ -232,6 +232,7 @@ export class EnrichmentReviewModal extends Modal {
 
   private renderMeta(parent: HTMLElement, label: string, value: string): void {
     const row = parent.createDiv({ cls: "omd-enrichment-meta-row" });
+    if (label === "Target") row.addClass("is-target");
     row.createSpan({ cls: "omd-enrichment-meta-label", text: label });
     row.createEl("code", { cls: "omd-enrichment-meta-value", text: value, attr: { title: value } });
   }
@@ -267,6 +268,22 @@ export class EnrichmentReviewModal extends Modal {
         await this.callbacks.onRetry();
       });
       retry.disabled = !this.callbacks.onRetry;
+      return;
+    }
+    if (phase === "partial-failure") {
+      this.button(parent, "Close", false, () => this.closeWithoutCallback());
+      const open = this.button(parent, "Open note", true, async () => {
+        if (!this.callbacks.onOpenPath) return;
+        const targetPath = this.state.targetPath;
+        try {
+          await this.callbacks.onOpenPath(targetPath);
+          this.closeWithoutCallback();
+        } catch {
+          new Notice("Could not open the target note. Use the target path shown above.");
+        }
+      });
+      open.disabled = !this.callbacks.onOpenPath;
+      open.setAttribute("aria-disabled", String(open.disabled));
       return;
     }
     if (phase === "unavailable") {
@@ -325,7 +342,7 @@ function footerNote(phase: EnrichmentReviewState["phase"]): string {
   if (phase === "review") return "Recommended existing items start checked. New tags start unchecked.";
   if (phase === "conflict") return "The old proposal cannot be applied. Generate again from the current note.";
   if (phase === "unavailable") return "Close this view, then start again from an available Markdown note.";
-  if (phase === "partial-failure") return "Open the target note and review the managed Related notes block before retrying.";
+  if (phase === "partial-failure") return "Inspect Related notes and Properties, then generate a new proposal before trying again.";
   if (phase === "applied") return "The Inbox status changes to reviewed only after every selected write succeeds.";
   return "Proposal generation does not write to the vault.";
 }

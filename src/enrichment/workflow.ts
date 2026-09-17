@@ -54,7 +54,7 @@ export function describeEnrichmentPhase(phase: EnrichmentPhase): EnrichmentPhase
     case "cancelled": return phaseCopy("Cancelled", "The proposal flow stopped before any changes were written.", "warning", true);
     case "conflict": return phaseCopy("Note changed", "This proposal is stale. Generate again from the current note before applying.", "warning", true);
     case "unavailable": return phaseCopy("Note unavailable", "The target note or one of its candidates can no longer be read safely.", "warning", true);
-    case "partial-failure": return phaseCopy("Review required", "A guarded rollback could not safely restore the complete pre-apply state.", "danger", true);
+    case "partial-failure": return phaseCopy("Apply incomplete", "Some selected links may be present, but the note's Properties were not finalized.", "danger", true);
     case "idle": return phaseCopy("Ready", "Choose a Markdown note to generate a review-only proposal.", "idle");
   }
 }

@@ -78,7 +78,7 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 
 ## UI-05：Summary preview 暗示 Apply 会保存摘要，实际不会写入
 
-**状态：Fixed in source；待与 UI-06 一起完成原生重载复测。**
+**状态：Fixed；原生重载复测 PASS。**
 
 **证据与背景：** 2026-09-17 CAP-02 用户反馈：Review 中有 Summary preview，但 Apply 后笔记没有摘要。
 源码确认当前 Apply 只写所选 links / tags 和 reviewed 状态，不写 summary；
@@ -91,17 +91,20 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 
 **实现：** 标题改为 **Proposal summary**，固定说明 Apply 只写入选中的 links / tags，
 摘要仅供审阅且不会加入 note；终态不再显示“点 Apply 前什么都不会写入”的误导文案。
+2026-09-17 在真正停用 / 启用插件后的新实例中生成并 Apply；弹窗显示新文案，保存后的测试
+笔记只有已选 links、tags 和 reviewed 状态，不含 proposal summary。
 
 ## UI-06：Apply 部分写入后显示 Review required，缺少明确恢复操作
 
-**状态：Open，发布阻塞；功能失败与恢复 UX 均待修复 / 复测。**
+**状态：Fixed；正常 Apply 原生重载复测 PASS。**
 
 **证据与背景：** 2026-09-17 CAP-02，用户点击 Apply 后显示 **Review required**，
 正文提示 links 可能已写入、frontmatter 未完成；用户无法理解还需审核什么，窗口没有相应恢复入口。
 只读检查截图目标 `Sources/Documents/Small local capture fixture.md`：已存在 managed Related notes，
 状态仍为 `omd_home_status: inbox`；另两个同源笔记也有相同组合。本项记录为 Apply **FAIL / partial failure**，
-不能当成成功后尚待用户点一次 Review。具体失败根因待诊断；多个分支会进入 partial-failure，
-不得仅凭标题认定已实际执行过 rollback。
+不能当成成功后尚待用户点一次 Review。根因是适配器在 `vault.process` 完成 OMD Home 自己的
+正文写入后，仍校验写入前的 inode 和 `TFile` 对象；Obsidian 原子刷新后被误判为外部冲突。
+旧 **Review required** 还对所有 partial-failure 误称已尝试 rollback，但某些分支根本未进入 rollback。
 
 [用户截图与现场副本](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/evidence.json>) ·
 [截图](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/review-required-user.png>)
@@ -115,8 +118,19 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 - 部分失败提供 **Open note** 等明确入口，指出需检查 Related notes 和 Properties 中的 tags / status；
   后续恢复操作基于当前内容重新校验，不盲目重放旧 proposal、不覆盖其他修改或重复添加 links。
 - 完成 / 失败后停止展示暗示“尚未写入，等待 Apply”的预览说明；保留关闭操作。
-- 原生复测正常 Apply、修改后的 conflict、frontmatter 失败与保护性回滚路径，确认正文、元数据、
-  UI 状态一致。CAP-02 本项通过前不得作为发布验收通过。
+- 原生复测正常 Apply，确认正文、元数据与 UI 状态一致；修改后的 conflict、frontmatter 失败与
+  保护性回滚路径使用可重复的故障注入测试验证，不要求普通用户在 Finder 中竞态修改目标文件。
+
+**实现：** 自有正文写入成功后，适配器重新检查同一安全路径并更新 inode / `TFile`
+绑定；写入前校验仍严格，外部身份替换仍拒绝。若正文已写入但重绑定失败，结果正确为
+partial failure，不再误报“未写入”的 conflict。终态改为 **Apply incomplete**，说明 links 可能已存在、
+Properties 未完成，并提供 **Open note**；点击后关闭弹窗并打开精确 target。旧 Finder 冲突
+手工步骤已从普通用户计划移除，改由保留用户修改、不写入旧 proposal 的确定性测试覆盖。
+
+**复测：** 2026-09-17 停用 / 启用插件并通过 Check setup 后，使用独立测试笔记和
+`qwen3:0.6b` 完成正常 Apply：终态为 **Applied**，写入 5 个 links、4 个 tags，并把状态改为
+`reviewed`；没有再出现 Review required。外部修改、写入前身份替换、自有原子写入后重绑定、
+frontmatter 错误和无法安全回滚的部分写入均有确定性自动回归。原始失败现场继续保留为历史证据。
 
 ## Answer UX / 模型措辞方向
 

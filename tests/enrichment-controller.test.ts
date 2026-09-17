@@ -137,11 +137,24 @@ test("proposal summary states exactly what Apply writes", () => {
   assert.doesNotMatch(reviewModalSource, /Summary preview|Nothing is written until you choose Apply/u);
 });
 
+test("an incomplete Apply can open the exact target note", async () => {
+  const partial = renderActions({
+    ...emptyReviewState("Inbox/partially-applied.md", "local-model", "http://localhost:11434"),
+    phase: "partial-failure",
+  });
+
+  assert.deepEqual(partial.buttons.map((button) => button.label), ["Close", "Open note"]);
+  await partial.buttons[1].action();
+  assert.equal(partial.closed, true);
+  assert.deepEqual(partial.openedPaths, ["Inbox/partially-applied.md"]);
+});
+
 function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelection = { selectedIds: {} }): {
   buttons: Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>;
   closed: boolean;
   retries: number;
   applies: number;
+  openedPaths: string[];
 } {
   const source = ts.createSourceFile("review-modal.ts", reviewModalSource, ts.ScriptTarget.Latest, true);
   const member = source.statements
@@ -154,12 +167,19 @@ function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelect
   const harness = new Function("canApplyEnrichment", "selectedSuggestions", `${compiled}\nreturn new Harness();`)(
     canApplyEnrichment, selectedSuggestions,
   ) as { renderActions: (parent: unknown) => void };
-  const result = { buttons: [] as Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>, closed: false, retries: 0, applies: 0 };
+  const result = {
+    buttons: [] as Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>,
+    closed: false,
+    retries: 0,
+    applies: 0,
+    openedPaths: [] as string[],
+  };
   Object.assign(harness, {
     state, selection,
     callbacks: {
       onRetry() { result.retries += 1; },
       onApply() { result.applies += 1; },
+      onOpenPath(path: string) { result.openedPaths.push(path); },
     },
     closeWithoutCallback() { result.closed = true; },
     close() { result.closed = true; },
