@@ -80,7 +80,61 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与 CAP-02 交接（2026-09-17 22:54 NZST）
+### 1.3A 当前候选与续测入口（2026-09-19 NZST）
+
+当前已安装候选的生产代码基线为 `c579a97d045e5a9f31e96eecb177b8d20297a66f`；其后的本次更新只改
+测试与 backlog 文档，不改变插件 bundle。2026-09-19 只读核对确认，该基线的源码构建与
+`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home` 中的已安装资产一致：
+
+- `main.js`：`cdbea5b1be292165425ce035ac27a419326b66b5fd517685051d50ec8860ec49`
+- `styles.css`：`8e175571fe0e67b8fdcfe3280cda7e982b500f50398c3574a59221123add0c77`
+- `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
+
+不需要重新 build、安装、清空 Vault 或重置 Settings。本次准备没有启动 Capture、没有修改测试
+笔记，也没有改变当前模型或 executable。开始时打开上述 test-vault，清空 Console，再运行一次
+**Check setup**；记录 UI 实际显示的 OMD executable 和 Local writing model。若资产 hash 不一致或
+Check setup 不 ready，先停止当前用例并记录，不要用重新安装掩盖环境差异。
+
+CAP-01A 开始前保留并记录当前显式 OMD executable。第 8 步临时切换另一个／旧 executable 留证后，
+先恢复这条已验证显式路径并再次通过 Check setup，避免把后续环境留在未知状态。
+
+**现在从 CAP-01A 第 1 步继续。** 三张图片最终都从 Capture 弹窗提交；English 与繁中可从
+**Capture URL or file** 打开。简中正式复测必须覆盖原先的首页入口 bug：把简中图片完整路径粘贴到
+Home 顶部输入框后按 Enter，确认系统打开已预填的 Capture 且自动展开 Recognition，再显式选择
+`chi_sim+eng` 并提交。随后执行文字网页三语言一致性、第 6–8 步 Retry / config / executable 检查。
+扫描 PDF 限制提示已经 PASS，不重做；语音总体验收已由用户确认 PASS，只有 Auto-detect / `zh` /
+No language preference 的逐模式证据仍未记录。
+
+完成并恢复 CAP-01A 环境后，再进入 CAP-02：先记录显式路径，然后点击 **Use automatic** 或清空
+override，运行 **Check setup** 并记录自动发现的候选与结果。若自动发现兼容且 ready，保持 automatic
+完成本 Case；若选中旧候选或失败，先把第 11 步记为 FAIL 并保留证据，再恢复显式路径完成其余子项。
+正常 Apply、UI-05 summary 范围和 UI-06 原生写入已 PASS；不再执行 Finder / TextEdit 冲突步骤。
+CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判定为新的 PASS；然后验收第 3、4、
+8、10、11 步，并跳过已通过的第 5–7 步 Apply 检查。
+
+#### 当前剩余测试清单
+
+下表只把已有明确证据的项目标为 PASS。浏览器模拟、自动化或某个控件的原生 smoke test 不会自动
+替代整项人工计划。
+
+| 状态 | Case / 子项 | 接下来怎么做 |
+| --- | --- | --- |
+| PASS，保留结果 | CAP-01A 扫描 PDF 限制；语音总体验收；CAP-02 正常 Apply、UI-05、UI-06 | 不重复；语音逐模式若需完整矩阵再补 |
+| PARTIAL，现在先做 | CAP-01A | 第 1–3、6–8 步；第 5 步只缺逐模式记录 |
+| PARTIAL，紧接着做 | CAP-02 | 第 1–2 步只作准备；验收第 3、4、8、10、11 步，跳过已通过的第 5–7 步和已删除的 Finder 冲突人工步骤 |
+| 已有广泛证据，Case 级结果未汇总 | Install-00、HOME-01/02、CMD-01、CAP-01、AI-00/01/07 | 当前不优先重跑；发布前把现有原生／视觉证据映射到各步骤，只补没有证据的子项 |
+| 明确 NOT RUN | AI-02 | 恢复有效 endpoint / daemon 后按完整步骤验证隔离和恢复；同时完成 UI-03 窄宽布局验收 |
+| 未完成完整人工 PASS | OMD-01 自动发现、CAP-03、CAP-06 | 先验证旧 Homebrew candidate 会被安全跳过，再测失败归属及 unload / quit 取消 |
+| 未完成真实外部写入 | CAL-00–03 | 需要测试 Calendar 权限、Save、Linked sync 和双向 conflict；现有 UI / 模拟结果不替代外部写入 |
+| 有凭证才执行，否则 NOT RUN | AI-03、AI-04、AI-05、AI-11 的 hosted 实网分支 | 不粘贴凭证进记录；AI-04 同时复测不兼容 Structured Outputs 模型不会被当成可用 |
+| Extended，尚无完整人工 PASS | AI-06、AI-08、AI-09、AI-10 | 按依赖顺序执行；AI-09 前先完成 missing-`bge-m3` 分支，再决定是否下载模型 |
+| 最后执行 | REL-01 | 所有 Core 结果稳定后，使用 disposable clean vault 验证三项 bundle、reload 和 cold restart |
+
+仍有两个已知界面 backlog 会在测试中遇到：UI-04 的 **Generating proposal** 等待提示尚未增强；
+UI-01／UI-02 仍要求按 AI-00 做最终宽／窄 Settings 人工视觉关闭。遇到这些已知项继续按实际结果记录，
+不要自动标为新回归或 PASS。
+
+### 1.3A.1 2026-09-17 22:54 历史交接
 
 本次按用户要求安装之前完成的 OCR 图片入口、识别选项排版及 Suggested note topics / Idea only 文案修复。
 使用已通过 `npm run check` 565 项测试、类型检查、ESLint、构建的相同源码；安装资产与构建哈希一致。
@@ -100,9 +154,9 @@ Polish Markdown 关闭、Tags 留空，尚未提交。模型仍为 qwen3:0.6b。
 不能确认含本轮后端修复；已恢复原路径。**自动发现与旧安装跳过子项仍待单独验收**，不计入本次功能通过。
 [原生交接证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-update/native-handoff.md>)。
 
-### 1.3A.1 2026-09-17 20:45 历史候选
+### 1.3A.2 2026-09-17 20:45 历史候选
 
-本节保留 20:45 安装身份；当前身份见上方 22:54 记录。后面的 2026-09-13 记录同样保留为历史。不要为继续测试重新安装、清空 vault 或重置 Settings。
+本节保留 20:45 安装身份；当前身份见 1.3A，22:54 交接见 1.3A.1。后面的 2026-09-13 记录同样保留为历史。不要为继续测试重新安装、清空 vault 或重置 Settings。
 
 | 字段 | 当前记录 |
 | --- | --- |
@@ -121,7 +175,7 @@ Polish Markdown 关闭、Tags 留空，尚未提交。模型仍为 qwen3:0.6b。
 - `styles.css`：`d1b7ee54247f6763d6ffeb0d31ffba3ad5dc1f34497fe7b099fd85b079787784`
 - `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
 
-**建议续测入口：CAP-01A 第 1、2 步。** 先检查 Recognition defaults 与 Capture 的语言选项，再分别使用 `eng`、`chi_sim+eng`、`chi_tra+eng` 转换三张现成图片。素材与预期见 `docs/manual-test-fixtures/README.md` 和 CAP-01A；继续记录 Case、预期、实际、结果及截图。首次识别测试可关闭 Optional local AI 的两个选项，以便单独判断 OCR / ASR 输出；之后按 CAP-02 单独检查 enrichment。
+**当时建议的续测入口：CAP-01A 第 1、2 步。** 先检查 Recognition defaults 与 Capture 的语言选项，再分别使用 `eng`、`chi_sim+eng`、`chi_tra+eng` 转换三张现成图片。当前续测范围与状态以 1.3A 为准；素材与预期见 `docs/manual-test-fixtures/README.md` 和 CAP-01A。
 
 保留当前模型与环境，暂不为本轮补下载 `bge-m3`；按既有 AI-03 / AI-04 缺模型与 AI-09 安装顺序执行。不要把未执行的旧案例自动改成 PASS。后续若更换插件资产，应另记新的哈希和复测范围。
 
@@ -1881,7 +1935,7 @@ Calendar 测试步骤。
 2026-09-17 人工发现：从首页搜索框直接提交简中图片绕过语言选择，侧车记录
 `requested=null / effective=eng / source=default`，原始 OCR 已乱码。记为 **FAIL，待修复安装后原生复测**。
 已合入源码修复：首页本地图片进入预填 Capture 并展开 Recognition，下拉框完整显示语言；
-565 项自动测试及 6 个布局场景通过；22:50 已安装 / 原生重载，图片入口与语言显示检查通过（1.3A）。原始 OCR 内容用例仍保留失败记录，待你显式选语言复测。
+565 项自动测试及 6 个布局场景通过；22:50 已安装 / 原生重载，图片入口与语言显示检查通过（1.3A.1）。原始 OCR 内容用例仍保留失败记录，待你显式选语言复测。
 独立 CLI 对照：`chi_sim+eng` 恢复中文主体（仍有标点 / 空格差异），网页三种语言正文相同，
 扫描 PDF 退出失败且无笔记；这些不替代你的原生 UI 验收记录。
 
@@ -1945,18 +1999,23 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 
 ### CAP-02：本地 AI 生成 links/tags，Review 后才写入
 
-**当前人工轮次说明（2026-09-17 22:54）**：为使用工作区后端修复，本轮保留已验证的自定义 OMD 路径，
-先执行下方功能步骤。原计划的自动发现前置与第 11 步自动路径断言仍待单独运行，不能以本轮替代；
-详见 1.3A。本轮不要求你现在改 Settings。语音测试已按用户确认记为 PASS。
+**当前续测说明（2026-09-19）**：正常 Apply、UI-05 与 UI-06 已通过原生复测。先重复第 1–2 步作为
+新 proposal 与已知 toggle 状态的准备，不把它们重复判定为新的 PASS；然后验收第 3、4、8、10、
+11 步，跳过已通过的第 5–7 步。第 9 步 Finder / TextEdit 人工竞态已经删除，由自动回归覆盖。
 
-前置：保持 **OMD executable override** 为空，确认自动发现的是兼容 OMD；记录 Settings 中的
-实际 executable。若环境存在旧 Homebrew launcher，保留它作为自动跳过旧候选的回归条件，
-不要为通过测试而手动指定新路径。
+前置：CAP-01A 完成并恢复已验证显式路径后，记录这条路径，再点击 **Use automatic** 或清空
+**OMD executable override**，运行 **Check setup**，记录自动发现的实际 executable、ready / failure
+和错误全文。若自动发现兼容且 ready，保持 automatic 执行以下步骤；若选中旧 Homebrew candidate
+或失败，先把第 11 步记为 FAIL 并保留证据，再恢复显式路径、重新通过 Check setup，完成第 3、4、
+8、10 步。不得先恢复路径再把自动发现记为通过。
 
-1. 在 Capture 的 **Optional local AI** 下开启 **Review links and tags**。按测试需要决定是否同时
-   开启 **Polish Markdown**；两个动作应保持独立。
+1. 在 Capture 的 **Optional local AI** 下记录两个 toggle 的初始状态，再开启
+   **Review links and tags**。按测试需要决定是否同时开启 **Polish Markdown**；两个动作应保持独立，
+   并记录提交时的最终状态，供第 8 步比较。
 2. Capture `docs/manual-test-fixtures/capture/small-local-file.html`，等待 proposal。
-3. Proposal 出现后先检查目标 note hash/内容未改变。
+3. Proposal 出现后不要 Apply。记录右上角 TARGET，点击 Cancel，从 Recent / Inbox 打开这份 note；
+   确认它仍为 `inbox`，正文、links 和 tags 没有 proposal 写入，Summary preview 与 Suggested note
+   topics 也没有写进 note。再对该 note 运行 **Suggest links and tags**，生成后续步骤使用的新 proposal。
 4. 保持 proposal 的 Review 弹窗打开，尝试再次打开 **Capture URL or file**。预期提示另一个 OMD
    动作仍在进行，并且不打开第二个 Capture。取消 Review 后应可正常打开 Capture。反向再用一个
    较慢 capture 验证：capture 进行时运行 **Suggest links and tags**，也应被阻止，不能同时写 vault。

@@ -132,6 +132,88 @@ Properties 未完成，并提供 **Open note**；点击后关闭弹窗并打开�
 `reviewed`；没有再出现 Review required。外部修改、写入前身份替换、自有原子写入后重绑定、
 frontmatter 错误和无法安全回滚的部分写入均有确定性自动回归。原始失败现场继续保留为历史证据。
 
+## Obsidian 原生关系与可视化
+
+以下事项复用 Obsidian 的 Graph、Search、Backlinks 和 Bases；不新增 OMD 自有图数据库。P0 / P1
+表示本方向内的实施顺序，不改变当前发布阻塞级别。第一阶段不得直接修改 Graph Groups、颜色、
+过滤器、Bookmarks 或 workspace 内部配置。
+
+### UI-07：提供可复制的 Graph Groups 查询配方
+
+**状态：Open。优先级：P0。**
+
+**目标：** 在 Vault tags、System 或 Settings 的现有紧凑界面中提供 **Graph group recipes**，让用户
+复制基于现有路径、Properties 和 tags 的原生查询，例如 `path:"Sources/Web"`、
+`path:"Sources/Documents"`、`[omd_home_status:inbox]`、`[omd_home_status:reviewed]` 和
+`tag:#research`。OMD Home 不自动创建或重排 Graph Groups。
+
+**验收标准：**
+
+- 每个配方有清楚名称、准确查询和可键盘操作的 Copy；复制后显示简短反馈。
+- 查询须在目标 Obsidian 版本的 Search 与 Graph Groups 中实测；Unicode、空格及特殊字符正确转义。
+- 只读取现有 metadata，不新增 Properties，不写 `.obsidian` 内部 Graph / workspace 状态。
+- 保留 minimal 风格；深浅主题、窄窗口、长标签及放大字体下无溢出或大型说明卡片。
+
+### UI-08：Apply 成功后提供原生关系视图入口
+
+**状态：Open。优先级：P0。**
+
+**目标：** Enrichment 真正成功后提供 **View connections** 或等义操作，让用户通过当前 TARGET 的
+Local Graph 或 Backlinks 查看刚写入的 Markdown links；不新增独立 OMD 图页面。
+
+**验收标准：**
+
+- 仅成功终态显示；目标始终是右上角 TARGET 的精确 note，未选择的候选不得显示为已有关系。
+- 优先使用目标 Obsidian 版本验证过的稳定入口；不可用时打开 note 并给出简短的 Local Graph /
+  Backlinks 提示，不显示无响应按钮。
+- Conflict、Apply incomplete 与 error 保留各自恢复操作，不显示成功含义的关系入口。
+- 原生复测 0、1、多个 links，以及长文件名和 Unicode 路径；不自动改 Graph 深度、颜色或过滤器。
+
+### UI-09：笔记行显示入链／出链数量
+
+**状态：Open。优先级：P1。**
+
+**目标：** 在 Recent、Inbox、Continue 和 Pinned 的可见 note 行中，以低干扰样式显示唯一连接数，
+例如 `2 in · 3 out`，并提供 Local Graph / Backlinks 次级操作。
+
+**验收标准：**
+
+- 数量来自 Obsidian metadata cache；同一 note 的重复链接不重复计数，Apply 写入的 Related notes
+  能在索引刷新后反映出来。
+- 复用共享关系索引，不逐行读取正文或重复扫描整个 Vault；create、delete、rename 和 metadata
+  changed 后随现有 Home 刷新更新。
+- note 主行仍打开 note；关系操作目标准确。零连接状态保持低干扰或省略。
+- 窄窗口、长文件名、Pin / Unpin 和 AI tags 控件继续对齐且可点击。
+
+### UI-10：Needs attention 提供原生 Search 查询
+
+**状态：Open。优先级：P1。**
+
+**目标：** 对实际存在的待处理状态提供 **Open search** 和可选的 **Copy query**，例如
+`[omd_home_status:inbox]`、`[sync-state:conflict]` 与 `[sync-state:pending]`。用户可自行把查询保存到
+Bookmarks 或粘贴进 Graph Groups。
+
+**验收标准：**
+
+- Open search 使用精确查询打开原生 Search，不覆盖其他已经打开的 Search tab 输入。
+- Copy query 与打开的查询完全一致；Search 不可用时复制仍可用并有清楚反馈。
+- 没有对应问题时不显示空操作；不声称已经替用户创建永久 saved search 或 Bookmark。
+- 查询值正确转义，键盘、深浅主题和窄窗口下没有死按钮、截断或焦点丢失。
+
+### UI-11：可选创建 OMD Library.base
+
+**状态：Deferred。优先级：P2。**
+
+**目标：** 在用户明确选择 **Create OMD Library** 后创建普通 `.base` 文件，以 Table / Cards 查看
+来源、语言、状态、捕获时间和 tags；不在后台维护第二套资料库。
+
+**验收标准：**
+
+- 仅用户主动操作时创建；不在启动、升级或 Capture 时自动写入，不为此迁移现有 note Properties。
+- 目标文件已存在时打开现有文件或要求新名称，绝不静默覆盖；用户修改后 OMD Home 不后台重写。
+- Bases 未启用或版本不支持时不创建无效文件，并用简短文案说明要求。
+- 使用合成 Vault 验证空库、Unicode 路径、长文件名、同名文件和 Bases 禁用路径；不新增第三方依赖。
+
 ## Answer UX / 模型措辞方向
 
 此方向独立于 UI-01–03 的 Settings 视觉整理；关注 Ask vault 答案如何把证据与建议清楚、自然地
