@@ -1958,6 +1958,14 @@ Calendar 测试步骤。
 2. 分别以 `eng`、`chi_sim+eng`、`chi_tra+eng` capture 三张截图，确认文字与语言相符。
    再用缺少其中一个 pack 的隔离测试环境重测，不要改动日常安装；确认错误指出缺失 pack，并提示
    诊断/安装后重试。
+
+   **2026-09-19 缺包隔离分支：PASS。** 临时 wrapper 只向 OMD 暴露 `eng` 与 `osd`；Recognition
+   下拉只显示 English 是预期的预防性过滤，不表示 wrapper 默认值失效。以 **No language preference**
+   提交后，OMD 仍按 wrapper 默认请求 `chi_sim+eng`，原生错误准确显示 Requested `chi_sim+eng`、
+   Missing `chi_sim`、Available `eng, osd`，并给出各平台安装方式与 retry 下一步。22:53 只读核对
+   test-vault 未发现这次失败生成的新 Markdown。复测结束后必须把 OMD executable override 从临时
+   wrapper 恢复为 `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`，再运行 **Check setup**；不要带着
+   隔离环境继续正常 OCR 或后续 Case。
 3. 点击首页 **Capture URL or file** 按钮（或 Cmd+P → **OMD Home: Capture URL or file**），
    将 `docs/manual-test-fixtures/capture/plain-text-web-page.html` 的完整本地路径填入 **URL or file path**。
    展开 **Recognition (optional)**，在 **Image text language** 中选 **English**，
