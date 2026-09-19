@@ -6,6 +6,30 @@
 
 2026-09-17 20:43–20:45 NZST 已在解锁后的 Obsidian 1.13.7 中停用 / 启用插件，完成最终构建的原生复测。Settings 长状态卡片、Check setup、Pin / Unpin、Capture 空白反馈 / 长路径 / 取消、全天事件说明 / 空标题反馈均通过。窗口已交还，当前无转换任务。本报告不把所有材料、语言与云模型都标记为实测通过。
 
+## Automatic OMD 与 Recognition 修复（2026-09-19）
+
+用户重开 Obsidian、选择 Automatic 并点击 **Check again** 后，Recognition 只显示
+**No language preference**。原生重现确认插件先接受 `/opt/homebrew/bin/omd`；该 Homebrew 安装的
+capability 只有 `enrich_note`。同机较后的
+`/opt/homebrew/Caskroom/miniconda/base/bin/omd` 广告完整 capture language contract 和已安装的
+`eng`、`chi_sim`、`chi_tra` packs，但旧探测会在到达它之前停止。
+
+修复使 Automatic 优先选择同时支持 enrichment 与 Recognition contract 的候选，因此会跳过上述
+旧 Homebrew launcher。兼容边界保持不变：机器若只有 enrich-only OMD，仍可使用 Q&A / enrichment，
+Recognition 明确关闭；显式 custom executable 也不会因缺少可选语言能力而整体失效。
+
+最终 production bundle 通过 TypeScript、ESLint、**575 / 575** 自动测试和 build；安装后真正停用／
+启用插件，再点击 **Check again**，原生界面解析到 Miniconda OMD（package `0.3.0b2`、protocol v1）。
+图像菜单显示 No language preference、English、简中 + English、繁中 + English；语音菜单显示
+No language preference、Auto-detect speech、English、Chinese。Automatic setup 回归与
+OMD-01 的旧候选跳过子项记为 **PASS**。CAP-02 第 11 步仍需在真实 Capture 后运行一次
+**Suggest links and tags**，所以没有据此把整个 CAP-02 标为完成。
+
+安装资产 SHA-256：`main.js` `0b027dd0665daa3701c242bf748566ff99c5f1706fe90f33789e867d9e9120ed`；
+`styles.css` `8e175571fe0e67b8fdcfe3280cda7e982b500f50398c3574a59221123add0c77`；
+`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。
+[原生复测记录](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/automatic-discovery/native-verification.md>)。
+
 ## CAP-02 UI-05 / UI-06 复测（2026-09-17 23:51）
 
 **正常 Apply 原生重载复测：PASS。** 早先用户点击 Apply 后收到 Review required，目标笔记已有

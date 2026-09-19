@@ -1046,6 +1046,7 @@ test("shared setup publishes the verified executable and capture probes it befor
     usesAutomaticOmdDiscovery: () => true,
     refreshHomeViews() {},
     omdCapabilityService: {
+      requireRecognitionCapability: async () => ({ protocol_version: 1 }),
       requireEnrichNote: async () => ({ protocol_version: 1 }),
       requireCaptureLanguages: async () => { assert.fail("Capture recognition cannot block shared setup"); },
     },
@@ -1057,6 +1058,73 @@ test("shared setup publishes the verified executable and capture probes it befor
   assert.deepEqual(preferred, [undefined, verified]);
   assert.equal(checks, 2);
   assert.equal(plugin.resolvedOmdExecutable(), verified, "capture discovery cannot replace the shared verified path");
+});
+
+test("automatic setup falls back to an enrich-only OMD when no recognition-capable candidate exists", async () => {
+  const legacy = "/legacy/bin/omd";
+  let discoveryCalls = 0;
+  const plugin = loadMethods("src/main.ts", ["runOmdCapabilityCheck"], {
+    discoverOmdExecutable: async (
+      _saved: string,
+      _options: unknown,
+      validate: (path: string) => Promise<unknown>,
+    ) => {
+      discoveryCalls += 1;
+      await validate(legacy);
+      return { executable: legacy, mode: "automatic" };
+    },
+    process,
+    omdReadyMessage: () => "Ready",
+    isEnrichmentError: () => false,
+  });
+  Object.assign(plugin, {
+    settings: { omdExecutable: "omd" },
+    omdCapabilityGeneration: 1,
+    usesAutomaticOmdDiscovery: () => true,
+    refreshHomeViews() {},
+    omdCapabilityService: {
+      requireRecognitionCapability: async () => { throw new Error("Recognition options unavailable"); },
+      requireEnrichNote: async () => ({ enrich_note: { supported: true, schema_versions: [1] } }),
+    },
+  });
+
+  assert.equal(await plugin.runOmdCapabilityCheck(1), true);
+  assert.equal(discoveryCalls, 2);
+  assert.equal(plugin.enrichmentCapability.resolvedExecutable, legacy);
+});
+
+test("custom setup accepts an enrich-only OMD without applying automatic discovery preferences", async () => {
+  const custom = "/custom/bin/omd";
+  let recognitionProbeCalls = 0;
+  const plugin = loadMethods("src/main.ts", ["runOmdCapabilityCheck"], {
+    discoverOmdExecutable: async (
+      _saved: string,
+      _options: unknown,
+      validate: (path: string) => Promise<unknown>,
+    ) => {
+      await validate(custom);
+      return { executable: custom, mode: "custom" };
+    },
+    process,
+    omdReadyMessage: () => "Ready",
+  });
+  Object.assign(plugin, {
+    settings: { omdExecutable: custom },
+    omdCapabilityGeneration: 1,
+    usesAutomaticOmdDiscovery: () => false,
+    refreshHomeViews() {},
+    omdCapabilityService: {
+      requireRecognitionCapability: async () => {
+        recognitionProbeCalls += 1;
+        throw new Error("Recognition options unavailable");
+      },
+      requireEnrichNote: async () => ({ enrich_note: { supported: true, schema_versions: [1] } }),
+    },
+  });
+
+  assert.equal(await plugin.runOmdCapabilityCheck(1), true);
+  assert.equal(recognitionProbeCalls, 0);
+  assert.equal(plugin.enrichmentCapability.resolvedExecutable, custom);
 });
 
 test("capture retry keeps the last verified OMD ahead of a capture-compatible legacy PATH binary", async () => {
@@ -1111,6 +1179,10 @@ test("capture retry keeps the last verified OMD ahead of a capture-compatible le
     usesAutomaticOmdDiscovery: () => true,
     refreshHomeViews() {},
     omdCapabilityService: {
+      requireRecognitionCapability: async (executable: string) => {
+        if (executable === legacy) throw new Error("Legacy OMD has no enrich-note capability");
+        return { protocol_version: 1 };
+      },
       requireEnrichNote: async (executable: string) => {
         if (executable === legacy) throw new Error("Legacy OMD has no enrich-note capability");
         return { protocol_version: 1 };
@@ -1190,6 +1262,10 @@ test("cold-start capture shares pending automatic setup discovery before probing
     usesAutomaticOmdDiscovery: () => true,
     refreshHomeViews() {},
     omdCapabilityService: {
+      requireRecognitionCapability: async (executable: string) => {
+        if (executable === legacy) throw new Error("Legacy OMD has no enrich-note capability");
+        return { protocol_version: 1 };
+      },
       requireEnrichNote: async (executable: string) => {
         if (executable === legacy) throw new Error("Legacy OMD has no enrich-note capability");
         return { protocol_version: 1 };

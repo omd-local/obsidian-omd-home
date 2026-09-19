@@ -79,6 +79,17 @@ export class OmdCapabilityService {
     return capability;
   }
 
+  async requireRecognitionCapability(executable: string, signal?: AbortSignal): Promise<OmdCapabilities> {
+    const capability = await this.requireEnrichNote(executable, signal);
+    if (!capability.capture_language_options?.supported) {
+      throw new OmdEnrichmentError(
+        "unsupported_capability",
+        "The configured OMD build does not advertise capture language options.",
+      );
+    }
+    return capability;
+  }
+
   async ensureSupported(executable: string): Promise<OmdCapabilities> {
     return await this.requireEnrichNote(executable);
   }

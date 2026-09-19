@@ -82,32 +82,38 @@ npm audit --omit=dev
 
 ### 1.3A 当前候选与续测入口（2026-09-19 NZST）
 
-当前已安装候选的生产代码基线为 `c579a97d045e5a9f31e96eecb177b8d20297a66f`；其后的本次更新只改
-测试与 backlog 文档，不改变插件 bundle。2026-09-19 只读核对确认，该基线的源码构建与
+当前已安装候选以 `c579a97d045e5a9f31e96eecb177b8d20297a66f` 为生产基线，并包含
+2026-09-19 的 Automatic OMD 候选优选修复。最终源码构建与
 `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home` 中的已安装资产一致：
 
-- `main.js`：`cdbea5b1be292165425ce035ac27a419326b66b5fd517685051d50ec8860ec49`
+- `main.js`：`0b027dd0665daa3701c242bf748566ff99c5f1706fe90f33789e867d9e9120ed`
 - `styles.css`：`8e175571fe0e67b8fdcfe3280cda7e982b500f50398c3574a59221123add0c77`
 - `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
 
-不需要重新 build、安装、清空 Vault 或重置 Settings。本次准备没有启动 Capture、没有修改测试
-笔记，也没有改变当前模型或 executable。开始时打开上述 test-vault，清空 Console，再运行一次
-**Check setup**；记录 UI 实际显示的 OMD executable 和 Local writing model。若资产 hash 不一致或
-Check setup 不 ready，先停止当前用例并记录，不要用重新安装掩盖环境差异。
+不需要重新 build、安装、清空 Vault 或重置 Settings。本次修复没有启动 Capture、没有修改测试
+笔记，也没有改变当前模型。插件保持 Automatic；原生停用／启用重载和 **Check again** 后，当前
+解析到 `/opt/homebrew/Caskroom/miniconda/base/bin/omd`（package `0.3.0b2`、protocol v1）。
 
-CAP-01A 开始前保留并记录当前显式 OMD executable。第 8 步临时切换另一个／旧 executable 留证后，
-先恢复这条已验证显式路径并再次通过 Check setup，避免把后续环境留在未知状态。
+稍后返回 CAP-01A 时，先记录当前 Automatic 解析出的 executable。第 8 步临时切换另一个／旧
+executable 留证后，清空 override 并再次通过 **Check again**，避免把后续环境留在未知状态。
 
-**现在从 CAP-01A 第 1 步继续。** 三张图片最终都从 Capture 弹窗提交；English 与繁中可从
-**Capture URL or file** 打开。简中正式复测必须覆盖原先的首页入口 bug：把简中图片完整路径粘贴到
-Home 顶部输入框后按 Enter，确认系统打开已预填的 Capture 且自动展开 Recognition，再显式选择
-`chi_sim+eng` 并提交。随后执行文字网页三语言一致性、第 6–8 步 Retry / config / executable 检查。
-扫描 PDF 限制提示已经 PASS，不重做；语音总体验收已由用户确认 PASS，只有 Auto-detect / `zh` /
-No language preference 的逐模式证据仍未记录。
+**现在继续 CAP-02。** 保持 Automatic，不要重新填写 executable override；第 1–2 步只用于生成
+新的 proposal 与准备 toggle 状态，然后验收第 3、4、8、10、11 步。Automatic 的 setup 前置已经
+PASS；第 11 步仍需完成一次 Capture 后再从生成的 note 运行 **Suggest links and tags**，确认两个
+入口继续使用上述同一兼容 executable。
 
-完成并恢复 CAP-01A 环境后，再进入 CAP-02：先记录显式路径，然后点击 **Use automatic** 或清空
-override，运行 **Check setup** 并记录自动发现的候选与结果。若自动发现兼容且 ready，保持 automatic
-完成本 Case；若选中旧候选或失败，先把第 11 步记为 FAIL 并保留证据，再恢复显式路径完成其余子项。
+CAP-01A 尚未完成的图片正文、网页三语言一致性和 Retry / config / executable 细项保留为 PARTIAL，
+可在 CAP-02 后继续。扫描 PDF 限制提示已经 PASS，不重做；语音总体验收已由用户确认 PASS，只有
+Auto-detect / `zh` / No language preference 的逐模式证据仍未记录。
+
+2026-09-19 原生重现确认：修复前 Automatic 先接受 `/opt/homebrew/bin/omd`；该安装只广告
+`enrich_note`，因此 Recognition 只剩 **No language preference**。修复后 Automatic 会优先寻找同时
+广告 capture language contract 的候选并跳过该旧候选；若机器上确实只有 enrich-only OMD，仍保留
+原有 Q&A / enrichment 能力并把 Recognition 关闭，不把可选识别能力变成全局硬依赖。显式 custom
+路径同样保持原兼容边界。最终原生 **Check again** 解析到 Miniconda OMD，图像下拉包含 English、
+简中 + English、繁中 + English；语音下拉包含 Auto-detect、English、Chinese。此结果关闭 Automatic
+setup 前置和 OMD-01 的“跳过旧候选”子项，不替代 CAP-02 第 11 步的两入口实测。
+
 正常 Apply、UI-05 summary 范围和 UI-06 原生写入已 PASS；不再执行 Finder / TextEdit 冲突步骤。
 CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判定为新的 PASS；然后验收第 3、4、
 8、10、11 步，并跳过已通过的第 5–7 步 Apply 检查。
@@ -120,11 +126,11 @@ CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判
 | 状态 | Case / 子项 | 接下来怎么做 |
 | --- | --- | --- |
 | PASS，保留结果 | CAP-01A 扫描 PDF 限制；语音总体验收；CAP-02 正常 Apply、UI-05、UI-06 | 不重复；语音逐模式若需完整矩阵再补 |
-| PARTIAL，现在先做 | CAP-01A | 第 1–3、6–8 步；第 5 步只缺逐模式记录 |
-| PARTIAL，紧接着做 | CAP-02 | 第 1–2 步只作准备；验收第 3、4、8、10、11 步，跳过已通过的第 5–7 步和已删除的 Finder 冲突人工步骤 |
+| PARTIAL，稍后补 | CAP-01A | 第 1–3、6–8 步；第 5 步只缺逐模式记录 |
+| PARTIAL，现在继续 | CAP-02 | Automatic setup 已 PASS；第 1–2 步只作准备，验收第 3、4、8、10、11 步；第 11 步仍须完成 Capture 后的 Suggest links and tags |
 | 已有广泛证据，Case 级结果未汇总 | Install-00、HOME-01/02、CMD-01、CAP-01、AI-00/01/07 | 当前不优先重跑；发布前把现有原生／视觉证据映射到各步骤，只补没有证据的子项 |
 | 明确 NOT RUN | AI-02 | 恢复有效 endpoint / daemon 后按完整步骤验证隔离和恢复；同时完成 UI-03 窄宽布局验收 |
-| 未完成完整人工 PASS | OMD-01 自动发现、CAP-03、CAP-06 | 先验证旧 Homebrew candidate 会被安全跳过，再测失败归属及 unload / quit 取消 |
+| 未完成完整人工 PASS | OMD-01、CAP-03、CAP-06 | OMD-01 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支与 unload / quit 取消仍待完成 |
 | 未完成真实外部写入 | CAL-00–03 | 需要测试 Calendar 权限、Save、Linked sync 和双向 conflict；现有 UI / 模拟结果不替代外部写入 |
 | 有凭证才执行，否则 NOT RUN | AI-03、AI-04、AI-05、AI-11 的 hosted 实网分支 | 不粘贴凭证进记录；AI-04 同时复测不兼容 Structured Outputs 模型不会被当成可用 |
 | Extended，尚无完整人工 PASS | AI-06、AI-08、AI-09、AI-10 | 按依赖顺序执行；AI-09 前先完成 missing-`bge-m3` 分支，再决定是否下载模型 |
@@ -2007,15 +2013,15 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 
 ### CAP-02：本地 AI 生成 links/tags，Review 后才写入
 
-**当前续测说明（2026-09-19）**：正常 Apply、UI-05 与 UI-06 已通过原生复测。先重复第 1–2 步作为
+**当前续测说明（2026-09-19）**：正常 Apply、UI-05 与 UI-06 已通过原生复测。Automatic setup
+也已原生通过，并保持解析到 `/opt/homebrew/Caskroom/miniconda/base/bin/omd`。先重复第 1–2 步作为
 新 proposal 与已知 toggle 状态的准备，不把它们重复判定为新的 PASS；然后验收第 3、4、8、10、
 11 步，跳过已通过的第 5–7 步。第 9 步 Finder / TextEdit 人工竞态已经删除，由自动回归覆盖。
 
-前置：CAP-01A 完成并恢复已验证显式路径后，记录这条路径，再点击 **Use automatic** 或清空
-**OMD executable override**，运行 **Check setup**，记录自动发现的实际 executable、ready / failure
-和错误全文。若自动发现兼容且 ready，保持 automatic 执行以下步骤；若选中旧 Homebrew candidate
-或失败，先把第 11 步记为 FAIL 并保留证据，再恢复显式路径、重新通过 Check setup，完成第 3、4、
-8、10 步。不得先恢复路径再把自动发现记为通过。
+前置已完成：保持 **OMD executable override** 为空。修复前 Automatic 曾错误选择只支持
+`enrich_note` 的 `/opt/homebrew/bin/omd`，Recognition 只显示 No language preference；修复并原生
+重载后，**Check again** 会跳过它并选择上述 Miniconda OMD，图像和语音语言列表完整。继续时不要
+恢复显式路径；第 11 步仍需验证 Capture 与随后 enrichment 使用同一路径。
 
 1. 在 Capture 的 **Optional local AI** 下记录两个 toggle 的初始状态，再开启
    **Review links and tags**。按测试需要决定是否同时开启 **Polish Markdown**；两个动作应保持独立，
@@ -2064,7 +2070,8 @@ Related notes，`omd_home_status` 仍为 inbox。源码诊断为 OMD Home 写完
 修复安装后已真正停用 / 启用插件并通过 Check setup，再以独立测试笔记和 `qwen3:0.6b`
 执行正常 Apply。结果为 **PASS**：终态显示 **Applied**，保存 5 个选中 links、4 个 tags，
 `omd_home_status` 为 `reviewed`；保存内容不含 Proposal summary，也没有再出现 Review required。
-这只关闭 UI-05 和 UI-06 的正常 Apply 阻塞，不替代第 11 步尚未完成的自动发现验收。
+这只关闭 UI-05 和 UI-06 的正常 Apply 阻塞。Automatic setup 前置已经另行通过，但不替代第 11 步
+尚未完成的 Capture + enrichment 两入口验收。
 
 旧的 Finder / 文本编辑冲突步骤没有执行，**不计人工通过**；现改为上述确定性自动回归。
 frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不要求普通用户制造文件系统竞态。

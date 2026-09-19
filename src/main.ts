@@ -87,6 +87,7 @@ import {
   omdInstallInstructions,
   resolveOmdExecutablePath,
   type OmdDiscoveryMode,
+  type OmdDiscoveryResult,
 } from "./omd-discovery.ts";
 import { executeWithLocalAiGate } from "./local-ai-execution";
 import {
@@ -1306,18 +1307,43 @@ export default class OmdHomePlugin extends Plugin {
     };
     this.refreshHomeViews();
     try {
-      const result = await discoverOmdExecutable(
-        this.settings.omdExecutable,
-        {
-          platform: process.platform,
-          homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
-          condaPrefix: process.env.CONDA_PREFIX,
-          virtualEnvironment: process.env.VIRTUAL_ENV,
-        },
-        async (executable) => await this.omdCapabilityService.requireEnrichNote(executable),
-        async (candidate) => await resolveOmdExecutablePath(candidate, process.platform, spawnProcess),
-        this.lastVerifiedOmdExecutable,
-      );
+      const environment = {
+        platform: process.platform,
+        homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
+        condaPrefix: process.env.CONDA_PREFIX,
+        virtualEnvironment: process.env.VIRTUAL_ENV,
+      };
+      const resolveCandidate = async (candidate: string) =>
+        await resolveOmdExecutablePath(candidate, process.platform, spawnProcess);
+      let result: OmdDiscoveryResult;
+      if (automatic) {
+        try {
+          result = await discoverOmdExecutable(
+            this.settings.omdExecutable,
+            environment,
+            async (executable) => await this.omdCapabilityService.requireRecognitionCapability(executable),
+            resolveCandidate,
+            this.lastVerifiedOmdExecutable,
+          );
+        } catch (error) {
+          if (isEnrichmentError(error) && error.code === "cancelled") throw error;
+          result = await discoverOmdExecutable(
+            this.settings.omdExecutable,
+            environment,
+            async (executable) => await this.omdCapabilityService.requireEnrichNote(executable),
+            resolveCandidate,
+            this.lastVerifiedOmdExecutable,
+          );
+        }
+      } else {
+        result = await discoverOmdExecutable(
+          this.settings.omdExecutable,
+          environment,
+          async (executable) => await this.omdCapabilityService.requireEnrichNote(executable),
+          resolveCandidate,
+          this.lastVerifiedOmdExecutable,
+        );
+      }
       if (generation !== this.omdCapabilityGeneration) return false;
       const detectedCapabilities = await this.omdCapabilityService.requireEnrichNote(result.executable);
       checkedCapabilities = detectedCapabilities;

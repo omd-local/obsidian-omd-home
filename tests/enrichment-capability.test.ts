@@ -31,6 +31,26 @@ test("capability service rejects unsupported enrich-note versions", async () => 
   await assert.rejects(service.requireEnrichNote("omd"), /does not support enrich-note schema v1/i);
 });
 
+test("recognition capability rejects enrich-only OMD builds and accepts the capture language contract", async () => {
+  const enrichOnly = new OmdCapabilityService(async () => ({
+    stdout: "{\"enrich_note\":{\"supported\":true,\"schema_versions\":[1]}}",
+    stderr: "",
+    code: 0,
+  }));
+  await assert.rejects(
+    enrichOnly.requireRecognitionCapability("/opt/homebrew/bin/omd"),
+    /does not advertise capture language options/i,
+  );
+
+  const complete = new OmdCapabilityService(async () => ({
+    stdout: JSON.stringify(languageCapabilities()),
+    stderr: "",
+    code: 0,
+  }));
+  const capability = await complete.requireRecognitionCapability("/compatible/bin/omd");
+  assert.equal(capability.capture_language_options?.supported, true);
+});
+
 test("capability service maps missing executable errors", async () => {
   const service = new OmdCapabilityService(async () => {
     throw new Error("spawn ENOENT");
