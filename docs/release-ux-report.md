@@ -17,8 +17,8 @@ Anthropic 的严格 schema 与 DeepSeek 的 JSON mode + 本地 schema 校验分�
 可恢复路径，同时继续拒绝不透明／保留形式的新标签；Recognition 的 OCR／ASR 配置、错误说明、
 manifest 和 MCP／CLI contract 保持一致。
 
-自动验证结果：OMD Home 的 TypeScript、ESLint、**600 / 600** tests 与 production build 全部通过；
-OMD 后端 **1670 / 1670** tests、Ruff、compileall 以及隔离 wheel 安装／英文 OCR smoke 通过；两个仓库
+自动验证结果：OMD Home 的 TypeScript、ESLint、**603 / 603** tests 与 production build 全部通过；
+OMD 后端 **1684 / 1684** tests、Ruff、compileall 以及隔离 wheel 安装／英文 OCR smoke 通过；两个仓库
 `git diff --check` 通过。真实 OpenAI key，以及 UI-01–04、UI-12–14 对应的原生深浅主题、窄窗口、
 键盘和 150% 字体复测仍按人工计划记录，不以自动结果冒充人工 PASS。
 
