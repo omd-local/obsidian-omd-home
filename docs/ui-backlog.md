@@ -214,6 +214,34 @@ Bookmarks 或粘贴进 Graph Groups。
 - Bases 未启用或版本不支持时不创建无效文件，并用简短文案说明要求。
 - 使用合成 Vault 验证空库、Unicode 路径、长文件名、同名文件和 Bases 禁用路径；不新增第三方依赖。
 
+### UI-12：在 Home 直接显示 Inbox／Reviewed 工作流状态
+
+**状态：Open。优先级：P0。**
+
+**证据与背景：** `omd_home_status` 当前只作为 Properties 中的内部工作流字段使用：`inbox` 笔记
+显示在 OMD Inbox，成功 Apply 后写为 `reviewed` 并从 Inbox 移除。Review 终态虽显示 **Applied**，
+但 Home 没有持久显示状态；用户看到笔记消失后，无法直接判断它是已处理、被过滤、尚未刷新或
+发生错误，只能打开目标笔记检查 Properties / YAML。`reviewed` 仅表示本次选中的 links、tags 与
+状态已完整写入，不表示笔记内容经过人工事实审核。
+
+**改进方向：** 保留原有 minimal 风格，不新增状态面板。Apply 成功页明确显示
+**Status · Reviewed**；Recent notes 中仅对带 `omd_home_status` 的笔记显示轻量的 **Inbox**／
+**Reviewed** 状态文字；OMD Inbox 空状态说明 **Reviewed notes remain available in Recent notes.**
+Properties 继续作为唯一数据源，Home 只呈现其当前值。
+
+**验收标准：**
+
+- Apply 只有在所选 links / tags 与 frontmatter 全部成功写入后才显示 **Status · Reviewed**；
+  conflict、Apply incomplete、error 和取消路径不得显示成功状态。
+- Recent notes 对带 `omd_home_status: inbox` 或 `reviewed` 的笔记显示对应状态；无该 Property 的普通
+  笔记不增加占位文本。Capture 后、Apply 后及 metadata cache 刷新后状态及时更新。
+- OMD Inbox 为空时简短说明 reviewed 笔记仍可在 Recent notes 找到；文案不把 `reviewed` 描述为
+  内容已经人工核准，也不重复解释内部实现。
+- 状态文字复用现有字体、间距与颜色变量，不新增大型卡片；深浅主题、窄窗口、长文件名、Unicode
+  路径和放大字体下不挤压 Pin / Unpin、AI tags 或笔记主操作，并且不只依赖颜色表达状态。
+- 原生复测 Capture 的 `inbox`、成功 Apply 的 `reviewed`、部分失败仍为 `inbox`、普通笔记无状态，
+  同时确认 Properties 与 Home 显示一致。
+
 ## Answer UX / 模型措辞方向
 
 此方向独立于 UI-01–03 的 Settings 视觉整理；关注 Ask vault 答案如何把证据与建议清楚、自然地
