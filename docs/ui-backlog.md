@@ -285,6 +285,92 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
 - 在深浅主题、约 390px 窄弹窗、默认宽度、100% / 150% 字体下原生复测；无裁切、重叠、横向滚动，
   且所有字段仍能通过 Tab 顺序访问。只调整排版，不改变已记住的 Capture 选项或提交语义。
 
+## Capture source 集成缺口
+
+下表区分 OMD 引擎能力与 OMD Home 当前连接状态。**已连接**表示 Home 的单项 Capture 会把干净的
+URL 或绝对文件路径交给 OMD；不等于列表中的每个扩展名和站点都已有本轮原生人工 PASS 证据。
+
+| 来源范围 | OMD Home 当前状态 | 证据与剩余边界 |
+| --- | --- | --- |
+| PDF、DOCX、PPTX、XLSX、HTML、CSV、JSON、XML、EPUB、ZIP | 已连接单文件 Capture | Home 不按扩展名拦截绝对路径，OMD 路由到 MarkItDown；仍需按格式补齐 release fixture / 人工证据 |
+| PNG、JPG、WEBP、TIFF、BMP | 已连接单文件 Capture | OCR language 会传给 OMD；扫描 PDF 仍不属于图片 OCR 路径 |
+| MP3、WAV、M4A、FLAC、OGG | 已连接单文件 Capture | Speech language 会传给 OMD；依赖本地 Whisper，尚未逐格式完成发布矩阵 |
+| 普通文章、WeChat、公开网页 | 已连接干净 URL | OMD inspect 分别路由 MarkItDown / WeChat；不绕过登录、验证码或访问限制 |
+| Reddit、X、Bluesky、Mastodon、Threads、Hacker News、Telegram | 已连接干净的公开 URL | OMD inspect 能识别对应 bounded adapter；尚未逐站形成完整原生人工 PASS 证据 |
+| Apple Podcasts、YouTube、TikTok、Bilibili | 已连接干净的公开 URL | OMD inspect 路由 podcast / reel，所需下载与转录工具在当前测试机 ready；登录受限媒体不在承诺范围 |
+| Douyin | **部分连接** | OMD 引擎支持 share blob 和 reel pipeline，但 Home 拒绝整段分享文字，且没有 Douyin cookies bridge；见 CAPTURE-01 |
+| Xiaohongshu / Rednote | **部分连接** | 干净 URL 可到 OMD，但 Home 没有独立 XHS cookies bridge，也不接受整段分享文字；见 CAPTURE-02 |
+| 本地文件夹、one-item-per-line 列表 | **未连接** | Home 始终调用单项 `omd capture`，没有 `--batch` 或 batch 入口；见 CAPTURE-03 |
+
+### CAPTURE-01：Douyin 分享文案与本地 cookies bridge
+
+**状态：Open。优先级：P0（若 OMD Home 对用户声明支持 Douyin）。**
+
+**证据与背景：** 2026-09-20 使用用户提供的完整分享文案复核。当前 Capture 只接受以 `http://`、
+`https://` 开头的值或绝对本地路径，因此会在调用 OMD 前拒绝
+`9.74 … https://v.douyin.com/t6DOaFdc39Q/ …` 这类文本。当前 OMD 已能从同一段文字安全提取短链，
+`inspect` 将其识别为 `douyin_url` / `reel`，并报告需要 `f2`、`ffmpeg`、`mlx_whisper` 与 Douyin
+cookies。本机三个工具均已安装；缺口位于 OMD Home：它既不提取分享文字中的 URL，也没有配置／
+传递 `--douyin-cookies`，所以即使只粘贴干净短链也无法完成需要 cookies 的下载。
+
+**验收标准：**
+
+- Capture 可接受干净 Douyin URL 或包含唯一 HTTP(S) URL 的常见中文分享文案；复用 OMD 的解析规则
+  或等价的严格实现。没有 URL、包含多个候选 URL 或非 HTTP(S) scheme 时保留弹窗并给出明确错误，
+  不猜测目标。
+- Settings 或 Capture 的 Advanced 区提供本地 Douyin Netscape `cookies.txt` 文件选择／路径；只持久化
+  必要路径，不读取 cookie 值到插件设置、通知、日志或错误详情，不把 cookie 内容放进命令行。
+- 提交前使用 OMD 的 inspect / readiness 结果检查 `f2`、`ffmpeg`、Whisper 和 cookies；缺失、格式
+  无效、域不匹配、过期／下载拒绝分别给出简短原因与下一步，Needs attention 的 Retry 保留原 share
+  source、Speech language 与 AI 选项。
+- 向 OMD 传递经过验证的 `--douyin-cookies` 路径；取消、失败和插件 unload 清理临时状态，不复制
+  cookies 到 Vault，也不把 cookies 纳入索引或生成笔记。
+- 自动与原生测试覆盖本次完整中文分享文案、干净 `v.douyin.com` URL、Unicode cookies 路径、无
+  cookies、错误域、过期 cookies、下载失败、中文转录和 Retry；长分享文字与窄弹窗不破坏布局。
+
+### CAPTURE-02：Xiaohongshu / Rednote 分享文案与独立 cookies bridge
+
+**状态：Open。优先级：P0（若 OMD Home 对用户声明支持 Xiaohongshu / Rednote）。**
+
+**证据与背景：** OMD inspect 会把 `xiaohongshu.com` / Rednote 来源路由到 `xhs`，并明确要求
+cookies；OMD Home 当前只有通用 URL / file path 和通用 Capture args，没有 XHS cookies 设置。
+整段分享文案同样会被 Home 的前置校验拒绝。Douyin 与 XHS 需要各自的 cookies 文件，不能用一个
+含糊的 Default cookies 字段互相代替。
+
+**验收标准：**
+
+- 支持干净的 Xiaohongshu / Rednote URL、`xhslink.com` 短链及含唯一 URL 的常见分享文字；多 URL、
+  无 URL 和非 HTTP(S) 输入使用与 CAPTURE-01 相同的确定性校验。
+- 提供独立的 XHS / Rednote Netscape `cookies.txt` 路径，并向 OMD 传递 `--xhs-cookies`；不得回退
+  使用 Douyin cookies，也不得在日志、Vault、frontmatter 或错误详情中暴露 cookie 内容。
+- 提交前显示 source-specific readiness；cookies 缺失、无匹配域、失效、帖子私有／删除／地区受限
+  与下载器缺失有不同且可执行的错误说明，Retry 恢复原 Capture 选择。
+- 自动与原生测试覆盖公开／受限链接、短链、完整中文分享文案、两种 cookies 同时配置、只配置其中
+  一种、Unicode 路径和失效 cookies；不宣称绕过登录、验证码或平台限制。
+
+### CAPTURE-03：本地文件夹与 one-item-per-line batch 入口
+
+**状态：Open。优先级：P1；若 OMD Home 发布文案保留 Local batches，则升级为 P0。**
+
+**证据与背景：** OMD 支持 `omd capture … --batch`，可让文件夹或保存的一行一项列表分别路由。
+OMD Home 的 `omdCaptureArgs` 只生成单项 `capture <source> --vault …`，Capture UI 也只描述 URL 或
+单个文件。目录当前会到 OMD 后以 `capture_directory_unsupported` 失败；列表文件会被当成普通文件，
+不会逐行 Capture。因此发布 UI 目前不能声称支持 Local batches。
+
+**验收标准：**
+
+- 增加明确的 **Capture batch** 入口或可靠的 source 类型选择，不让普通单文件 Capture 静默改变语义；
+  文件夹和一行一项列表均明确显示预计 item 数、目标 Vault 和非覆盖规则。
+- 只对显式 batch 请求传 `--batch`；每个条目独立规范化和路由，空行／注释规则明确，某一项失败不
+  隐藏其他项结果，也不把列表文本本身保存成资料笔记。
+- 运行中显示真实完成数与当前条目，支持取消；完成后汇总 succeeded / failed / skipped，并为失败
+  条目提供安全 Retry，不生成重复笔记或重复 Needs attention。
+- 测试混合 URL、PDF、图片、音频、Unicode／空格路径、重复项、缺失文件、部分失败、取消、插件
+  unload 与大列表；窄窗口和长路径下仍保持 minimal 风格和可访问操作。
+
+在以上三项完成前，对外能力说明应写成“OMD 引擎支持，OMD Home 尚未完整接入”，或从 OMD Home
+发布页暂时移除 Douyin、Xiaohongshu / Rednote 与 Local batches 的直接支持声明。
+
 ## Answer UX / 模型措辞方向
 
 此方向独立于 UI-01–03 的 Settings 视觉整理；关注 Ask vault 答案如何把证据与建议清楚、自然地
