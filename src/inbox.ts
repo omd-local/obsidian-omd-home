@@ -4,12 +4,17 @@ export type OmdHomeStatus = "inbox" | "reviewed";
 
 const CAPTURE_INDEX_DELAYS_MS = [0, 50, 100, 200, 400, 800, 1_600, 2_000] as const;
 
+export function omdHomeStatus(frontmatter: Record<string, unknown> | undefined): OmdHomeStatus | null {
+  const status = frontmatter?.[OMD_HOME_STATUS_FIELD];
+  return status === "inbox" || status === "reviewed" ? status : null;
+}
+
 export function isOmdInboxNote(
   path: string,
   frontmatter: Record<string, unknown> | undefined,
   legacyFolder = "Inbox",
 ): boolean {
-  const status = frontmatter?.[OMD_HOME_STATUS_FIELD];
+  const status = omdHomeStatus(frontmatter);
   if (status === "reviewed") return false;
   if (status === "inbox") return true;
   const folder = normalizeRelativePath(legacyFolder);

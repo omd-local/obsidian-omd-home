@@ -102,9 +102,19 @@ export class EnrichmentReviewModal extends Modal {
       });
     }
 
-    const status = scroll.createDiv({ cls: "omd-enrichment-status", attr: { role: "status", "aria-live": "polite" } });
-    status.createSpan({ cls: `omd-enrichment-status-badge tone-${phase.tone}`, text: phase.title });
+    const generating = this.state.phase === "generating";
+    const status = scroll.createDiv({
+      cls: "omd-enrichment-status",
+      attr: { role: "status", "aria-live": "polite", "aria-atomic": "true" },
+    });
+    status.createSpan({
+      cls: `omd-enrichment-status-badge tone-${phase.tone}${generating ? " is-loading" : ""}`,
+      text: generating ? "Generating suggestions… Please wait." : phase.title,
+    });
     status.createSpan({ cls: "omd-enrichment-status-copy", text: this.state.statusText || phase.detail });
+    if (this.state.phase === "applied") {
+      status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · Reviewed" });
+    }
 
     if (showsProposal(this.state.phase)) this.renderProposal(scroll);
     else if (this.state.warnings.length) this.renderWarnings(scroll, this.state.warnings);

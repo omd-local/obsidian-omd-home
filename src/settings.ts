@@ -2,6 +2,7 @@ import { App, Notice, Platform, PluginSettingTab, Setting, TextComponent } from 
 import {
   AI_PROVIDER_VALUES,
   DEFAULT_AI_MODELS,
+  answerModelOptionLabel,
   aiProviderDestination,
   aiProviderEnvVar,
   aiProviderLabel,
@@ -53,6 +54,20 @@ function disableUnavailableLocalModelOptions(selectEl: HTMLSelectElement, models
     if (!unavailableNames.has(option.value)) continue;
     option.disabled = true;
     option.title = "This downloaded model cannot be used for local text answers.";
+  }
+}
+
+function disableIncompatibleHostedModelOptions(
+  selectEl: HTMLSelectElement,
+  models: LocalAiModelEntry[],
+): void {
+  const catalog = new Map(models.map((model) => [model.name, model]));
+  for (const option of Array.from(selectEl.options)) {
+    const model = catalog.get(option.value);
+    if (!model || !model.answerCompatibility || model.answerCompatibility === "supported") continue;
+    option.disabled = true;
+    option.title = model.answerCompatibilityReason
+      ?? "OMD has not verified this model for its structured answer contract.";
   }
 }
 
@@ -575,7 +590,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           customValue: "",
         };
     const options = models.reduce<Record<string, string>>((result, model) => {
-      result[model.name] = provider === "ollama" ? localWritingModelOptionLabel(model) : model.name;
+      result[model.name] = provider === "ollama"
+        ? localWritingModelOptionLabel(model)
+        : isHostedApiProvider(provider) ? answerModelOptionLabel(model) : model.name;
       return result;
     }, {});
     if (provider === "ollama" && !catalogChecked && current && !options[current]) options[current] = current;
@@ -583,7 +600,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     if (selector.stale && !options[selector.optionValue]) {
       options.__stale__ = provider === "ollama"
         ? `${current} (saved, unavailable for local answers)`
-        : `${current} (saved, not installed)`;
+        : isHostedApiProvider(provider)
+          ? `${current} (saved, absent from catalog)`
+          : `${current} (saved, not installed)`;
     }
     if (!models.length && !selector.useCustom && !current) {
       options.__empty__ = isHostedApiProvider(provider) && !hostedCredentialReady
@@ -617,6 +636,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .addDropdown((dropdown) => {
         dropdown.addOptions(options);
         if (provider === "ollama") disableUnavailableLocalModelOptions(dropdown.selectEl, models);
+        if (isHostedApiProvider(provider)) disableIncompatibleHostedModelOptions(dropdown.selectEl, models);
         dropdown.setValue(credentialBlocked ? "__credential__" : showCustom ? "__custom__" : selector.optionValue)
           .setDisabled(aiSetupBusy || (isHostedApiProvider(provider) && !hostedCredentialReady));
         dropdown.onChange(async (value) => {

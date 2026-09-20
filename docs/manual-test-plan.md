@@ -131,17 +131,17 @@ CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判
 | 已有广泛证据，Case 级结果未汇总 | Install-00、HOME-01/02、CMD-01、CAP-01、AI-00/01/07 | 当前不优先重跑；发布前把现有原生／视觉证据映射到各步骤，只补没有证据的子项 |
 | 明确 NOT RUN | AI-02 | 恢复有效 endpoint / daemon 后按完整步骤验证隔离和恢复；同时完成 UI-03 窄宽布局验收 |
 | PASS | CAP-03 | 第 1–7 步已验证；缺失模型错误、立即 idle、Retry 与选项恢复均 PASS，原 Local writing model 已恢复，OMD ready 且 executable override 为空（Automatic） |
-| PARTIAL，现在继续 | CAP-06 | A 后台继续已 PASS；关闭无关的 enrichment 失败弹窗，在下一次 Capture 明确把两个 Optional local AI 开关切到 off，再执行 B、C、D |
+| PARTIAL | CAP-06 | A 后台继续与 D 完全退出取消已 PASS；B、C 尚缺明确的最终结果记录 |
 | 未完成完整人工 PASS | OMD-01 | 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支仍待完成 |
 | 未完成真实外部写入 | CAL-00–03 | 需要测试 Calendar 权限、Save、Linked sync 和双向 conflict；现有 UI / 模拟结果不替代外部写入 |
 | 有凭证才执行，否则 NOT RUN | AI-03、AI-04、AI-05、AI-11 的 hosted 实网分支 | 不粘贴凭证进记录；AI-04 同时复测不兼容 Structured Outputs 模型不会被当成可用 |
 | Extended，尚无完整人工 PASS | AI-06、AI-08、AI-09、AI-10 | 按依赖顺序执行；AI-09 前先完成 missing-`bge-m3` 分支，再决定是否下载模型 |
 | 最后执行 | REL-01 | 所有 Core 结果稳定后，使用 disposable clean vault 验证三项 bundle、reload 和 cold restart |
 
-仍有已知界面 backlog 会在测试中遇到：UI-04 的 **Generating proposal** 等待提示尚未增强；UI-12
-尚未在 Home 持久显示 Inbox／Reviewed；UI-13 尚未统一 Capture dropdown、toggle 与 section 的垂直
-留白；UI-01／UI-02 仍要求按 AI-00 做最终宽／窄 Settings 人工视觉关闭。遇到这些已知项继续按实际
-结果记录，不要自动标为新回归或 PASS。
+UI-04、UI-12、UI-13 与 UI-14 的代码和自动回归已经完成；本轮人工测试仍需核对生成等待标识、
+Recent 的 Inbox／Reviewed、Capture 垂直留白和历史错误关闭按钮在深浅主题、窄窗口、键盘及 150%
+字体下的实际表现。UI-01／UI-02 也仍要求按 AI-00 做最终宽／窄 Settings 视觉关闭。自动测试通过不
+替代这些原生视觉结果；按实际结果记录，不要提前标为人工 PASS。
 
 ### 1.3A.1 2026-09-17 22:54 历史交接
 
@@ -2229,6 +2229,10 @@ catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposa
    `tag:#cap-06-quit` 为 0，且没有 partial note、Inbox/index 条目、stale active 状态或新增 Retry。
 5. 最后再用 `tag:#cap-06-background` 确认场景 A 的成功 note 仍存在；unload / quit 不得删除此前
    已完成的 capture。
+
+2026-09-20 原生结果：**D PASS（用户确认）。** 在任务 active 时使用 **Cmd+Q** 完全退出 Obsidian；
+重开后没有残留该任务、错误 Retry 或 `cap-06-quit` 对应的完成 note，场景 A 已完成的
+`cap-06-background` note 仍保留。本结果只关闭 D，不替代 B、C 各自的取消与进程基线证据。
 
 通过条件：A 后台继续并只生成一个完成 note；B、C、D 都不生成对应 tag 的 note。B 回到 idle 且不把
 用户取消记为失败；C、D 在 10 秒内恢复到进程基线，重开后没有 orphan task、stale active、partial

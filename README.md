@@ -59,16 +59,20 @@ widget menu, so a desktop layout does not have to fit a different screen.
 
 ## Bring sources in. Decide what changes.
 
-Paste a URL, paste a local path, or drop a file onto Home. OMD Home starts a
-managed OMD process, reports progress, and leaves conversion ownership with
-[Markdown Everything](https://github.com/omd-local/markdown-everything).
+Paste one public URL, paste one local file path, or drop one file onto Home.
+OMD Home starts a managed OMD process, reports progress, and leaves conversion
+ownership with [Markdown Everything](https://github.com/omd-local/markdown-everything).
 
-The boundary stays narrow: only the URL or file you submit enters. Capture writes the requested Markdown note immediately; only optional link and tag changes wait for review.
+The current Home capture path accepts one public HTTP(S) URL or one local file
+per request. The OMD engine supports cookie-gated Douyin and Xiaohongshu /
+Rednote share text, plus local folder and one-item-per-line list batches. Those
+source types are not yet connected in OMD Home. Capture writes the requested
+Markdown note immediately; only optional link and tag changes wait for review.
 
 <img src="docs/assets/omd-home-capture-flow.svg" alt="OMD Home capture flow" />
 
-- URL capture contacts only the source you submit. A local file capture reads
-  only the path you submit.
+- Public URL capture contacts only the single source you submit. A local file
+  capture reads only the single file path you submit.
 - Drag and drop, `~/` paths, and shell-escaped spaces are normalized without
   evaluating a shell command.
 - Capture continues when the Home tab is backgrounded or closed. Cancel,

@@ -1,6 +1,7 @@
 import { ItemView, Menu, Notice, WorkspaceLeaf, getAllTags, setIcon, type TFile } from "obsidian";
 import { aiProviderLabel } from "./ai-provider.ts";
 import type { CaptureFailureRecord } from "./capture-request";
+import { omdHomeStatus } from "./inbox.ts";
 import { canOpenOllamaDesktopApp } from "./ollama-app";
 import type OmdHomePlugin from "./main";
 import type { CalendarEventRecord, WidgetId, WidgetPlacement } from "./model";
@@ -231,7 +232,7 @@ export class OmdHomeView extends ItemView {
       return;
     }
     if (id === "inbox") return this.renderInbox(body, this.plugin.listInboxFiles().slice(0, 7));
-    if (id === "recent") return this.renderFileList(body, [...this.app.vault.getMarkdownFiles()].sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 7), "No recent notes");
+    if (id === "recent") return this.renderFileList(body, [...this.app.vault.getMarkdownFiles()].sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 7), "No recent notes", true);
     if (id === "continue") {
       const file = this.app.workspace.getActiveFile();
       if (!file) return emptyState(body, "Nothing open yet", "Choose a recent note to continue.");
@@ -279,7 +280,7 @@ export class OmdHomeView extends ItemView {
         && !hostedAnswerNeedsAttention && !hasIndependentCaptureFailure) {
         return emptyState(body, "Nothing needs attention", "Sync and processing are healthy.");
       }
-      if (this.plugin.lastError && !localAiOwnsLastError) this.renderLastIssue(body);
+      if (this.plugin.lastError && !localAiOwnsLastError) this.renderLastIssue(body, this.plugin.currentIssueId());
       if (localAiNeedsAttention) this.renderLocalAiAttention(body);
       if (hostedAnswerNeedsAttention) this.renderHostedAiAttention(body);
       if (captureFailure && hasIndependentCaptureFailure) {
@@ -398,7 +399,7 @@ export class OmdHomeView extends ItemView {
   }
 
   private renderInbox(body: HTMLElement, files: TFile[]): void {
-    if (!files.length) return emptyState(body, "Inbox is clear", "New OMD captures and legacy Inbox notes appear here.");
+    if (!files.length) return emptyState(body, "Inbox is clear", "Reviewed notes remain available in Recent notes.");
     for (const file of files) {
       const row = body.createDiv({ cls: "omd-inbox-row" });
       const open = row.createEl("button", {
@@ -434,13 +435,25 @@ export class OmdHomeView extends ItemView {
     }
   }
 
-  private renderFileList(body: HTMLElement, files: TFile[], empty: string): void {
+  private renderFileList(body: HTMLElement, files: TFile[], empty: string, showWorkflowStatus = false): void {
     if (!files.length) return emptyState(body, empty, "This panel fills itself as you work.");
     for (const file of files) {
+      const status = showWorkflowStatus
+        ? omdHomeStatus(this.app.metadataCache.getFileCache(file)?.frontmatter)
+        : null;
+      const statusLabel = status === "inbox" ? "Inbox" : status === "reviewed" ? "Reviewed" : null;
       const row = body.createDiv({ cls: "omd-note-action-row" });
-      const open = row.createEl("button", { cls: "omd-note-row", type: "button", attr: { "aria-label": `Open ${file.basename}`, title: file.path } });
+      const open = row.createEl("button", {
+        cls: "omd-note-row",
+        type: "button",
+        attr: {
+          "aria-label": statusLabel ? `Open ${file.basename}. Status: ${statusLabel}.` : `Open ${file.basename}`,
+          title: file.path,
+        },
+      });
       open.createSpan({ cls: "omd-note-title", text: file.basename, attr: { dir: "auto" } });
       open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/", attr: { dir: "auto" } });
+      if (statusLabel) open.createSpan({ cls: "omd-note-status", text: statusLabel });
       open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
       this.createPinButton(row, file);
     }
@@ -654,11 +667,14 @@ export class OmdHomeView extends ItemView {
     return false;
   }
 
-  private renderLastIssue(body: HTMLElement): void {
+  private renderLastIssue(body: HTMLElement, issueId: number): void {
     const item = body.createDiv({ cls: "omd-attention-item" });
     const header = item.createDiv({ cls: "omd-attention-header" });
-    header.createEl("strong", { text: issueTitle(this.plugin.lastErrorContext) });
-    header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(this.plugin.lastErrorAt) });
+    const title = issueTitle(this.plugin.lastErrorContext);
+    header.createEl("strong", { text: title });
+    const meta = header.createDiv({ cls: "omd-attention-header-actions" });
+    meta.createSpan({ cls: "omd-attention-time", text: formatIssueTime(this.plugin.lastErrorAt) });
+    this.createAttentionDismissButton(meta, `Dismiss ${title} issue`, () => this.plugin.dismissIssue(issueId));
     if (this.plugin.lastErrorSource) {
       item.createDiv({ cls: "omd-attention-source", text: safeSourceLabel(this.plugin.lastErrorSource) });
     }
@@ -678,7 +694,9 @@ export class OmdHomeView extends ItemView {
     const item = body.createDiv({ cls: "omd-attention-item" });
     const header = item.createDiv({ cls: "omd-attention-header" });
     header.createEl("strong", { text: "Capture can be retried" });
-    header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(failure.failedAt) });
+    const meta = header.createDiv({ cls: "omd-attention-header-actions" });
+    meta.createSpan({ cls: "omd-attention-time", text: formatIssueTime(failure.failedAt) });
+    this.createAttentionDismissButton(meta, "Dismiss capture retry", () => this.plugin.dismissCaptureFailure(failure.id));
     item.createDiv({ cls: "omd-attention-source", text: safeSourceLabel(failure.request.source) });
     item.createDiv({
       cls: "omd-attention-detail",
@@ -686,6 +704,16 @@ export class OmdHomeView extends ItemView {
     });
     const retry = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
     retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
+  }
+
+  private createAttentionDismissButton(parent: HTMLElement, label: string, onDismiss: () => void): void {
+    const dismiss = parent.createEl("button", {
+      cls: "clickable-icon omd-attention-dismiss",
+      type: "button",
+      attr: { "aria-label": label, title: label },
+    });
+    setIcon(dismiss, "x");
+    dismiss.addEventListener("click", onDismiss);
   }
 
   private renderLocalAiAttention(body: HTMLElement): void {

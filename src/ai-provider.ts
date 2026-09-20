@@ -73,6 +73,14 @@ export function aiProviderEnvVar(provider: HostedApiProvider): string {
   return PROVIDER_ENV_VARS[provider];
 }
 
+export function answerModelOptionLabel(
+  model: Pick<LocalAiModelEntry, "name" | "answerCompatibility">,
+): string {
+  if (model.answerCompatibility === "unsupported") return `${model.name} (answer contract unsupported)`;
+  if (model.answerCompatibility === "unverified") return `${model.name} (answer contract unverified)`;
+  return model.name;
+}
+
 export function normalizeAiModelMemory(
   raw: unknown,
   legacyProvider: StoredAiProvider,

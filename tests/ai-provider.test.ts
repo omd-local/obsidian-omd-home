@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   AI_PROVIDER_VALUES,
+  answerModelOptionLabel,
   aiProviderDestination,
   aiProviderEnvVar,
   aiProviderLabel,
@@ -78,4 +79,20 @@ test("verified Ollama Cloud models require pinned ollama.com metadata", () => {
   assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "https://ollama.com?next=evil" }), false);
   assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "", remoteHost: "https://ollama.com" }), false);
   assert.equal(modelIsVerifiedOllamaCloud({ remoteModel: "gpt-oss:20b", remoteHost: "" }), false);
+});
+
+test("hosted answer labels render only backend-supplied compatibility metadata", () => {
+  assert.equal(answerModelOptionLabel({ name: "gpt-4.1" }), "gpt-4.1");
+  assert.equal(
+    answerModelOptionLabel({ name: "gpt-4", answerCompatibility: "unsupported" }),
+    "gpt-4 (answer contract unsupported)",
+  );
+  assert.equal(
+    answerModelOptionLabel({ name: "future-model", answerCompatibility: "unverified" }),
+    "future-model (answer contract unverified)",
+  );
+  assert.equal(
+    answerModelOptionLabel({ name: "deepseek-v4-flash", answerCompatibility: "supported" }),
+    "deepseek-v4-flash",
+  );
 });

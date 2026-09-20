@@ -167,6 +167,7 @@ SAFE_ERROR_CODES = frozenset({
     "provider_mismatch",
     "refused",
     "response_too_large",
+    "selected_model_incompatible",
     "stream_error",
     "timeout",
     "transport_error",
@@ -236,6 +237,9 @@ def main() -> int:
         if action == "check_provider_model":
             provider = _provider(request)
             availability = _provider_availability(provider, _string(request, "model"))
+            answer_compatibility, answer_reason, answer_contract = (
+                _provider_answer_compatibility(availability)
+            )
             return _send({
                 "ok": True,
                 "provider": availability.provider,
@@ -243,6 +247,9 @@ def main() -> int:
                 "models": list(availability.alternative_models if not availability.available else (availability.selected_model,)),
                 "model": availability.selected_model,
                 "available": availability.available,
+                "answer_compatibility": answer_compatibility,
+                "answer_compatibility_reason": answer_reason,
+                "answer_contract": answer_contract,
                 "alternative_models": list(availability.alternative_models),
                 "elapsed_seconds": availability.elapsed_seconds,
                 "credential": _credential_state(provider) if provider in HOSTED_PROVIDERS else None,
@@ -367,6 +374,29 @@ def _provider_availability(provider: str, model: str):
         api_key=load_api_key(provider),
         timeout_seconds=5.0,
     )
+
+
+def _provider_answer_compatibility(availability: Any) -> tuple[str, str, str | None]:
+    model = str(getattr(availability, "selected_model", "selected model")).strip()
+    status = getattr(availability, "answer_compatibility", None)
+    reason = getattr(availability, "answer_compatibility_reason", None)
+    contract = getattr(availability, "answer_contract", None)
+    normalized_contract = (
+        contract.strip() if isinstance(contract, str) and contract.strip() else None
+    )
+    if (
+        status not in {"supported", "unsupported", "unverified"}
+        or not isinstance(reason, str)
+        or not reason.strip()
+        or (status == "supported" and normalized_contract is None)
+    ):
+        return (
+            "unverified",
+            f"Installed OMD did not verify {model} against an explicit answer contract. "
+            "Update OMD, then run Check setup again.",
+            None,
+        )
+    return status, reason.strip(), normalized_contract
 
 
 def _hits(request: dict[str, Any]) -> list[SearchHit]:

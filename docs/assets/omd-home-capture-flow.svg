@@ -34,8 +34,8 @@
 
   <rect x="84" y="320" width="1430" height="126" fill="#F4F1E8" stroke="#202124" stroke-width="5"/>
   <rect x="84" y="320" width="1430" height="46" fill="#F4F1E8" stroke="#202124" stroke-width="5"/>
-  <text x="108" y="352" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">2  PREFLIGHT BEFORE EXPENSIVE WORK</text>
-  <text x="108" y="402" font-family="Courier New, monospace" font-size="18" fill="#202124">Check access, source type, cookies, and whether the local OMD route is ready before capture starts.</text>
+  <text x="108" y="352" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">2  HAND OFF THE SUBMITTED SOURCE</text>
+  <text x="108" y="402" font-family="Courier New, monospace" font-size="18" fill="#202124">Pass the single public URL or local file to OMD; OMD reports conversion progress and failures.</text>
 
   <line x1="800" y1="446" x2="800" y2="478" stroke="#202124" stroke-width="6" marker-end="url(#arrow-capture)"/>
 

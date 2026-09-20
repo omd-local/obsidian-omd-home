@@ -28,6 +28,7 @@ export type LocalAiReadinessCode =
   | "ready";
 
 export type LocalAiDisplayState = LocalAiReadinessCode | "checking" | "partial" | "cloud-provider";
+export type AnswerModelCompatibilityStatus = "supported" | "unsupported" | "unverified";
 
 export interface LocalAiModelEntry {
   name: string;
@@ -36,6 +37,9 @@ export interface LocalAiModelEntry {
   capabilities: string[];
   remoteModel?: string;
   remoteHost?: string;
+  answerCompatibility?: AnswerModelCompatibilityStatus;
+  answerCompatibilityReason?: string;
+  answerContract?: string | null;
 }
 
 export interface LocalAiVersionInfo {
@@ -155,11 +159,17 @@ export interface HostedAiCheckResult extends HostedAiCatalog {
   model: string;
   available: boolean;
   alternativeModels: string[];
+  answerCompatibility: AnswerModelCompatibilityStatus;
+  answerCompatibilityReason: string;
+  answerContract: string | null;
 }
 
 export interface HostedAiRuntimeState {
   provider: HostedAiProvider;
   checkedAt?: number;
+  checkedModel?: string;
+  checkedAnswerCompatibility?: AnswerModelCompatibilityStatus;
+  checkedAnswerContract?: string | null;
   code: LocalAiDisplayState;
   detail: string;
   models: LocalAiModelEntry[];

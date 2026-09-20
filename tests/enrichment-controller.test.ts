@@ -14,6 +14,7 @@ import {
 
 const controllerSource = readFileSync(resolve("src/enrichment/controller.ts"), "utf8");
 const reviewModalSource = readFileSync(resolve("src/enrichment/review-modal.ts"), "utf8");
+const stylesSource = readFileSync(resolve("src/styles.css"), "utf8");
 
 test("enrichment exposes cancellability only before the Apply write phase", () => {
   const canCancel = extractMember(controllerSource, "get canCancel(): boolean");
@@ -135,6 +136,28 @@ test("proposal summary states exactly what Apply writes", () => {
     /Apply writes selected links and tags; this summary is not added to the note\./u,
   );
   assert.doesNotMatch(reviewModalSource, /Summary preview|Nothing is written until you choose Apply/u);
+});
+
+test("proposal generation shows an accessible wait cue with a reduced-motion fallback", () => {
+  assert.match(reviewModalSource, /const generating = this\.state\.phase === "generating"/u);
+  assert.match(reviewModalSource, /"aria-atomic": "true"/u);
+  assert.match(reviewModalSource, /generating \? " is-loading" : ""/u);
+  assert.match(reviewModalSource, /generating \? "Generating suggestions… Please wait\." : phase\.title/u);
+  assert.match(stylesSource, /\.omd-enrichment-status-badge\.is-loading::before\s*\{[^}]*animation:\s*omd-enrichment-spin/su);
+  assert.match(stylesSource, /@keyframes omd-enrichment-spin\s*\{[^}]*transform:\s*rotate\(1turn\)/su);
+  assert.match(
+    stylesSource,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.omd-enrichment-status-badge\.is-loading::before\s*\{[^}]*animation:\s*none/su,
+  );
+});
+
+test("Reviewed status is rendered only for a fully applied proposal", () => {
+  const render = extractMember(reviewModalSource, "private render(): void");
+  assert.match(
+    render,
+    /if \(this\.state\.phase === "applied"\) \{\s*status\.createSpan\(\{ cls: "omd-enrichment-workflow-status", text: "Status · Reviewed" \}\);\s*\}/u,
+  );
+  assert.equal(render.match(/Status · Reviewed/gu)?.length, 1);
 });
 
 test("an incomplete Apply can open the exact target note", async () => {

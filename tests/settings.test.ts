@@ -212,8 +212,10 @@ test("answer model labels stay consistent and move local readiness into a status
 test("local Vault Q&A reuses the local completion selector policy without changing hosted catalogs", () => {
   const answerModelBlock = extractFunctionBody(source, "private answerModelSetting");
   assert.match(answerModelBlock, /const localModels = this\.plugin\.localAiState\.models\.filter\(\(model\) => !modelIsCloudBacked\(model\)\)/u);
-  assert.match(answerModelBlock, /provider === "ollama" \? localWritingModelOptionLabel\(model\) : model\.name/u);
+  assert.match(answerModelBlock, /localWritingModelOptionLabel\(model\)/u);
+  assert.match(answerModelBlock, /answerModelOptionLabel\(model\)/u);
   assert.match(answerModelBlock, /disableUnavailableLocalModelOptions\(dropdown\.selectEl, models\)/u);
+  assert.match(answerModelBlock, /disableIncompatibleHostedModelOptions\(dropdown\.selectEl, models\)/u);
   assert.match(answerModelBlock, /provider === "ollama-cloud"\s*\? this\.plugin\.localAiState\.models\.filter\(modelIsVerifiedOllamaCloud\)/u);
   assert.match(answerModelBlock, /const ollamaCatalogProvider = provider === "ollama" \|\| provider === "ollama-cloud"/u);
   assert.match(answerModelBlock, /optionValue: known \? matchingOllamaModel\?\.name \?\? current : "__stale__"/u);

@@ -208,6 +208,55 @@ test("each hosted provider gates model controls on credentials and uses its own 
   }
 });
 
+test("OpenAI model choices keep incompatible selections visible and disable unsupported or unverified ids", () => {
+  const h = createHarness();
+  h.tab.plugin.settings.aiProvider = "openai";
+  h.tab.plugin.settings.aiModel = "gpt-4";
+  h.tab.plugin.settings.aiModels.openai = "gpt-4";
+  h.tab.plugin.hostedAiState = {
+    provider: "openai",
+    credential: { source: "env" },
+    models: [
+      {
+        name: "gpt-4",
+        supportsCompletion: false,
+        capabilities: [],
+        answerCompatibility: "unsupported",
+        answerCompatibilityReason: "The backend says gpt-4 does not support this answer contract.",
+      },
+      {
+        name: "future-openai-model",
+        supportsCompletion: false,
+        capabilities: [],
+        answerCompatibility: "unverified",
+        answerCompatibilityReason: "The backend has not verified future-openai-model.",
+      },
+      {
+        name: "gpt-4.1",
+        supportsCompletion: true,
+        capabilities: ["completion"],
+        answerCompatibility: "supported",
+        answerCompatibilityReason: "The backend verified gpt-4.1.",
+      },
+    ],
+  };
+
+  h.tab.answerModelSetting(h.container, "openai");
+  const dropdown = h.row("Answer model").dropdowns[0]!;
+  const option = (name: string) => dropdown.selectEl.options.find((entry) => entry.value === name)!;
+  assert.equal(dropdown.value, "gpt-4", "the saved incompatible selection remains visible");
+  assert.equal(option("gpt-4").disabled, true);
+  assert.match(option("gpt-4").label, /unsupported/iu);
+  assert.match(option("gpt-4").title, /does not support/iu);
+  assert.equal(option("future-openai-model").disabled, true);
+  assert.match(option("future-openai-model").label, /unverified/iu);
+  assert.match(option("future-openai-model").title, /has not verified/iu);
+  assert.equal(option("gpt-4.1").disabled, false);
+  assert.equal(option("gpt-4.1").label, "gpt-4.1");
+  assert.equal(h.tab.plugin.settings.aiModels.openai, "gpt-4", "rendering must not switch the model");
+  assert.equal(h.saveCalls(), 0);
+});
+
 test("saved unsupported speech mode remains visible and can be cleared", async () => {
   const h = createHarness();
   h.tab.plugin.settings.captureAsrLanguage = "zh";

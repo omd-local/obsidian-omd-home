@@ -57,7 +57,8 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 
 ## UI-04：Generating proposal 的等待状态不够明显
 
-**状态：Open，已记录，尚未实现。**
+**状态：已实现，待 CAP-02 原生慢响应／失败／取消视觉复测。** 生成阶段现在持续显示明确的等待文字、
+非纯颜色的 loading 标识和 live status；减少动态效果时保留静态标识，阶段结束后自动清除。
 
 **证据与背景：** 2026-09-17，用户在 CAP-02 人工测试中反馈：**Generating proposal**
 不够醒目，难以判断模型仍在生成、此时需要等待，容易误以为按钮没有响应或流程停住。
@@ -134,13 +135,13 @@ frontmatter 错误和无法安全回滚的部分写入均有确定性自动回�
 
 ## Obsidian 原生关系与可视化
 
-以下事项复用 Obsidian 的 Graph、Search、Backlinks 和 Bases；不新增 OMD 自有图数据库。P0 / P1
-表示本方向内的实施顺序，不改变当前发布阻塞级别。第一阶段不得直接修改 Graph Groups、颜色、
-过滤器、Bookmarks 或 workspace 内部配置。
+以下事项复用 Obsidian 的 Graph、Search、Backlinks 和 Bases；不新增 OMD 自有图数据库。本方向整体
+为 Deferred / P2；条目顺序保留早先建议的内部实施先后，不进入本轮 P0 / P1 发布修复。第一阶段
+不得直接修改 Graph Groups、颜色、过滤器、Bookmarks 或 workspace 内部配置。
 
 ### UI-07：提供可复制的 Graph Groups 查询配方
 
-**状态：Open。优先级：P0。**
+**状态：Deferred。优先级：P2（本方向内第一批）。**
 
 **目标：** 在 Vault tags、System 或 Settings 的现有紧凑界面中提供 **Graph group recipes**，让用户
 复制基于现有路径、Properties 和 tags 的原生查询，例如 `path:"Sources/Web"`、
@@ -156,7 +157,7 @@ frontmatter 错误和无法安全回滚的部分写入均有确定性自动回�
 
 ### UI-08：Apply 成功后提供原生关系视图入口
 
-**状态：Open。优先级：P0。**
+**状态：Deferred。优先级：P2（本方向内第一批）。**
 
 **目标：** Enrichment 真正成功后提供 **View connections** 或等义操作，让用户通过当前 TARGET 的
 Local Graph 或 Backlinks 查看刚写入的 Markdown links；不新增独立 OMD 图页面。
@@ -171,7 +172,7 @@ Local Graph 或 Backlinks 查看刚写入的 Markdown links；不新增独立 OM
 
 ### UI-09：笔记行显示入链／出链数量
 
-**状态：Open。优先级：P1。**
+**状态：Deferred。优先级：P2（本方向内后续）。**
 
 **目标：** 在 Recent、Inbox、Continue 和 Pinned 的可见 note 行中，以低干扰样式显示唯一连接数，
 例如 `2 in · 3 out`，并提供 Local Graph / Backlinks 次级操作。
@@ -187,7 +188,7 @@ Local Graph 或 Backlinks 查看刚写入的 Markdown links；不新增独立 OM
 
 ### UI-10：Needs attention 提供原生 Search 查询
 
-**状态：Open。优先级：P1。**
+**状态：Deferred。优先级：P2（本方向内后续）。**
 
 **目标：** 对实际存在的待处理状态提供 **Open search** 和可选的 **Copy query**，例如
 `[omd_home_status:inbox]`、`[sync-state:conflict]` 与 `[sync-state:pending]`。用户可自行把查询保存到
@@ -216,7 +217,9 @@ Bookmarks 或粘贴进 Graph Groups。
 
 ### UI-12：在 Home 直接显示 Inbox／Reviewed 工作流状态
 
-**状态：Open。优先级：P0。**
+**状态：已实现。优先级：P0；待原生 Capture / Apply 视觉复测。** Recent 直接读取当前
+Properties 并只显示精确的 Inbox／Reviewed；成功终态显示 **Status · Reviewed**，普通笔记及失败终态
+不显示工作流状态。
 
 **证据与背景：** `omd_home_status` 当前只作为 Properties 中的内部工作流字段使用：`inbox` 笔记
 显示在 OMD Inbox，成功 Apply 后写为 `reviewed` 并从 Inbox 移除。Review 终态虽显示 **Applied**，
@@ -244,7 +247,8 @@ Properties 继续作为唯一数据源，Home 只呈现其当前值。
 
 ### UI-13：统一 Capture 弹窗字段、控件与 section 的垂直留白
 
-**状态：Open。优先级：P1（正式发布 UI 收尾）。**
+**状态：已实现。优先级：P1；待 AI-00 / Capture 原生视觉复测。** Capture modal 使用一组局部
+spacing token 统一六类字段、Recognition／Optional local AI 分区和底部操作区，不改变控件语义。
 
 **证据与背景：** 2026-09-20 原生 Capture 弹窗复核发现，这不是单个控件的问题。Recognition 中
 **Speech language → No language preference** 的 dropdown 底边几乎贴着字段卡片底边；
@@ -287,7 +291,8 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
 
 ### UI-14：Needs attention 可关闭单条已过期错误
 
-**状态：Open。优先级：P1（正式发布 UI 收尾）；仅记录，尚未实现。**
+**状态：已实现。优先级：P1；待原生键盘与窄窗口复测。** 历史 issue 与独立 Retry 可按精确实例
+关闭；当前 setup／连接状态继续由实时健康检查驱动，不提供掩盖问题的关闭按钮。
 
 **证据与背景：** 2026-09-20 CAP-06 人工测试时，Needs attention 仍显示此前 enrichment 的
 **Vault AI failed** 和缺失测试模型产生的 **Capture can be retried**。后续流程已经恢复或用户已经
@@ -334,7 +339,7 @@ URL 或绝对文件路径交给 OMD；不等于列表中的每个扩展名和站
 
 ### CAPTURE-01：Douyin 分享文案与本地 cookies bridge
 
-**状态：Open。优先级：P0（若 OMD Home 对用户声明支持 Douyin）。**
+**状态：Deferred。优先级：P2。发布决策：OMD Home 当前不声明该集成已经接入。**
 
 **证据与背景：** 2026-09-20 使用用户提供的完整分享文案复核。当前 Capture 只接受以 `http://`、
 `https://` 开头的值或绝对本地路径，因此会在调用 OMD 前拒绝
@@ -360,7 +365,7 @@ cookies。本机三个工具均已安装；缺口位于 OMD Home：它既不提�
 
 ### CAPTURE-02：Xiaohongshu / Rednote 分享文案与独立 cookies bridge
 
-**状态：Open。优先级：P0（若 OMD Home 对用户声明支持 Xiaohongshu / Rednote）。**
+**状态：Deferred。优先级：P2。发布决策：OMD Home 当前不声明该集成已经接入。**
 
 **证据与背景：** OMD inspect 会把 `xiaohongshu.com` / Rednote 来源路由到 `xhs`，并明确要求
 cookies；OMD Home 当前只有通用 URL / file path 和通用 Capture args，没有 XHS cookies 设置。
@@ -380,7 +385,7 @@ cookies；OMD Home 当前只有通用 URL / file path 和通用 Capture args，�
 
 ### CAPTURE-03：本地文件夹与 one-item-per-line batch 入口
 
-**状态：Open。优先级：P1；若 OMD Home 发布文案保留 Local batches，则升级为 P0。**
+**状态：Deferred。优先级：P2。发布决策：OMD Home 当前不声明 Local batches 已接入。**
 
 **证据与背景：** OMD 支持 `omd capture … --batch`，可让文件夹或保存的一行一项列表分别路由。
 OMD Home 的 `omdCaptureArgs` 只生成单项 `capture <source> --vault …`，Capture UI 也只描述 URL 或
@@ -398,8 +403,9 @@ OMD Home 的 `omdCaptureArgs` 只生成单项 `capture <source> --vault …`，C
 - 测试混合 URL、PDF、图片、音频、Unicode／空格路径、重复项、缺失文件、部分失败、取消、插件
   unload 与大列表；窄窗口和长路径下仍保持 minimal 风格和可访问操作。
 
-在以上三项完成前，对外能力说明应写成“OMD 引擎支持，OMD Home 尚未完整接入”，或从 OMD Home
-发布页暂时移除 Douyin、Xiaohongshu / Rednote 与 Local batches 的直接支持声明。
+以上三项保留为 Deferred / P2 backlog。在完成前，对外能力说明应写成“OMD 引擎支持，OMD Home
+尚未完整接入”，并且不得在 OMD Home 发布页直接声明支持 cookie-gated Douyin、Xiaohongshu /
+Rednote 分享文字或 Local batches。
 
 ## Answer UX / 模型措辞方向
 
@@ -408,7 +414,7 @@ OMD Home 的 `omdCaptureArgs` 只生成单项 `capture <source> --vault …`，C
 
 ### ANSWER-01：用用户语言呈现原文事实与审慎建议
 
-**状态：Deferred**
+**状态：Deferred。优先级：P2。**
 
 **证据与背景：** AI-03 单来源问题的回答虽然正确区分了 `Source states` 与 `Model inference`，
 但这两个标题暴露了内部校验术语，容易让用户误以为“1 source”和“model inference”代表两种
@@ -436,7 +442,10 @@ preparations with Morgan”，避免 “A cautious planning inference is …” 
 
 ### ANSWER-02：OpenAI 模型可见不等于支持结构化回答
 
-**状态：Open，发布前须修复并复测。**
+**状态：已实现自动修复，仍需 AI-04 有效 OpenAI key 原生复测。** OMD 后端现在负责精确的
+provider／model 回答契约，Home 只消费检查结果；`gpt-4.1` 可按已验证 strict schema 进入 ready，
+`gpt-4` 与未验证型号不会因出现在 catalog 中就成为 ready。Check setup 与发送前门槛都要求同一
+provider／model 的检查仍有效，不会自动换模型或把 OpenAI strict schema 降级为 JSON mode。
 
 **证据与背景：** 2026-09-14 人工测试中，OpenAI API 的 `gpt-4` 可被选择，但实际获批回答
 返回 HTTP 400；同一 provider 改用 `gpt-4o-mini` 后成功返回有来源引用的答案。OMD Home 的

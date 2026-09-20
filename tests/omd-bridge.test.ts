@@ -136,6 +136,47 @@ test("hybrid Vault Q&A gets a longer bounded bridge timeout", () => {
   assert.equal(bridgeTimeoutMs({ action: "execute_ai", hybrid_retrieval_enabled: true }), 5 * 60_000);
 });
 
+test("hosted model checks fail closed when compatibility metadata is incomplete", async () => {
+  const bridge = new OmdBridge(() => "omd", () => "python3", () => "");
+  const managedBridge = bridge as unknown as {
+    callPythonBridge: () => Promise<Record<string, unknown>>;
+  };
+  managedBridge.callPythonBridge = async () => ({
+    destination_domain: "api.openai.com",
+    models: ["gpt-4.1"],
+    model: "gpt-4.1",
+    available: true,
+    answer_compatibility: "supported",
+    answer_compatibility_reason: "The backend marked the model compatible.",
+    answer_contract: null,
+    alternative_models: [],
+  });
+
+  const result = await bridge.checkProviderModel("openai", "gpt-4.1");
+
+  assert.equal(result.available, true, "availability remains separate from answer compatibility");
+  assert.equal(result.answerCompatibility, "unverified");
+  assert.equal(result.answerContract, null);
+  assert.match(result.answerCompatibilityReason, /without identifying the answer contract/iu);
+});
+
+test("bundled bridge marks older OMD model checks unverified instead of trusting availability", () => {
+  const code = [
+    "import json",
+    "from types import SimpleNamespace",
+    "import bridge.omd_home_bridge as bridge",
+    "value = bridge._provider_answer_compatibility(SimpleNamespace(selected_model='gpt-4.1'))",
+    "print(json.dumps(value))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr);
+  const [status, reason, contract] = JSON.parse(result.stdout) as [string, string, string | null];
+  assert.equal(status, "unverified");
+  assert.match(reason, /Update OMD/iu);
+  assert.equal(contract, null);
+});
+
 test("hosted provider setup uses OMD credentials and a bounded model catalog without echoing keys", async () => {
   const root = await mkdtemp(join(tmpdir(), "omd-home-hosted-setup-"));
   const stubRoot = join(root, "stubs");
@@ -213,6 +254,9 @@ class Availability:
     available: bool
     alternative_models: tuple[str, ...]
     elapsed_seconds: float
+    answer_compatibility: str
+    answer_compatibility_reason: str
+    answer_contract: str | None
 
 def discover_provider_models(provider, api_key, timeout_seconds):
     assert api_key == "env-secret-value"
@@ -221,7 +265,17 @@ def discover_provider_models(provider, api_key, timeout_seconds):
 
 def validate_selected_model(provider, model, api_key, timeout_seconds):
     assert api_key == "env-secret-value"
-    return Availability(provider, "api.openai.com", model, model == "gpt-test-a", ("gpt-test-a", "gpt-test-b"), 0.02)
+    return Availability(
+        provider,
+        "api.openai.com",
+        model,
+        model == "gpt-test-a",
+        ("gpt-test-a", "gpt-test-b"),
+        0.02,
+        "supported" if model == "gpt-test-a" else "unverified",
+        "The exact test provider/model answer contract was checked.",
+        "strict_json_schema" if model == "gpt-test-a" else None,
+    )
 `.trimStart());
     const baseEnv = {
       ...process.env,
@@ -257,6 +311,9 @@ def validate_selected_model(provider, model, api_key, timeout_seconds):
     }, env);
     assert.equal(checked.available, true);
     assert.equal(checked.model, "gpt-test-a");
+    assert.equal(checked.answer_compatibility, "supported");
+    assert.equal(checked.answer_contract, "strict_json_schema");
+    assert.match(checked.answer_compatibility_reason, /exact test provider\/model/u);
     assert.doesNotMatch(JSON.stringify(checked), /env-secret-value/u);
 
     const dualState = spawnPython(["-c", [
@@ -2756,6 +2813,26 @@ test("hosted OpenAI tasks omit temperature while other answer providers remain d
     ollama: 0,
     openai: null,
   });
+});
+
+test("OpenAI answer tasks preserve the selected model and required output schema", () => {
+  const code = [
+    "import json",
+    "from types import SimpleNamespace",
+    "import bridge.omd_home_bridge as bridge",
+    "bridge.AITextTask = lambda **kwargs: SimpleNamespace(**kwargs)",
+    "bridge.AIOutputSchema = lambda **kwargs: SimpleNamespace(**kwargs)",
+    "task = bridge._task({'provider': 'openai', 'model': 'gpt-4o-mini', 'endpoint': 'http://localhost:11434'})",
+    "print(json.dumps({'model': task.model, 'schema_name': task.output_schema.name, 'schema': task.output_schema.schema}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as Record<string, any>;
+  assert.equal(value.model, "gpt-4o-mini");
+  assert.equal(value.schema_name, "omd_home_grounded_answer_v1");
+  assert.equal(value.schema.type, "object");
+  assert.deepEqual(value.schema.required, ["source_states", "model_inference"]);
+  assert.equal(value.schema.additionalProperties, false);
 });
 
 test("Ask AI prefers OMD's bounded section-aware answer context without changing search", () => {

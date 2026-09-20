@@ -114,6 +114,70 @@ function deferred<T>() {
   return { promise, resolve: resolveValue, reject };
 }
 
+test("dismissing the current issue clears its matching capture retry and preserves exact-ID semantics", () => {
+  const plugin = loadMethods("src/main.ts", [
+    "recordIssue", "clearIssueById", "currentIssueId", "dismissIssue",
+  ]);
+  let refreshes = 0;
+  Object.assign(plugin, {
+    issueSequence: 0,
+    lastIssueId: 0,
+    lastError: "",
+    lastErrorAt: 0,
+    lastErrorContext: "",
+    lastErrorSource: "",
+    lastCaptureFailure: null,
+    refreshHomeViews: () => { refreshes += 1; },
+  });
+  const first = plugin.recordIssue("capture", new Error("Capture failed"), "first source");
+  const second = plugin.recordIssue("capture", new Error("Capture failed"), "second source");
+  plugin.lastCaptureFailure = { id: 9, issueId: second };
+
+  plugin.dismissIssue(first);
+  assert.equal(plugin.currentIssueId(), second);
+  assert.equal(plugin.lastErrorSource, "second source");
+  assert.deepEqual(plugin.lastCaptureFailure, { id: 9, issueId: second });
+  assert.equal(refreshes, 0, "a stale card must not dismiss a newer issue");
+
+  plugin.dismissIssue(second);
+  assert.equal(plugin.currentIssueId(), 0);
+  assert.equal(plugin.lastError, "");
+  assert.equal(plugin.lastCaptureFailure, null);
+  assert.equal(refreshes, 1);
+
+  const repeated = plugin.recordIssue("capture", new Error("Capture failed"), "third source");
+  assert.ok(repeated > second, "a repeated error must receive a new dismissible issue ID");
+  assert.equal(plugin.lastError, "Capture failed");
+});
+
+test("dismissing an independent capture retry preserves the unrelated current issue", () => {
+  const plugin = loadMethods("src/main.ts", [
+    "recordIssue", "currentIssueId", "dismissCaptureFailure",
+  ]);
+  let refreshes = 0;
+  Object.assign(plugin, {
+    issueSequence: 0,
+    lastIssueId: 0,
+    lastError: "",
+    lastErrorAt: 0,
+    lastErrorContext: "",
+    lastErrorSource: "",
+    lastCaptureFailure: { id: 27, issueId: 1 },
+    refreshHomeViews: () => { refreshes += 1; },
+  });
+  const current = plugin.recordIssue("calendar", new Error("Calendar failed"));
+
+  plugin.dismissCaptureFailure(26);
+  assert.equal(plugin.lastCaptureFailure.id, 27);
+  assert.equal(refreshes, 0, "a stale retry button must not clear the current snapshot");
+
+  plugin.dismissCaptureFailure(27);
+  assert.equal(plugin.lastCaptureFailure, null);
+  assert.equal(plugin.currentIssueId(), current);
+  assert.equal(plugin.lastError, "Calendar failed");
+  assert.equal(refreshes, 1);
+});
+
 function localSetupHarness(model: LocalAiModelInfo, remote = false): { plugin: Harness; calls: string[]; vaultCalls: string[] } {
   const calls: string[] = [];
   const vaultCalls: string[] = [];
@@ -475,6 +539,108 @@ test("hosted preview checks model selection only after credentials are available
   assert.deepEqual(calls, ["credential"]);
 });
 
+for (const model of ["gpt-4", "future-openai-model"]) {
+  test(`hosted preview blocks ${model} before vault retrieval or generation`, async () => {
+    const plugin = mainHarness(["previewCloudAnswer"], {
+      DEFAULT_SETTINGS: { ollamaHost: "http://localhost:11434" },
+      normalizeLocalOllamaHost,
+    });
+    const calls: string[] = [];
+    Object.assign(plugin.settings, { aiProvider: "openai", aiModel: model, ollamaHost: "http://localhost:11434" });
+    plugin.hostedAiState = {
+      provider: "openai",
+      checkedModel: model,
+      checkedAnswerCompatibility: model === "gpt-4" ? "unsupported" : "unverified",
+      checkedAnswerContract: null,
+      code: "selected_model_incompatible",
+      detail: `Backend rejected ${model} for the exact answer contract.`,
+      activeAction: "",
+      models: [{ name: "gpt-4o-mini" }, { name: "o3-mini" }, { name: model }],
+    };
+    plugin.currentLocalAiHost = () => null;
+    plugin.qaRetrievalOptions = () => ({ hybridRetrievalEnabled: true, embeddingModel: "bge-m3", semanticRerankEnabled: false });
+    plugin.prepareQaRetrieval = async () => {
+      calls.push("retrieval");
+      return { options: plugin.qaRetrievalOptions(), warning: null };
+    };
+    plugin.omdBridge = {
+      hostedCredentialState: async () => { calls.push("credential"); return credential; },
+      previewAi: async () => { calls.push("preview"); return {}; },
+    };
+
+    await assert.rejects(
+      plugin.previewCloudAnswer("What is in my vault?", "openai", model),
+      (error: unknown) => error instanceof LocalAiError
+        && error.code === "selected_model_incompatible"
+        && /Backend rejected/u.test(error.message),
+    );
+    assert.deepEqual(calls, ["credential"]);
+  });
+}
+
+test("hosted preview requires Check setup for the exact verified OpenAI model", async () => {
+  const plugin = mainHarness(["previewCloudAnswer"], {
+    DEFAULT_SETTINGS: { ollamaHost: "http://localhost:11434" },
+    normalizeLocalOllamaHost,
+  });
+  const calls: string[] = [];
+  Object.assign(plugin.settings, { aiProvider: "openai", aiModel: "gpt-4o-mini", ollamaHost: "http://localhost:11434" });
+  plugin.currentLocalAiHost = () => null;
+  plugin.vaultPath = () => "/vault";
+  plugin.qaRetrievalOptions = () => ({ hybridRetrievalEnabled: false, embeddingModel: "", semanticRerankEnabled: false });
+  plugin.prepareQaRetrieval = async () => {
+    calls.push("retrieval");
+    return { options: plugin.qaRetrievalOptions(), warning: null, warningModel: null };
+  };
+  plugin.omdBridge = {
+    hostedCredentialState: async () => { calls.push("credential"); return credential; },
+    previewAi: async () => {
+      calls.push("preview");
+      return { preview: { destination_domain: "api.openai.com" } };
+    },
+  };
+
+  await assert.rejects(
+    plugin.previewCloudAnswer("What is in my vault?", "openai", "gpt-4o-mini"),
+    (error: unknown) => error instanceof LocalAiError
+      && error.code === "selected_model_incompatible"
+      && /Run Check setup/iu.test(error.message),
+  );
+  assert.deepEqual(calls, ["credential"]);
+
+  plugin.hostedAiState = {
+    provider: "openai",
+    checkedModel: "gpt-4o-mini",
+    checkedAnswerCompatibility: "supported",
+    checkedAnswerContract: null,
+    code: "selected_model_incompatible",
+    detail: "The backend response omitted the exact answer contract.",
+    activeAction: "",
+    models: [{ name: "gpt-4o-mini" }],
+  };
+  calls.length = 0;
+  await assert.rejects(
+    plugin.previewCloudAnswer("What is in my vault?", "openai", "gpt-4o-mini"),
+    (error: unknown) => error instanceof LocalAiError
+      && error.code === "selected_model_incompatible"
+      && /omitted the exact answer contract/iu.test(error.message),
+  );
+  assert.deepEqual(calls, ["credential"]);
+
+  plugin.hostedAiState = {
+    provider: "openai",
+    checkedModel: "gpt-4o-mini",
+    checkedAnswerCompatibility: "supported",
+    checkedAnswerContract: "strict_json_schema",
+    code: "ready",
+    activeAction: "",
+    models: [{ name: "gpt-4o-mini" }],
+  };
+  calls.length = 0;
+  await plugin.previewCloudAnswer("What is in my vault?", "openai", "gpt-4o-mini");
+  assert.deepEqual(calls, ["credential", "retrieval", "preview"]);
+});
+
 for (const provider of ["ollama", "openai"] as const) {
   test(`${provider} answer stops before consent or generation when local retrieval finds no evidence`, async () => {
     let consentOpened = false;
@@ -692,6 +858,110 @@ test("hosted setup rejects an unexpected provider destination before checking a 
   assert.equal(modelChecks, 0);
   assert.equal(plugin.hostedAiState.code, "provider_destination_mismatch");
   assert.match(plugin.hostedAiState.detail, /unexpected request destination/iu);
+});
+
+for (const [model, expectedStatus] of [["gpt-4", "unsupported"], ["future-openai-model", "unverified"]] as const) {
+  test(`hosted setup keeps an available but ${expectedStatus} OpenAI model incompatible`, async () => {
+    const plugin = mainHarness();
+    Object.assign(plugin.settings, {
+      aiProvider: "openai",
+      aiModel: model,
+      aiModels: { openai: model },
+    });
+    plugin.omdBridge = {
+      discoverProviderModels: async () => ({
+        models: [model, "gpt-4o-mini", "o3-mini"],
+        credential,
+        destinationDomain: "api.openai.com",
+      }),
+      checkProviderModel: async () => ({
+        model,
+        available: true,
+        answerCompatibility: expectedStatus,
+        answerCompatibilityReason: `${model} failed the exact backend answer contract check.`,
+        answerContract: null,
+        models: [model],
+        alternativeModels: [],
+        credential,
+        destinationDomain: "api.openai.com",
+      }),
+    };
+
+    assert.equal(await plugin.checkHostedAiConnection(), false);
+    assert.equal(plugin.hostedAiState.code, "selected_model_incompatible");
+    assert.equal(plugin.hostedAiState.checkedAnswerCompatibility, expectedStatus);
+    assert.match(plugin.hostedAiState.detail, /exact backend answer contract/iu);
+    assert.equal(plugin.hostedAiState.models.find((entry: Harness) => entry.name === model).supportsCompletion, false);
+    assert.equal(plugin.hostedAiState.models.find((entry: Harness) => entry.name === "gpt-4o-mini").answerCompatibility, undefined);
+    assert.equal(plugin.settings.aiModels.openai, model, "Check setup must not switch the selected model");
+  });
+}
+
+test("hosted setup trusts the exact backend compatibility result for GPT-4.1", async () => {
+  const plugin = mainHarness();
+  Object.assign(plugin.settings, {
+    aiProvider: "openai",
+    aiModel: "gpt-4.1",
+    aiModels: { openai: "gpt-4.1" },
+  });
+  plugin.omdBridge = {
+    discoverProviderModels: async () => ({
+      models: ["gpt-4", "gpt-4.1"],
+      credential,
+      destinationDomain: "api.openai.com",
+    }),
+    checkProviderModel: async () => ({
+      model: "gpt-4.1",
+      available: true,
+      answerCompatibility: "supported",
+      answerCompatibilityReason: "gpt-4.1 supports the OpenAI JSON schema answer contract.",
+      answerContract: "strict_json_schema",
+      models: ["gpt-4.1"],
+      alternativeModels: [],
+      credential,
+      destinationDomain: "api.openai.com",
+    }),
+  };
+
+  assert.equal(await plugin.checkHostedAiConnection(), true);
+  assert.equal(plugin.hostedAiState.code, "ready");
+  assert.equal(plugin.hostedAiState.checkedModel, "gpt-4.1");
+  assert.equal(plugin.hostedAiState.checkedAnswerCompatibility, "supported");
+  assert.equal(plugin.hostedAiState.checkedAnswerContract, "strict_json_schema");
+  assert.match(plugin.hostedAiState.detail, /OpenAI JSON schema answer contract/iu);
+  assert.equal(plugin.settings.aiModels.openai, "gpt-4.1");
+});
+
+test("hosted setup rejects a supported result without an explicit answer contract", async () => {
+  const plugin = mainHarness();
+  Object.assign(plugin.settings, {
+    aiProvider: "openai",
+    aiModel: "gpt-4.1",
+    aiModels: { openai: "gpt-4.1" },
+  });
+  plugin.omdBridge = {
+    discoverProviderModels: async () => ({
+      models: ["gpt-4.1"],
+      credential,
+      destinationDomain: "api.openai.com",
+    }),
+    checkProviderModel: async () => ({
+      model: "gpt-4.1",
+      available: true,
+      answerCompatibility: "supported",
+      answerCompatibilityReason: "The backend marked gpt-4.1 compatible.",
+      answerContract: null,
+      models: ["gpt-4.1"],
+      alternativeModels: [],
+      credential,
+      destinationDomain: "api.openai.com",
+    }),
+  };
+
+  assert.equal(await plugin.checkHostedAiConnection(), false);
+  assert.equal(plugin.hostedAiState.code, "selected_model_incompatible");
+  assert.match(plugin.hostedAiState.detail, /did not identify the answer contract/iu);
+  assert.equal(plugin.hostedAiState.models[0].supportsCompletion, false);
 });
 
 test("failed credential bridge hydration remains attempted until explicitly forced", async () => {
@@ -926,6 +1196,17 @@ test("starting a hosted credential mutation aborts an active cloud preview befor
     hybridRetrievalEnabled: false,
     ollamaHost: "http://localhost:11434",
   });
+  plugin.hostedAiState = {
+    provider: "openai",
+    checkedModel: "o3-mini",
+    checkedAnswerCompatibility: "supported",
+    checkedAnswerContract: "strict_json_schema",
+    code: "ready",
+    activeAction: "",
+    models: [{ name: "o3-mini" }],
+    credential,
+    destinationDomain: "api.openai.com",
+  };
   plugin.currentLocalAiHost = () => null;
   plugin.qaRetrievalOptions = () => ({ hybridRetrievalEnabled: false });
   plugin.prepareQaRetrieval = async () => ({

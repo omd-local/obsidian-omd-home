@@ -3,9 +3,18 @@ import test from "node:test";
 import {
   capturedOutputVaultPath,
   isOmdInboxNote,
+  omdHomeStatus,
   setOmdHomeStatusInMarkdown,
   waitForCapturedVaultFile,
 } from "../src/inbox.ts";
+
+test("OMD Home exposes only exact persisted workflow statuses", () => {
+  assert.equal(omdHomeStatus({ omd_home_status: "inbox" }), "inbox");
+  assert.equal(omdHomeStatus({ omd_home_status: "reviewed" }), "reviewed");
+  assert.equal(omdHomeStatus({ omd_home_status: "Reviewed" }), null);
+  assert.equal(omdHomeStatus({ omd_home_status: "pending" }), null);
+  assert.equal(omdHomeStatus(undefined), null);
+});
 
 test("Inbox status includes captures anywhere and hides reviewed notes", () => {
   assert.equal(isOmdInboxNote("Sources/Web/article.md", { omd_home_status: "inbox" }), true);

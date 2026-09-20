@@ -118,7 +118,10 @@ test("Home exposes unchecked Local AI recovery without duplicating owned AI fail
   assert.match(homeSource, /text: "Check setup"|\? "Checking…" : "Check setup"/u);
   assert.match(homeSource, /this\.plugin\.aiSetupBusy\(\)/u);
   assert.match(homeSource, /const localAiOwnsLastError = localAiNeedsAttention && this\.plugin\.lastErrorContext === "ai"/u);
-  assert.match(homeSource, /if \(this\.plugin\.lastError && !localAiOwnsLastError\) this\.renderLastIssue\(body\)/u);
+  assert.match(
+    homeSource,
+    /if \(this\.plugin\.lastError && !localAiOwnsLastError\) this\.renderLastIssue\(body, this\.plugin\.currentIssueId\(\)\)/u,
+  );
   assert.match(homeSource, /formatIssueTime\(this\.plugin\.localAiState\.catalogCheckedAt\)/u);
   assert.match(homeSource, /workflow\.code === this\.plugin\.localAiState\.daemonCode/u);
   assert.match(homeSource, /canOpenOllamaDesktopApp\(\)/u);

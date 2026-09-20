@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { transformSync } from "esbuild";
+import * as inbox from "../src/inbox.ts";
 import * as layout from "../src/layout.ts";
 import * as processing from "../src/processing-state.ts";
 import type { WidgetPlacement } from "../src/model.ts";
@@ -15,6 +16,7 @@ class ElementStub {
   style = { setProperty() {} };
   textContent = "";
   tagName = "";
+  type = "";
   isConnected = true;
   ownerDocument = documentStub;
   lastFocusOptions?: FocusOptions;
@@ -24,6 +26,7 @@ class ElementStub {
     child.tagName = _tag;
     child.textContent = options.text ?? "";
     child.attributes = options.attr ?? {};
+    child.type = options.type ?? "";
     this.children.push(child);
     return child;
   }
@@ -61,6 +64,8 @@ Function("require", "module", "exports", compiled)((id: string) => {
     }, Notice: class {}, setIcon() {},
   };
   if (id === "./layout") return layout;
+  if (id === "./inbox.ts") return inbox;
+  if (id === "./ollama-app") return { canOpenOllamaDesktopApp: () => false };
   if (id === "./processing-state") return processing;
   return {};
 }, module, module.exports);
@@ -78,7 +83,11 @@ interface HomeStub {
   applyPreviewLayout(): void;
   createWidget(placement: WidgetPlacement): ElementStub;
   renderWidgetBody(id: string, body: ElementStub): void;
-  renderFileList(body: ElementStub, files: unknown[], empty: string): void;
+  renderInbox(body: ElementStub, files: unknown[]): void;
+  renderFileList(body: ElementStub, files: unknown[], empty: string, showWorkflowStatus?: boolean): void;
+  renderLastIssue(body: ElementStub, issueId: number): void;
+  renderIndependentCaptureFailure(body: ElementStub, failure: unknown): void;
+  renderLocalAiAttention(body: ElementStub): void;
   bindPointerTransform(handle: ElementStub, widget: ElementStub, id: string, mode: string): void;
   readonly captureActive: boolean;
 }
@@ -260,4 +269,129 @@ test("long English, CJK and RTL note rows retain full paths and independent text
     assert.ok(elements.some((element) => element.textContent === basename && element.attributes.dir === "auto"));
     assert.ok(elements.some((element) => element.attributes["aria-label"] === `Open ${basename}`));
   }
+});
+
+test("Recent notes show exact Inbox and Reviewed Properties without adding a placeholder", () => {
+  const files = [
+    { basename: "Captured", path: "Sources/Captured.md", parent: { path: "Sources" }, stat: { mtime: 3 } },
+    { basename: "Finished", path: "Notes/Finished.md", parent: { path: "Notes" }, stat: { mtime: 2 } },
+    { basename: "Ordinary", path: "Notes/Ordinary.md", parent: { path: "Notes" }, stat: { mtime: 1 } },
+  ];
+  const frontmatter = new Map<object, Record<string, string>>([
+    [files[0], { omd_home_status: "inbox" }],
+    [files[1], { omd_home_status: "reviewed" }],
+    [files[2], { omd_home_status: "pending" }],
+  ]);
+  const app = {
+    vault: { getMarkdownFiles: () => files },
+    metadataCache: { getFileCache: (file: object) => ({ frontmatter: frontmatter.get(file) }) },
+    workspace: { openLinkText() {} },
+  };
+  const home = new Home({ app }, { isNotePinned: () => false, toggleNotePinned() {} });
+  const recent = new ElementStub();
+
+  home.renderWidgetBody("recent", recent);
+
+  const rowFor = (basename: string) => {
+    const row = recent.children.find((candidate) => candidate.descendants().some((element) => element.textContent === basename));
+    assert.ok(row);
+    return row;
+  };
+  const rowText = (basename: string) => rowFor(basename).descendants().map((element) => element.textContent);
+  assert.ok(rowText("Captured").includes("Inbox"));
+  assert.ok(rowText("Finished").includes("Reviewed"));
+  assert.ok(!rowText("Ordinary").some((text) => text === "Inbox" || text === "Reviewed"));
+  assert.equal(rowFor("Captured").children[0]?.attributes["aria-label"], "Open Captured. Status: Inbox.");
+  assert.equal(rowFor("Finished").children[0]?.attributes["aria-label"], "Open Finished. Status: Reviewed.");
+  assert.equal(rowFor("Ordinary").children[0]?.attributes["aria-label"], "Open Ordinary");
+});
+
+test("workflow status remains a Recent-only hint", () => {
+  const file = { basename: "Reviewed note", path: "Notes/Reviewed.md", parent: { path: "Notes" } };
+  const app = {
+    metadataCache: { getFileCache: () => ({ frontmatter: { omd_home_status: "reviewed" } }) },
+    workspace: { openLinkText() {} },
+  };
+  const home = new Home({ app }, { isNotePinned: () => false, toggleNotePinned() {} });
+  const body = new ElementStub();
+
+  home.renderFileList(body, [file], "Empty");
+
+  assert.ok(!body.descendants().some((element) => element.textContent === "Reviewed"));
+});
+
+test("an empty Inbox points to reviewed notes in Recent notes", () => {
+  const { home } = makeHome();
+  const body = new ElementStub();
+
+  home.renderInbox(body, []);
+
+  assert.ok(body.descendants().some((element) => element.textContent === "Reviewed notes remain available in Recent notes."));
+});
+
+test("historical issue dismissal captures the exact issue ID in an accessible button", () => {
+  let dismissedIssue = 0;
+  const plugin = {
+    lastErrorContext: "capture",
+    lastErrorAt: Date.now(),
+    lastErrorSource: "https://example.com/source",
+    lastError: "Capture failed",
+    captureFailureForCurrentIssue: () => null,
+    dismissIssue: (issueId: number) => { dismissedIssue = issueId; },
+  };
+  const home = new Home({}, plugin);
+  const body = new ElementStub();
+
+  home.renderLastIssue(body, 41);
+
+  const dismiss = body.descendants().find((element) => element.attributes["aria-label"] === "Dismiss Capture failed issue");
+  assert.ok(dismiss);
+  assert.equal(dismiss.tagName, "button");
+  assert.equal(dismiss.type, "button");
+  assert.equal(dismiss.attributes.title, "Dismiss Capture failed issue");
+  dismiss.listeners.get("click")?.({});
+  assert.equal(dismissedIssue, 41);
+});
+
+test("independent capture retry dismissal uses the exact failure ID", () => {
+  let dismissedFailure = 0;
+  const home = new Home({}, {
+    dismissCaptureFailure: (failureId: number) => { dismissedFailure = failureId; },
+    retryFailedCapture() {},
+  });
+  const body = new ElementStub();
+
+  home.renderIndependentCaptureFailure(body, {
+    id: 73,
+    issueId: 18,
+    issueContext: "capture",
+    failedAt: Date.now(),
+    detail: "Capture failed",
+    request: { source: "https://example.com/source" },
+  });
+
+  const dismiss = body.descendants().find((element) => element.attributes["aria-label"] === "Dismiss capture retry");
+  assert.ok(dismiss);
+  assert.equal(dismiss.type, "button");
+  dismiss.listeners.get("click")?.({});
+  assert.equal(dismissedFailure, 73);
+});
+
+test("live Local AI setup state has no historical dismissal control", () => {
+  const home = new Home({}, {
+    localAiState: {
+      daemonCode: "daemon_unreachable",
+      daemonDetail: "Ollama is not reachable",
+      activeAction: "",
+      workflows: {},
+    },
+    captureFailureForCurrentIssue: () => null,
+    aiSetupBusy: () => false,
+    checkLocalAiConnection() {},
+  });
+  const body = new ElementStub();
+
+  home.renderLocalAiAttention(body);
+
+  assert.ok(!body.descendants().some((element) => element.attributes["aria-label"]?.startsWith("Dismiss")));
 });

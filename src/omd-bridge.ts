@@ -3,6 +3,7 @@ import path from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import type { OmdProgressEvent, OmdSearchHit } from "./model.ts";
 import type {
+  AnswerModelCompatibilityStatus,
   HostedAiCatalog,
   HostedAiCheckResult,
   HostedAiCredentialState,
@@ -46,6 +47,12 @@ const CAPTURE_MANIFEST_RETRY_DELAYS_MS = [0, 75, 175, 350] as const;
 const MAX_CAPTURE_MANIFEST_BYTES = 1_000_000;
 const MAX_CAPTURE_MANIFESTS = 512;
 const OMD_PLANNED_OUTPUT_NAME = /^\d{4}-\d{2}-\d{2}-.+-[0-9a-f]{8}\.md$/u;
+
+function normalizeAnswerCompatibility(value: unknown): AnswerModelCompatibilityStatus {
+  return value === "supported" || value === "unsupported" || value === "unverified"
+    ? value
+    : "unverified";
+}
 
 export interface AiPreview {
   preview: {
@@ -405,6 +412,20 @@ export class OmdBridge {
     signal?: AbortSignal,
   ): Promise<HostedAiCheckResult> {
     const response = await this.callPythonBridge({ action: "check_provider_model", provider, model }, { signal });
+    const normalizedAnswerCompatibility = normalizeAnswerCompatibility(response.answer_compatibility);
+    const answerContract = typeof response.answer_contract === "string" && response.answer_contract.trim()
+      ? response.answer_contract.trim()
+      : null;
+    const answerCompatibility = normalizedAnswerCompatibility === "supported" && answerContract === null
+      ? "unverified"
+      : normalizedAnswerCompatibility;
+    const backendReason = typeof response.answer_compatibility_reason === "string"
+      && response.answer_compatibility_reason.trim()
+      ? response.answer_compatibility_reason.trim()
+      : null;
+    const answerCompatibilityReason = normalizedAnswerCompatibility === "supported" && answerContract === null
+      ? `OMD reported ${model} as compatible without identifying the answer contract. Run Check setup after updating OMD.`
+      : backendReason ?? `OMD did not verify ${model} against the selected provider's answer contract.`;
     return {
       provider,
       destinationDomain: typeof response.destination_domain === "string" ? response.destination_domain : "",
@@ -416,6 +437,9 @@ export class OmdBridge {
       alternativeModels: Array.isArray(response.alternative_models)
         ? response.alternative_models.filter((value): value is string => typeof value === "string")
         : [],
+      answerCompatibility,
+      answerCompatibilityReason,
+      answerContract,
     };
   }
 

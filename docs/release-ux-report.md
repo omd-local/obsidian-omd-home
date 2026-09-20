@@ -1,6 +1,30 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查日期：2026-09-17。使用 design-review、qa、visual-verdict 的审查方法。改动已同步回 OMD Home 与 OMD 项目，构建已安装到当前 test-vault；没有推送或对外发布。
+检查跨度：2026-09-17–2026-09-21。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；最终 P0 / P1 收口状态见下节，较早段落中的计数和待办只描述对应时间点。
+
+## P0 / P1 发布收口（2026-09-21）
+
+本轮保持现有 minimal 风格并完成发布范围内的剩余修复：生成 proposal 时持续显示明确等待状态；
+Recent 只对带 OMD 工作流 Property 的 note 显示 **Inbox**／**Reviewed**，Apply 完整成功后显示
+**Status · Reviewed**；Capture 六类字段、Recognition／Optional local AI 分区与操作区使用统一的局部
+垂直间距；Needs attention 的历史 issue 与独立 Capture Retry 可按精确实例关闭，实时 setup／连接
+问题继续由健康状态驱动，不能被关闭按钮掩盖。
+
+托管 answer model 现在由 OMD 后端按精确 provider／model 返回回答契约，Home 不再自行猜测：OpenAI／
+Anthropic 的严格 schema 与 DeepSeek 的 JSON mode + 本地 schema 校验分别如实呈现；catalog 可见但
+已知不兼容或未验证的型号不会进入 ready 或发送路径，`gpt-4.1` 等后端已验证型号可以正常通过。
+模型变更和凭证变更都会使先前检查失效，插件也不会自动替用户换模型。后端同步修复 enrichment 将语义新标签错放到 existing tags 时的
+可恢复路径，同时继续拒绝不透明／保留形式的新标签；Recognition 的 OCR／ASR 配置、错误说明、
+manifest 和 MCP／CLI contract 保持一致。
+
+自动验证结果：OMD Home 的 TypeScript、ESLint、**600 / 600** tests 与 production build 全部通过；
+OMD 后端 **1670 / 1670** tests、Ruff、compileall 以及隔离 wheel 安装／英文 OCR smoke 通过；两个仓库
+`git diff --check` 通过。真实 OpenAI key，以及 UI-01–04、UI-12–14 对应的原生深浅主题、窄窗口、
+键盘和 150% 字体复测仍按人工计划记录，不以自动结果冒充人工 PASS。
+
+Graph／Search／Backlinks／Bases 增强、ANSWER-01、Douyin／XHS cookies bridge 与 folder／list batch
+入口全部保留为 **Deferred / P2**。README 与 release checklist 已限制为 Home 实际连接的一条公共 URL
+或一个本地文件，不把 OMD 引擎自身的 P2 能力写成 Home 已支持。
 
 **20:45 候选结果（后续新发现见下方）：当时已发现的界面与交互缺陷已修复，完整前端 563 项、后端 1627 项测试通过，前端类型检查 / ESLint / 构建通过。恢复 minimal 风格后，36 组常规布局 + 8 组 Pin 对齐 + 4 组原生设置宽度模拟，共 48 组浏览器检查通过。**
 
@@ -42,6 +66,13 @@ plugin-owned capture。
 本地模型把一个新 tag 错报为现有 vault catalog tag，validator 按设计拒绝并明确显示没有 proposal
 写入。CAP-06 A 保持 PASS，B–D 继续测试。计划已把“保持关闭”改为每次 Capture 明确确认两个
 Optional local AI 开关处于 off，避免记住的 on 状态污染生命周期测试。
+
+## CAP-06 完全退出取消 D（2026-09-20）
+
+用户确认场景 D 原生通过：Capture active 时直接使用 **Cmd+Q** 完全退出 Obsidian，重开后没有
+残留 task、错误 Retry 或 `cap-06-quit` 对应的完成 note，场景 A 已完成的
+`cap-06-background` note 仍存在。D 记为 **PASS**；B、C 在没有各自最终记录前继续保持未关闭，
+不由 D 的结果代替。
 
 ## CAP-03 缺失模型失败终态（2026-09-20）
 

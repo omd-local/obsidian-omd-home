@@ -282,6 +282,7 @@ export default class OmdHomePlugin extends Plugin {
 
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
       if (file.path.startsWith("Calendar/Events/")) this.scheduleCalendarRefresh();
+      if (file.extension === "md") this.refreshHomeViews();
     }));
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
       if (!(file instanceof TFile)) return;
@@ -470,13 +471,16 @@ export default class OmdHomePlugin extends Plugin {
       if (!this.isCurrentHostedAiAction(action, provider)) return false;
       const catalogModels = catalog.models.map((name) => ({
         name,
-        capabilities: ["completion"],
-        supportsCompletion: true,
+        capabilities: [],
+        supportsCompletion: false,
       }));
       if (!checked) {
         this.hostedAiState = {
           provider,
           checkedAt: Date.now(),
+          checkedModel: undefined,
+          checkedAnswerCompatibility: undefined,
+          checkedAnswerContract: undefined,
           code: "selected_model_missing",
           detail: catalog.models.length
             ? `${providerLabel(provider)} models are loaded. Choose an answer model, then check setup again.`
@@ -498,26 +502,47 @@ export default class OmdHomePlugin extends Plugin {
         ...checked.models,
         ...checked.alternativeModels,
       ])];
+      const selectedModelMatches = checked.model === model;
+      const contractConfirmed = typeof checked.answerContract === "string" && checked.answerContract.trim().length > 0;
+      const compatible = checked.answerCompatibility === "supported" && contractConfirmed && selectedModelMatches;
+      const compatibilityDetail = selectedModelMatches
+        ? checked.answerCompatibility === "supported" && !contractConfirmed
+          ? `OMD did not identify the answer contract for ${model}. Update OMD, then run Check setup again.`
+          : checked.answerCompatibilityReason
+        : `${providerLabel(provider)} checked ${checked.model} instead of the selected model ${model}. OMD Home kept ${model} selected; choose a model and run Check setup again.`;
+      const code = !checked.available
+        ? "model_unavailable"
+        : compatible ? "ready" : "selected_model_incompatible";
       this.hostedAiState = {
         provider,
         checkedAt: Date.now(),
-        code: checked.available ? "ready" : "model_unavailable",
-        detail: checked.available
-          ? `${checked.model} is available on ${checked.destinationDomain}. Retrieval stays local, and each cloud answer needs confirmation.`
-          : `${checked.model} is not available on ${checked.destinationDomain}.`,
+        checkedModel: checked.model,
+        checkedAnswerCompatibility: checked.answerCompatibility,
+        checkedAnswerContract: checked.answerContract,
+        code,
+        detail: !checked.available
+          ? `${checked.model} is not available on ${checked.destinationDomain}.`
+          : compatible
+            ? `${checked.answerCompatibilityReason} Retrieval stays local, and each cloud answer needs confirmation.`
+            : compatibilityDetail,
         models: modelNames.map((name) => ({
           name,
-          capabilities: ["completion"],
-          supportsCompletion: true,
+          capabilities: name === checked.model && compatible ? ["completion"] : [],
+          supportsCompletion: name === checked.model && compatible,
+          answerCompatibility: name === checked.model ? checked.answerCompatibility : undefined,
+          answerCompatibilityReason: name === checked.model ? checked.answerCompatibilityReason : undefined,
+          answerContract: name === checked.model ? checked.answerContract : undefined,
         })),
         activeAction: "check-connection",
         credential: checked.credential ?? catalog.credential ?? null,
         destinationDomain: checked.destinationDomain,
       };
-      const ok = checked.available;
+      const ok = checked.available && compatible;
       const feedback = ok
         ? `Setup ready. ${providerLabel(provider)} can use ${checked.model}.`
-        : `Connection checked. ${checked.model} is unavailable for ${providerLabel(provider)}.`;
+        : checked.available
+          ? compatibilityDetail
+          : `Connection checked. ${checked.model} is unavailable for ${providerLabel(provider)}.`;
       this.setLocalAiFeedback(ok ? "success" : "error", feedback);
       new Notice(feedback);
       return ok;
@@ -527,6 +552,9 @@ export default class OmdHomePlugin extends Plugin {
       this.hostedAiState = {
         provider,
         checkedAt: Date.now(),
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
         code: mapHostedErrorCode(error),
         detail: message(error),
         models: this.hostedAiState?.provider === provider ? this.hostedAiState.models : [],
@@ -671,6 +699,9 @@ export default class OmdHomePlugin extends Plugin {
           provider,
           credential,
           checkedAt: Date.now(),
+          checkedModel: undefined,
+          checkedAnswerCompatibility: undefined,
+          checkedAnswerContract: undefined,
           code: "unchecked",
           detail: `${providerLabel(provider)} key saved. Choose a model or check setup next.`,
           activeAction: "save-key",
@@ -719,6 +750,9 @@ export default class OmdHomePlugin extends Plugin {
           provider,
           credential,
           checkedAt: Date.now(),
+          checkedModel: undefined,
+          checkedAnswerCompatibility: undefined,
+          checkedAnswerContract: undefined,
           code: credential.source === "missing" ? "credentials_missing" : "unchecked",
           detail: credential.source === "missing"
             ? `${providerLabel(provider)} key removed. Add a key before checking this provider again.`
@@ -880,6 +914,23 @@ export default class OmdHomePlugin extends Plugin {
 
   currentCaptureFailure(): CaptureFailureRecord | null {
     return this.lastCaptureFailure;
+  }
+
+  currentIssueId(): number {
+    return this.lastIssueId;
+  }
+
+  dismissIssue(issueId: number): void {
+    if (issueId !== this.lastIssueId) return;
+    if (this.lastCaptureFailure?.issueId === issueId) this.lastCaptureFailure = null;
+    this.clearIssueById(issueId);
+    this.refreshHomeViews();
+  }
+
+  dismissCaptureFailure(failureId: number): void {
+    if (this.lastCaptureFailure?.id !== failureId) return;
+    this.lastCaptureFailure = null;
+    this.refreshHomeViews();
   }
 
   get enrichmentCancelable(): boolean {
@@ -1398,6 +1449,9 @@ export default class OmdHomePlugin extends Plugin {
       this.hostedAiState = {
         ...this.hostedAiState,
         checkedAt: undefined,
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
         code: "unchecked",
         detail: `Run Check setup to validate ${providerLabel(this.hostedAiState.provider)} and the selected model.`,
         activeAction: "",
@@ -2444,11 +2498,37 @@ export default class OmdHomePlugin extends Plugin {
           );
         }
       }
-      if (!model) {
+      if (!model.trim()) {
         throw new LocalAiError(
           "selected_model_missing",
           `Choose an answer model for ${aiProviderLabel(provider)} before continuing.`,
         );
+      }
+      if (isHostedApiProvider(provider)) {
+        const state = this.hostedAiState;
+        const setupReady = state?.provider === provider
+          && state.code === "ready"
+          && state.activeAction === ""
+          && state.checkedModel === model
+          && state.checkedAnswerCompatibility === "supported"
+          && typeof state.checkedAnswerContract === "string"
+          && state.checkedAnswerContract.trim().length > 0;
+        if (!setupReady) {
+          const exactCheckedFailure = state?.provider === provider
+            && state.checkedModel === model
+            && state.checkedAnswerCompatibility !== undefined
+            && (
+              state.checkedAnswerCompatibility !== "supported"
+              || typeof state.checkedAnswerContract !== "string"
+              || !state.checkedAnswerContract.trim()
+            );
+          throw new LocalAiError(
+            "selected_model_incompatible",
+            exactCheckedFailure
+              ? state.detail
+              : `Run Check setup to validate ${aiProviderLabel(provider)} and ${model} before continuing. OMD Home will not switch models automatically.`,
+          );
+        }
       }
       const prepared = await this.prepareQaRetrieval(signal);
       retrieval = prepared.options;
@@ -2857,6 +2937,9 @@ export default class OmdHomePlugin extends Plugin {
         ...(existing ?? buildHostedState(provider)),
         provider,
         checkedAt: Date.now(),
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
         code: credential.source === "missing"
           ? "credentials_missing"
           : model ? "unchecked" : "selected_model_missing",
@@ -2876,6 +2959,9 @@ export default class OmdHomePlugin extends Plugin {
       this.hostedAiState = {
         ...(existing ?? buildHostedState(provider)),
         checkedAt: Date.now(),
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
         code: mapHostedErrorCode(error),
         detail: `Could not check ${providerLabel(provider)} credentials. ${message(error)} Run Check setup to retry.`,
       };

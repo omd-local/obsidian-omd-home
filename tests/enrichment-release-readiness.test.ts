@@ -91,7 +91,7 @@ test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures 
   assert.match(readme, /OpenAI API billing\s+stays separate from ChatGPT subscriptions, and Anthropic API billing stays\s+separate from Claude subscriptions/iu);
   assert.match(readme, /OMD Home: Refresh local AI models/iu);
   assert.match(readme, /does not auto-pull, auto-install, auto-select models, or auto-switch\s+providers/iu);
-  assert.match(readme, /Capture writes the requested Markdown note immediately; only optional link and tag changes wait for review/iu);
+  assert.match(readme, /Capture writes the requested\s+Markdown note\s+immediately; only optional link and tag changes wait for review/iu);
   assert.match(readme, /Ollama API introduction/iu);
   assert.match(readme, /OpenAI API model docs/iu);
   assert.match(readme, /Anthropic API overview/iu);
@@ -99,6 +99,55 @@ test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures 
   assert.match(readme, /Nothing is written until you explicitly press \*\*Apply\*\*/u);
   assert.match(readme, /A local file capture reads only\s+the external path you explicitly submit/iu);
   assert.match(readme, /read the detected OMD launcher's\s+first line only to identify its Python interpreter/iu);
+});
+
+test("release docs keep the single-source capture boundary explicit", () => {
+  const readme = readText("README.md");
+  const captureFlow = readText("docs/assets/omd-home-capture-flow.svg");
+  const backlog = readText("docs/ui-backlog.md");
+  const releaseChecklist = readText("docs/release-checklist.md");
+
+  assert.match(readme, /accepts one public HTTP\(S\) URL or one local file\s+per request/iu);
+  assert.match(
+    readme,
+    /The OMD engine supports cookie-gated Douyin and Xiaohongshu \/\s+Rednote share text, plus local folder and one-item-per-line list batches\. Those\s+source types are not yet connected in OMD Home/iu,
+  );
+  assert.doesNotMatch(captureFlow, /Check access, source type, cookies/iu);
+  assert.match(captureFlow, /Pass the single public URL or local file to OMD/iu);
+
+  for (const issue of ["CAPTURE-01", "CAPTURE-02", "CAPTURE-03"]) {
+    const start = backlog.indexOf(`### ${issue}`);
+    assert.notEqual(start, -1, `${issue} must remain in the backlog`);
+    const end = backlog.indexOf("\n### ", start + 4);
+    const section = backlog.slice(start, end === -1 ? undefined : end);
+    assert.match(section, /\*\*状态：Deferred。优先级：P2。/u);
+    assert.match(section, /\*\*验收标准：\*\*/u);
+  }
+
+  assert.match(
+    releaseChecklist,
+    /do not claim cookie-gated Douyin\/XHS share text or folder\/list batches are connected in OMD Home/iu,
+  );
+});
+
+test("deferred Obsidian graph enhancements remain in the P2 backlog", () => {
+  const backlog = readText("docs/ui-backlog.md");
+  for (const issue of ["UI-07", "UI-08", "UI-09", "UI-10", "UI-11"]) {
+    const start = backlog.indexOf(`### ${issue}`);
+    assert.notEqual(start, -1, `${issue} must remain in the backlog`);
+    const end = backlog.indexOf("\n### ", start + 4);
+    const section = backlog.slice(start, end === -1 ? undefined : end);
+    assert.match(section, /\*\*状态：Deferred。优先级：P2/u);
+    assert.match(section, /\*\*验收标准：\*\*/u);
+  }
+});
+
+test("Markdown metadata changes refresh Home workflow status", () => {
+  const main = readText("src/main.ts");
+  assert.match(
+    main,
+    /metadataCache\.on\("changed", \(file\) => \{[\s\S]*if \(file\.extension === "md"\) this\.refreshHomeViews\(\);[\s\S]*\}\)\)/u,
+  );
 });
 
 test("fixture manifest records the synced upstream OMD contract provenance", () => {

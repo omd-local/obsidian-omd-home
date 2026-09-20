@@ -6,6 +6,7 @@ import test from "node:test";
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
 const modalSource = readFileSync(resolve("src/modals.ts"), "utf8");
 const omniboxSource = readFileSync(resolve("src/omnibox.ts"), "utf8");
+const stylesSource = readFileSync(resolve("src/styles.css"), "utf8");
 
 test("capture only reports terminal success after the generated note enters Inbox", () => {
   const captureBody = extractMethodBody(mainSource, "async captureWithOmd(");
@@ -166,6 +167,25 @@ test("modal and omnibox build requests from vault defaults while capture choices
   assert.doesNotMatch(modalSource, /onOcrChange|onAsrChange/u);
   assert.doesNotMatch(modalSource, /onPolishChange|onSuggestChange/u);
   assert.match(openModalBody, /async \(request\) => \{[\s\S]*this\.settings\.capturePolish = request\.polish;[\s\S]*this\.settings\.captureSuggestLinksAndTags = request\.suggest;[\s\S]*try \{[\s\S]*await this\.saveSettings\(\);[\s\S]*\} catch[\s\S]*Capture will continue[\s\S]*await this\.captureWithOmd\(request, retryFailureId, true\);/u);
+});
+
+test("capture fields share one modal-scoped vertical rhythm", () => {
+  assert.match(
+    stylesSource,
+    /\.omd-capture-modal\s*\{[^}]*--omd-capture-field-block:\s*var\(--size-4-3,\s*12px\);[^}]*--omd-capture-control-gap:\s*var\(--size-4-2,\s*8px\);[^}]*--omd-capture-section-gap:\s*var\(--size-4-4,\s*16px\);/su,
+  );
+  assert.match(
+    stylesSource,
+    /\.omd-capture-modal :is\([\s\S]*\.omd-capture-source-setting,[\s\S]*\.omd-capture-tags-setting,[\s\S]*\.omd-capture-recognition > \.setting-item,[\s\S]*\.omd-capture-ai > \.setting-item:not\(\.setting-item-heading\)[\s\S]*\)\s*\{[^}]*gap:\s*var\(--omd-capture-control-gap\);[^}]*padding-block:\s*var\(--omd-capture-field-block\);/su,
+  );
+  assert.match(
+    stylesSource,
+    /\.omd-capture-recognition,\s*\.omd-capture-ai\s*\{[^}]*margin:\s*var\(--omd-capture-section-gap\) 0;/su,
+  );
+  assert.match(
+    stylesSource,
+    /\.omd-capture-modal \.omd-modal-actions\s*\{[^}]*padding-top:\s*var\(--omd-capture-field-block\);/su,
+  );
 });
 
 test("a busy Capture is rejected before it can alter preferences or interrupt Local AI", () => {
