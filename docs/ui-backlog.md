@@ -285,6 +285,36 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
 - 在深浅主题、约 390px 窄弹窗、默认宽度、100% / 150% 字体下原生复测；无裁切、重叠、横向滚动，
   且所有字段仍能通过 Tab 顺序访问。只调整排版，不改变已记住的 Capture 选项或提交语义。
 
+### UI-14：Needs attention 可关闭单条已过期错误
+
+**状态：Open。优先级：P1（正式发布 UI 收尾）；仅记录，尚未实现。**
+
+**证据与背景：** 2026-09-20 CAP-06 人工测试时，Needs attention 仍显示此前 enrichment 的
+**Vault AI failed** 和缺失测试模型产生的 **Capture can be retried**。后续流程已经恢复或用户已经
+决定不再重试时，这些历史错误仍占据面板，且目前只能等待另一次同类操作覆盖，无法逐条清理。
+用户需要关闭单个过期消息，同时保留其他仍有用的错误和恢复操作。
+
+[现场截图](assets/ui-backlog/ui-14-needs-attention-dismiss.png)
+
+**交互方向：** 在可关闭的历史错误卡片右上角加入与现有 minimal 风格一致的 `×` 图标按钮。点击后
+立即只移除该条，不弹确认对话框；关闭表示用户不再需要这条提示，不表示底层错误已经修复。由当前
+系统状态实时产生、且问题仍存在的 setup／连接状态应在恢复后自动消失，不能靠关闭按钮伪装为 ready。
+
+**验收标准：**
+
+- 每张历史任务错误卡片有独立的关闭按钮；关闭一条不会清空其他 Needs attention 项目、当前任务、
+  Recent／Inbox 内容或成功记录，也不会删除已经生成的 note。
+- 对带 **Retry capture** 的错误，关闭同时移除该条对应的过期 retry 快照和按钮；不启动 retry、
+  不取消其他任务，也不修改 Capture 默认设置。用户仍可从 Capture 重新提交来源。
+- 关闭按精确 issue 实例生效，而不是永久屏蔽同类错误；之后新发生的相同错误必须作为新项目再次出现。
+- 在同一插件会话中关闭 Home tab、切换布局或重新打开 Home 后，该条不能重新出现；插件重载后不得从
+  已失效的运行时对象恢复旧消息。当前仍不健康的 setup／连接检查可基于最新状态重新产生提示。
+- `×` 使用 button 语义、明确的 `aria-label`／tooltip 和可见键盘焦点，可通过 Tab 与 Enter／Space
+  操作；点击区域足够稳定，不与时间、滚动条、卡片正文或 widget 的 `…`／拖动控件重叠。
+- 长来源路径、多行错误、多个错误、只剩一条及清空后的 **Nothing needs attention** 都保持正确排版；
+  在深浅主题、窄窗口和 150% 字体下复测。实现时增加单条关闭、retry 记录清理、live setup 状态不可
+  被伪装为已解决，以及重新出现的新 issue 等回归测试。
+
 ## Capture source 集成缺口
 
 下表区分 OMD 引擎能力与 OMD Home 当前连接状态。**已连接**表示 Home 的单项 Capture 会把干净的
