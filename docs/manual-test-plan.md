@@ -2164,8 +2164,10 @@ Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**；�
 开始前确认 **OMD ready**。每次打开 Capture 后，无论开关当前显示什么，都要逐项确认
 **Polish Markdown** 和 **Review links and tags** 已手动切到 off（灰色／关闭位置）；任一开关仍为
 on 时不要提交。Image text language 与 Speech language 选择 **No language preference**，从而只测试
-capture 生命周期。每个场景使用下面指定的唯一 tag；在 Obsidian Search 中以
-`tag:#cap-06-background` 等查询核对是否真正生成 note。若本机在操作前已经完成任务，该次不计入
+capture 生命周期。每个场景使用下面指定的唯一 tag；用左侧 ribbon 的放大镜打开 **Obsidian 原生
+Search**（或在 Command palette 运行 **Search: Search in all files**），再以
+`tag:#cap-06-background` 等查询核对是否真正生成 note。不要把这些查询输入 OMD Home 顶部的
+omnibox；它执行 OMD 内容检索，不解析 Obsidian 的 `tag:` 运算符。若本机在操作前已经完成任务，该次不计入
 相应取消场景；保留它作为完成证据，换成 `-retry-1` 后缀的新 tag 立即重试。
 
 #### A. 关闭 Home view 后后台继续
@@ -2176,7 +2178,7 @@ capture 生命周期。每个场景使用下面指定的唯一 tag；在 Obsidia
    不点击 Cancel，也不 disable plugin。
 3. 在其他 tab 停留约 30 秒，然后从 ribbon 重新打开 OMD Home。
 4. 若仍在运行，Current task 应继续显示当前阶段；等待完成。若已经完成，Recent / Inbox 应出现新
-   note，Search `tag:#cap-06-background` 恰好有一个结果。
+   note，Obsidian 原生 Search 的 `tag:#cap-06-background` 恰好有一个结果。
 
 此场景中关闭或隐藏 Home view 不能取消 plugin-owned capture；不得新增 Needs attention 错误。
 
@@ -2191,8 +2193,9 @@ catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposa
 
 1. 再次 Capture 同一 WAV，Tags 改为 `cap-06-user-cancel`。
 2. Current task 为 active 且 **Cancel** 可见时立即点击 **Cancel**。
-3. 等待 5 秒；确认 Current task 回到 **No task running**，Search
-   `tag:#cap-06-user-cancel` 为 0，OMD Inbox 没有相应新 note。
+3. 等待 5 秒；确认 Current task 回到 **No task running**，左侧边栏的 Obsidian 原生 Search
+   `tag:#cap-06-user-cancel` 为 0，OMD Inbox 没有相应新 note。OMD Home 顶部 omnibox 返回的
+   相似内容结果不计入数量。
 4. Needs attention 不得新增这次取消的 capture failure 或 **Retry capture**；允许显示一次简短的
    cancelled Notice。之前其他测试留下的无关错误不计入本项。
 
@@ -2211,7 +2214,7 @@ catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposa
    5–10 秒。
 4. 再运行同一条只读进程命令。与基线相比，不得残留本次新增的 OMD、`mlx_whisper` 或 `ffmpeg`
    PID。
-5. 重新启用 OMD Home，从 ribbon 打开 Home。Current task 应为 **No task running**；Search
+5. 重新启用 OMD Home，从 ribbon 打开 Home。Current task 应为 **No task running**；Obsidian 原生 Search
    `tag:#cap-06-unload` 为 0，Inbox、Recent 和 Needs attention 均不得把这次中断显示为完成、
    stale active 或新的可重试失败。
 
@@ -2221,7 +2224,7 @@ catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposa
 2. 不点击 Cancel，直接使用 **Cmd+Q** 完全退出 Obsidian；关闭窗口或 Home tab 不算此步骤。
 3. 等待 5–10 秒，在 Terminal 用场景 C 的命令确认没有比空闲基线多出的 OMD、`mlx_whisper` 或
    `ffmpeg` PID。
-4. 重新打开 Obsidian 和 OMD Home。Current task 应为 **No task running**；Search
+4. 重新打开 Obsidian 和 OMD Home。Current task 应为 **No task running**；Obsidian 原生 Search
    `tag:#cap-06-quit` 为 0，且没有 partial note、Inbox/index 条目、stale active 状态或新增 Retry。
 5. 最后再用 `tag:#cap-06-background` 确认场景 A 的成功 note 仍存在；unload / quit 不得删除此前
    已完成的 capture。
