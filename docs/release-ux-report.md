@@ -30,6 +30,24 @@ OMD-01 的旧候选跳过子项记为 **PASS**。CAP-02 第 11 步仍需在真�
 `manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。
 [原生复测记录](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/automatic-discovery/native-verification.md>)。
 
+## CAP-03 缺失模型失败终态（2026-09-20）
+
+用户按 CAP-03 使用不存在的 `omd-home-cap03-missing-model:latest` 并开启 Polish Markdown 后，
+missing / unavailable 说明和 **Retry capture** 正确出现，但 Current task 当时没有立即回到 idle，
+该轮按部分失败记录。原因是失败分支在 `captureActive` 清理前先发布了一次 Home 重绘，再在 finally
+中重绘终态；界面可能停留在先发布的 active 状态，直到 Check setup 等后续动作再次刷新。
+
+修复后失败事件仍完整进入 Needs attention，但只在 capture lifecycle 已清理为 idle 后发布终态。
+新增回归锁定“terminal event 的最后一次发布发生在 `captureActive=false` 之后”。Production bundle
+通过 TypeScript、ESLint、**576 / 576** 测试和 build，安装到 test-vault 后真正停用／启用插件。
+相同 fixture 与缺失模型原生复测时，错误出现后 Current task 立即显示 **No task running**，System
+显示 **OMD idle / Last run error**，Needs attention 提供准确的 missing-model 说明、时间和
+**Retry capture**，且没有产生新 note。Retry 目视确认恢复 source、Polish Markdown、Review links
+and tags 及 No language preference 的 OCR / ASR。验证过程误生成的一份 fixture 及索引行已清理。
+
+CAP-03 第 1–6 步现在有 PASS 证据；完整 case 仍需测试者把 Local writing model 恢复为开始时记录的
+真实模型并运行 Check setup，因此当前状态保持 PARTIAL。
+
 ## CAP-02 UI-05 / UI-06 复测（2026-09-17 23:51）
 
 **正常 Apply 原生重载复测：PASS。** 早先用户点击 Apply 后收到 Review required，目标笔记已有

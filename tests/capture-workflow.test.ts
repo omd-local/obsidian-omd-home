@@ -58,6 +58,18 @@ test("capture cancellation is not persisted as a setup failure and Local AI owns
   assert.match(captureBody, /if \(!cancelled\) \{\s*const failure = createCaptureFailureRecord/su);
 });
 
+test("capture failure publishes its terminal state only after Current task is idle", () => {
+  const captureBody = extractMethodBody(mainSource, "async captureWithOmd(");
+  assert.match(
+    captureBody,
+    /new Notice\(detail\);\s*\} finally \{\s*this\.captureActive = false;\s*this\.captureCancelable = false;[\s\S]*this\.refreshHomeViews\(\);/u,
+  );
+  assert.doesNotMatch(
+    captureBody,
+    /new Notice\(detail\);\s*this\.refreshHomeViews\(\);\s*\} finally/u,
+  );
+});
+
 test("capture snapshots the full typed request and retains it only for retryable failures", () => {
   const captureBody = extractMethodBody(mainSource, "async captureWithOmd(");
   assert.match(captureBody, /const captureRequest = createCaptureRequest\(request\)/u);

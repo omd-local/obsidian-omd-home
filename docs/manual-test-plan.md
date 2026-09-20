@@ -130,7 +130,8 @@ CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判
 | PARTIAL，现在继续 | CAP-02 | Automatic setup 已 PASS；第 1–2 步只作准备，验收第 3、4、8、10、11 步；第 11 步仍须完成 Capture 后的 Suggest links and tags |
 | 已有广泛证据，Case 级结果未汇总 | Install-00、HOME-01/02、CMD-01、CAP-01、AI-00/01/07 | 当前不优先重跑；发布前把现有原生／视觉证据映射到各步骤，只补没有证据的子项 |
 | 明确 NOT RUN | AI-02 | 恢复有效 endpoint / daemon 后按完整步骤验证隔离和恢复；同时完成 UI-03 窄宽布局验收 |
-| 未完成完整人工 PASS | OMD-01、CAP-03、CAP-06 | OMD-01 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支与 unload / quit 取消仍待完成 |
+| PARTIAL，完成恢复后结束 | CAP-03 | 第 1–6 步已验证；缺失模型错误、立即 idle、Retry 及选项恢复均 PASS。现在只做第 7 步恢复原 Local writing model |
+| 未完成完整人工 PASS | OMD-01、CAP-06 | OMD-01 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支与 unload / quit 取消仍待完成 |
 | 未完成真实外部写入 | CAL-00–03 | 需要测试 Calendar 权限、Save、Linked sync 和双向 conflict；现有 UI / 模拟结果不替代外部写入 |
 | 有凭证才执行，否则 NOT RUN | AI-03、AI-04、AI-05、AI-11 的 hosted 实网分支 | 不粘贴凭证进记录；AI-04 同时复测不兼容 Structured Outputs 模型不会被当成可用 |
 | Extended，尚无完整人工 PASS | AI-06、AI-08、AI-09、AI-10 | 按依赖顺序执行；AI-09 前先完成 missing-`bge-m3` 分支，再决定是否下载模型 |
@@ -2122,15 +2123,25 @@ frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不
    开启 **Polish Markdown**，并记录 **Review links and tags**、OCR、ASR 的选择后提交。预期在写入
    新 note 前得到明确的 local model missing / unavailable 错误，Current task 回到 idle；
    Needs attention 提供这次请求的 **Retry capture**，而不是把它归为 OMD executable 错误。
+   错误出现后立刻查看 Current task；不得依靠 Check setup、切换页面或其他后续动作才刷新为 idle。
 6. 保留第 5 步失败，运行 **Check setup**。即使 Setup 显示 missing model，之前的
    **Retry capture** 仍应作为独立操作可见；点击 Retry 后，Capture 应恢复同一个 source、OCR、ASR、
    Polish Markdown 和 Review links and tags 选择。只检查恢复值，然后点击 Cancel，不再次提交。
 7. 把 **Local writing model** 恢复为开始时记录的真实本地模型，点击 **Check setup**；再次确认 OMD
    仍为 **Automatic / OMD ready**。只有这两个状态都恢复后才继续 CAP-06 或其他本地 AI 测试。
 
-通过条件：Current task 回到 idle；Needs attention 只显示一条 timestamped failure，包含安全的
-source/detail；failed capture 的 Retry 不会被无关 issue 覆盖；missing 与 old executable 不混淆；
+通过条件：第 5 步 Current task 立即回到 idle，Needs attention 显示一条包含安全 source/detail 的
+timestamped capture failure 和一个 Retry；第 6 步 Check setup 可以另显示一次 setup health，但两类
+状态各只出现一次，且 failed capture 的 Retry 不会被覆盖；missing 与 old executable 不混淆；
 同一错误不同时重复出现在多个 panels；结束时 Automatic OMD 与原 Local writing model 均已恢复。
+
+2026-09-20 原生结果：修复前用户观察到错误和 Retry 正确出现，但 Current task 没有立即回到 idle，
+因此该轮记为 **PARTIAL / FAIL**。修复将终态重绘延后到 capture lifecycle 已清理之后；安装 production
+bundle 并真正停用／启用插件后，以相同不存在的模型和 fixture 复测，错误出现时 Current task 已立即
+显示 **No task running**，System 为 **OMD idle / Last run error**，Needs attention 同时提供准确的
+missing-model 说明与 **Retry capture**，且没有写入新 note。Retry 目视确认恢复 source、Polish
+Markdown、Review links and tags；OCR / ASR 保持本轮记录的 No language preference。第 1–6 步 PASS，
+第 7 步仍由测试者按开始时记录的模型完成恢复。
 
 <a id="test-cap-06"></a>
 

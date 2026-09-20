@@ -1066,11 +1066,13 @@ export default class OmdHomePlugin extends Plugin {
       });
       this.processingEvents = this.processingEvents.slice(-40);
       new Notice(detail);
-      this.refreshHomeViews();
     } finally {
       this.captureActive = false;
       this.captureCancelable = false;
       if (this.captureController === captureController) this.captureController = null;
+      // Publish the terminal event only after the capture lifecycle is idle.
+      // Rendering the error while captureActive was still true could leave
+      // Current task showing stale active work until another Home refresh.
       this.refreshHomeViews();
     }
     if (completed) {
