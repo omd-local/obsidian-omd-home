@@ -130,7 +130,7 @@ CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判
 | PARTIAL，现在继续 | CAP-02 | Automatic setup 已 PASS；第 1–2 步只作准备，验收第 3、4、8、10、11 步；第 11 步仍须完成 Capture 后的 Suggest links and tags |
 | 已有广泛证据，Case 级结果未汇总 | Install-00、HOME-01/02、CMD-01、CAP-01、AI-00/01/07 | 当前不优先重跑；发布前把现有原生／视觉证据映射到各步骤，只补没有证据的子项 |
 | 明确 NOT RUN | AI-02 | 恢复有效 endpoint / daemon 后按完整步骤验证隔离和恢复；同时完成 UI-03 窄宽布局验收 |
-| PARTIAL，完成恢复后结束 | CAP-03 | 第 1–6 步已验证；缺失模型错误、立即 idle、Retry 及选项恢复均 PASS。现在只做第 7 步恢复原 Local writing model |
+| PASS | CAP-03 | 第 1–7 步已验证；缺失模型错误、立即 idle、Retry 与选项恢复均 PASS，原 Local writing model 已恢复，OMD ready 且 executable override 为空（Automatic） |
 | 未完成完整人工 PASS | OMD-01、CAP-06 | OMD-01 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支与 unload / quit 取消仍待完成 |
 | 未完成真实外部写入 | CAL-00–03 | 需要测试 Calendar 权限、Save、Linked sync 和双向 conflict；现有 UI / 模拟结果不替代外部写入 |
 | 有凭证才执行，否则 NOT RUN | AI-03、AI-04、AI-05、AI-11 的 hosted 实网分支 | 不粘贴凭证进记录；AI-04 同时复测不兼容 Structured Outputs 模型不会被当成可用 |
@@ -2082,8 +2082,10 @@ frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不
 
 ### CAP-03：失败归属与 Setup health
 
-开始前记录当前 **Local writing model**，确认 OMD 使用 **Automatic** 且 **Check again** 为 ready。
-本用例不删除、不降级日常 OMD，也不 pull 测试模型。
+开始前记录当前 **Local writing model**，确认 OMD 卡片显示 **OMD ready**；展开
+**Advanced OMD paths**，确认 **OMD executable override** 为空。空 override（输入框占位文字
+**Automatic discovery**）表示正在使用自动发现，界面不会另显示一个 **Automatic** 状态标签。本用例
+不删除、不降级日常 OMD，也不 pull 测试模型。
 
 1. 在 **Capture URL or file** 提交固定的不存在路径：
 
@@ -2127,21 +2129,26 @@ frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不
 6. 保留第 5 步失败，运行 **Check setup**。即使 Setup 显示 missing model，之前的
    **Retry capture** 仍应作为独立操作可见；点击 Retry 后，Capture 应恢复同一个 source、OCR、ASR、
    Polish Markdown 和 Review links and tags 选择。只检查恢复值，然后点击 Cancel，不再次提交。
-7. 把 **Local writing model** 恢复为开始时记录的真实本地模型，点击 **Check setup**；再次确认 OMD
-   仍为 **Automatic / OMD ready**。只有这两个状态都恢复后才继续 CAP-06 或其他本地 AI 测试。
+7. 把 **Local writing model** 恢复为开始时记录的真实本地模型，按需要点击 **Save model**，再点击
+   **Check setup**；确认恢复后的模型不再显示 missing / unavailable。OMD 卡片应继续显示 **OMD ready**；
+   展开 **Advanced OMD paths**，确认 **OMD executable override** 为空。这里的 Automatic 是空 override
+   所代表的配置状态，不会作为单独标签出现。以上条件恢复后再继续 CAP-06 或其他本地 AI 测试。
 
 通过条件：第 5 步 Current task 立即回到 idle，Needs attention 显示一条包含安全 source/detail 的
 timestamped capture failure 和一个 Retry；第 6 步 Check setup 可以另显示一次 setup health，但两类
 状态各只出现一次，且 failed capture 的 Retry 不会被覆盖；missing 与 old executable 不混淆；
-同一错误不同时重复出现在多个 panels；结束时 Automatic OMD 与原 Local writing model 均已恢复。
+同一错误不同时重复出现在多个 panels；结束时 OMD 显示 ready、executable override 为空，且原
+Local writing model 已恢复。
 
 2026-09-20 原生结果：修复前用户观察到错误和 Retry 正确出现，但 Current task 没有立即回到 idle，
 因此该轮记为 **PARTIAL / FAIL**。修复将终态重绘延后到 capture lifecycle 已清理之后；安装 production
 bundle 并真正停用／启用插件后，以相同不存在的模型和 fixture 复测，错误出现时 Current task 已立即
 显示 **No task running**，System 为 **OMD idle / Last run error**，Needs attention 同时提供准确的
 missing-model 说明与 **Retry capture**，且没有写入新 note。Retry 目视确认恢复 source、Polish
-Markdown、Review links and tags；OCR / ASR 保持本轮记录的 No language preference。第 1–6 步 PASS，
-第 7 步仍由测试者按开始时记录的模型完成恢复。
+Markdown、Review links and tags；OCR / ASR 保持本轮记录的 No language preference。测试者随后把
+Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**；界面直接显示 **OMD ready**。
+配置复核确认 `omdExecutable` 为自动发现值，Advanced OMD paths 中的 override 为空。因此第 1–7 步
+均 PASS，CAP-03 完整通过。
 
 <a id="test-cap-06"></a>
 

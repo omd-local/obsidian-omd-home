@@ -45,8 +45,10 @@ missing / unavailable 说明和 **Retry capture** 正确出现，但 Current tas
 **Retry capture**，且没有产生新 note。Retry 目视确认恢复 source、Polish Markdown、Review links
 and tags 及 No language preference 的 OCR / ASR。验证过程误生成的一份 fixture 及索引行已清理。
 
-CAP-03 第 1–6 步现在有 PASS 证据；完整 case 仍需测试者把 Local writing model 恢复为开始时记录的
-真实模型并运行 Check setup，因此当前状态保持 PARTIAL。
+测试者随后把 Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**，界面直接显示
+**OMD ready**。这是预期结果：Automatic 是 Advanced OMD paths 中 executable override 为空时的
+配置状态，当前 UI 不另显示 Automatic 标签。配置复核确认 `omdExecutable` 为自动发现值，override
+渲染为空，原 Local writing model 也已恢复。CAP-03 第 1–7 步均有 PASS 证据，case 状态更新为 PASS。
 
 ## CAP-02 UI-05 / UI-06 复测（2026-09-17 23:51）
 
