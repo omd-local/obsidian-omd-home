@@ -2204,9 +2204,10 @@ catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposa
 1. 可选但推荐：在 Terminal 先记录空闲基线：
 
    ```bash
-   ps -axo pid=,ppid=,command= | rg '[o]md|[m]lx_whisper|[f]fmpeg'
+   ps -axo pid=,ppid=,command= | grep -E '[o]md|[m]lx_whisper|[f]fmpeg'
    ```
 
+   这条命令只使用 macOS 自带的 `grep`，不要求另装 `rg`／ripgrep。没有输出表示当前没有匹配进程；
    基线已有的无关进程只记录，不结束。
 2. Capture 同一 WAV，Tags 填 `cap-06-unload`。确认 Current task active 且 **Cancel** 可见，但不要
    点击 Cancel。
