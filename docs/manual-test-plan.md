@@ -2154,22 +2154,72 @@ Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**；�
 
 ### CAP-06：后台继续、unload 和退出取消
 
-1. Capture 已准备的约 114 秒双语音频
-   `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/slow-bilingual-speech.wav`，
-   以制造可观察的较慢任务；确认 Current task 显示 active。如果本机处理仍在 30 秒内完成，
-   重新开始后立即执行步骤 2–4，不要改用私人或超大文件。
-2. 切到另一 Obsidian tab，至少等待 30 秒。
-3. 只关闭 OMD Home tab，不 disable plugin。
-4. 从 ribbon 重新打开 OMD Home。
+使用同一份约 114 秒的合成双语音频，不使用私人或超大文件：
 
-预期：capture 继续；重新打开后显示当前状态或完成 note。“后台”指隐藏/关闭 view，不是 disable
-插件。
+```text
+/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/slow-bilingual-speech.wav
+```
 
-5. 再启动慢 capture，在 Community plugins disable/reload OMD Home。
-6. 重复一次并在任务 active 时完全退出 Obsidian。
+开始前确认 **OMD ready**。每次 Capture 都保持 **Polish Markdown** 和 **Review links and tags**
+关闭，Image text language 与 Speech language 选择 **No language preference**，从而只测试 capture
+生命周期。每个场景使用下面指定的唯一 tag；在 Obsidian Search 中以
+`tag:#cap-06-background` 等查询核对是否真正生成 note。若本机在操作前已经完成任务，该次不计入
+相应取消场景；保留它作为完成证据，换成 `-retry-1` 后缀的新 tag 立即重试。
 
-通过条件：plugin unload/quit 会取消 child process；重开后没有 orphan task、stale active state
-或 partial success。只有明确测试用户取消时才点击 Cancel。
+#### A. 关闭 Home view 后后台继续
+
+1. 打开 **Capture URL or file**，粘贴上面的 WAV 路径；Tags 填
+   `cap-06-background`，提交。
+2. 看到 Current task 为 active 且出现 **Cancel** 后，立即切到任意普通 note；只关闭 OMD Home tab，
+   不点击 Cancel，也不 disable plugin。
+3. 在其他 tab 停留约 30 秒，然后从 ribbon 重新打开 OMD Home。
+4. 若仍在运行，Current task 应继续显示当前阶段；等待完成。若已经完成，Recent / Inbox 应出现新
+   note，Search `tag:#cap-06-background` 恰好有一个结果。
+
+此场景中关闭或隐藏 Home view 不能取消 plugin-owned capture；不得新增 Needs attention 错误。
+
+#### B. 用户明确点击 Cancel
+
+1. 再次 Capture 同一 WAV，Tags 改为 `cap-06-user-cancel`。
+2. Current task 为 active 且 **Cancel** 可见时立即点击 **Cancel**。
+3. 等待 5 秒；确认 Current task 回到 **No task running**，Search
+   `tag:#cap-06-user-cancel` 为 0，OMD Inbox 没有相应新 note。
+4. Needs attention 不得新增这次取消的 capture failure 或 **Retry capture**；允许显示一次简短的
+   cancelled Notice。之前其他测试留下的无关错误不计入本项。
+
+#### C. Disable / enable plugin 时取消 child process
+
+1. 可选但推荐：在 Terminal 先记录空闲基线：
+
+   ```bash
+   ps -axo pid=,ppid=,command= | rg '[o]md|[m]lx_whisper|[f]fmpeg'
+   ```
+
+   基线已有的无关进程只记录，不结束。
+2. Capture 同一 WAV，Tags 填 `cap-06-unload`。确认 Current task active 且 **Cancel** 可见，但不要
+   点击 Cancel。
+3. 立即打开 **Settings → Community plugins → Installed plugins**，关闭 **OMD Home** 开关；等待
+   5–10 秒。
+4. 再运行同一条只读进程命令。与基线相比，不得残留本次新增的 OMD、`mlx_whisper` 或 `ffmpeg`
+   PID。
+5. 重新启用 OMD Home，从 ribbon 打开 Home。Current task 应为 **No task running**；Search
+   `tag:#cap-06-unload` 为 0，Inbox、Recent 和 Needs attention 均不得把这次中断显示为完成、
+   stale active 或新的可重试失败。
+
+#### D. 完全退出 Obsidian 时取消 child process
+
+1. Capture 同一 WAV，Tags 填 `cap-06-quit`。确认 Current task active 且 **Cancel** 可见。
+2. 不点击 Cancel，直接使用 **Cmd+Q** 完全退出 Obsidian；关闭窗口或 Home tab 不算此步骤。
+3. 等待 5–10 秒，在 Terminal 用场景 C 的命令确认没有比空闲基线多出的 OMD、`mlx_whisper` 或
+   `ffmpeg` PID。
+4. 重新打开 Obsidian 和 OMD Home。Current task 应为 **No task running**；Search
+   `tag:#cap-06-quit` 为 0，且没有 partial note、Inbox/index 条目、stale active 状态或新增 Retry。
+5. 最后再用 `tag:#cap-06-background` 确认场景 A 的成功 note 仍存在；unload / quit 不得删除此前
+   已完成的 capture。
+
+通过条件：A 后台继续并只生成一个完成 note；B、C、D 都不生成对应 tag 的 note。B 回到 idle 且不把
+用户取消记为失败；C、D 在 10 秒内恢复到进程基线，重开后没有 orphan task、stale active、partial
+success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须通过 unload / quit 触发取消。
 
 ## 10. Release bundle
 
