@@ -2080,18 +2080,56 @@ frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不
 
 ### CAP-03：失败归属与 Setup health
 
-1. 提交不存在的本地路径。
-2. 展开 **Advanced OMD paths**，在 OMD executable override 填不存在路径，点击 **Check again**。
-3. 改为旧版/不支持 enrich_note 的 OMD，再点 **Check again**。
-4. 点击 **Use automatic** 恢复正确 OMD。
-5. 从 Home 触发一次 Ollama local AI failure。
-6. 保留该失败 capture，再运行 **Check setup** 制造或显示另一条 setup 状态；之前 capture 的
-   **Retry capture** 仍应以独立项目可见。点击后应恢复原 source、OCR、ASR、polish、tags 与
-   link/tag review 选择，而不是附着到新的 setup 错误上。
+开始前记录当前 **Local writing model**，确认 OMD 使用 **Automatic** 且 **Check again** 为 ready。
+本用例不删除、不降级日常 OMD，也不 pull 测试模型。
+
+1. 在 **Capture URL or file** 提交固定的不存在路径：
+
+   ```text
+   /tmp/omd-home-cap03-does-not-exist/document.pdf
+   ```
+
+   关闭两个 Optional local AI 开关以隔离 source 错误。预期显示缺少本地文件，Current task 回到
+   idle，不创建 Markdown；Needs attention 保留带 source 和时间的 **Retry capture**。
+2. 打开 **Settings → OMD Home → OMD → Advanced OMD paths**，在 **OMD executable override** 填：
+
+   ```text
+   /tmp/omd-home-cap03-does-not-exist/omd
+   ```
+
+   离开输入框或点击 **Check again**。预期为 **Custom OMD path not found**，并提供
+   **Use automatic**；不能显示 OMD update required。
+3. 把 override 改成仓库内固定的“不支持 enrichment”测试程序：
+
+   ```text
+   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/tools/omd-unsupported-enrichment
+   ```
+
+   点击 **Check again**。预期为 **OMD update required**，说明 custom OMD 太旧或不支持当前能力，
+   并显示 **Update guide**；不能误报 path missing。不要用 `/opt/homebrew/bin/omd` 代替这个 case：
+   当前机器上的该 launcher 支持 enrichment schema v1，只是没有完整 Recognition contract。
+4. 点击 **Use automatic**，再点 **Check again**。预期恢复 **OMD ready**，并重新解析到兼容候选；
+   确认 override 已清空后再继续。
+5. 在 **Advanced AI controls → Local writing model** 记录当前值，选择 **Custom…**，输入一个
+   `ollama list` 中不存在的 ID（本轮固定使用 `omd-home-cap03-missing-model:latest`），点击
+   **Save model**，不要 pull。回到 Home，Capture：
+
+   ```text
+   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html
+   ```
+
+   开启 **Polish Markdown**，并记录 **Review links and tags**、OCR、ASR 的选择后提交。预期在写入
+   新 note 前得到明确的 local model missing / unavailable 错误，Current task 回到 idle；
+   Needs attention 提供这次请求的 **Retry capture**，而不是把它归为 OMD executable 错误。
+6. 保留第 5 步失败，运行 **Check setup**。即使 Setup 显示 missing model，之前的
+   **Retry capture** 仍应作为独立操作可见；点击 Retry 后，Capture 应恢复同一个 source、OCR、ASR、
+   Polish Markdown 和 Review links and tags 选择。只检查恢复值，然后点击 Cancel，不再次提交。
+7. 把 **Local writing model** 恢复为开始时记录的真实本地模型，点击 **Check setup**；再次确认 OMD
+   仍为 **Automatic / OMD ready**。只有这两个状态都恢复后才继续 CAP-06 或其他本地 AI 测试。
 
 通过条件：Current task 回到 idle；Needs attention 只显示一条 timestamped failure，包含安全的
 source/detail；failed capture 的 Retry 不会被无关 issue 覆盖；missing 与 old executable 不混淆；
-同一错误不同时重复出现在多个 panels。
+同一错误不同时重复出现在多个 panels；结束时 Automatic OMD 与原 Local writing model 均已恢复。
 
 <a id="test-cap-06"></a>
 

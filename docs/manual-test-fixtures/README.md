@@ -42,6 +42,13 @@ The source text is intentionally short and explicit so OCR/ASR output can be che
 subjective scoring. The PDF is image-only: selecting its text should not reveal a text layer. It is
 an OCR/limitation fixture, not the ordinary successful PDF/path fixture used by CAP-01.
 
+## CAP-03 setup-failure input
+
+- `tools/omd-unsupported-enrichment` is an executable test double for **OMD executable override**.
+  It answers only `capabilities --json` and advertises note enrichment as unsupported, so Settings
+  must show **OMD update required** rather than **OMD not installed**. It never converts a file,
+  contacts a model, or writes to the vault. Restore **Use automatic** immediately after this case.
+
 ## Vault Q&A fixtures
 
 Phase 2 and multilingual RAG fixtures remain in `docs/benchmark-vault/`. Import them only at
