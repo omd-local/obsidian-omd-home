@@ -131,7 +131,8 @@ CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判
 | 已有广泛证据，Case 级结果未汇总 | Install-00、HOME-01/02、CMD-01、CAP-01、AI-00/01/07 | 当前不优先重跑；发布前把现有原生／视觉证据映射到各步骤，只补没有证据的子项 |
 | 明确 NOT RUN | AI-02 | 恢复有效 endpoint / daemon 后按完整步骤验证隔离和恢复；同时完成 UI-03 窄宽布局验收 |
 | PASS | CAP-03 | 第 1–7 步已验证；缺失模型错误、立即 idle、Retry 与选项恢复均 PASS，原 Local writing model 已恢复，OMD ready 且 executable override 为空（Automatic） |
-| 未完成完整人工 PASS | OMD-01、CAP-06 | OMD-01 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支与 unload / quit 取消仍待完成 |
+| PARTIAL，现在继续 | CAP-06 | A 后台继续已 PASS；关闭无关的 enrichment 失败弹窗，在下一次 Capture 明确把两个 Optional local AI 开关切到 off，再执行 B、C、D |
+| 未完成完整人工 PASS | OMD-01 | 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支仍待完成 |
 | 未完成真实外部写入 | CAL-00–03 | 需要测试 Calendar 权限、Save、Linked sync 和双向 conflict；现有 UI / 模拟结果不替代外部写入 |
 | 有凭证才执行，否则 NOT RUN | AI-03、AI-04、AI-05、AI-11 的 hosted 实网分支 | 不粘贴凭证进记录；AI-04 同时复测不兼容 Structured Outputs 模型不会被当成可用 |
 | Extended，尚无完整人工 PASS | AI-06、AI-08、AI-09、AI-10 | 按依赖顺序执行；AI-09 前先完成 missing-`bge-m3` 分支，再决定是否下载模型 |
@@ -2160,9 +2161,10 @@ Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**；�
 /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/slow-bilingual-speech.wav
 ```
 
-开始前确认 **OMD ready**。每次 Capture 都保持 **Polish Markdown** 和 **Review links and tags**
-关闭，Image text language 与 Speech language 选择 **No language preference**，从而只测试 capture
-生命周期。每个场景使用下面指定的唯一 tag；在 Obsidian Search 中以
+开始前确认 **OMD ready**。每次打开 Capture 后，无论开关当前显示什么，都要逐项确认
+**Polish Markdown** 和 **Review links and tags** 已手动切到 off（灰色／关闭位置）；任一开关仍为
+on 时不要提交。Image text language 与 Speech language 选择 **No language preference**，从而只测试
+capture 生命周期。每个场景使用下面指定的唯一 tag；在 Obsidian Search 中以
 `tag:#cap-06-background` 等查询核对是否真正生成 note。若本机在操作前已经完成任务，该次不计入
 相应取消场景；保留它作为完成证据，换成 `-retry-1` 后缀的新 tag 立即重试。
 
@@ -2177,6 +2179,13 @@ Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**；�
    note，Search `tag:#cap-06-background` 恰好有一个结果。
 
 此场景中关闭或隐藏 Home view 不能取消 plugin-owned capture；不得新增 Needs attention 错误。
+
+2026-09-20 原生结果：**A PASS。** Home view 关闭期间任务继续，生成
+`Sources/Audio/slow-bilingual-speech.md`；note 带 `cap-06-background` 和
+`omd_home_status: inbox`。完成后另弹出 enrichment 的 **Could not finish**，原因是该次实际保存的
+`capturePolish` 与 `captureSuggestLinksAndTags` 都仍为 `true`，模型随后把一个新 tag 错报为现有
+catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposal 写入。此错误不推翻 A，也
+不需要 Generate again；关闭弹窗，在 B 的 Capture 中明确把两个开关切到 off 后继续。
 
 #### B. 用户明确点击 Cancel
 

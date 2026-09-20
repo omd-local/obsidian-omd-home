@@ -30,6 +30,19 @@ OMD-01 的旧候选跳过子项记为 **PASS**。CAP-02 第 11 步仍需在真�
 `manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。
 [原生复测记录](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/automatic-discovery/native-verification.md>)。
 
+## CAP-06 后台继续 A（2026-09-20）
+
+**PASS。** 测试者使用 113.855 秒的合成 WAV 启动 Capture，在 Current task active 后关闭 OMD Home
+view，约 30 秒后重新打开。任务继续并生成 `Sources/Audio/slow-bilingual-speech.md`；只读复核确认
+note 带 `cap-06-background`、`audio` 与 `omd_home_status: inbox`，证明关闭 view 没有取消
+plugin-owned capture。
+
+完成后出现的 enrichment **Could not finish** 不属于后台 capture 失败。该次实际保存的
+`capturePolish` 与 `captureSuggestLinksAndTags` 均为 `true`，所以 Capture 完成后继续生成 proposal；
+本地模型把一个新 tag 错报为现有 vault catalog tag，validator 按设计拒绝并明确显示没有 proposal
+写入。CAP-06 A 保持 PASS，B–D 继续测试。计划已把“保持关闭”改为每次 Capture 明确确认两个
+Optional local AI 开关处于 off，避免记住的 on 状态污染生命周期测试。
+
 ## CAP-03 缺失模型失败终态（2026-09-20）
 
 用户按 CAP-03 使用不存在的 `omd-home-cap03-missing-model:latest` 并开启 Polish Markdown 后，
