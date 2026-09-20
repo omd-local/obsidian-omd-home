@@ -242,6 +242,49 @@ Properties 继续作为唯一数据源，Home 只呈现其当前值。
 - 原生复测 Capture 的 `inbox`、成功 Apply 的 `reviewed`、部分失败仍为 `inbox`、普通笔记无状态，
   同时确认 Properties 与 Home 显示一致。
 
+### UI-13：统一 Capture 弹窗字段、控件与 section 的垂直留白
+
+**状态：Open。优先级：P1（正式发布 UI 收尾）。**
+
+**证据与背景：** 2026-09-20 原生 Capture 弹窗复核发现，这不是单个控件的问题。Recognition 中
+**Speech language → No language preference** 的 dropdown 底边几乎贴着字段卡片底边；
+**Review links and tags** 的说明文字也靠近卡片底边。Image text language、Polish Markdown 以及
+前后的 **Recognition (optional)**／**Optional local AI** section 边界使用了不同的内部与外部间距，
+使同一级字段看起来像来自不同布局系统。
+
+[Review links and tags 截图](assets/ui-backlog/ui-13-review-links-spacing.png) ·
+[Speech language 截图](assets/ui-backlog/ui-13-speech-language-spacing.png)
+
+**设计复核：** Capture 属于任务型 app UI，应保持当前 minimal 风格、原生 Obsidian 控件和紧凑密度。
+问题在于垂直节奏缺少共同规则，不需要更换字体、扩大卡片、添加阴影或装饰。URL / file path、Tags、
+Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，以及底部操作区应共用一套
+字段结构：label、helper、control、卡片底边和下一 section 之间的关系一致。
+
+**统一方向：**
+
+- 使用共享的 Capture modal spacing 规则，不分别给 `select`、toggle 或某一语言行添加一次性 margin。
+- 字段卡片上下 padding 视觉等量；label 到 helper 保持紧凑，helper 到 dropdown 留出清楚的操作间隔，
+  dropdown / 最后一行 helper 到卡片底边保留完整一档留白。
+- 同级 section 标题与前一张卡片的距离一致，并明显大于 section 标题与自身说明／首个字段的距离；
+  标题应归属于后面的内容，不能贴在上一控件底边。
+- toggle 行的 label / helper 作为一个文字块与开关垂直对齐；说明换成两行时卡片自然增高，底部留白
+  不得消失。Dropdown 使用相同高度与左右 inset，但不为了对齐强行固定整张卡片高度。
+- 优先复用 Obsidian spacing / font 变量；若现有变量不能表达，只在 Capture modal 作用域定义一组
+  小型间距 token。字体、颜色、边框和圆角继续沿用当前 minimal 主题。
+
+**验收标准：**
+
+- URL / file path、Tags、Image text language、Speech language、Polish Markdown、Review links and tags
+  六类字段逐项对照：文字不贴边，内部上下留白一致，同级 label / helper 的字号、字重、颜色与行高一致。
+- Recognition 展开／折叠时，最后一个 dropdown 与 **Optional local AI** 之间没有挤压或突然过大的空洞；
+  两个 local AI toggle 与底部 Cancel / Capture 操作区也保持同一节奏。
+- Dropdown 使用 **No language preference**、**简体中文 + English**、**繁體中文 + English** 与较长的
+  unavailable 选项复测；文字不截断到不可辨认，不改变控件高度或把下方 section 推到边框上。
+- Toggle 的 on / off、helper 单行 / 多行以及 validation / unavailable 说明都要复测；不能靠隐藏说明
+  维持对齐，也不能改变开关的点击区域或键盘焦点行为。
+- 在深浅主题、约 390px 窄弹窗、默认宽度、100% / 150% 字体下原生复测；无裁切、重叠、横向滚动，
+  且所有字段仍能通过 Tab 顺序访问。只调整排版，不改变已记住的 Capture 选项或提交语义。
+
 ## Answer UX / 模型措辞方向
 
 此方向独立于 UI-01–03 的 Settings 视觉整理；关注 Ask vault 答案如何把证据与建议清楚、自然地

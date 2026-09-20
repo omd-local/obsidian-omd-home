@@ -136,9 +136,10 @@ CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判
 | Extended，尚无完整人工 PASS | AI-06、AI-08、AI-09、AI-10 | 按依赖顺序执行；AI-09 前先完成 missing-`bge-m3` 分支，再决定是否下载模型 |
 | 最后执行 | REL-01 | 所有 Core 结果稳定后，使用 disposable clean vault 验证三项 bundle、reload 和 cold restart |
 
-仍有两个已知界面 backlog 会在测试中遇到：UI-04 的 **Generating proposal** 等待提示尚未增强；
-UI-01／UI-02 仍要求按 AI-00 做最终宽／窄 Settings 人工视觉关闭。遇到这些已知项继续按实际结果记录，
-不要自动标为新回归或 PASS。
+仍有已知界面 backlog 会在测试中遇到：UI-04 的 **Generating proposal** 等待提示尚未增强；UI-12
+尚未在 Home 持久显示 Inbox／Reviewed；UI-13 尚未统一 Capture dropdown、toggle 与 section 的垂直
+留白；UI-01／UI-02 仍要求按 AI-00 做最终宽／窄 Settings 人工视觉关闭。遇到这些已知项继续按实际
+结果记录，不要自动标为新回归或 PASS。
 
 ### 1.3A.1 2026-09-17 22:54 历史交接
 
