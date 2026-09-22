@@ -80,68 +80,189 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与续测入口（2026-09-19 NZST）
+### 1.3A 当前候选与本轮入口（2026-09-22 NZST）
 
-当前已安装候选以 `c579a97d045e5a9f31e96eecb177b8d20297a66f` 为生产基线，并包含
-2026-09-19 的 Automatic OMD 候选优选修复。最终源码构建与
-`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home` 中的已安装资产一致：
+本轮只测试已经推送的 P0 / P1 修复、此前没有完成的人工分支，以及最终发布门禁。旧候选身份、已经
+明确 PASS 的步骤和 P2 设想已移到下方归档，不要从历史交接继续，也不要重新清空 vault。
 
-- `main.js`：`0b027dd0665daa3701c242bf748566ff99c5f1706fe90f33789e867d9e9120ed`
-- `styles.css`：`8e175571fe0e67b8fdcfe3280cda7e982b500f50398c3574a59221123add0c77`
-- `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
+| 字段 | 本轮准确值 |
+| --- | --- |
+| Home 源码 | `84531f9873debe5c2086ec3361f9f30733978861`（branch `agent/omd-home-baseline`） |
+| OMD 后端 | `07275994fb5e2a3522e635aec8653c619a5941a1`（branch `agent/release-ux-compat`） |
+| 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
+| 已安装 Home bundle | `main.js` `6bb08cadde49b3c3daf86eafe5ab27c5a2d57d5224676765ee292abfff67693f`；`styles.css` `3ae948c963b52b842d2c14495bc83fdd249776a74c76fea86aa16fb3023778bc`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
+| Local writing / answer model | `qwen3:4b-instruct`；2026-09-22 原生 **Check setup** 已显示 ready |
+| 当前数据 | 38 篇 Markdown；原 `data.json`、Pin、布局与测试结果均保留；Current task 为 **No task running** |
+| 自动门禁 | Home 603 / 603、TypeScript、ESLint、production build；后端 1684 / 1684、Ruff、compileall、wheel install、英文 OCR smoke |
 
-不需要重新 build、安装、清空 Vault 或重置 Settings。本次修复没有启动 Capture、没有修改测试
-笔记，也没有改变当前模型。插件保持 Automatic；原生停用／启用重载和 **Check again** 后，当前
-解析到 `/opt/homebrew/Caskroom/miniconda/base/bin/omd`（package `0.3.0b2`、protocol v1）。
+本轮安装只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，没有清空
+`data.json`、笔记、Pin 或历史结果。Obsidian 已执行 **Reload app without saving**。原生首页已看到
+Recent 中的 **Inbox**／**Reviewed**；这只是安装 smoke evidence，下面仍要完成主题、窄窗口、键盘和
+150% 缩放的人工视觉验收。
 
-稍后返回 CAP-01A 时，先记录当前 Automatic 解析出的 executable。第 8 步临时切换另一个／旧
-executable 留证后，清空 override 并再次通过 **Check again**，避免把后续环境留在未知状态。
+状态词统一如下：
 
-**现在继续 CAP-02。** 保持 Automatic，不要重新填写 executable override；第 1–2 步只用于生成
-新的 proposal 与准备 toggle 状态，然后验收第 3、4、8、10、11 步。Automatic 的 setup 前置已经
-PASS；第 11 步仍需完成一次 Capture 后再从生成的 note 运行 **Suggest links and tags**，确认两个
-入口继续使用上述同一兼容 executable。
+- **RETEST**：本轮代码改变了该路径，必须重新人工验证。
+- **FIRST PASS**：以前没有完整的原生结果，本轮首次按整项给出结论。
+- **KEEP PASS**：已有充分证据，放在归档，不重复消耗时间。
+- **NOT RUN**：缺少凭证、第二环境或外部权限；写清原因，不算失败，也不算通过。
+- **DEFERRED / P2**：本轮明确不测、不实现。
 
-CAP-01A 尚未完成的图片正文、网页三语言一致性和 Retry / config / executable 细项保留为 PARTIAL，
-可在 CAP-02 后继续。扫描 PDF 限制提示已经 PASS，不重做；语音总体验收已由用户确认 PASS，只有
-Auto-detect / `zh` / No language preference 的逐模式证据仍未记录。
+#### 当前执行队列
 
-2026-09-19 原生重现确认：修复前 Automatic 先接受 `/opt/homebrew/bin/omd`；该安装只广告
-`enrich_note`，因此 Recognition 只剩 **No language preference**。修复后 Automatic 会优先寻找同时
-广告 capture language contract 的候选并跳过该旧候选；若机器上确实只有 enrich-only OMD，仍保留
-原有 Q&A / enrichment 能力并把 Recognition 关闭，不把可选识别能力变成全局硬依赖。显式 custom
-路径同样保持原兼容边界。最终原生 **Check again** 解析到 Miniconda OMD，图像下拉包含 English、
-简中 + English、繁中 + English；语音下拉包含 Auto-detect、English、Chinese。此结果关闭 Automatic
-setup 前置和 OMD-01 的“跳过旧候选”子项，不替代 CAP-02 第 11 步的两入口实测。
+| 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
+| --- | --- | --- | --- | --- |
+| 1 | RETEST / P0+P1 | [RC-UI-01](#test-rc-ui-01) | UI-04、UI-12、UI-13、UI-14；同时关闭 Settings 宽／窄排版 | `Small local capture fixture-4.md`、不存在的 `ui-14-dismiss-me.html` |
+| 2 | RETEST / P0 | [CAP-02-R1](#test-cap-02-r1) | proposal 等待、错误 tag 恢复、Suggested note topics、Apply 后 Reviewed | `Sources/Documents/Small local capture fixture-4.md`；`qwen3:4b-instruct` |
+| 3 | RETEST | [CAP-01A](#test-cap-01a) 未完成子项 | 三种 OCR、ASR 逐模式、config / Retry；不重做扫描 PDF 与缺包隔离 | 三张 PNG、`bilingual-speech.wav`、`plain-text-web-page.html` |
+| 4 | FIRST PASS / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 精确 provider/model contract；可用、不可用、未知三种状态 | `gpt-4.1`、`gpt-5.4-pro`、`deepseek-v4-flash`、`deepseek-chat` |
+| 5 | FIRST PASS | [CAP-06](#test-cap-06) B、C | 用户 Cancel 与 disable/enable plugin 的 child-process 清理 | `slow-bilingual-speech.wav`；tags `cap-06-user-cancel`、`cap-06-unload` |
+| 6 | FIRST PASS | [OMD-01](#test-omd-01) 未完成分支、[AI-02](#test-ai-02) | missing/custom path、daemon、endpoint 与恢复 | `/tmp/omd-home-does-not-exist/omd`、`http://localhost:9999` |
+| 7 | FIRST PASS / 有凭证才做 | AI-03／04／05／11 hosted 实网分支 | 每个 provider 独立检查、preview、取消和恢复 | 问题：`@Which fixture uses the blue key, and on what day?` |
+| 8 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
+| 9 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
+| 10 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
 
-正常 Apply、UI-05 summary 范围和 UI-06 原生写入已 PASS；不再执行 Finder / TextEdit 冲突步骤。
-CAP-02 先重跑第 1–2 步作为 proposal 与 toggle 的准备，不重复判定为新的 PASS；然后验收第 3、4、
-8、10、11 步，并跳过已通过的第 5–7 步 Apply 检查。
+在这里记录本轮结果；未做的行保持空白，不要预填 PASS：
 
-#### 当前剩余测试清单
+| Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
+| --- | --- | --- | --- | --- |
+| RC-UI-01 |  |  |  |  |
+| CAP-02-R1 |  |  |  |  |
+| CAP-01A 剩余子项 |  |  |  |  |
+| ANSWER-02-R1 |  |  |  |  |
+| CAP-06 B／C |  |  |  |  |
+| OMD-01／AI-02 剩余子项 |  |  |  |  |
+| Hosted 实网 |  |  |  |  |
+| CAL-00–03 |  |  |  |  |
+| Extended AI |  |  |  |  |
+| REL-01 |  |  |  |  |
 
-下表只把已有明确证据的项目标为 PASS。浏览器模拟、自动化或某个控件的原生 smoke test 不会自动
-替代整项人工计划。
+**现在从 RC-UI-01 开始。** 完成一行后记录 `PASS / FAIL / NOT RUN`、时间、截图和一句原因，再进入
+下一行。不要为了做后面的测试提前修改当前 OMD 路径或删除模型。
 
-| 状态 | Case / 子项 | 接下来怎么做 |
+<a id="test-rc-ui-01"></a>
+
+#### RC-UI-01：本轮发布 UI 增量回归
+
+A. **Recent 状态与长文件名（UI-12）**
+
+1. 回到 OMD Home，查看 Recent notes。
+2. `Sources/Audio/slow-bilingual-speech.md` 应显示 **Inbox**；
+   `Sources/Documents/Small local capture fixture-4.md` 应显示 **Reviewed**。
+3. `OMD Captures.md`、`.raw.md` 等没有 `omd_home_status` 的普通 note 不显示状态占位，也不能因此改变
+   标题、路径或 Pin 列对齐。
+4. 在深色和浅色主题、正常宽度与窄窗口分别检查一次；长文件名应省略但不能推挤 Pin / Unpin。
+
+B. **生成等待状态（UI-04）**
+
+1. 在 `Small local capture fixture-4` 行点击 **AI tags**。
+2. 生成期间必须持续显示 **Generating suggestions…**、活动标识和“请等待”的含义；屏幕阅读器状态应
+   更新。连续按两次触发键不能启动两个 proposal。
+3. 等待到 Review 或明确错误后再继续；不能把尚未完成显示成空白或卡死。
+
+C. **Capture 留白与响应式布局（UI-13）**
+
+1. 打开 **Capture URL or file**，粘贴但不要提交：
+
+   ```text
+   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html
+   ```
+
+2. 对照 Source、Tags、Recognition、Optional local AI 与底部操作区：标题、说明、dropdown、toggle
+   和分隔线都要有一致的垂直留白，顶部文字不能贴着卡片底边。
+3. 缩窄 Obsidian 窗口，再用 **View → Zoom in** 逐步放大到约 150%；按钮应换行或堆叠，不重叠、
+   截断或产生横向滚动。最后运行 **Reset zoom**，点击 Cancel，不产生 note。
+
+D. **关闭单条历史错误（UI-14）**
+
+1. Capture 以下确定不存在的路径：
+
+   ```text
+   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/ui-14-dismiss-me.html
+   ```
+
+2. 等待 Needs attention 出现这一个 **Capture can be retried** 卡片；确认卡片有可读名称的 `×`，用
+   Tab 聚焦并按 Space / Enter 关闭。
+3. 只有这一条历史 Retry 消失；其他 issue 保留。当前 setup / daemon 等实时健康问题不能靠 `×`
+   隐藏，恢复健康后应自行消失。
+
+E. **Settings 统一排版（UI-01／02）**
+
+按 AI-00 第 1–14 步只做视觉、键盘和响应式检查。重点检查 Recognition 的
+**No language preference**、**Review links and tags**、provider model 状态和长 executable 路径；
+不要在本项粘贴 key 或发起 hosted 请求。
+
+<a id="test-cap-02-r1"></a>
+
+#### CAP-02-R1：Enrichment、等待状态与 Reviewed 回归
+
+1. 保持 OMD executable 为本节顶部记录的后端候选，Local writing model 为
+   `qwen3:4b-instruct`，先运行 **Check setup**。
+2. 从 Home 对 `Sources/Documents/Small local capture fixture-4.md` 点击 **AI tags**；也可以新 Capture
+   `small-local-file.html`，但不要同时做两个入口。
+3. 生成时完成 RC-UI-01 B。进入 Review 后确认：
+   - existing links / tags 默认选中，new tags 默认未选；
+   - **Summary preview** 只解释 proposal，不会写进 note；
+   - **Suggested note topics**／**Idea only** 是未来可建笔记的主题，Apply 不会创建 note，也不会自动
+     当作 tag；只有模型同时在 New tags 提出同名 tag 时，它才是可选择的 tag；
+   - 透明的新 tag 即使被小模型错误归到 existing catalog，也应被恢复成可审查的新 tag；不得再次只
+     因“outside current vault catalog”使整个 proposal 失败。保留形式或无法验证的 opaque ID 仍应拒绝。
+4. 只选一个 link 和一个 new tag 后 Apply。终态应显示 **Applied** 与 **Status · Reviewed**；目标 note
+   只新增所选 link / tag，并写入 `omd_home_status: reviewed`。回到 Recent，该 note 显示
+   **Reviewed**。
+5. 如果模型本轮没有产生“新 tag 错放 existing”的输出，把这一小分支记录为 `NOT EXERCISED`
+   而不是 PASS；其余确定性 UI 与 Apply 结果仍可独立判定。
+
+<a id="test-answer-02-r1"></a>
+
+#### ANSWER-02-R1：精确 hosted model contract
+
+本节只在对应 provider 已有合法 developer key 时做实网检查；没有 key 就完成文案与禁用态，然后把
+实网分支记为 `NOT RUN — no test credential`。不要把 key 写进截图、笔记或 Console。
+
+1. 每次切换 provider 后运行 **Check setup**。模型目录中“存在”不等于可回答；只有状态为 supported
+   且带非空 answer contract 才能 ready。
+2. 当前后端的可复制例子如下；只测试当前 catalog 实际返回的 ID，catalog 没有该 ID 时记
+   `NOT RUN — model absent from current catalog`，不要伪造可用性：
+
+   | Provider | 应支持的例子 | 应阻止的例子 | 未知例子 |
+   | --- | --- | --- | --- |
+   | OpenAI | `gpt-4.1` | `gpt-5.4-pro`（无所需 strict schema） | `future-openai-model` |
+   | Anthropic | `claude-sonnet-4-5-20250929` | `claude-sonnet-4-20250514` | `future-claude-model` |
+   | DeepSeek | `deepseek-v4-flash` | `deepseek-chat` | `future-deepseek-model` |
+
+3. 不支持和未验证型号必须在发送前被拦截，说明准确原因；不得自动切换、降级到另一个 model 或沿用
+   上一次 ready。支持型号应显示 provider、model 和 contract 已验证。
+4. 只对一个 supported model 打开 `@` 问题 preview，使用：
+
+   ```text
+   @Which fixture uses the blue key, and on what day?
+   ```
+
+   核对 destination、问题和 evidence excerpts 后点击 Cancel；本步骤不要求发送真实问题。
+
+#### 已完成结果归档（KEEP PASS，不重复）
+
+| Case / 子项 | 已确认结果 | 本轮处理 |
 | --- | --- | --- |
-| PASS，保留结果 | CAP-01A 扫描 PDF 限制；语音总体验收；CAP-02 正常 Apply、UI-05、UI-06 | 不重复；语音逐模式若需完整矩阵再补 |
-| PARTIAL，稍后补 | CAP-01A | 第 1–3、6–8 步；第 5 步只缺逐模式记录 |
-| PARTIAL，现在继续 | CAP-02 | Automatic setup 已 PASS；第 1–2 步只作准备，验收第 3、4、8、10、11 步；第 11 步仍须完成 Capture 后的 Suggest links and tags |
-| 已有广泛证据，Case 级结果未汇总 | Install-00、HOME-01/02、CMD-01、CAP-01、AI-00/01/07 | 当前不优先重跑；发布前把现有原生／视觉证据映射到各步骤，只补没有证据的子项 |
-| 明确 NOT RUN | AI-02 | 恢复有效 endpoint / daemon 后按完整步骤验证隔离和恢复；同时完成 UI-03 窄宽布局验收 |
-| PASS | CAP-03 | 第 1–7 步已验证；缺失模型错误、立即 idle、Retry 与选项恢复均 PASS，原 Local writing model 已恢复，OMD ready 且 executable override 为空（Automatic） |
-| PARTIAL | CAP-06 | A 后台继续与 D 完全退出取消已 PASS；B、C 尚缺明确的最终结果记录 |
-| 未完成完整人工 PASS | OMD-01 | 跳过旧 Homebrew candidate 已 PASS；其余安装／错误分支仍待完成 |
-| 未完成真实外部写入 | CAL-00–03 | 需要测试 Calendar 权限、Save、Linked sync 和双向 conflict；现有 UI / 模拟结果不替代外部写入 |
-| 有凭证才执行，否则 NOT RUN | AI-03、AI-04、AI-05、AI-11 的 hosted 实网分支 | 不粘贴凭证进记录；AI-04 同时复测不兼容 Structured Outputs 模型不会被当成可用 |
-| Extended，尚无完整人工 PASS | AI-06、AI-08、AI-09、AI-10 | 按依赖顺序执行；AI-09 前先完成 missing-`bge-m3` 分支，再决定是否下载模型 |
-| 最后执行 | REL-01 | 所有 Core 结果稳定后，使用 disposable clean vault 验证三项 bundle、reload 和 cold restart |
+| CAP-03 | 缺失模型、idle、Retry、设置恢复与 Automatic 状态全部 PASS | 不重复失败注入 |
+| CAP-06 A、D | Home tab 后台继续；Cmd+Q 取消与重开清理 PASS | 只做 B、C |
+| CAP-02 正常 Apply、UI-05、UI-06 | Apply、原生写入和 review 终态已有 PASS | 用 CAP-02-R1 只回归本轮新增状态与 validator |
+| CAP-01A 扫描 PDF | image-only PDF 显示明确不支持边界且不生成空 note | 不重复；这不代表支持扫描 PDF OCR |
+| CAP-01A 缺语言 pack 隔离 | 缺 `chi_sim` 时错误列出 requested / missing / available 与安装提示 | 不重复 wrapper 测试 |
+| 语音总体验收 | 用户已确认 PASS | 仅补 Auto-detect / Chinese / No preference 的逐模式证据 |
+| Automatic candidate 优选 | 能跳过 enrich-only Homebrew candidate 并找到带 Recognition contract 的 OMD | 当前为精确后端路径；到 OMD-01／REL-01 再验 Automatic |
+| Minimal 与 Pin 对齐 | Pin / Unpin、长标题、正常与 150% 列宽回归已有 PASS | RC-UI-01 只确认新状态文字没有破坏对齐 |
 
-UI-04、UI-12、UI-13 与 UI-14 的代码和自动回归已经完成；本轮人工测试仍需核对生成等待标识、
-Recent 的 Inbox／Reviewed、Capture 垂直留白和历史错误关闭按钮在深浅主题、窄窗口、键盘及 150%
-字体下的实际表现。UI-01／UI-02 也仍要求按 AI-00 做最终宽／窄 Settings 视觉关闭。自动测试通过不
-替代这些原生视觉结果；按实际结果记录，不要提前标为人工 PASS。
+#### 本轮明确不测（DEFERRED / P2）
+
+UI-07–11 的 Graph / Local Graph / Backlinks / Search / Bases 建议、ANSWER-01、Douyin／XHS cookies
+bridge，以及 folder / one-item-per-line batch 仍保留在 `ui-backlog.md`。它们不是本轮失败，也不能在
+发布说明中写成已经接入。除非后续代码真正实现，不为这些项目增加手工 PASS。
+
+下面的 2026-09-17／19／20 候选身份与交接只作历史证据；不要从其中的“现在继续”恢复执行。
 
 ### 1.3A.1 2026-09-17 22:54 历史交接
 
@@ -1921,6 +2042,8 @@ Calendar 测试步骤。
 
 <a id="test-cap-language"></a>
 
+<a id="test-cap-01a"></a>
+
 ### CAP-01A：OCR / ASR 语言、Config 优先级与 Retry
 
 已经准备以下 7 个小型样本，全部位于源码目录的 `docs/manual-test-fixtures/`：
@@ -1964,7 +2087,15 @@ Calendar 测试步骤。
    提交一次使用其他语言选项的 capture 后重新打开弹窗，确认它仍使用 Settings 中的 vault
    defaults，而不是把上一次 item-only 选择静默保存成默认值；取消弹窗同样不得改变默认值。
    然后在 Settings 修改一个 recognition default，再打开 Capture，确认新默认值生效。
-2. 分别以 `eng`、`chi_sim+eng`、`chi_tra+eng` capture 三张截图，确认文字与语言相符。
+2. 分别以 `eng`、`chi_sim+eng`、`chi_tra+eng` capture 三张截图，确认文字与语言相符。直接使用：
+
+   | UI 选择 | 文件 | 至少应准确出现 |
+   | --- | --- | --- |
+   | English | `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/english-ocr.png` | `English invoice code: BLUE-417`、`Meeting: Tuesday 10:30` |
+   | 简体中文 + English | `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/simplified-chinese-english-ocr.png` | `简体中文 OCR 测试`、`蓝色灯笼在窗户旁边。`、`SIM-204` |
+   | 繁體中文 + English | `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/traditional-chinese-english-ocr.png` | `繁體中文 OCR 測試`、`藍色燈籠在窗戶旁邊。`、`TRA-305` |
+
+   少量空格或标点差异可以记录为 OCR quality note；语言错用、稳定 code 错误或正文大面积乱码为 FAIL。
    再用缺少其中一个 pack 的隔离测试环境重测，不要改动日常安装；确认错误指出缺失 pack，并提示
    诊断/安装后重试。
 
@@ -1990,8 +2121,18 @@ Calendar 测试步骤。
    预期界面提示无法提取内容，并建议将页面作为图片捕获或使用带文字层的 PDF。
    清楚说明限制且不生成空笔记，才是本项“限制提示”测试的 PASS；这不表示已支持扫描 PDF OCR。
    模糊错误、无下一步提示，或空正文仍显示成功，均记录 FAIL 并保存截图。
-5. 对同一个语音样本分别选择 ASR **Auto-detect** 与 `zh`，确认前者传递明确 auto-detect，
-   后者传递明确中文 hint；再验证 **No language preference** 不等同于 Auto-detect。
+5. 对同一个语音样本
+   `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/bilingual-speech.wav`
+   分别选择 ASR **Auto-detect** 与 **Chinese**，确认前者传递明确 auto-detect，后者传递明确
+   `zh` hint；再验证 **No language preference** 不等同于 Auto-detect。原音内容只有两句：
+
+   ```text
+   English: The blue lantern is beside the window.
+   中文：蓝色灯笼在窗户旁边。
+   ```
+
+   Auto-detect 应保留两种语言的主要含义；Chinese 至少应正确识别中文句。No language preference
+   使用 adapter/config 默认值，记录实际 effective language，不要把它写成“自动检测”的同义词。
 6. 用尚不存在的准确路径
    `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/retry/retry-source.html`
    触发一次可重试失败。出现 Needs attention 后，在 Terminal 执行：
@@ -2016,15 +2157,10 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 
 ### CAP-02：本地 AI 生成 links/tags，Review 后才写入
 
-**当前续测说明（2026-09-19）**：正常 Apply、UI-05 与 UI-06 已通过原生复测。Automatic setup
-也已原生通过，并保持解析到 `/opt/homebrew/Caskroom/miniconda/base/bin/omd`。先重复第 1–2 步作为
-新 proposal 与已知 toggle 状态的准备，不把它们重复判定为新的 PASS；然后验收第 3、4、8、10、
-11 步，跳过已通过的第 5–7 步。第 9 步 Finder / TextEdit 人工竞态已经删除，由自动回归覆盖。
-
-前置已完成：保持 **OMD executable override** 为空。修复前 Automatic 曾错误选择只支持
-`enrich_note` 的 `/opt/homebrew/bin/omd`，Recognition 只显示 No language preference；修复并原生
-重载后，**Check again** 会跳过它并选择上述 Miniconda OMD，图像和语音语言列表完整。继续时不要
-恢复显式路径；第 11 步仍需验证 Capture 与随后 enrichment 使用同一路径。
+**本轮执行入口（2026-09-22）**：先做顶部 [CAP-02-R1](#test-cap-02-r1)。下面 1–11 步保留为
+完整 case 与历史证据，不要求把已经 PASS 的正常 Apply 重做一遍。当前 OMD executable 已明确设为
+`/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`，对应本轮后端 commit `0727599`；完成本轮
+enrichment 回归前不要切回 Automatic。Automatic candidate 优选另在 OMD-01／REL-01 验收。
 
 1. 在 Capture 的 **Optional local AI** 下记录两个 toggle 的初始状态，再开启
    **Review links and tags**。按测试需要决定是否同时开启 **Polish Markdown**；两个动作应保持独立，
@@ -2060,8 +2196,9 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
    只有真实的 executable、Ollama 或 endpoint 故障才提示检查 setup。不得把所有失败统一显示成
    “Check OMD, Ollama, the model, and endpoint”。
 11. Capture 完成后，从刚生成的 note 再运行 **Suggest links and tags**。两个入口的 enrichment
-   都必须继续使用同一兼容、自动发现的 OMD，不得在 Capture 后切回旧 Homebrew launcher 或
-   报旧 OMD 的 capability 错误。记录 UI 可见的 executable 路径和任何错误；此检查不要求 Apply。
+   都必须继续使用当前同一兼容 OMD，不得在 Capture 后切到另一个 launcher 或报 capability 错误。
+   记录 UI 可见的 executable 路径和任何错误；此检查不要求 Apply。在 OMD-01 专门测试 Automatic
+   时，再把本项重复一次以确认自动候选不会漂移。
 
 通过条件：Generate/Review 阶段零写入；新 tags 默认 unchecked；Apply 可选择；失败不声称成功，
 frontmatter 失败时回滚或明确报告 recoverable partial failure。
