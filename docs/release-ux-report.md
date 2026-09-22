@@ -18,7 +18,7 @@
 - Capture 最后一项恢复统一 block-end 留白；生成状态使用独立 namespaced spinner 槽位，避免主题
   pseudo-element 覆盖文字，reduced motion 时保持静态进度符号。
 
-功能源码：Home `4295f2b`（核心实现 `3095379`）；OMD
+功能源码：Home `7ec42d9`（核心实现 `3095379`）；OMD
 `113388e0b75fb6ba6b380b5d6be699ef7b4271fd`。候选 bundle SHA-256：`main.js`
 `9c09e6a34578494dd1a5493b4fdc503daa2d7e11c11abb0d53bad4f0b43d9ec5`，`styles.css`
 `a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`，`manifest.json`
