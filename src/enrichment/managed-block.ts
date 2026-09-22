@@ -57,11 +57,28 @@ export function upsertManagedLinksBlock(content: string, links: string[]): Manag
     return { ok: false, reason: "malformed-markers", message: "Managed links block markers are incomplete." };
   }
 
+  const summaryStarts = scanned.filter((line) => line.text.trim() === MANAGED_SUMMARY_START);
+  const summaryEnds = scanned.filter((line) => line.text.trim() === MANAGED_SUMMARY_END);
+  if (summaryStarts.length > 1 || summaryEnds.length > 1) {
+    return { ok: false, reason: "duplicate-markers", message: "Managed summary block markers must appear at most once." };
+  }
+  if (
+    summaryStarts.length !== summaryEnds.length
+    || (summaryStarts[0] && summaryEnds[0] && summaryEnds[0].start <= summaryStarts[0].start)
+  ) {
+    return { ok: false, reason: "malformed-markers", message: "Managed summary block markers are incomplete." };
+  }
+
   let nextBody: string;
   if (starts[0] && ends[0]) {
     nextBody = `${body.slice(0, starts[0].start)}${block}${body.slice(ends[0].end)}`;
   } else {
-    const heading = scanned.find((line) => /^##[\t ]+Full Content(?:[\t ]+#+)?[\t ]*$/u.test(line.text));
+    const heading = scanned.find((line) => (
+      /^##[\t ]+Full Content(?:[\t ]+#+)?[\t ]*$/u.test(line.text)
+      && !(summaryStarts[0] && summaryEnds[0]
+        && line.start > summaryStarts[0].start
+        && line.start < summaryEnds[0].start)
+    ));
     if (heading) {
       const prefix = body.slice(0, heading.start);
       const suffix = body.slice(heading.start);

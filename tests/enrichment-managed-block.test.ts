@@ -170,6 +170,21 @@ test("summary and links are composed in a stable managed order", () => {
   assert.equal(repeated.changed, false);
 });
 
+test("a Full Content heading inside the managed summary cannot capture the links block", () => {
+  const source = "# Note\n\n## Full Content\n\nOriginal body.\n";
+  const summary = "Overview\n\n## Full Content\n\nThis heading belongs to the reviewed summary.";
+  const summarized = upsertManagedSummaryBlock(source, summary);
+  assert.equal(summarized.ok, true);
+  if (!summarized.ok) return;
+
+  const linked = upsertManagedLinksBlock(summarized.content, ["[[Safe target]]"]);
+  assert.equal(linked.ok, true);
+  if (!linked.ok) return;
+  assert.ok(linked.content.indexOf(MANAGED_SUMMARY_END) < linked.content.indexOf(MANAGED_LINKS_START));
+  assert.ok(linked.content.indexOf(MANAGED_LINKS_END) < linked.content.lastIndexOf("## Full Content"));
+  assert.match(linked.content, /This heading belongs to the reviewed summary\.[\s\S]*omd-home:summary:end[\s\S]*omd-home:links:start/u);
+});
+
 test("summary-only insertion preserves BOM, CRLF, and fenced lookalikes", () => {
   const source = `\uFEFF# Note\r\n\r\n\`\`\`md\r\n## Summary\r\n${MANAGED_SUMMARY_START}\r\n\`\`\`\r\n\r\n## Full Content\r\nbody\r\n\r\n`;
   const result = upsertManagedSummaryBlock(source, "中文摘要。\nملخص عربي.");

@@ -90,11 +90,11 @@ npm audit --omit=dev
 | Home 功能源码 | `4295f2b`（核心实现 `3095379`；branch `agent/omd-home-baseline`） |
 | OMD 后端 | `113388e0b75fb6ba6b380b5d6be699ef7b4271fd`（branch `agent/release-ux-compat`） |
 | 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
-| 候选 Home bundle | `main.js` `e642d1a637c4553b69a42e715260734017ff429718e388de8a899a812fd974a5`；`styles.css` `a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| 候选 Home bundle | `main.js` `9c09e6a34578494dd1a5493b4fdc503daa2d7e11c11abb0d53bad4f0b43d9ec5`；`styles.css` `a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
 | OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
 | Local writing / answer model | `qwen3:4b-instruct`；2026-09-22 原生 **Check setup** 已显示 ready |
 | 当前数据 | 保留原 `data.json`、笔记、Pin、布局与历史结果；开始时记录实际 Markdown 数量和 Current task |
-| 自动门禁 | Home 629 / 629、TypeScript、ESLint、production build；后端 1685 / 1685、Ruff、compileall（排除 macOS `._*` 元数据） |
+| 自动门禁 | Home 630 / 630、TypeScript、ESLint、production build；后端 1685 / 1685、Ruff、compileall（排除 macOS `._*` 元数据） |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，不清空
 `data.json`、笔记、Pin 或历史结果。安装后的 reload smoke 只能证明插件成功载入；主题、窄窗口、

@@ -20,11 +20,11 @@
 
 功能源码：Home `4295f2b`（核心实现 `3095379`）；OMD
 `113388e0b75fb6ba6b380b5d6be699ef7b4271fd`。候选 bundle SHA-256：`main.js`
-`e642d1a637c4553b69a42e715260734017ff429718e388de8a899a812fd974a5`，`styles.css`
+`9c09e6a34578494dd1a5493b4fdc503daa2d7e11c11abb0d53bad4f0b43d9ec5`，`styles.css`
 `a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`，`manifest.json`
 `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。
 
-自动门禁：Home TypeScript、ESLint、production build 与 **629 / 629** Node tests 通过；完整测试还在
+自动门禁：Home TypeScript、ESLint、production build 与 **630 / 630** Node tests 通过；完整测试还在
 带空格的 worktree 路径运行，顺便修复 bridge test 把 URL pathname 的 `%20` 当磁盘路径的问题。
 OMD 后端 **1685 / 1685** tests、Ruff 和排除 macOS `._*` AppleDouble 元数据后的 compileall 通过；
 两个仓库 `git diff --check` 通过。RC-P2-01–03 已使用可重置的短 note、多语言长文件名和用户 Summary
