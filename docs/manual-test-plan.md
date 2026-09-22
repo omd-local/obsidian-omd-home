@@ -87,7 +87,7 @@ npm audit --omit=dev
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 功能源码 | `3095379837881a78d0498c4001f5dce44231065b`（branch `agent/omd-home-baseline`） |
+| Home 功能源码 | `4295f2b`（核心实现 `3095379`；branch `agent/omd-home-baseline`） |
 | OMD 后端 | `113388e0b75fb6ba6b380b5d6be699ef7b4271fd`（branch `agent/release-ux-compat`） |
 | 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
 | 候选 Home bundle | `main.js` `e642d1a637c4553b69a42e715260734017ff429718e388de8a899a812fd974a5`；`styles.css` `a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
