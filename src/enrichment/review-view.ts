@@ -1,13 +1,15 @@
-import { App, Modal, Notice } from "obsidian";
+import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
 import {
   canApplyEnrichment,
   createEnrichmentSelection,
   describeEnrichmentPhase,
+  enrichmentSummaryValidation,
   reconcileEnrichmentSelection,
   selectedEnrichmentCount,
   selectedSuggestions,
   stageRailItems,
   toggleEnrichmentSelection,
+  updateEnrichmentSummarySelection,
   type EnrichmentReviewState,
   type EnrichmentSelection,
   type EnrichmentSuggestion,
@@ -19,61 +21,79 @@ export interface EnrichmentApplyPayload {
   selectedSuggestions: EnrichmentSuggestion[];
 }
 
-export interface EnrichmentReviewModalCallbacks {
-  onCancel: () => void | Promise<void>;
+export interface EnrichmentReviewViewCallbacks {
+  onGenerate: () => void | Promise<void>;
+  onCancelGeneration: () => void | Promise<void>;
   onApply: (payload: EnrichmentApplyPayload) => void | Promise<void>;
-  onRetry?: () => void | Promise<void>;
+  onDoneReviewing: () => void | Promise<void>;
+  onClose: () => void;
   onOpenPath?: (path: string) => void | Promise<void>;
 }
 
-export class EnrichmentReviewModal extends Modal {
-  private state: EnrichmentReviewState;
-  private selection: EnrichmentSelection;
-  private readonly callbacks: EnrichmentReviewModalCallbacks;
-  private actionHandled = false;
+export const ENRICHMENT_REVIEW_VIEW_TYPE = "omd-home-enrichment-review";
+
+export class EnrichmentReviewView extends ItemView {
+  private state: EnrichmentReviewState | null = null;
+  private selection: EnrichmentSelection = emptySelection();
+  private callbacks: EnrichmentReviewViewCallbacks | null = null;
   private focusTimer: number | null = null;
   private focusNextRender = true;
 
-  constructor(app: App, state: EnrichmentReviewState, callbacks: EnrichmentReviewModalCallbacks) {
-    super(app);
-    this.state = state;
-    this.selection = createEnrichmentSelection(state);
-    this.callbacks = callbacks;
+  constructor(leaf: WorkspaceLeaf) {
+    super(leaf);
   }
 
-  onOpen(): void {
-    this.modalEl.addClass("omd-enrichment-modal");
-    this.titleEl.addClass("omd-enrichment-title");
-    this.titleEl.setText("OMD enrichment");
+  getViewType(): string { return ENRICHMENT_REVIEW_VIEW_TYPE; }
+  getDisplayText(): string { return "OMD review"; }
+  getIcon(): string { return "list-checks"; }
+
+  async onOpen(): Promise<void> {
+    this.contentEl.addClass("omd-enrichment-view");
     this.render();
   }
 
-  onClose(): void {
+  async onClose(): Promise<void> {
     if (this.focusTimer !== null) {
       window.clearTimeout(this.focusTimer);
       this.focusTimer = null;
     }
-    if (!this.actionHandled && isActiveDismissal(this.state.phase)) void this.callbacks.onCancel();
+    const callbacks = this.callbacks;
+    this.callbacks = null;
+    this.state = null;
+    this.selection = emptySelection();
     this.contentEl.empty();
+    callbacks?.onClose();
   }
 
-  setState(state: EnrichmentReviewState): void {
-    if (state.phase !== this.state.phase) this.focusNextRender = true;
+  bindTarget(state: EnrichmentReviewState, callbacks: EnrichmentReviewViewCallbacks): void {
+    this.state = state;
+    this.selection = createEnrichmentSelection(state);
+    this.callbacks = callbacks;
+    this.focusNextRender = true;
+    this.render();
+  }
+
+  updateState(state: EnrichmentReviewState): void {
+    if (state.targetPath !== this.state?.targetPath) return;
+    if (state.phase !== this.state?.phase) this.focusNextRender = true;
     this.state = state;
     this.selection = reconcileEnrichmentSelection(state, this.selection);
     if (this.contentEl.isConnected) this.render();
   }
 
-  getState(): EnrichmentReviewState {
+  getReviewState(): EnrichmentReviewState | null {
     return this.state;
   }
 
-  closeWithoutCallback(): void {
-    this.actionHandled = true;
-    this.close();
+  closeReview(): void {
+    this.leaf.detach();
   }
 
   private render(): void {
+    if (!this.state || !this.callbacks) {
+      this.renderEmpty();
+      return;
+    }
     if (this.focusTimer !== null) window.clearTimeout(this.focusTimer);
     const focusKey = this.currentFocusKey();
     const scrollTop = this.focusNextRender
@@ -102,18 +122,27 @@ export class EnrichmentReviewModal extends Modal {
       });
     }
 
-    const generating = this.state.phase === "generating";
+    const generating = this.state.phase === "capability" || this.state.phase === "catalog" || this.state.phase === "generating";
     const status = scroll.createDiv({
       cls: "omd-enrichment-status",
       attr: { role: "status", "aria-live": "polite", "aria-atomic": "true" },
     });
-    status.createSpan({
-      cls: `omd-enrichment-status-badge tone-${phase.tone}${generating ? " is-loading" : ""}`,
+    const statusBadge = status.createSpan({
+      cls: `omd-enrichment-status-badge tone-${phase.tone}${generating ? " omd-enrichment-status-badge--loading" : ""}`,
+    });
+    if (generating) statusBadge.createSpan({
+      cls: "omd-enrichment-loading-indicator",
+      attr: { "aria-hidden": "true" },
+    });
+    statusBadge.createSpan({
+      cls: "omd-enrichment-status-label",
       text: generating ? "Generating suggestions… Please wait." : phase.title,
     });
     status.createSpan({ cls: "omd-enrichment-status-copy", text: this.state.statusText || phase.detail });
-    if (this.state.phase === "applied") {
+    if (this.state.phase === "reviewed") {
       status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · Reviewed" });
+    } else {
+      status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · Inbox" });
     }
 
     if (showsProposal(this.state.phase)) this.renderProposal(scroll);
@@ -124,7 +153,7 @@ export class EnrichmentReviewModal extends Modal {
     const counts = selectedEnrichmentCount(this.state, this.selection);
     footerCopy.createDiv({
       cls: "omd-enrichment-count",
-      text: showsProposal(this.state.phase) ? `${counts.selected} selected / ${counts.available} available` : phase.title,
+      text: showsProposal(this.state.phase) ? selectionCountText(this.state, this.selection, counts) : phase.title,
     });
     footerCopy.createDiv({ cls: "omd-enrichment-footer-note", text: footerNote(this.state.phase) });
     this.renderActions(footer.createDiv({ cls: "omd-enrichment-actions" }));
@@ -141,21 +170,79 @@ export class EnrichmentReviewModal extends Modal {
     }
   }
 
+  private renderEmpty(): void {
+    this.contentEl.empty();
+    const empty = this.contentEl.createDiv({ cls: "omd-enrichment-empty" });
+    empty.createSpan({ cls: "omd-enrichment-eyebrow", text: "OMD REVIEW" });
+    empty.createEl("h2", { text: "No note selected" });
+    empty.createEl("p", { text: "Choose review on an inbox note to read it beside this pane." });
+  }
+
   private renderProposal(shell: HTMLElement): void {
+    const state = this.state;
+    if (!state) return;
     const summary = shell.createDiv({ cls: "omd-enrichment-summary" });
-    summary.createDiv({ cls: "omd-enrichment-section-label", text: "Proposal summary" });
-    summary.createDiv({ cls: "omd-enrichment-summary-text", text: this.state.summary || "No summary was generated." });
+    const summaryHeader = summary.createDiv({ cls: "omd-enrichment-summary-header" });
+    summaryHeader.createDiv({ cls: "omd-enrichment-section-label", text: "Proposal summary" });
+    const summaryActions = summaryHeader.createDiv({ cls: "omd-enrichment-summary-actions" });
+    const copy = summaryActions.createEl("button", {
+      cls: "omd-inline-action omd-enrichment-summary-copy",
+      type: "button",
+      text: "Copy summary",
+    });
+    copy.dataset.omdFocusKey = "summary:copy";
+    copy.disabled = !state.summary.trim();
+    copy.addEventListener("click", () => void this.copySummary());
+
+    const editable = state.phase === "review";
+    const includeRow = summary.createEl("label", { cls: "omd-enrichment-summary-option" });
+    const include = includeRow.createEl("input", { type: "checkbox" });
+    include.dataset.omdFocusKey = "summary:include";
+    include.checked = this.selection.includeSummary;
+    include.disabled = !editable || !state.summary.trim();
+    includeRow.createSpan({ text: "Add summary to note" });
+    include.addEventListener("change", () => {
+      this.selection = updateEnrichmentSummarySelection(this.selection, { includeSummary: include.checked });
+      this.render();
+    });
+
+    let summaryError: HTMLElement | null = null;
+    if (this.selection.includeSummary) {
+      const textarea = summary.createEl("textarea", {
+        cls: "omd-enrichment-summary-editor",
+        attr: {
+          dir: "auto",
+          rows: "5",
+          "aria-label": "Summary to add to note",
+        },
+      });
+      textarea.dataset.omdFocusKey = "summary:draft";
+      textarea.value = this.selection.summaryDraft;
+      textarea.readOnly = !editable;
+      summaryError = summary.createDiv({
+        cls: "omd-enrichment-summary-error",
+        attr: { role: "alert" },
+      });
+      this.syncSummaryError(summaryError, textarea);
+      textarea.addEventListener("input", () => {
+        this.selection = updateEnrichmentSummarySelection(this.selection, { summaryDraft: textarea.value });
+        this.syncSummaryError(summaryError!, textarea);
+        this.syncApplyAction();
+      });
+    } else {
+      summary.createDiv({ cls: "omd-enrichment-summary-text", text: state.summary || "No summary was generated.", attr: { dir: "auto" } });
+    }
     summary.createDiv({
       cls: "omd-enrichment-summary-footnote",
-      text: "For review only. Apply writes selected links and tags; this summary is not added to the note.",
+      text: "Optional. Review or edit it before applying. Done reviewing does not add it.",
     });
 
     const sections = shell.createDiv({ cls: "omd-enrichment-sections" });
-    this.renderSuggestionSection(sections, "Existing links", this.state.existingLinks);
-    this.renderSuggestionSection(sections, "Existing tags", this.state.existingTags);
-    this.renderSuggestionSection(sections, "New tags", this.state.newTags);
-    this.renderSuggestionSection(sections, "Suggested note topics", this.state.concepts, true);
-    this.renderWarnings(sections, this.state.warnings);
+    this.renderSuggestionSection(sections, "Existing links", state.existingLinks);
+    this.renderSuggestionSection(sections, "Existing tags", state.existingTags);
+    this.renderSuggestionSection(sections, "New tags", state.newTags);
+    this.renderSuggestionSection(sections, "Suggested note topics", state.concepts, true);
+    this.renderWarnings(sections, state.warnings);
   }
 
   private renderSuggestionSection(
@@ -176,7 +263,7 @@ export class EnrichmentReviewModal extends Modal {
       });
     }
     const list = section.createDiv({ cls: "omd-enrichment-list" });
-    const editable = this.state.phase === "review" && !displayOnly;
+    const editable = this.state?.phase === "review" && !displayOnly;
 
     for (const suggestion of suggestions) {
       const selectable = editable && suggestion.selectable !== false;
@@ -214,7 +301,7 @@ export class EnrichmentReviewModal extends Modal {
         pathButton.dataset.omdFocusKey = `path:${suggestion.id}`;
         pathButton.addEventListener("click", (event) => {
           event.stopPropagation();
-          void this.callbacks.onOpenPath?.(suggestion.path!);
+          void this.callbacks?.onOpenPath?.(suggestion.path!);
         });
       }
       if (suggestion.evidence) body.createDiv({ cls: "omd-enrichment-item-evidence", text: suggestion.evidence });
@@ -248,64 +335,70 @@ export class EnrichmentReviewModal extends Modal {
   }
 
   private renderActions(parent: HTMLElement): void {
-    const phase = this.state.phase;
+    const state = this.state;
+    const callbacks = this.callbacks;
+    if (!state || !callbacks) return;
+    const phase = state.phase;
+    if (phase === "idle") {
+      this.button(parent, "Keep in Inbox", false, () => this.closeReview());
+      this.button(parent, "Generate suggestions", false, () => callbacks.onGenerate());
+      this.button(parent, "Done reviewing", true, () => callbacks.onDoneReviewing());
+      return;
+    }
     if (phase === "review") {
-      this.button(parent, "Cancel", false, () => this.cancelAndClose());
-      const apply = this.button(parent, "Apply", true, async () => {
-        if (!canApplyEnrichment(this.state, this.selection)) return;
-        this.actionHandled = true;
-        await this.callbacks.onApply({
-          state: this.state,
-          selection: { selectedIds: { ...this.selection.selectedIds } },
-          selectedSuggestions: selectedSuggestions(this.state, this.selection),
+      this.button(parent, "Keep in Inbox", false, () => this.closeReview());
+      const apply = this.button(parent, "Apply suggestions", false, async () => {
+        if (!canApplyEnrichment(state, this.selection)) return;
+        await callbacks.onApply({
+          state,
+          selection: {
+            selectedIds: { ...this.selection.selectedIds },
+            includeSummary: this.selection.includeSummary,
+            summaryDraft: this.selection.summaryDraft,
+            summarySource: this.selection.summarySource,
+          },
+          selectedSuggestions: selectedSuggestions(state, this.selection),
         });
       });
-      apply.disabled = !canApplyEnrichment(this.state, this.selection);
+      apply.disabled = !canApplyEnrichment(state, this.selection);
       apply.setAttribute("aria-disabled", String(apply.disabled));
+      this.button(parent, "Done reviewing", true, () => callbacks.onDoneReviewing());
       return;
     }
     if (phase === "capability" || phase === "catalog" || phase === "generating") {
-      this.button(parent, "Cancel", false, () => this.cancelAndClose());
+      this.button(parent, "Cancel generation", false, () => callbacks.onCancelGeneration());
       return;
     }
-    if (phase === "error" || phase === "conflict") {
-      this.button(parent, "Close", false, () => this.closeWithoutCallback());
-      if (this.state.canRetry === false) return;
-      const retry = this.button(parent, "Generate again", true, async () => {
-        if (!this.callbacks.onRetry) return;
-        this.actionHandled = true;
-        this.close();
-        await this.callbacks.onRetry();
-      });
-      retry.disabled = !this.callbacks.onRetry;
+    if (phase === "applied" || phase === "error" || phase === "conflict" || phase === "cancelled") {
+      this.button(parent, "Keep in Inbox", false, () => this.closeReview());
+      if (state.canRetry !== false) this.button(parent, "Generate again", false, () => callbacks.onGenerate());
+      this.button(parent, "Done reviewing", true, () => callbacks.onDoneReviewing());
       return;
     }
     if (phase === "partial-failure") {
-      this.button(parent, "Close", false, () => this.closeWithoutCallback());
       const open = this.button(parent, "Open note", true, async () => {
-        if (!this.callbacks.onOpenPath) return;
-        const targetPath = this.state.targetPath;
+        if (!callbacks.onOpenPath) return;
+        const targetPath = state.targetPath;
         try {
-          await this.callbacks.onOpenPath(targetPath);
-          this.closeWithoutCallback();
+          await callbacks.onOpenPath(targetPath);
         } catch {
           new Notice("Could not open the target note. Use the target path shown above.");
         }
       });
-      open.disabled = !this.callbacks.onOpenPath;
+      open.disabled = !callbacks.onOpenPath;
       open.setAttribute("aria-disabled", String(open.disabled));
       return;
     }
     if (phase === "unavailable") {
-      this.button(parent, "Close", false, () => this.closeWithoutCallback());
+      this.button(parent, "Close review", false, () => this.closeReview());
       return;
     }
-    if (phase === "applying") {
-      const applying = this.button(parent, "Applying", false, () => undefined);
+    if (phase === "applying" || phase === "finishing") {
+      const applying = this.button(parent, phase === "finishing" ? "Finishing" : "Applying", false, () => undefined);
       applying.disabled = true;
       return;
     }
-    this.button(parent, "Close", false, () => this.closeWithoutCallback());
+    this.button(parent, "Close review", false, () => this.closeReview());
   }
 
   private button(parent: HTMLElement, label: string, primary: boolean, action: () => void | Promise<void>): HTMLButtonElement {
@@ -333,28 +426,66 @@ export class EnrichmentReviewModal extends Modal {
     return null;
   }
 
-  private async cancelAndClose(): Promise<void> {
-    this.actionHandled = true;
-    await this.callbacks.onCancel();
-    this.close();
+  private async copySummary(): Promise<void> {
+    const value = this.selection.includeSummary ? this.selection.summaryDraft : this.state?.summary ?? "";
+    if (!value.trim()) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      new Notice("Summary copied.");
+    } catch {
+      new Notice("Could not copy the summary.");
+    }
   }
+
+  private syncSummaryError(element: HTMLElement, textarea?: HTMLTextAreaElement): void {
+    const validation = enrichmentSummaryValidation(this.selection);
+    const message = validation && !validation.ok ? validation.message : "";
+    element.setText(message);
+    element.hidden = !message;
+    textarea?.setAttribute("aria-invalid", String(Boolean(message)));
+  }
+
+  private syncApplyAction(): void {
+    if (!this.state) return;
+    const apply = this.contentEl.querySelector<HTMLButtonElement>('[data-omd-focus-key="action:Apply suggestions"]');
+    if (apply) {
+      apply.disabled = !canApplyEnrichment(this.state, this.selection);
+      apply.setAttribute("aria-disabled", String(apply.disabled));
+    }
+    const count = this.contentEl.querySelector<HTMLElement>(".omd-enrichment-count");
+    if (count) count.setText(selectionCountText(this.state, this.selection, selectedEnrichmentCount(this.state, this.selection)));
+  }
+
 }
 
 function showsProposal(phase: EnrichmentReviewState["phase"]): boolean {
   return phase === "review" || phase === "applying" || phase === "applied" || phase === "conflict" || phase === "partial-failure";
 }
 
-function isActiveDismissal(phase: EnrichmentReviewState["phase"]): boolean {
-  return phase === "capability" || phase === "catalog" || phase === "generating" || phase === "review";
-}
-
 function footerNote(phase: EnrichmentReviewState["phase"]): string {
-  if (phase === "review") return "Recommended existing items start checked. New tags start unchecked.";
+  if (phase === "idle") return "Suggestions are optional. Done reviewing is the only action that changes Inbox status.";
+  if (phase === "review") return "Apply saves the selected summary, links, and tags while keeping this note in Inbox.";
   if (phase === "conflict") return "The old proposal cannot be applied. Generate again from the current note.";
   if (phase === "unavailable") return "Close this view, then start again from an available Markdown note.";
-  if (phase === "partial-failure") return "Inspect Related notes and Properties, then generate a new proposal before trying again.";
-  if (phase === "applied") return "The Inbox status changes to reviewed only after every selected write succeeds.";
-  return "Proposal generation does not write to the vault.";
+  if (phase === "partial-failure") return "Inspect Summary, Related notes, and Properties, then generate a new proposal before trying again.";
+  if (phase === "applied") return "Suggestions were saved. The note stays in Inbox until you choose Done reviewing.";
+  if (phase === "reviewed") return "The note is marked Reviewed and remains available in Recent notes.";
+  return "Generating suggestions does not write to the note.";
+}
+
+function emptySelection(): EnrichmentSelection {
+  return { selectedIds: {}, includeSummary: false, summaryDraft: "", summarySource: "" };
+}
+
+function selectionCountText(
+  state: EnrichmentReviewState,
+  selection: EnrichmentSelection,
+  counts = selectedEnrichmentCount(state, selection),
+): string {
+  const summaryAvailable = Boolean(state.summary.trim());
+  const selected = counts.selected + (selection.includeSummary ? 1 : 0);
+  const available = counts.available + (summaryAvailable ? 1 : 0);
+  return `${selected} selected / ${available} available`;
 }
 
 function suggestionKindLabel(suggestion: EnrichmentSuggestion): string {
@@ -381,6 +512,8 @@ function warningDescription(warning: string): string {
       return "A suggested concept already has a note in this vault and was left out of the proposal.";
     case "unexplained_tag_omitted":
       return "Tag suggestions without a useful explanation were left out of the proposal.";
+    case "unknown_tag_reference_omitted":
+      return "One tag suggestion used an unknown catalog reference and was left out.";
     default:
       return warning;
   }

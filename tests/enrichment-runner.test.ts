@@ -148,6 +148,28 @@ test("runner explains a rejected local-model proposal without calling it a setup
   );
 });
 
+test("runner directs legacy semantic-tag validation to an OMD update", async () => {
+  const request = sampleRequest();
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1,
+      ts: 1,
+      event: "error",
+      request_id: request.request_id,
+      kind: "invalid_model_json",
+      message: "model classified an unknown vault tag as existing",
+    }));
+    return { code: 1, stderr: "", stdout: "" };
+  });
+
+  await assert.rejects(
+    runner.run({ executable: "/opt/homebrew/bin/omd", request }),
+    (error: unknown) => error instanceof OmdEnrichmentError
+      && error.code === "invalid_response"
+      && error.message === "This OMD build cannot safely review a new tag returned as an existing tag. Update OMD, then generate again.",
+  );
+});
+
 test("runner keeps note availability failures distinct from invalid requests", async () => {
   const request = sampleRequest();
   const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {

@@ -131,6 +131,8 @@ test("enrichment phase is exposed separately from the workflow lock", () => {
   const controller = loadMethods("src/enrichment/controller.ts", ["phase", "canCancel"]);
   controller.active = { state: { phase: "review" } };
   assert.equal(controller.phase, "review");
+  assert.equal(controller.canCancel, false);
+  controller.active = { state: { phase: "generating" } };
   assert.equal(controller.canCancel, true);
   controller.active = { state: { phase: "applying" } };
   assert.equal(controller.phase, "applying");

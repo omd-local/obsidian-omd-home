@@ -6,19 +6,14 @@ import test from "node:test";
 const controllerSource = readFileSync(resolve("src/enrichment/controller.ts"), "utf8");
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
 
-test("a pending enrichment review retains the workflow mutex and blocks capture entry points", () => {
-  const start = extractMember(controllerSource, "async start(file: TFile): Promise<void>");
-  const busyAt = start.indexOf("this.setBusy(true);");
-  const reviewAt = start.indexOf("active.state = reviewState(");
-  const generationCatchAt = start.indexOf("} catch (error) {", reviewAt);
+test("a pending non-modal review releases the workflow mutex while writes still block capture", () => {
+  const generate = extractMember(controllerSource, "private async generate(");
+  const busyAt = generate.indexOf("this.setBusy(true);");
+  const reviewAt = generate.indexOf("active.state = reviewState(");
+  const releaseAt = generate.indexOf("this.setBusy(false);", reviewAt);
 
-  assert.ok(busyAt >= 0 && busyAt < reviewAt, "enrichment must claim ownership before asynchronous setup");
-  assert.ok(generationCatchAt > reviewAt, "the review success path must be identifiable");
-  assert.doesNotMatch(
-    start.slice(reviewAt, generationCatchAt),
-    /this\.setBusy\(false\)/u,
-    "entering review must not release enrichment ownership",
-  );
+  assert.ok(busyAt >= 0 && busyAt < reviewAt, "generation must claim ownership before setup");
+  assert.ok(releaseAt > reviewAt, "review must release ownership so capture can continue beside the pane");
 
   const openCapture = extractMember(mainSource, "openCaptureModal(initialSource:");
   const submitAt = openCapture.indexOf("async (request) => {");

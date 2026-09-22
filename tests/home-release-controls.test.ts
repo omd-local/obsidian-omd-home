@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { transformSync } from "esbuild";
 import * as inbox from "../src/inbox.ts";
+import * as homeNoteList from "../src/home-note-list.ts";
 import * as layout from "../src/layout.ts";
 import * as processing from "../src/processing-state.ts";
 import type { WidgetPlacement } from "../src/model.ts";
@@ -17,6 +18,7 @@ class ElementStub {
   textContent = "";
   tagName = "";
   type = "";
+  className = "";
   isConnected = true;
   ownerDocument = documentStub;
   lastFocusOptions?: FocusOptions;
@@ -26,6 +28,7 @@ class ElementStub {
     child.tagName = _tag;
     child.textContent = options.text ?? "";
     child.attributes = options.attr ?? {};
+    child.className = options.cls ?? "";
     child.type = options.type ?? "";
     this.children.push(child);
     return child;
@@ -45,8 +48,15 @@ class ElementStub {
   removeEventListener(type: string) { this.listeners.delete(type); }
   addClass() {}
   removeClass() {}
+  toggleClass() {}
+  setAttribute(name: string, value: string) { this.attributes[name] = value; }
   setPointerCapture() {}
   hasPointerCapture() { return false; }
+  querySelector(selector: string) {
+    if (!selector.startsWith(".")) return null;
+    const className = selector.slice(1);
+    return this.descendants().find((element) => element.className.split(" ").includes(className)) ?? null;
+  }
   querySelectorAll() { return []; }
   descendants(): ElementStub[] { return this.children.flatMap((child) => [child, ...child.descendants()]); }
 }
@@ -65,6 +75,7 @@ Function("require", "module", "exports", compiled)((id: string) => {
   };
   if (id === "./layout") return layout;
   if (id === "./inbox.ts") return inbox;
+  if (id === "./home-note-list.ts") return homeNoteList;
   if (id === "./ollama-app") return { canOpenOllamaDesktopApp: () => false };
   if (id === "./processing-state") return processing;
   return {};
@@ -83,6 +94,7 @@ interface HomeStub {
   applyPreviewLayout(): void;
   createWidget(placement: WidgetPlacement): ElementStub;
   renderWidgetBody(id: string, body: ElementStub): void;
+  noteSnapshot: homeNoteList.HomeNoteRow[];
   renderInbox(body: ElementStub, files: unknown[]): void;
   renderFileList(body: ElementStub, files: unknown[], empty: string, showWorkflowStatus?: boolean): void;
   renderLastIssue(body: ElementStub, issueId: number): void;
@@ -273,9 +285,9 @@ test("long English, CJK and RTL note rows retain full paths and independent text
 
 test("Recent notes show exact Inbox and Reviewed Properties without adding a placeholder", () => {
   const files = [
-    { basename: "Captured", path: "Sources/Captured.md", parent: { path: "Sources" }, stat: { mtime: 3 } },
-    { basename: "Finished", path: "Notes/Finished.md", parent: { path: "Notes" }, stat: { mtime: 2 } },
-    { basename: "Ordinary", path: "Notes/Ordinary.md", parent: { path: "Notes" }, stat: { mtime: 1 } },
+    { basename: "Captured", path: "Sources/Captured.md", parent: { path: "Sources" }, stat: { ctime: 3, mtime: 3 } },
+    { basename: "Finished", path: "Notes/Finished.md", parent: { path: "Notes" }, stat: { ctime: 2, mtime: 2 } },
+    { basename: "Ordinary", path: "Notes/Ordinary.md", parent: { path: "Notes" }, stat: { ctime: 1, mtime: 1 } },
   ];
   const frontmatter = new Map<object, Record<string, string>>([
     [files[0], { omd_home_status: "inbox" }],
@@ -288,12 +300,16 @@ test("Recent notes show exact Inbox and Reviewed Properties without adding a pla
     workspace: { openLinkText() {} },
   };
   const home = new Home({ app }, { isNotePinned: () => false, toggleNotePinned() {} });
+  home.noteSnapshot = homeNoteList.buildHomeNoteSnapshot(files, (file) => ({ frontmatter: frontmatter.get(file) }));
   const recent = new ElementStub();
 
   home.renderWidgetBody("recent", recent);
 
   const rowFor = (basename: string) => {
-    const row = recent.children.find((candidate) => candidate.descendants().some((element) => element.textContent === basename));
+    const row = recent.descendants().find((candidate) => (
+      candidate.className === "omd-note-list-row"
+      && candidate.descendants().some((element) => element.textContent === basename)
+    ));
     assert.ok(row);
     return row;
   };

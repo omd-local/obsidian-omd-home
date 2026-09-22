@@ -1,8 +1,16 @@
 export const MANAGED_LINKS_START = "<!-- omd-home:links:start -->";
 export const MANAGED_LINKS_END = "<!-- omd-home:links:end -->";
 export const MANAGED_LINKS_HEADING = "## Related notes";
+export const MANAGED_SUMMARY_START = "<!-- omd-home:summary:start -->";
+export const MANAGED_SUMMARY_END = "<!-- omd-home:summary:end -->";
+export const MANAGED_SUMMARY_HEADING = "## Summary";
 
-export type ManagedBlockFailureReason = "duplicate-markers" | "malformed-markers" | "invalid-link";
+export type ManagedBlockFailureReason =
+  | "duplicate-markers"
+  | "malformed-markers"
+  | "invalid-link"
+  | "invalid-summary"
+  | "summary-heading-collision";
 
 export type ManagedBlockResult =
   | { ok: true; content: string; changed: boolean }
@@ -17,6 +25,11 @@ interface ScannedLine {
 interface FenceState {
   marker: "`" | "~";
   length: number;
+}
+
+export interface ManagedEnrichmentBlocks {
+  links?: string[];
+  summary?: string;
 }
 
 export function upsertManagedLinksBlock(content: string, links: string[]): ManagedBlockResult {
@@ -62,6 +75,118 @@ export function upsertManagedLinksBlock(content: string, links: string[]): Manag
 
   const next = `${bom}${nextBody}`;
   return { ok: true, content: next, changed: next !== content };
+}
+
+export function upsertManagedSummaryBlock(content: string, summary: string): ManagedBlockResult {
+  const validated = validateManagedSummaryText(summary);
+  if (!validated.ok) return validated;
+
+  const bom = content.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const body = bom ? content.slice(1) : content;
+  const eol = detectLineEnding(body);
+  const scanned = scanOutsideFences(body);
+  const starts = scanned.filter((line) => line.text.trim() === MANAGED_SUMMARY_START);
+  const ends = scanned.filter((line) => line.text.trim() === MANAGED_SUMMARY_END);
+
+  if (starts.length > 1 || ends.length > 1) {
+    return { ok: false, reason: "duplicate-markers", message: "Managed summary block markers must appear at most once." };
+  }
+  if (starts.length !== ends.length || (starts[0] && ends[0] && ends[0].start <= starts[0].start)) {
+    return { ok: false, reason: "malformed-markers", message: "Managed summary block markers are incomplete." };
+  }
+
+  const unmanagedHeading = scanned.find((line) => {
+    if (!/^##[\t ]+Summary(?:[\t ]+#+)?[\t ]*$/u.test(line.text)) return false;
+    return !(starts[0] && ends[0] && line.start > starts[0].start && line.start < ends[0].start);
+  });
+  if (unmanagedHeading) {
+    return {
+      ok: false,
+      reason: "summary-heading-collision",
+      message: "This note already has a Summary section that OMD Home does not manage. Rename it or add the summary manually.",
+    };
+  }
+
+  const normalizedSummary = validated.summary.replace(/\r\n|\r|\n/gu, eol);
+  const block = [MANAGED_SUMMARY_START, MANAGED_SUMMARY_HEADING, normalizedSummary, MANAGED_SUMMARY_END].join(eol);
+  let nextBody: string;
+  if (starts[0] && ends[0]) {
+    nextBody = `${body.slice(0, starts[0].start)}${block}${body.slice(ends[0].end)}`;
+  } else {
+    const anchor = scanned.find((line) => (
+      line.text.trim() === MANAGED_LINKS_START
+      || /^##[\t ]+Full Content(?:[\t ]+#+)?[\t ]*$/u.test(line.text)
+    ));
+    if (anchor) {
+      const prefix = body.slice(0, anchor.start);
+      const suffix = body.slice(anchor.start);
+      nextBody = `${prefix}${separatorBefore(prefix, eol)}${block}${eol}${eol}${suffix}`;
+    } else {
+      const trailing = body.match(/(?:\r\n|\n|\r)+$/u)?.[0] ?? "";
+      const core = trailing ? body.slice(0, -trailing.length) : body;
+      nextBody = `${core}${separatorBefore(core, eol)}${block}${trailing}`;
+    }
+  }
+
+  const next = `${bom}${nextBody}`;
+  return { ok: true, content: next, changed: next !== content };
+}
+
+export function upsertManagedEnrichmentBlocks(
+  content: string,
+  blocks: ManagedEnrichmentBlocks,
+): ManagedBlockResult {
+  let next = content;
+  let changed = false;
+  if (blocks.summary !== undefined) {
+    const summary = upsertManagedSummaryBlock(next, blocks.summary);
+    if (!summary.ok) return summary;
+    next = summary.content;
+    changed ||= summary.changed;
+  }
+  if (blocks.links !== undefined) {
+    const links = upsertManagedLinksBlock(next, blocks.links);
+    if (!links.ok) return links;
+    next = links.content;
+    changed ||= links.changed;
+  }
+  return { ok: true, content: next, changed };
+}
+
+export type ManagedSummaryValidation =
+  | { ok: true; summary: string }
+  | { ok: false; reason: "invalid-summary"; message: string };
+
+export function validateManagedSummaryText(value: string): ManagedSummaryValidation {
+  const summary = value.trim();
+  if (!summary) {
+    return { ok: false, reason: "invalid-summary", message: "The summary is empty." };
+  }
+  if ([...summary].length > 1_000) {
+    return { ok: false, reason: "invalid-summary", message: "Keep the summary under 1,000 characters." };
+  }
+  if (containsUnsupportedSummaryControl(summary)) {
+    return { ok: false, reason: "invalid-summary", message: "The summary contains unsupported control characters." };
+  }
+  if (
+    summary.includes(MANAGED_SUMMARY_START)
+    || summary.includes(MANAGED_SUMMARY_END)
+    || summary.includes(MANAGED_LINKS_START)
+    || summary.includes(MANAGED_LINKS_END)
+    || /<!--[\s\S]*?-->/u.test(summary)
+    || /<\/?[A-Za-z][^>\n]*>/u.test(summary)
+  ) {
+    return { ok: false, reason: "invalid-summary", message: "Remove HTML or OMD block markers from the summary." };
+  }
+  return { ok: true, summary };
+}
+
+function containsUnsupportedSummaryControl(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if ((code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) || code === 0x7f) return true;
+  }
+  return false;
 }
 
 export function applyManagedLinksBlock(content: string, links: string[]): { content: string; changed: boolean } {

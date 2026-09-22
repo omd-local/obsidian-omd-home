@@ -59,6 +59,7 @@ import { CaptureModal, CloudAnswerConsentModal } from "./modals";
 import { omdCapabilityIdentityLabel, OmdCapabilityService } from "./enrichment/capability";
 import type { OmdCapabilities } from "./enrichment/contract.ts";
 import { EnrichmentWorkflowController } from "./enrichment/controller.ts";
+import { ENRICHMENT_REVIEW_VIEW_TYPE, EnrichmentReviewView } from "./enrichment/review-view.ts";
 import { OmdEnrichmentRunner } from "./enrichment/runner";
 import {
   isEnrichmentError,
@@ -217,6 +218,7 @@ export default class OmdHomePlugin extends Plugin {
     this.enrichmentWorkflowController = new EnrichmentWorkflowController(this);
     this.registerView(HOME_VIEW_TYPE, (leaf) => new OmdHomeView(leaf, this));
     this.registerView(CALENDAR_VIEW_TYPE, (leaf) => new OmdCalendarView(leaf, this));
+    this.registerView(ENRICHMENT_REVIEW_VIEW_TYPE, (leaf) => new EnrichmentReviewView(leaf));
     this.addRibbonIcon("layout-dashboard", "Open OMD Home", () => void this.openHome());
     this.addRibbonIcon("calendar-days", "Open OMD calendar", () => void this.openCalendar());
     this.addCommand({ id: "open-home", name: "Open home", callback: () => void this.openHome() });
@@ -292,6 +294,10 @@ export default class OmdHomePlugin extends Plugin {
         .setIcon("pin")
         .onClick(() => void this.toggleNotePinned(file.path)));
       if (file.extension === "md") {
+        menu.addItem((item) => item
+          .setTitle("Review in OMD Home")
+          .setIcon("list-checks")
+          .onClick(() => void this.reviewNote(file)));
         menu.addItem((item) => item
           .setTitle("Suggest links and tags")
           .setIcon("sparkles")
@@ -1309,6 +1315,14 @@ export default class OmdHomePlugin extends Plugin {
       return;
     }
     await this.enrichmentWorkflowController.start(file);
+  }
+
+  async reviewNote(file = this.app.workspace.getActiveFile()): Promise<void> {
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    await this.enrichmentWorkflowController.review(file);
   }
 
   reportEnrichmentIssue(error: unknown, source = ""): void {

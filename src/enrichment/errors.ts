@@ -210,8 +210,9 @@ function invalidModelProposalMessage(detail: string | undefined): string {
     case "model output has an invalid object shape":
       return "The local model returned an incomplete proposal. Generate again or choose another local writing model.";
     case "model selected an unknown vault tag":
-    case "model classified an unknown vault tag as existing":
       return "The local model suggested a tag outside the current vault catalog. Generate again or choose another local writing model.";
+    case "model classified an unknown vault tag as existing":
+      return "This OMD build cannot safely review a new tag returned as an existing tag. Update OMD, then generate again.";
     case "model selected an unknown evidence option":
     case "model evidence is not grounded in the source note":
       return "The local model returned a suggestion without valid note evidence. Generate again or choose another local writing model.";

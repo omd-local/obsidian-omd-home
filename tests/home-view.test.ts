@@ -86,7 +86,7 @@ test("failed enrichment ends Current task and moves the actionable error to Need
     tone: "error",
   });
   assert.doesNotMatch(extractMethodBody(homeSource, "private get captureActive"), /inferCaptureActive/);
-  assert.match(enrichmentControllerSource, /reportEnrichmentIssue\(error, file\.path\)/);
+  assert.match(enrichmentControllerSource, /reportEnrichmentIssue\(error, active\.file\.path\)/);
   assert.match(enrichmentControllerSource, /event: cancelled \? "cancelled" : "error"/);
 });
 
@@ -165,14 +165,28 @@ test("omnibox answers reserve an owned surface and note rows stay left aligned",
 });
 
 test("Home note surfaces and vault search results expose the shared pin action", () => {
-  assert.match(extractMethodBody(homeSource, "private renderInbox("), /this\.createPinButton\(row, file\)/u);
+  assert.match(extractMethodBody(homeSource, "private renderWorkflowNoteRow("), /this\.createPinButton\(actions, note\.file\)/u);
   assert.match(extractMethodBody(homeSource, "private renderFileList("), /this\.createPinButton\(row, file\)/u);
   assert.match(omniboxSource, /action: \(\) => void this\.app\.workspace\.openLinkText\(file\.path,[\s\S]{0,100}file,/u);
   assert.match(extractMethodBody(omniboxSource, "private showRows("), /if \(row\.file\) this\.createPinButton\(parent, row\.file\)/u);
   assert.match(mainSource, /onClick\(\(\) => void this\.toggleNotePinned\(file\.path\)\)/u);
-  assert.match(stylesSource, /\.omd-inbox-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--omd-pin-column\) var\(--omd-suggest-column\)/su);
+  assert.match(stylesSource, /\.omd-note-list-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/su);
   assert.match(stylesSource, /\.omd-pin-action\s*\{[^}]*border-left:\s*1px solid var\(--omd-line\)/su);
   assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
+});
+
+test("Inbox and Recent share one cached metadata snapshot and responsive note renderer", () => {
+  assert.match(homeSource, /this\.noteSnapshot = buildHomeNoteSnapshot\(/u);
+  assert.match(homeSource, /tags: cache \? getAllTags\(cache\) \?\? \[\] : \[\]/u);
+  assert.match(homeSource, /if \(id === "inbox"\) return this\.renderInbox\(body\)/u);
+  assert.match(homeSource, /if \(id === "recent"\) return this\.renderRecent\(body\)/u);
+  assert.match(homeSource, /private renderWorkflowNoteRow\(/u);
+  assert.match(homeSource, /text: `\$\{label\} \$\{formatRelativeHomeNoteTime\(display\.timestamp\)\}`/u);
+  assert.match(homeSource, /datetime: new Date\(display\.timestamp\)\.toISOString\(\)/u);
+  assert.match(stylesSource, /\.omd-widget-inbox,\s*\.omd-widget-recent\s*\{ container: omd-note-widget \/ inline-size; \}/u);
+  assert.match(stylesSource, /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-wide-tool \{ display: none; \}/u);
+  assert.match(homeSource, /note\.status === "reviewed" \? "Review again" : "Review"/u);
+  assert.match(homeSource, /openNoteActionsMenu\(event, note\.file, reviewLabel\)/u);
 });
 
 test("widget move and resize are locked while omnibox results temporarily own the layout", () => {

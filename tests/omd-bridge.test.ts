@@ -3114,7 +3114,7 @@ function runBridge(
   request: Record<string, unknown>,
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, any> {
-  const result = spawnPython([bridgeScript.pathname], {
+  const result = spawnPython([fileURLToPath(bridgeScript)], {
     encoding: "utf8",
     input: JSON.stringify(request),
     env,

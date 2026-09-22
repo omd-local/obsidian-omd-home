@@ -186,6 +186,10 @@ test("capture fields share one modal-scoped vertical rhythm", () => {
     stylesSource,
     /\.omd-capture-modal \.omd-modal-actions\s*\{[^}]*padding-top:\s*var\(--omd-capture-field-block\);/su,
   );
+  assert.match(
+    stylesSource,
+    /\.modal\.omd-capture-modal :is\(\.omd-capture-recognition, \.omd-capture-ai\)\s*> \.setting-item:not\(\.setting-item-heading\):last-child\s*\{[^}]*padding-block-end:\s*var\(--omd-capture-field-block\);/su,
+  );
 });
 
 test("a busy Capture is rejected before it can alter preferences or interrupt Local AI", () => {

@@ -13,85 +13,134 @@ import {
 } from "../src/enrichment/workflow.ts";
 
 const controllerSource = readFileSync(resolve("src/enrichment/controller.ts"), "utf8");
-const reviewModalSource = readFileSync(resolve("src/enrichment/review-modal.ts"), "utf8");
+const reviewViewSource = readFileSync(resolve("src/enrichment/review-view.ts"), "utf8");
+const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
 const stylesSource = readFileSync(resolve("src/styles.css"), "utf8");
 
-test("enrichment exposes cancellability only before the Apply write phase", () => {
+test("review uses a registered right sidebar ItemView instead of a blocking modal", () => {
+  assert.match(reviewViewSource, /class EnrichmentReviewView extends ItemView/u);
+  assert.doesNotMatch(reviewViewSource, /extends Modal|new Modal/u);
+  assert.match(mainSource, /registerView\(ENRICHMENT_REVIEW_VIEW_TYPE/u);
+  const open = extractMember(controllerSource, "private async open(");
+  assert.match(open, /workspace\.openLinkText\(file\.path, "", false\)/u);
+  assert.match(open, /workspace\.ensureSideLeaf\([\s\S]*"right"/u);
+});
+
+test("Inbox review opens the pane without invoking local AI", () => {
+  const review = extractMember(controllerSource, "async review(file: TFile): Promise<void>");
+  assert.match(review, /this\.open\(file, false\)/u);
+  assert.doesNotMatch(review, /generate|requireReadyOmdExecutable|runLocalAiGated/u);
+  assert.match(mainSource, /async reviewNote\(/u);
+  assert.match(mainSource, /this\.enrichmentWorkflowController\.review\(file\)/u);
+});
+
+test("Suggest links and tags still opens the same pane with automatic generation", () => {
+  const start = extractMember(controllerSource, "async start(file: TFile): Promise<void>");
+  assert.match(start, /this\.open\(file, true\)/u);
+  assert.match(mainSource, /this\.enrichmentWorkflowController\.start\(file\)/u);
+});
+
+test("only live suggestion generation is cancellable", () => {
   const canCancel = extractMember(controllerSource, "get canCancel(): boolean");
   assert.match(canCancel, /phase === "capability"/u);
   assert.match(canCancel, /phase === "catalog"/u);
   assert.match(canCancel, /phase === "generating"/u);
-  assert.match(canCancel, /phase === "review"/u);
-  assert.doesNotMatch(canCancel, /phase === "applying"/u);
+  assert.doesNotMatch(canCancel, /phase === "review"|phase === "applying"|phase === "finishing"/u);
 });
 
-test("enrichment cancellation becomes a no-op once Apply begins writing", () => {
+test("generation releases the OMD mutex when the proposal becomes reviewable", () => {
+  const generate = extractMember(controllerSource, "private async generate(");
+  const reviewAt = generate.indexOf("active.state = reviewState(");
+  const releaseAt = generate.indexOf("this.setBusy(false);", reviewAt);
+  assert.ok(reviewAt >= 0 && releaseAt > reviewAt);
+});
+
+test("Apply suggestions does not finish review", () => {
   const apply = extractMember(controllerSource, "private async apply(");
-  const applyingAt = apply.indexOf('phase: "applying"');
-  const writeAt = apply.indexOf("await applyEnrichmentSelection(");
-  assert.ok(applyingAt >= 0, "Apply must enter the applying phase");
-  assert.ok(writeAt > applyingAt, "Apply must become non-cancellable before any write can start");
-
-  const cancel = extractMember(controllerSource, "cancel(showIdleNotice = true): boolean");
-  assert.match(cancel, /if \(!this\.canCancel\) \{[\s\S]*cannot be cancelled[\s\S]*return false;/u);
-  assert.match(cancel, /active\.abortController\.abort\(\)/u);
-  assert.ok(
-    cancel.indexOf("if (!this.canCancel)") < cancel.indexOf("active.abortController.abort()"),
-    "Apply must return before it aborts model, runner, or capability work",
-  );
+  assert.match(apply, /markReviewed: false/u);
+  assert.match(apply, /selectedSummary: payload\.selection\.includeSummary \? payload\.selection\.summaryDraft : undefined/u);
+  assert.match(apply, /The note remains in Inbox\./u);
+  assert.doesNotMatch(apply, /refreshInboxStatus\([^,]+, "reviewed"\)/u);
 });
 
-test("enrichment cancellation leaves unrelated Local AI requests running", () => {
-  const active = controllerSource.slice(
-    controllerSource.indexOf("interface ActiveEnrichment"),
-    controllerSource.indexOf("export class EnrichmentWorkflowController"),
-  );
-  const start = extractMember(controllerSource, "async start(file: TFile): Promise<void>");
-  const cancel = extractMember(controllerSource, "cancel(showIdleNotice = true): boolean");
-
-  assert.match(active, /abortController: AbortController/u);
-  assert.match(start, /requireReadyOmdExecutable\(\)/u);
-  assert.match(start, /requireEnrichNote\(executable, abortController\.signal\)/u);
-  assert.match(start, /this\.plugin\.runLocalAiGated\([\s\S]*abortController\.signal,/u);
-  assert.match(cancel, /active\.abortController\.abort\(\)/u);
-  assert.match(cancel, /this\.plugin\.omdEnrichmentRunner\.cancel\(\)/u);
-  assert.doesNotMatch(cancel, /cancelLocalAiRequests|localAiControllers/u);
-  assert.doesNotMatch(cancel, /omdCapabilityService\.cancelActive/u);
+test("Done reviewing is the only controller action that writes Reviewed status", () => {
+  const done = extractMember(controllerSource, "private async doneReviewing(");
+  assert.match(done, /refreshInboxStatus\(file, "reviewed"\)/u);
+  assert.match(done, /getFileByPath\(active\.file\.path\)/u);
+  assert.match(done, /file !== active\.file/u, "a replacement file at the same path must not inherit the review decision");
+  assert.doesNotMatch(done, /active\.request|originalHash|originalContent|vault\.modify/u);
+  assert.equal(controllerSource.match(/refreshInboxStatus\(file, "reviewed"\)/gu)?.length, 1);
 });
 
-test("starting another enrichment during Apply preserves the active workflow", () => {
-  const start = extractMember(controllerSource, "async start(file: TFile): Promise<void>");
-  const applyingGuardAt = start.indexOf('this.active?.state.phase === "applying"');
-  assert.ok(applyingGuardAt >= 0, "start must detect an active Apply");
+test("closing the pane clears transient review state without marking the note reviewed", () => {
+  const closed = extractMember(controllerSource, "private viewClosed(");
+  assert.match(closed, /this\.active = null/u);
+  assert.match(closed, /abortController\?\.abort\(\)/u);
+  assert.doesNotMatch(closed, /refreshInboxStatus|reviewed/u);
+  assert.doesNotMatch(reviewViewSource, /getState\(|setState\(/u, "review data must not be persisted as workspace view state");
+});
 
-  const guardReturnAt = start.indexOf("return;", applyingGuardAt);
-  assert.ok(guardReturnAt > applyingGuardAt, "the Apply guard must refuse the new enrichment");
-  const guard = start.slice(applyingGuardAt, guardReturnAt + "return;".length);
-  assert.match(guard, /Wait for the active OMD enrichment to finish applying/u);
-  assert.doesNotMatch(guard, /this\.active\s*=/u, "the Apply guard must keep ownership with the original workflow");
+test("review actions keep Apply suggestions separate from Done reviewing", async () => {
+  const idle = renderActions(emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"));
+  assert.deepEqual(idle.buttons.map((button) => button.label), ["Keep in Inbox", "Generate suggestions", "Done reviewing"]);
+  await idle.buttons[2].action();
+  assert.equal(idle.done, 1);
+  assert.equal(idle.generates, 0);
 
-  for (const operation of [
-    "this.cancel(false)",
-    "this.active = active",
-    "buildEnrichmentRequest(",
-    "this.plugin.omdEnrichmentRunner.run(",
-  ]) {
-    assert.ok(
-      start.indexOf(operation) > guardReturnAt,
-      `${operation} must remain unreachable when the Apply guard returns`,
-    );
+  const review = renderActions({
+    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
+    phase: "review",
+    existingTags: [{ id: "tag-1", kind: "existing-tag", label: "#writing", selected: true }],
+  }, {
+    selectedIds: { "tag-1": true },
+    includeSummary: false,
+    summaryDraft: "",
+    summarySource: "",
+  });
+  assert.deepEqual(review.buttons.map((button) => button.label), ["Keep in Inbox", "Apply suggestions", "Done reviewing"]);
+  await review.buttons[1].action();
+  assert.equal(review.applies, 1);
+  assert.equal(review.done, 0);
+});
+
+test("an edited summary can be applied by itself and stays opt-in", async () => {
+  assert.match(reviewViewSource, /text: "Add summary to note"/u);
+  assert.match(reviewViewSource, /includeSummary: false/u);
+  assert.match(reviewViewSource, /cls: "omd-enrichment-summary-editor"/u);
+  assert.match(reviewViewSource, /text: "Copy summary"/u);
+  const state = {
+    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
+    phase: "review" as const,
+    summary: "Model summary",
+  };
+  const rendered = renderActions(state, {
+    selectedIds: {},
+    includeSummary: true,
+    summaryDraft: "Edited summary",
+    summarySource: "Model summary",
+  });
+  assert.equal(rendered.buttons[1]?.label, "Apply suggestions");
+  assert.equal(rendered.buttons[1]?.disabled, false);
+  await rendered.buttons[1]?.action();
+  assert.equal(rendered.applies, 1);
+});
+
+test("invalid edited summaries expose their error state to assistive technology", () => {
+  assert.match(reviewViewSource, /syncSummaryError\(summaryError, textarea\)/u);
+  assert.match(reviewViewSource, /textarea\?\.setAttribute\("aria-invalid", String\(Boolean\(message\)\)\)/u);
+});
+
+test("cancel, error, conflict and applied states remain explicitly finishable", () => {
+  for (const phase of ["cancelled", "error", "conflict", "applied"] as const) {
+    const rendered = renderActions({
+      ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
+      phase,
+    });
+    assert.deepEqual(rendered.buttons.map((button) => button.label), ["Keep in Inbox", "Generate again", "Done reviewing"]);
   }
 });
 
-test("an unavailable note closes instead of retrying a vanished target", () => {
-  const actions = extractMember(reviewModalSource, "private renderActions(");
-  assert.match(
-    actions,
-    /if \(phase === "unavailable"\) \{\s*this\.button\(parent, "Close", false, \(\) => this\.closeWithoutCallback\(\)\);\s*return;\s*\}/u,
-  );
-});
-
-test("candidate evidence failure renders only Close while unknown errors retain retry", async () => {
+test("candidate evidence failures can disable regeneration without removing Done reviewing", () => {
   const known = mapOmdErrorKind("invalid_request", undefined, "private terminal text", {
     field: "candidate.evidence", reason: "incompatible_text",
   });
@@ -99,91 +148,41 @@ test("candidate evidence failure renders only Close while unknown errors retain 
     ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
     ...describeEnrichmentFailure(known, "generation"),
   };
-  const blocked = renderActions(state);
-  assert.deepEqual(blocked.buttons.map((button) => button.label), ["Close"]);
-  await blocked.buttons[0].action();
-  assert.equal(blocked.closed, true);
-  assert.equal(blocked.retries, 0);
-
-  const unknown = mapOmdErrorKind("invalid_request", undefined, undefined, {
-    field: "candidate.evidence", reason: "unknown",
-  });
-  const retriable = renderActions({
-    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
-    ...describeEnrichmentFailure(unknown, "generation"),
-  });
-  assert.deepEqual(retriable.buttons.map((button) => button.label), ["Close", "Generate again"]);
-  await retriable.buttons[1].action();
-  assert.equal(retriable.retries, 1);
+  const rendered = renderActions(state);
+  assert.deepEqual(rendered.buttons.map((button) => button.label), ["Keep in Inbox", "Done reviewing"]);
 });
 
-test("review still requires an explicit Apply action before selected suggestions are written", async () => {
-  const review = renderActions({
-    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
-    phase: "review",
-    existingTags: [{ id: "tag-1", kind: "existing-tag", label: "#writing", selected: true }],
-  }, { selectedIds: { "tag-1": true } });
-  assert.deepEqual(review.buttons.map((button) => button.label), ["Cancel", "Apply"]);
-  assert.equal(review.applies, 0);
-  await review.buttons[1].action();
-  assert.equal(review.applies, 1);
+test("unknown catalog tag omissions have concise user-facing copy", () => {
+  assert.match(reviewViewSource, /case "unknown_tag_reference_omitted"[\s\S]*unknown catalog reference and was left out/u);
 });
 
-test("proposal summary states exactly what Apply writes", () => {
-  assert.match(reviewModalSource, /text: "Proposal summary"/u);
-  assert.match(
-    reviewModalSource,
-    /Apply writes selected links and tags; this summary is not added to the note\./u,
-  );
-  assert.doesNotMatch(reviewModalSource, /Summary preview|Nothing is written until you choose Apply/u);
+test("generation uses a namespaced non-overlapping progress indicator", () => {
+  assert.match(reviewViewSource, /omd-enrichment-status-badge--loading/u);
+  assert.match(reviewViewSource, /omd-enrichment-loading-indicator/u);
+  assert.doesNotMatch(reviewViewSource, /[" ]is-loading[" ]/u);
+  assert.doesNotMatch(stylesSource, /\.omd-enrichment-status-badge\.is-loading/u);
+  assert.match(stylesSource, /\.omd-enrichment-status-badge--loading\s*\{[^}]*grid-template-columns:\s*13px minmax\(0, 1fr\)[^}]*gap:\s*6px/su);
+  assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.omd-enrichment-loading-indicator\s*\{[^}]*animation:\s*none/su);
 });
 
-test("proposal generation shows an accessible wait cue with a reduced-motion fallback", () => {
-  assert.match(reviewModalSource, /const generating = this\.state\.phase === "generating"/u);
-  assert.match(reviewModalSource, /"aria-atomic": "true"/u);
-  assert.match(reviewModalSource, /generating \? " is-loading" : ""/u);
-  assert.match(reviewModalSource, /generating \? "Generating suggestions… Please wait\." : phase\.title/u);
-  assert.match(stylesSource, /\.omd-enrichment-status-badge\.is-loading::before\s*\{[^}]*animation:\s*omd-enrichment-spin/su);
-  assert.match(stylesSource, /@keyframes omd-enrichment-spin\s*\{[^}]*transform:\s*rotate\(1turn\)/su);
-  assert.match(
-    stylesSource,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.omd-enrichment-status-badge\.is-loading::before\s*\{[^}]*animation:\s*none/su,
-  );
-});
-
-test("Reviewed status is rendered only for a fully applied proposal", () => {
-  const render = extractMember(reviewModalSource, "private render(): void");
-  assert.match(
-    render,
-    /if \(this\.state\.phase === "applied"\) \{\s*status\.createSpan\(\{ cls: "omd-enrichment-workflow-status", text: "Status · Reviewed" \}\);\s*\}/u,
-  );
-  assert.equal(render.match(/Status · Reviewed/gu)?.length, 1);
-});
-
-test("an incomplete Apply can open the exact target note", async () => {
-  const partial = renderActions({
-    ...emptyReviewState("Inbox/partially-applied.md", "local-model", "http://localhost:11434"),
-    phase: "partial-failure",
-  });
-
-  assert.deepEqual(partial.buttons.map((button) => button.label), ["Close", "Open note"]);
-  await partial.buttons[1].action();
-  assert.equal(partial.closed, true);
-  assert.deepEqual(partial.openedPaths, ["Inbox/partially-applied.md"]);
-});
-
-function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelection = { selectedIds: {} }): {
+function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelection = {
+  selectedIds: {},
+  includeSummary: false,
+  summaryDraft: "",
+  summarySource: "",
+}): {
   buttons: Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>;
-  closed: boolean;
-  retries: number;
+  generates: number;
+  cancels: number;
   applies: number;
+  done: number;
   openedPaths: string[];
 } {
-  const source = ts.createSourceFile("review-modal.ts", reviewModalSource, ts.ScriptTarget.Latest, true);
+  const source = ts.createSourceFile("review-view.ts", reviewViewSource, ts.ScriptTarget.Latest, true);
   const member = source.statements
     .flatMap((node) => ts.isClassDeclaration(node) ? [...node.members] : [])
     .find((node) => node.name?.getText(source) === "renderActions");
-  assert.ok(member, "The production modal must define renderActions");
+  assert.ok(member, "The production review view must define renderActions");
   const compiled = ts.transpileModule(`class Harness { ${member.getText(source)} }`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText;
@@ -192,20 +191,23 @@ function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelect
   ) as { renderActions: (parent: unknown) => void };
   const result = {
     buttons: [] as Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>,
-    closed: false,
-    retries: 0,
+    generates: 0,
+    cancels: 0,
     applies: 0,
+    done: 0,
     openedPaths: [] as string[],
   };
   Object.assign(harness, {
-    state, selection,
+    state,
+    selection,
     callbacks: {
-      onRetry() { result.retries += 1; },
+      onGenerate() { result.generates += 1; },
+      onCancelGeneration() { result.cancels += 1; },
       onApply() { result.applies += 1; },
+      onDoneReviewing() { result.done += 1; },
       onOpenPath(path: string) { result.openedPaths.push(path); },
     },
-    closeWithoutCallback() { result.closed = true; },
-    close() { result.closed = true; },
+    closeReview() {},
     button(_parent: unknown, label: string, _primary: boolean, action: () => void | Promise<void>) {
       const button = { label, action, disabled: false, setAttribute() {} };
       result.buttons.push(button);

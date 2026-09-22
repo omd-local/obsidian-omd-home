@@ -4,7 +4,13 @@ import {
   MANAGED_LINKS_END,
   MANAGED_LINKS_HEADING,
   MANAGED_LINKS_START,
+  MANAGED_SUMMARY_END,
+  MANAGED_SUMMARY_HEADING,
+  MANAGED_SUMMARY_START,
+  upsertManagedEnrichmentBlocks,
   upsertManagedLinksBlock,
+  upsertManagedSummaryBlock,
+  validateManagedSummaryText,
 } from "../src/enrichment/managed-block.ts";
 
 test("inserts managed links before the real Full Content heading", () => {
@@ -125,4 +131,77 @@ test("preserves BOM, CRLF, and trailing newlines", () => {
   assert.equal(result.content.startsWith("\uFEFF"), true);
   assert.equal(result.content.includes("\r\n"), true);
   assert.equal(result.content.endsWith("\r\n\r\n"), true);
+});
+
+test("summary and links are composed in a stable managed order", () => {
+  const source = "# Note\n\nBody\n\n## Full Content\ntext\n";
+  const result = upsertManagedEnrichmentBlocks(source, {
+    summary: "A concise summary.\n\nSecond paragraph.",
+    links: ["- [[Alpha]]"],
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.content, [
+    "# Note",
+    "",
+    "Body",
+    "",
+    MANAGED_SUMMARY_START,
+    MANAGED_SUMMARY_HEADING,
+    "A concise summary.",
+    "",
+    "Second paragraph.",
+    MANAGED_SUMMARY_END,
+    "",
+    MANAGED_LINKS_START,
+    MANAGED_LINKS_HEADING,
+    "- [[Alpha]]",
+    MANAGED_LINKS_END,
+    "",
+    "## Full Content",
+    "text",
+    "",
+  ].join("\n"));
+  const repeated = upsertManagedEnrichmentBlocks(result.content, {
+    summary: "A concise summary.\n\nSecond paragraph.",
+    links: ["- [[Alpha]]"],
+  });
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.changed, false);
+});
+
+test("summary-only insertion preserves BOM, CRLF, and fenced lookalikes", () => {
+  const source = `\uFEFF# Note\r\n\r\n\`\`\`md\r\n## Summary\r\n${MANAGED_SUMMARY_START}\r\n\`\`\`\r\n\r\n## Full Content\r\nbody\r\n\r\n`;
+  const result = upsertManagedSummaryBlock(source, "中文摘要。\nملخص عربي.");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.content.startsWith("\uFEFF"), true);
+  assert.equal(result.content.includes("中文摘要。\r\nملخص عربي."), true);
+  assert.equal(result.content.endsWith("\r\n\r\n"), true);
+});
+
+test("summary insertion fails closed on an unmanaged Summary section", () => {
+  const source = "# Note\n\n## Summary\nUser-authored text.\n\n## Full Content\nBody\n";
+  assert.deepEqual(upsertManagedSummaryBlock(source, "Generated text."), {
+    ok: false,
+    reason: "summary-heading-collision",
+    message: "This note already has a Summary section that OMD Home does not manage. Rename it or add the summary manually.",
+  });
+});
+
+test("summary blocks fail closed on malformed markers and unsafe drafts", () => {
+  const malformed = `${MANAGED_SUMMARY_START}\n${MANAGED_SUMMARY_HEADING}\nText\n`;
+  assert.deepEqual(upsertManagedSummaryBlock(malformed, "New text"), {
+    ok: false,
+    reason: "malformed-markers",
+    message: "Managed summary block markers are incomplete.",
+  });
+  assert.equal(validateManagedSummaryText("   ").ok, false);
+  assert.equal(validateManagedSummaryText("<script>alert(1)</script>").ok, false);
+  assert.equal(validateManagedSummaryText(`unsafe ${MANAGED_LINKS_START}`).ok, false);
+  assert.equal(validateManagedSummaryText("a".repeat(1_001)).ok, false);
+  assert.deepEqual(validateManagedSummaryText("English 中文 العربية"), {
+    ok: true,
+    summary: "English 中文 العربية",
+  });
 });

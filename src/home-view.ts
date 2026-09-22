@@ -2,6 +2,17 @@ import { ItemView, Menu, Notice, WorkspaceLeaf, getAllTags, setIcon, type TFile 
 import { aiProviderLabel } from "./ai-provider.ts";
 import type { CaptureFailureRecord } from "./capture-request";
 import { omdHomeStatus } from "./inbox.ts";
+import {
+  buildHomeNoteSnapshot,
+  filterHomeNoteRows,
+  formatFullHomeNoteTime,
+  formatRelativeHomeNoteTime,
+  homeNoteDisplayTime,
+  homeNoteTagFilterOptions,
+  sortHomeNoteRows,
+  visibleHomeNoteTags,
+  type HomeNoteRow,
+} from "./home-note-list.ts";
 import { canOpenOllamaDesktopApp } from "./ollama-app";
 import type OmdHomePlugin from "./main";
 import type { CalendarEventRecord, WidgetId, WidgetPlacement } from "./model";
@@ -27,6 +38,11 @@ export class OmdHomeView extends ItemView {
   private renderTimer: number | null = null;
   private clockTimer: number | null = null;
   private clockDay: string | null = null;
+  private noteSnapshot: HomeNoteRow<TFile>[] = [];
+  private readonly noteTagFilters: Record<"inbox" | "recent", Set<string>> = {
+    inbox: new Set(),
+    recent: new Set(),
+  };
 
   constructor(leaf: WorkspaceLeaf, plugin: OmdHomePlugin) {
     super(leaf);
@@ -117,6 +133,7 @@ export class OmdHomeView extends ItemView {
     const nextDate = longDate(now);
     if (this.greetingEl && this.greetingEl.textContent !== nextGreeting) this.greetingEl.setText(nextGreeting);
     if (this.dateEl && this.dateEl.textContent !== nextDate) this.dateEl.setText(nextDate);
+    this.refreshRenderedNoteTimes();
     if (dayChanged) {
       for (const id of ["today", "upcoming"] as const) {
         const body = this.widgetBodies.get(id);
@@ -157,6 +174,16 @@ export class OmdHomeView extends ItemView {
   }
 
   private refreshWidgets(): void {
+    this.noteSnapshot = buildHomeNoteSnapshot(
+      this.app.vault.getMarkdownFiles(),
+      (file) => {
+        const cache = this.app.metadataCache.getFileCache(file);
+        return {
+          frontmatter: cache?.frontmatter,
+          tags: cache ? getAllTags(cache) ?? [] : [],
+        };
+      },
+    );
     for (const [id, body] of this.widgetBodies) {
       if (id === "omnibox") {
         this.omnibox ??= new Omnibox(this.app, this.plugin, (visible) => this.setOmniboxExpanded(visible));
@@ -174,6 +201,18 @@ export class OmdHomeView extends ItemView {
     const header = widget.createDiv({ cls: "omd-widget-header" });
     const label = header.createEl("h2", { text: widgetTitle(placement.id) });
     const controls = header.createDiv({ cls: "omd-widget-controls" });
+    if (placement.id === "inbox" || placement.id === "recent") {
+      const context = placement.id;
+      label.createSpan({ cls: "omd-note-list-total", attr: { "aria-hidden": "true" } });
+      const filter = controls.createEl("button", {
+        cls: "clickable-icon omd-note-filter",
+        type: "button",
+        attr: { "aria-label": `Filter ${label.textContent} by tag` },
+      });
+      setIcon(filter, "list-filter");
+      filter.createSpan({ cls: "omd-note-filter-count" });
+      filter.addEventListener("click", (event) => this.openNoteFilterMenu(event, context));
+    }
     if (placement.id === "today" || placement.id === "upcoming") {
       const add = controls.createEl("button", { cls: "clickable-icon omd-widget-action", attr: { "aria-label": "Create event" } });
       setIcon(add, "plus");
@@ -231,8 +270,8 @@ export class OmdHomeView extends ItemView {
       }
       return;
     }
-    if (id === "inbox") return this.renderInbox(body, this.plugin.listInboxFiles().slice(0, 7));
-    if (id === "recent") return this.renderFileList(body, [...this.app.vault.getMarkdownFiles()].sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 7), "No recent notes", true);
+    if (id === "inbox") return this.renderInbox(body);
+    if (id === "recent") return this.renderRecent(body);
     if (id === "continue") {
       const file = this.app.workspace.getActiveFile();
       if (!file) return emptyState(body, "Nothing open yet", "Choose a recent note to continue.");
@@ -244,10 +283,11 @@ export class OmdHomeView extends ItemView {
     }
     if (id === "processing") {
       if (this.plugin.enrichmentPhase === "review" && !this.plugin.captureActive) {
-        return emptyState(body, "Ready to review", "Choose suggestions in the OMD enrichment window.");
+        return emptyState(body, "Ready to review", "Choose suggestions in the OMD review pane.");
       }
-      if (this.plugin.enrichmentPhase === "applying" && !this.plugin.captureActive) {
-        return this.renderProcessingSection(body, "Active now", [{ label: "Applying suggestions", value: "working", tone: "active" }]);
+      if ((this.plugin.enrichmentPhase === "applying" || this.plugin.enrichmentPhase === "finishing") && !this.plugin.captureActive) {
+        const label = this.plugin.enrichmentPhase === "finishing" ? "Finishing review" : "Applying suggestions";
+        return this.renderProcessingSection(body, "Active now", [{ label, value: "working", tone: "active" }]);
       }
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
       if (!activity.active) return emptyState(body, "No task running", "Captures continue when this tab is in the background.");
@@ -336,10 +376,7 @@ export class OmdHomeView extends ItemView {
       return;
     }
     if (id === "tags") {
-      const tags = this.app.vault.getMarkdownFiles().flatMap((file) => {
-        const cache = this.app.metadataCache.getFileCache(file);
-        return cache ? getAllTags(cache) ?? [] : [];
-      });
+      const tags = this.noteSnapshot.flatMap((note) => note.tags);
       const groups = groupTagCounts(tags).slice(0, 12);
       if (!groups.length) return emptyState(body, "No tags yet", "Add #tags or frontmatter tags to your notes.");
       const list = body.createDiv({ cls: "omd-tag-groups" });
@@ -395,34 +432,204 @@ export class OmdHomeView extends ItemView {
   private get captureActive(): boolean {
     const phase = this.plugin.enrichmentPhase;
     return this.plugin.captureActive
-      || phase === "capability" || phase === "catalog" || phase === "generating" || phase === "applying";
+      || phase === "capability" || phase === "catalog" || phase === "generating" || phase === "applying" || phase === "finishing";
   }
 
-  private renderInbox(body: HTMLElement, files: TFile[]): void {
-    if (!files.length) return emptyState(body, "Inbox is clear", "Reviewed notes remain available in Recent notes.");
-    for (const file of files) {
-      const row = body.createDiv({ cls: "omd-inbox-row" });
-      const open = row.createEl("button", {
-        cls: "omd-note-row omd-inbox-open",
-        type: "button",
-        attr: { "aria-label": `Open ${file.basename}`, title: file.path },
-      });
-      open.createSpan({ cls: "omd-note-title", text: file.basename, attr: { dir: "auto" } });
-      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/", attr: { dir: "auto" } });
-      open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
-      this.createPinButton(row, file);
-      const suggest = row.createEl("button", {
-        cls: "clickable-icon omd-inbox-suggest",
-        type: "button",
-        attr: {
-          title: "Ask local AI for review-first links and tags",
-          "aria-label": `Suggest links and tags for ${file.basename}. Review before applying.`,
-        },
-      });
-      setIcon(suggest, "sparkles");
-      suggest.createSpan({ text: "AI tags" });
-      suggest.addEventListener("click", () => void this.plugin.suggestLinksAndTags(file));
+  private renderInbox(body: HTMLElement): void {
+    this.renderWorkflowNoteList(body, "inbox");
+  }
+
+  private renderRecent(body: HTMLElement): void {
+    this.renderWorkflowNoteList(body, "recent");
+  }
+
+  private renderWorkflowNoteList(body: HTMLElement, context: "inbox" | "recent"): void {
+    const source = context === "inbox"
+      ? this.noteSnapshot.filter((note) => note.inbox)
+      : this.noteSnapshot;
+    const ordered = sortHomeNoteRows(source, context);
+    const filtered = filterHomeNoteRows(ordered, this.noteTagFilters[context]);
+    this.syncNoteFilterButton(context, filtered.length, source.length);
+
+    if (!filtered.length) {
+      if (this.noteTagFilters[context].size) {
+        return emptyAction(body, "No notes match these tags", "Clear filters", () => {
+          this.noteTagFilters[context].clear();
+          this.refreshNoteWidgets();
+        });
+      }
+      const detail = context === "inbox"
+        ? "Reviewed notes remain available in Recent notes."
+        : "This panel fills itself as you work.";
+      return emptyState(body, context === "inbox" ? "Inbox is clear" : "No recent notes", detail);
     }
+
+    const list = body.createDiv({ cls: "omd-note-list" });
+    for (const note of filtered.slice(0, 7)) this.renderWorkflowNoteRow(list, note, context);
+  }
+
+  private renderWorkflowNoteRow(
+    list: HTMLElement,
+    note: HomeNoteRow<TFile>,
+    context: "inbox" | "recent",
+  ): void {
+    const row = list.createDiv({ cls: "omd-note-list-row" });
+    const statusLabel = note.status === "inbox" ? "Inbox" : note.status === "reviewed" ? "Reviewed" : null;
+    const open = row.createEl("button", {
+      cls: "omd-note-row omd-note-list-open",
+      type: "button",
+      attr: {
+        "aria-label": statusLabel && context === "recent"
+          ? `Open ${note.title}. Status: ${statusLabel}.`
+          : `Open ${note.title}`,
+        title: note.path,
+      },
+    });
+    open.createSpan({ cls: "omd-note-title", text: note.title, attr: { dir: "auto" } });
+    open.createSpan({ cls: "omd-note-path", text: note.parentPath, attr: { dir: "auto" } });
+    const metadata = open.createSpan({ cls: "omd-note-metadata" });
+    if (context === "recent" && statusLabel) {
+      metadata.createSpan({ cls: `omd-note-status is-${note.status}`, text: statusLabel });
+    }
+    this.renderNoteTime(metadata, note, context);
+    const visibleTags = visibleHomeNoteTags(note.tags);
+    for (const tag of visibleTags.visible) {
+      metadata.createSpan({ cls: "omd-note-tag", text: `#${tag}`, attr: { dir: "auto" } });
+    }
+    if (visibleTags.remaining) {
+      metadata.createSpan({
+        cls: "omd-note-tag-more",
+        text: `+${visibleTags.remaining}`,
+        attr: { "aria-label": `${visibleTags.remaining} more tags` },
+      });
+    }
+    open.addEventListener("click", () => void this.app.workspace.openLinkText(note.path, "", false));
+
+    const actions = row.createDiv({ cls: "omd-note-tools" });
+    const reviewLabel = context === "recent" && note.status === "reviewed" ? "Review again" : "Review";
+    this.createNoteTool(actions, note.file, reviewLabel, "list-checks", () => void this.plugin.reviewNote(note.file));
+    this.createNoteTool(actions, note.file, "AI tags", "tags", () => this.generateNoteProposal(note.file));
+    this.createNoteTool(actions, note.file, "Summarize", "align-left", () => this.generateNoteProposal(note.file));
+    this.createPinButton(actions, note.file);
+    const more = actions.createEl("button", {
+      cls: "omd-note-tool omd-note-overflow",
+      type: "button",
+      attr: { title: `More actions for ${note.title}`, "aria-label": `More actions for ${note.title}` },
+    });
+    setIcon(more, "more-horizontal");
+    more.addEventListener("click", (event) => this.openNoteActionsMenu(event, note.file, reviewLabel));
+  }
+
+  private renderNoteTime(parent: HTMLElement, note: HomeNoteRow, context: "inbox" | "recent"): void {
+    const display = homeNoteDisplayTime(note, context);
+    const label = display.kind === "captured" ? "Captured" : "Updated";
+    const full = formatFullHomeNoteTime(display.timestamp);
+    parent.createEl("time", {
+      cls: "omd-note-time",
+      text: `${label} ${formatRelativeHomeNoteTime(display.timestamp)}`,
+      attr: {
+        datetime: new Date(display.timestamp).toISOString(),
+        title: full,
+        "aria-label": `${label} ${full}`,
+        "data-omd-time-kind": display.kind,
+        "data-omd-timestamp": String(display.timestamp),
+      },
+    });
+  }
+
+  private refreshRenderedNoteTimes(): void {
+    for (const element of Array.from(this.contentEl.querySelectorAll<HTMLElement>(".omd-note-time[data-omd-timestamp]"))) {
+      const timestamp = Number(element.dataset.omdTimestamp);
+      if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+      const label = element.dataset.omdTimeKind === "captured" ? "Captured" : "Updated";
+      const full = formatFullHomeNoteTime(timestamp);
+      element.setText(`${label} ${formatRelativeHomeNoteTime(timestamp)}`);
+      element.setAttribute("title", full);
+      element.setAttribute("aria-label", `${label} ${full}`);
+    }
+  }
+
+  private createNoteTool(
+    parent: HTMLElement,
+    file: TFile,
+    label: "Review" | "Review again" | "AI tags" | "Summarize",
+    icon: string,
+    action: () => void,
+  ): HTMLButtonElement {
+    const button = parent.createEl("button", {
+      cls: "omd-note-tool omd-note-wide-tool",
+      type: "button",
+      attr: { title: `${label} ${file.basename}`, "aria-label": `${label} ${file.basename}` },
+    });
+    setIcon(button, icon);
+    button.createSpan({ text: label });
+    button.addEventListener("click", action);
+    return button;
+  }
+
+  private generateNoteProposal(file: TFile): void {
+    void this.plugin.suggestLinksAndTags(file);
+  }
+
+  private openNoteActionsMenu(event: MouseEvent, file: TFile, reviewLabel: "Review" | "Review again"): void {
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle(reviewLabel).setIcon("list-checks").onClick(() => void this.plugin.reviewNote(file)));
+    menu.addItem((item) => item.setTitle("AI tags").setIcon("tags").onClick(() => this.generateNoteProposal(file)));
+    menu.addItem((item) => item.setTitle("Summarize").setIcon("align-left").onClick(() => this.generateNoteProposal(file)));
+    menu.showAtMouseEvent(event);
+  }
+
+  private openNoteFilterMenu(event: MouseEvent, context: "inbox" | "recent"): void {
+    const source = context === "inbox" ? this.noteSnapshot.filter((note) => note.inbox) : this.noteSnapshot;
+    const selected = this.noteTagFilters[context];
+    const options = homeNoteTagFilterOptions(source);
+    const menu = new Menu();
+    for (const tag of options) {
+      menu.addItem((item) => item
+        .setTitle(`#${tag}`)
+        .setChecked(selected.has(tag))
+        .onClick(() => {
+          if (selected.has(tag)) selected.delete(tag);
+          else selected.add(tag);
+          this.refreshNoteWidgets();
+        }));
+    }
+    if (!options.length) menu.addItem((item) => item.setTitle("No tags available").setIcon("info"));
+    if (selected.size) {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle("Clear filters").setIcon("x").onClick(() => {
+        selected.clear();
+        this.refreshNoteWidgets();
+      }));
+    }
+    menu.showAtMouseEvent(event);
+  }
+
+  private refreshNoteWidgets(): void {
+    for (const context of ["inbox", "recent"] as const) {
+      const body = this.widgetBodies.get(context);
+      if (!body) continue;
+      body.empty();
+      this.renderWidgetBody(context, body);
+    }
+  }
+
+  private syncNoteFilterButton(context: "inbox" | "recent", visible: number, total: number): void {
+    const widget = this.widgetEls.get(context);
+    const button = widget?.querySelector<HTMLButtonElement>(".omd-note-filter");
+    if (!button) return;
+    const totalLabel = widget?.querySelector<HTMLElement>(".omd-note-list-total");
+    if (totalLabel) totalLabel.setText(` ${total}`);
+    const selected = this.noteTagFilters[context].size;
+    const count = button.querySelector<HTMLElement>(".omd-note-filter-count");
+    if (count) {
+      count.textContent = selected ? `${visible}/${total}` : "";
+      count.hidden = selected === 0;
+    }
+    button.toggleClass("is-active", selected > 0);
+    button.setAttribute("aria-label", selected
+      ? `Filter ${widgetTitle(context)} by tag. ${visible} of ${total} notes shown with ${selected} filters.`
+      : `Filter ${widgetTitle(context)} by tag. ${total} notes.`);
   }
 
   private renderProcessingSection(body: HTMLElement, title: string, rows: ProcessingRow[]): void {
