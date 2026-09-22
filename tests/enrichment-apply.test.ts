@@ -176,6 +176,25 @@ test("applying suggestions can preserve Inbox status until review is explicitly 
   });
 });
 
+test("an omitted runtime review decision fails safe and keeps Inbox status", async () => {
+  const harness = createHarness({
+    "Inbox/target.md": {
+      content: "# Target\n",
+      frontmatter: { omd_home_status: "inbox" },
+    },
+  });
+  const plan = createPlan({ selectedTags: ["suggested"] });
+  delete (plan as Partial<ApplyEnrichmentPlan>).markReviewed;
+
+  const result = await applyEnrichmentSelection(plan, harness.services);
+
+  assert.equal(result.status, "applied");
+  assert.deepEqual(harness.frontmatter("Inbox/target.md"), {
+    omd_home_status: "inbox",
+    tags: ["suggested"],
+  });
+});
+
 test("applyEnrichmentSelection applies links only and keeps the final status reviewed", async () => {
   const harness = createHarness({
     "Inbox/target.md": { content: "# Target\n\nBody\n" },
@@ -624,7 +643,9 @@ function createPlan(overrides: Partial<ApplyEnrichmentPlan> = {}): ApplyEnrichme
     selectedCandidateIds: overrides.selectedCandidateIds ?? [],
     selectedTags: overrides.selectedTags ?? [],
     selectedSummary: overrides.selectedSummary,
-    markReviewed: overrides.markReviewed,
+    // Tests that exercise the legacy combined helper behavior opt in
+    // explicitly; the production Review pane always passes false.
+    markReviewed: overrides.markReviewed ?? true,
   };
 }
 

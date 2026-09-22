@@ -16,13 +16,8 @@ export interface ApplyEnrichmentPlan {
   selectedCandidateIds: string[];
   selectedTags: string[];
   selectedSummary?: string;
-  /**
-   * Applying suggestions and completing review are separate user actions in
-   * OMD Home.  Keep the legacy default for callers that intentionally perform
-   * both in one transaction, while the review pane opts out until the user
-   * chooses Done reviewing.
-   */
-  markReviewed?: boolean;
+  /** Applying suggestions and completing review are separate decisions. */
+  markReviewed: boolean;
 }
 
 export type ApplyEnrichmentResult =
@@ -48,7 +43,7 @@ export async function applyEnrichmentSelection<FileRef>(
   const selectedIds = unique(plan.selectedCandidateIds);
   const selectedTags = normalizeFrontmatterTags(plan.selectedTags);
   const selectedSummary = normalizeSelectedSummary(plan.selectedSummary);
-  const markReviewed = plan.markReviewed !== false;
+  const markReviewed = plan.markReviewed;
   if (selectedIds.length + selectedTags.length === 0 && selectedSummary === undefined) {
     throw new OmdEnrichmentError("invalid_request", "Choose at least one summary, link, or tag before applying.");
   }
