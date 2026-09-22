@@ -84,7 +84,8 @@ Markdown note immediately; only optional link and tag changes wait for review.
   Recognition changes in the Capture dialog apply only to that capture, while
   Retry preserves them without changing the vault defaults.
 - **Review links and tags** is proposal-only. Nothing is written until you explicitly press **Apply**.
-  New concepts stay display-only, and new tags start unchecked.
+  Suggested note topics remain ideas only, new tags start unchecked, and adding the proposal summary is optional.
+  Applying suggestions keeps the note in Inbox; **Done reviewing** is the only action that marks it Reviewed.
 - The **Polish Markdown** and **Review links and tags** capture toggles appear
   only in the Capture dialog. New captures remember the last submitted choices. Cancelling the
   dialog does not change them. Polish Markdown is off by default.

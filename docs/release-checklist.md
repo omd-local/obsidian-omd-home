@@ -78,8 +78,9 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] With the OMD override blank, both capture-triggered enrichment and **Suggest links and tags** immediately after capture retain the compatible automatically discovered executable, even when an older Homebrew launcher appears earlier among candidates.
 - [ ] Generate displays the target, local model, loopback endpoint class, progress stages, evidence, links, tags, concepts, warnings, Cancel, Retry, and Apply.
 - [ ] Generate and review leave every vault Markdown hash unchanged.
-- [ ] New concepts remain display-only and new tags begin unchecked.
-- [ ] Apply writes only the selected links/tags and sets `omd_home_status: reviewed` only after success.
+- [ ] Suggested note topics remain display-only and new tags begin unchecked.
+- [ ] Add summary to note is off by default; when selected, the reviewed draft is written once in the managed Summary block.
+- [ ] Apply writes only the selected summary/links/tags and keeps the note in Inbox; only **Done reviewing** sets `omd_home_status: reviewed`.
 - [ ] Editing the target between Generate and Apply produces a zero-write conflict.
 - [ ] A simulated frontmatter failure either rolls the body back or reports a recoverable partial failure without claiming success.
 

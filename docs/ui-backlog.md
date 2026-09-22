@@ -57,8 +57,9 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 
 ## UI-04：Generating proposal 的等待状态不够明显
 
-**状态：已实现，待 CAP-02 原生慢响应／失败／取消视觉复测。** 生成阶段现在持续显示明确的等待文字、
-非纯颜色的 loading 标识和 live status；减少动态效果时保留静态标识，阶段结束后自动清除。
+**状态：等待语义已实现；原生复测发现 loading 标识压住文字，视觉修复转 UI-18 / P2。** 生成阶段
+持续显示明确的等待文字、非纯颜色的 loading 标识和 live status；减少动态效果时保留静态标识，
+阶段结束后自动清除。
 
 **证据与背景：** 2026-09-17，用户在 CAP-02 人工测试中反馈：**Generating proposal**
 不够醒目，难以判断模型仍在生成、此时需要等待，容易误以为按钮没有响应或流程停住。
@@ -79,7 +80,7 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 
 ## UI-05：Summary preview 暗示 Apply 会保存摘要，实际不会写入
 
-**状态：Fixed；原生重载复测 PASS。**
+**状态：历史问题已修复；UI-19 已进一步加入默认关闭的 summary 写入选项，待 RC-P2-02 原生复测。**
 
 **证据与背景：** 2026-09-17 CAP-02 用户反馈：Review 中有 Summary preview，但 Apply 后笔记没有摘要。
 源码确认当前 Apply 只写所选 links / tags 和 reviewed 状态，不写 summary；
@@ -94,6 +95,9 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 摘要仅供审阅且不会加入 note；终态不再显示“点 Apply 前什么都不会写入”的误导文案。
 2026-09-17 在真正停用 / 启用插件后的新实例中生成并 Apply；弹窗显示新文案，保存后的测试
 笔记只有已选 links、tags 和 reviewed 状态，不含 proposal summary。
+
+**当前行为：** UI-19 提供明确、默认不选中的 **Add summary to note**；未勾选时仍保持本项已经验证的
+行为。勾选后只写用户最终看到并确认的文本，Apply footer 会准确列出写入范围。
 
 ## UI-06：Apply 部分写入后显示 Review required，缺少明确恢复操作
 
@@ -247,14 +251,28 @@ Properties 继续作为唯一数据源，Home 只呈现其当前值。
 
 ### UI-13：统一 Capture 弹窗字段、控件与 section 的垂直留白
 
-**状态：已实现。优先级：P1；待 AI-00 / Capture 原生视觉复测。** Capture modal 使用一组局部
-spacing token 统一六类字段、Recognition／Optional local AI 分区和底部操作区，不改变控件语义。
+**状态：已实现并通过自动回归；待 RC-P2-01 原生视觉复测。优先级：P1。** Capture modal 使用共享
+spacing token，并以足够高且仅限该 modal 的选择器恢复 Obsidian 对最后一项移除的 block-end padding。
 
 **证据与背景：** 2026-09-20 原生 Capture 弹窗复核发现，这不是单个控件的问题。Recognition 中
 **Speech language → No language preference** 的 dropdown 底边几乎贴着字段卡片底边；
 **Review links and tags** 的说明文字也靠近卡片底边。Image text language、Polish Markdown 以及
 前后的 **Recognition (optional)**／**Optional local AI** section 边界使用了不同的内部与外部间距，
 使同一级字段看起来像来自不同布局系统。
+
+**2026-09-22 复测更新：** **Speech language** 的 dropdown 下方与卡片底部分隔线之间仍几乎没有
+垂直留白；**Review links and tags** 的最后一行 **Suggest links and tags after capture. Review them
+before applying.** 同样贴着卡片底边。两处都是“字段最后一个可见元素到容器底边”的 block-end
+padding 缺失或被覆盖，不是文字字号问题。修复时应让分隔线位于完整 content padding 之外，并复用
+同一个 spacing token；不得分别给这两个控件添加只在当前文案长度下成立的单次 margin。
+
+**2026-09-22 测试方法缺口：** RC-UI-01 C 当前容易被理解为要求拖动 **Capture URL or file**
+窗口本身。Capture 使用 Obsidian modal，没有用户可操作的 resize handle，测试者不能把 modal 单独
+拖到某个宽度。可操作条件只有 Obsidian 主窗口的可用 viewport 与 **View → Zoom in / Reset zoom**；
+modal 应通过现有 viewport 限制自动收缩。若主窗口缩窄后 modal 仍保持固定宽度、超出 viewport 或
+产生横向滚动，应直接判为响应式失败，不能要求测试者寻找不存在的 resize 控件。开始下一次人工
+复测前，应把 `manual-test-plan.md` 的步骤改成明确调整 Obsidian 主窗口，并记录实际窗口／viewport
+宽度；不要写成“缩窄 Capture 窗口”或要求精确拖到约 390px。
 
 [Review links and tags 截图](assets/ui-backlog/ui-13-review-links-spacing.png) ·
 [Speech language 截图](assets/ui-backlog/ui-13-speech-language-spacing.png)
@@ -269,6 +287,10 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
 - 使用共享的 Capture modal spacing 规则，不分别给 `select`、toggle 或某一语言行添加一次性 margin。
 - 字段卡片上下 padding 视觉等量；label 到 helper 保持紧凑，helper 到 dropdown 留出清楚的操作间隔，
   dropdown / 最后一行 helper 到卡片底边保留完整一档留白。
+- **Speech language** 无论显示短选项还是换行的长选项，dropdown 底边到分隔线都必须保留与其他
+  字段一致的 block-end padding；分隔线不能参与挤压 dropdown 的高度。
+- **Review links and tags** 的 helper 是该卡片最后一个文字块时，其最后一行到卡片底边也必须保留
+  完整一档 padding；toggle 的垂直居中不能通过压缩文字块下方空间实现。
 - 同级 section 标题与前一张卡片的距离一致，并明显大于 section 标题与自身说明／首个字段的距离；
   标题应归属于后面的内容，不能贴在上一控件底边。
 - toggle 行的 label / helper 作为一个文字块与开关垂直对齐；说明换成两行时卡片自然增高，底部留白
@@ -286,8 +308,10 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
   unavailable 选项复测；文字不截断到不可辨认，不改变控件高度或把下方 section 推到边框上。
 - Toggle 的 on / off、helper 单行 / 多行以及 validation / unavailable 说明都要复测；不能靠隐藏说明
   维持对齐，也不能改变开关的点击区域或键盘焦点行为。
-- 在深浅主题、约 390px 窄弹窗、默认宽度、100% / 150% 字体下原生复测；无裁切、重叠、横向滚动，
-  且所有字段仍能通过 Tab 顺序访问。只调整排版，不改变已记住的 Capture 选项或提交语义。
+- 在深浅主题、默认 Obsidian 窗口、缩窄后的主窗口可用 viewport、100% / 150% 字体下原生复测；
+  Capture modal 不需要可拖动 resize handle，但必须自动限制在 viewport 内。内容可以纵向滚动，底部
+  Cancel / Capture 始终可达；不得裁切、重叠或产生横向滚动，所有字段仍能通过 Tab 顺序访问。
+  Reset zoom 后点击 Cancel，不产生 note，也不改变已记住的 Capture 选项。
 
 ### UI-14：Needs attention 可关闭单条已过期错误
 
@@ -319,6 +343,210 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
 - 长来源路径、多行错误、多个错误、只剩一条及清空后的 **Nothing needs attention** 都保持正确排版；
   在深浅主题、窄窗口和 150% 字体下复测。实现时增加单条关闭、retry 记录清理、live setup 状态不可
   被伪装为已解决，以及重新出现的新 issue 等回归测试。
+
+## P2：Review 工作区与笔记列表
+
+本组把 2026-09-22 的原生使用反馈作为一个完整流程处理，不先往 note row 上堆更多按钮。本轮按实际
+交付顺序完成：**UI-13 → ENRICH-01 → UI-15 → UI-16 / UI-17 → UI-19 → UI-18 → TEST-01**。
+自动回归已经通过；RC-P2-01–03 保留原生深浅主题、窄窗口、150% 与真实本地模型验收，不能用源码
+完成状态代替人工视觉结果。
+
+这一组继续使用现有 Obsidian 字体、颜色、边框和紧凑密度。目标是让动作更清楚，同时减少每行同时
+出现的文字和按钮；不新增大型卡片、渐变、阴影或独立的 OMD 资料库页面。
+
+### ENRICH-01：短笔记不能因模型把新 tag 归错类而整份失败
+
+**状态：已实现并通过后端全量回归；待 RC-P2-02 真实模型复测。优先级：P2。** 未知、不透明的内部
+`tag-N` reference 现在只省略该 tag 并给出 warning，其余有效 proposal 保留；未知 note/evidence、
+越权目标、无效 schema 与保留 tag 继续 fail closed。
+
+**证据与背景：** 用户原本按 RC-UI-01 对 `Small local capture fixture-4` 测试，但该 note 已是
+`reviewed`，因此不在 OMD Inbox，也没有可见的 **AI tags** 入口；改用 Inbox 中的
+`Small local capture fixture` 后，生成返回：
+**The local model suggested a tag outside the current vault catalog. Generate again or choose another local
+writing model.** 同一个模型换成内容更长的 note 后可以进入 Review。当前代码只有 Inbox 行显示
+**AI tags**；生成本身不会改状态，只有 Review 中成功 Apply 至少一个 link / tag 才会写入
+`omd_home_status: reviewed`。因此本项同时暴露了短输入／模型输出兼容性和入口可发现性问题，不能
+归为普通视觉问题。
+
+CAP-02-R1 已要求把“模型把透明的新 tag 误报为 existing tag”降级成可审阅的 **New tag**，但当前
+原生结果仍落入旧的整体失败映射。开始修复前先记录插件 build、实际 OMD executable、endpoint、
+model ID、目标 note 长度、vault tag catalog 与后端原始 error code；区分“载入了旧 OMD binary”与
+“新修复没有覆盖另一种小模型输出”，不能仅靠换长 note 或换模型掩盖。
+
+**验收标准：**
+
+- 对语法有效、非保留、但尚未存在于 vault catalog 的透明 tag，若模型误归为 existing，确定性地
+  转成默认未选中的 **New tag**；不得伪装成 existing，也不得因此拒绝整份 proposal。
+- 无效／保留 tag、未知 existing note、越权目标与不符合 schema 的输出仍按安全边界拒绝；修复不能
+  变成接受任意模型文本。若过滤后没有可用建议，打开一个清楚的空 Review 或给出具体原因，不能只
+  显示“换模型”这一条泛化建议。
+- 失败与 **Generate again** 保留精确 TARGET 和本轮输入；不自动切换模型。错误文案区分 catalog
+  刷新、模型格式错误和本地模型不可用，并给出对应下一步。
+- 用短／中／长 note、零 tag／已有 tag／新 tag、英文／简中混合内容及至少两个已安装本地模型回归；
+  记录短 note 失败、长 note 成功的控制对照，并确认 loaded OMD binary 是预期版本。
+
+### UI-15：用显式 Review 完成 Inbox，而不是让 AI tags 代表“已审阅”
+
+**状态：已实现并通过自动回归；待 RC-P2-02 原生操作复测。优先级：P2。** Review 现在是右侧
+Obsidian `ItemView`：打开 Review 不调用模型，Apply 只保存已选内容并保留 Inbox，只有明确点击
+**Done reviewing** 才写入 `reviewed`。关闭、取消、失败和 conflict 均不会暗中完成 Review。
+
+**修复前语义：** Home 把 Inbox 行入口命名为 **AI tags**，但实际打开的是 links / tags proposal
+的完整 Review；成功 Apply 任一选择后会同时写入 `reviewed` 并把 note 从 Inbox 移除。生成建议本身
+不会改状态，关闭或取消也会保留 Inbox。用户仍容易把“点了 AI tags”理解为仅生成 tags，并把随后
+消失的 note 理解为系统自动替自己完成了内容审核。当前也没有“看过 note、不采用任何 AI 建议，但
+完成 review”的路径。
+
+**目标流程：** OMD Inbox 行提供清楚的 **Review** 主操作。进入后先查看／编辑 note，再按需运行
+**AI tags** 或 **Summarize**；这些辅助动作本身不改变状态。只有用户显式完成 Review 后才写入
+`reviewed`。`reviewing` 可以是当前会话的临时 UI 状态，不必新增持久 Property。
+
+**验收标准：**
+
+- `inbox → Review → Done / Mark reviewed → reviewed` 是唯一清楚的成功路径；即使没有采纳任何
+  links / tags，也能在看过 note 后显式完成。若建议写入失败、发生 conflict 或用户取消，状态保持
+  `inbox`。
+- **Generate suggestions** 只生成；**Apply suggestions** 只写用户所选内容；**Done / Mark reviewed**
+  才完成队列状态。若最终交互把 Apply 与 Done 合并，按钮和确认文案必须明确同时会写选择并完成
+  Review，不能继续只写 **Apply**。
+- 普通 `×`、Escape、切 tab 或关闭 Home 不得静默标记 reviewed。若未来坚持“关闭即完成”，该操作
+  必须明确命名 **Close and mark reviewed**，并另有 **Keep in Inbox**；不能让无标签的关闭图标产生
+  数据写入。
+- Inbox 只对未完成项显示一次醒目的 **Review**。Reviewed note 在 Recent 中可通过低优先级
+  **Review again** 重新打开，但不能伪装成新的 Inbox 项，也不能重复改写状态或重复插入 links。
+- 状态迁移、无修改完成、选中建议完成、Apply 失败、取消、重开 Home 与并发修改都有自动测试；
+  UI 文案不得把 `reviewed` 描述为事实正确性、内容质量或模型输出已获认可。
+
+### UI-16：保留 Inbox 作为待办队列，Recent 作为按时间找回的活动记录
+
+**状态：已实现并通过自动回归；待 RC-P2-03 原生操作复测。优先级：P2。** Inbox 与 Recent 共享
+metadata snapshot 和 row renderer；Inbox 保持待办职责，Recent 保持按时间找回职责，并显示明确的
+Captured／Updated 时间和仅在 Recent 出现的工作流状态。
+
+**设计决策：** 暂不把两个列表混成一个无差别列表。**OMD Inbox** 只回答“接下来要 review 什么”，
+显示 `inbox` 项；**Recent notes** 回答“刚刚转换或处理过什么”，继续包含 Inbox、Reviewed 和普通
+recent note，并以最新在前帮助用户在 conversion 与 review 同时运行时找回目标。两者复用同一行
+组件和 metadata 读取，但查询目的不同。若后续要减少 dashboard 重复，优先验证同一 **Notes** widget
+中的 **Inbox / Recent** tabs，不直接删除待办视图。
+
+**验收标准：**
+
+- Inbox 以待 review 的最新 note 在前，并在标题显示数量；完成 Review 后只从 Inbox 移除，仍能在
+  Recent 找到。Recent 使用明确且稳定的时间语义排序，不能因异步 metadata 刷新随机跳序。
+- Capture note 优先显示 **Captured** 时间；缺少可靠 capture timestamp 时使用文件 `mtime` 并标为
+  **Updated**。行内显示简短相对时间，hover / focus 和辅助技术可取得含时区的完整绝对时间。
+- Recent 的 **Inbox / Reviewed** 使用紧凑、非纯颜色的 status chip；层级要比标题弱、比路径清楚。
+  普通 note 不添加空 badge。Inbox 内不重复显示显而易见的 Inbox badge。
+- 两个列表对同一 note 的标题、路径、状态、时间和 tags 使用同一个 view model；create、rename、
+  delete、Capture 完成、Review 完成和 metadata change 后一致刷新，不逐行重读正文。
+- 在实现合并或 tabs 前，用并行 conversion + review、空 Inbox、100+ recent notes、长文件名、Unicode
+  和窄窗口做一次可用性复核；必须保留“待办队列”和“找回刚才操作”的两个能力。
+
+### UI-17：统一 note row 的时间、tags、筛选与 AI 操作层级
+
+**状态：已实现并通过自动回归；待 RC-P2-03 原生视觉复测。优先级：P2。** 行内最多显示两个 tag，
+筛选支持 Unicode、nested parent tag 与多条件 AND；窄容器把 Review／AI tags／Summarize 收入 `…`
+菜单，Pin／Unpin 保持直接可用。Reviewed 项显示低优先级 **Review again**。
+
+**排版方向：** 行的第一层只放 title 和一个上下文主操作；第二层按 `path · time · status` 呈现弱化
+metadata。Tags 最多显示两个紧凑 token 和 `+N`，不能把每个 tag、时间和三个文字按钮同时铺满一行。
+完整 tags 通过 hover / focus、展开或 note 打开后查看。宽窗口允许一个紧凑的 **AI tags / Summarize**
+操作组；窄窗口把这两个有文字 label 的动作折入同一个 `…` menu，顺序和名称保持一致，不能只留
+含义不明的图标。
+
+**验收标准：**
+
+- Recent 与 Inbox 都能到达 **AI tags** 和 **Summarize**；Inbox 的上下文主操作仍是 **Review**，
+  Recent 的 note 主体仍是打开 note。鼠标 hover、键盘 focus 和触屏下动作均可发现，不靠 hover
+  才能访问。
+- **Summarize** 默认在同一个 Review surface 生成只读 preview，不自动写 note、不自动标记 reviewed。
+  若以后允许保存，必须有独立的 **Add summary to note**、写入范围说明和 conflict 防护，不能复用
+  当前 proposal summary 的误导语义。
+- Widget header 提供一个紧凑的 tag filter；来源使用 Obsidian metadata cache，选择和清除状态明确，
+  结果数随筛选更新。定义 nested tags、多个 tags 的 AND / OR 规则；不把过滤状态写入 note 或在
+  Capture 时改变 tags。
+- Status、relative time 和 tag token 使用现有 typography / spacing / theme variables；150% 字体、
+  深浅主题、约 390px 宽度和超长 tags 下，title 保留主要宽度，Pin / Unpin、Review 与菜单保持对齐。
+- 行内操作不得因 status 或 tags 是否存在而左右跳动；所有 icon-only fallback 都有 tooltip、
+  `aria-label` 和可见 focus，Tab 顺序与视觉顺序一致。
+
+### UI-18：等待动效使用独立空间，不覆盖 Generating suggestions 文字
+
+**状态：已实现并通过自动回归；待 RC-P2-02 原生视觉复测。优先级：P2。**
+
+**证据与背景：** 当前 **Generating suggestions… Please wait.** 左侧紫色圆点压在第一个字母上，
+看起来像文字渲染错误。修复前把通用 `is-loading` class 和 `::before` spinner 放在同一个文字 badge；
+Obsidian／theme 的同名样式可能改变 pseudo-element 定位，因此即使默认主题正常也存在覆盖风险。
+
+[原生截图](assets/ui-backlog/ui-18-generating-suggestions-overlap.png)
+
+**设计方向与验收标准：**
+
+- 改用 OMD namespaced state class 和显式 spinner child；indicator 占有固定的 `1em` 左侧槽位，并通过
+  inline flex / grid 与文字保持一个标准 gap，不把 pseudo-element 定位到 glyph 上。
+- 使用一个 12–14px 的细环或等价单一指示器，accent 色只用于 indicator；不增加发光、跳动文字、
+  多层圆点或大面积紫色背景。动画平稳，不能让 badge 宽度或文字基线抖动。
+- 保留 `role=status`、`aria-live` 和现有防重复提交／取消语义。`prefers-reduced-motion` 下停止旋转，
+  显示同样占位的静态进度符号和完整等待文字，不能仅靠动画传达状态。
+- 在默认主题、常用 community theme、深浅模式、100% / 150% 字体、窄弹窗与长翻译文案下截图复测；
+  spinner、边框、文字和左侧状态 rail 均不重叠，完成／失败／取消后不残留。
+
+### UI-19：Proposal summary 可选择随 links 与 tags 一起写入 note
+
+**状态：已实现并通过自动回归；待 RC-P2-02 原生写入与冲突复测。优先级：P2。** Summary 默认不选，
+可编辑并可单独 Apply；受管 block 与 links 在一次正文 transaction 中写入，已有用户 Summary、损坏
+markers 和并发修改会安全停止。Apply 后仍为 Inbox。
+
+**原需求与边界：** 修复前 **Proposal summary** 只帮助用户理解模型建议，Apply 永远不写入。用户希望
+在 Review 中像选择 existing / new links 与 tags 一样，获得一次把这段 summary 加入目标 note 的
+机会。该能力必须是显式 opt-in；继续保留只阅读 summary、只 Apply links / tags 或完全不采用建议的
+路径。它与 UI-17 的独立 **Summarize** 工具不同：本项复用当前 proposal 已经返回的 summary，不应
+为勾选或 Apply 再调用一次模型。
+
+**交互方向：** 在 **Proposal summary** 卡片内提供清楚的 **Add summary to note** checkbox，默认
+不选中。选中后允许在受限文本区域内做最后编辑，并在 Apply footer 中与选择数量一起显示，例如
+`2 links · 3 tags · summary`；取消选择后恢复为纯 preview。Summary 可以成为本次唯一的写入选择，
+不能继续因没有 link / tag 而返回 **Choose at least one link or tag**。
+
+**验收标准：**
+
+- Apply 前准确列出将写入的 summary、links 和 tags；未选 summary 时保持 UI-05 已验证的当前行为，
+  不写入任何 summary 占位、空 heading 或 Property。
+- 选中 summary 后，把用户在 Review 中看到并最终确认的文本写入正文中的受管 summary block。位置
+  必须确定且稳定，建议位于受管 **Related notes**／`## Full Content` 之前；不得把长摘要塞入
+  frontmatter。受管 markers、heading 与最大长度需形成明确格式契约。
+- 已存在 OMD 管理的 summary 时应幂等更新，不能重复追加；如果 note 已有用户手写的 Summary section
+  或 markers 损坏，不得覆盖或吞并用户内容。界面应说明冲突并保留 Copy / Open note 等安全出口。
+- Summary 与受管 links 应在同一次 body transaction 中基于 proposal 的原始 hash 写入；随后 tags／
+  status 仍使用相同 conflict 与 rollback 边界。任何并发修改都应阻止旧 summary 覆盖新内容；部分
+  失败必须准确说明 summary、links、tags 中哪些可能已经写入。
+- 对编辑后的 summary 重新执行长度、控制字符、marker 注入和不安全 HTML 等确定性校验；保留 Unicode、
+  简中／繁中／英文及 RTL 文本，不因写入而重新翻译或重新润色。复制和屏幕 preview 与最终正文一致。
+- 生成或选择 summary 本身不改变 Inbox / Reviewed；状态迁移遵循 UI-15。若最终按钮同时 Apply 并
+  完成 Review，按钮与确认文案必须明确这两个结果。
+- 自动与原生测试覆盖：summary only、summary + links、summary + tags、全部选择、未选 summary、空
+  summary、编辑后写入、已有 managed block、已有用户 Summary、并发修改、frontmatter 失败回滚、
+  重复 Apply、长文件名、窄窗口和 150% 字体。
+
+### TEST-01：Review 回归 fixture 不依赖已经离开 Inbox 的固定文件名
+
+**状态：已实现；可重置 fixture 与 RC-P2-01–03 已加入人工计划，待原生执行。优先级：P2。**
+
+**问题：** 当前 RC-UI-01 写死从 `Small local capture fixture-4` 的 Inbox 行点击 **AI tags**；但该
+note 一旦完成 Apply 就是 `reviewed`，按设计不会继续出现在 Inbox。测试者只能换用另一个 note，
+从而把 fixture 状态、短 note 失败和 UI 回归混在一起。
+
+**验收标准：**
+
+- 在 Case 开始时创建或 reset 一个名称唯一、内容固定、明确带 `omd_home_status: inbox` 的短 note；
+  另建中／长 note 作为控制组。不要依赖递增后缀 `-4` 或前一轮测试遗留状态。
+- 步骤先验证该 note 同时出现在 Inbox 与 Recent，再从 **Review** 入口运行 AI tags / Summarize，最后
+  验证 Done 后只从 Inbox 消失、Recent 仍可按时间和状态找到。
+- 记录 model、endpoint、OMD executable / version、插件 build 与实际错误 code；重复测试前恢复
+  fixture，不用重新 Capture 产生另一个不可预测的文件名。
+- 把首次测试与已通过证据分开；UI-15–19 完成后更新 `manual-test-plan.md` 的当前执行队列与例子，
+  并保留本次短 note 失败和 loading overlap 截图作为回归基线。
 
 ## Capture source 集成缺口
 

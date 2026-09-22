@@ -5,7 +5,7 @@ personal data and can be copied, edited, captured, pinned, or deleted during tes
 
 ## HOME-01 notes
 
-The five files in `vault-notes/` cover:
+The original five HOME-01 files in `vault-notes/` cover:
 
 - a one-character filename;
 - a long filename that must truncate without changing row indentation;
@@ -41,6 +41,17 @@ The generated files beside this README are:
 The source text is intentionally short and explicit so OCR/ASR output can be checked without
 subjective scoring. The PDF is image-only: selecting its text should not reveal a text layer. It is
 an OCR/limitation fixture, not the ordinary successful PDF/path fixture used by CAP-01.
+
+## Review workflow fixtures
+
+- `vault-notes/OMD Review Short.md` checks short-note enrichment and explicit Inbox completion.
+- `vault-notes/OMD Review Multilingual Long Filename 中文 العربية.md` checks Unicode, long rows,
+  tags, time, and responsive actions.
+- `vault-notes/OMD Review User Summary Collision.md` checks that a user-authored `## Summary` is
+  never overwritten.
+
+Copy these into the disposable test vault with a fresh name for each manual run. Do not complete a
+later run against an already Reviewed copy.
 
 ## CAP-03 setup-failure input
 

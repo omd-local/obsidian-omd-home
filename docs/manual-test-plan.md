@@ -80,26 +80,25 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与本轮入口（2026-09-22 NZST）
+### 1.3A 当前候选与本轮入口（2026-09-23 NZST）
 
-本轮只测试已经推送的 P0 / P1 修复、此前没有完成的人工分支，以及最终发布门禁。旧候选身份、已经
-明确 PASS 的步骤和 P2 设想已移到下方归档，不要从历史交接继续，也不要重新清空 vault。
+本轮先测试已经实现的 UI-13、ENRICH-01、UI-15–19，再继续此前没有完成的人工分支和最终发布门禁。
+旧候选身份与已经明确 PASS 的步骤移到下方归档；不要从历史交接继续，也不要重新清空 vault。
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 源码 | `84531f9873debe5c2086ec3361f9f30733978861`（branch `agent/omd-home-baseline`） |
-| OMD 后端 | `07275994fb5e2a3522e635aec8653c619a5941a1`（branch `agent/release-ux-compat`） |
+| Home 功能源码 | `3095379837881a78d0498c4001f5dce44231065b`（branch `agent/omd-home-baseline`） |
+| OMD 后端 | `113388e0b75fb6ba6b380b5d6be699ef7b4271fd`（branch `agent/release-ux-compat`） |
 | 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
-| 已安装 Home bundle | `main.js` `6bb08cadde49b3c3daf86eafe5ab27c5a2d57d5224676765ee292abfff67693f`；`styles.css` `3ae948c963b52b842d2c14495bc83fdd249776a74c76fea86aa16fb3023778bc`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| 候选 Home bundle | `main.js` `02efa95548b030d0965d3d3783308c6ff49f47cb3a6d61a4f5abaaa95d311df6`；`styles.css` `a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
 | OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
 | Local writing / answer model | `qwen3:4b-instruct`；2026-09-22 原生 **Check setup** 已显示 ready |
-| 当前数据 | 38 篇 Markdown；原 `data.json`、Pin、布局与测试结果均保留；Current task 为 **No task running** |
-| 自动门禁 | Home 603 / 603、TypeScript、ESLint、production build；后端 1684 / 1684、Ruff、compileall、wheel install、英文 OCR smoke |
+| 当前数据 | 保留原 `data.json`、笔记、Pin、布局与历史结果；开始时记录实际 Markdown 数量和 Current task |
+| 自动门禁 | Home 628 / 628、TypeScript、ESLint、production build；后端 1685 / 1685、Ruff、compileall（排除 macOS `._*` 元数据） |
 
-本轮安装只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，没有清空
-`data.json`、笔记、Pin 或历史结果。Obsidian 已执行 **Reload app without saving**。原生首页已看到
-Recent 中的 **Inbox**／**Reviewed**；这只是安装 smoke evidence，下面仍要完成主题、窄窗口、键盘和
-150% 缩放的人工视觉验收。
+安装时只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，不清空
+`data.json`、笔记、Pin 或历史结果。安装后的 reload smoke 只能证明插件成功载入；主题、窄窗口、
+键盘和 150% 缩放仍必须按 RC-P2-01–03 人工验收。
 
 状态词统一如下：
 
@@ -109,27 +108,33 @@ Recent 中的 **Inbox**／**Reviewed**；这只是安装 smoke evidence，下面
 - **NOT RUN**：缺少凭证、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列
+#### 当前执行队列（2026-09-23 候选）
+
+这轮先验证刚完成的 P2 工作区，不再依赖已经 Reviewed 的 `Small local capture fixture-4.md`。每个
+Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixture；做完后只删除本节列出的
+测试副本。插件和 OMD commit、bundle hash 以本轮最终提交／安装记录为准。
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | RETEST / P0+P1 | [RC-UI-01](#test-rc-ui-01) | UI-04、UI-12、UI-13、UI-14；同时关闭 Settings 宽／窄排版 | `Small local capture fixture-4.md`、不存在的 `ui-14-dismiss-me.html` |
-| 2 | RETEST / P0 | [CAP-02-R1](#test-cap-02-r1) | proposal 等待、错误 tag 恢复、Suggested note topics、Apply 后 Reviewed | `Sources/Documents/Small local capture fixture-4.md`；`qwen3:4b-instruct` |
-| 3 | RETEST | [CAP-01A](#test-cap-01a) 未完成子项 | 三种 OCR、ASR 逐模式、config / Retry；不重做扫描 PDF 与缺包隔离 | 三张 PNG、`bilingual-speech.wav`、`plain-text-web-page.html` |
-| 4 | FIRST PASS / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 精确 provider/model contract；可用、不可用、未知三种状态 | `gpt-4.1`、`gpt-5.4-pro`、`deepseek-v4-flash`、`deepseek-chat` |
-| 5 | FIRST PASS | [CAP-06](#test-cap-06) B、C | 用户 Cancel 与 disable/enable plugin 的 child-process 清理 | `slow-bilingual-speech.wav`；tags `cap-06-user-cancel`、`cap-06-unload` |
-| 6 | FIRST PASS | [OMD-01](#test-omd-01) 未完成分支、[AI-02](#test-ai-02) | missing/custom path、daemon、endpoint 与恢复 | `/tmp/omd-home-does-not-exist/omd`、`http://localhost:9999` |
-| 7 | FIRST PASS / 有凭证才做 | AI-03／04／05／11 hosted 实网分支 | 每个 provider 独立检查、preview、取消和恢复 | 问题：`@Which fixture uses the blue key, and on what day?` |
-| 8 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
-| 9 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
-| 10 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
+| 1 | RETEST | [RC-P2-01](#test-rc-p2-01) | UI-13 Capture 最后一行留白、viewport 与 150% | `small-local-file.html` |
+| 2 | FIRST PASS | [RC-P2-02](#test-rc-p2-02) | ENRICH-01、UI-15、UI-19、UI-18；Review 侧栏、summary、冲突、明确 Done | 三个 `OMD Review *.md` fixture；`qwen3:4b-instruct` |
+| 3 | FIRST PASS | [RC-P2-03](#test-rc-p2-03) | UI-16／17；Inbox／Recent、时间、状态、tags、筛选、窄窗口操作 | 多语言长文件名 fixture |
+| 4 | RETEST | [CAP-01A](#test-cap-01a) 未完成子项 | 三种 OCR、ASR 逐模式、config / Retry；不重做扫描 PDF 与缺包隔离 | 三张 PNG、`bilingual-speech.wav`、`plain-text-web-page.html` |
+| 5 | FIRST PASS / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 精确 provider/model contract；可用、不可用、未知三种状态 | `gpt-4.1`、`gpt-5.4-pro`、`deepseek-v4-flash`、`deepseek-chat` |
+| 6 | FIRST PASS | [CAP-06](#test-cap-06) B、C | 用户 Cancel 与 disable/enable plugin 的 child-process 清理 | `slow-bilingual-speech.wav`；tags `cap-06-user-cancel`、`cap-06-unload` |
+| 7 | FIRST PASS | [OMD-01](#test-omd-01) 未完成分支、[AI-02](#test-ai-02) | missing/custom path、daemon、endpoint 与恢复 | `/tmp/omd-home-does-not-exist/omd`、`http://localhost:9999` |
+| 8 | FIRST PASS / 有凭证才做 | AI-03／04／05／11 hosted 实网分支 | 每个 provider 独立检查、preview、取消和恢复 | 问题：`@Which fixture uses the blue key, and on what day?` |
+| 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
+| 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
+| 11 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
 
 在这里记录本轮结果；未做的行保持空白，不要预填 PASS：
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
-| RC-UI-01 |  |  |  |  |
-| CAP-02-R1 |  |  |  |  |
+| RC-P2-01 |  |  |  |  |
+| RC-P2-02 |  |  |  |  |
+| RC-P2-03 |  |  |  |  |
 | CAP-01A 剩余子项 |  |  |  |  |
 | ANSWER-02-R1 |  |  |  |  |
 | CAP-06 B／C |  |  |  |  |
@@ -139,12 +144,109 @@ Recent 中的 **Inbox**／**Reviewed**；这只是安装 smoke evidence，下面
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**现在从 RC-UI-01 开始。** 完成一行后记录 `PASS / FAIL / NOT RUN`、时间、截图和一句原因，再进入
+**现在从 RC-P2-01 开始。** 完成一行后记录 `PASS / FAIL / NOT RUN`、时间、截图和一句原因，再进入
 下一行。不要为了做后面的测试提前修改当前 OMD 路径或删除模型。
+
+<a id="test-rc-p2-01"></a>
+
+#### RC-P2-01：Capture 留白与 viewport（UI-13）
+
+1. 打开 **Capture URL or file**，粘贴但不要提交：
+
+   ```text
+   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html
+   ```
+
+2. 展开 Recognition，逐项检查 **Image text language** 与 **Speech language**。下拉框底部到分隔线应
+   有完整留白；把 Speech language 改成 **No language preference**、**简体中文 + English**、
+   **繁體中文 + English** 各看一次。
+3. 检查 Optional local AI 的 **Polish Markdown** 与 **Review links and tags**。最后一行 helper 到卡片
+   底边应与语言控件一致，开关 on／off 都不能压缩底部留白。
+4. Capture modal 没有拖动 resize handle。请缩窄 **Obsidian 主窗口**，重新打开 Capture，再用
+   **View → Zoom in** 到约 150%。内容可以纵向滚动，不能横向滚动、遮挡或截断底部操作。运行
+   **Reset zoom** 后点击 Cancel；不得产生 note 或改变这次以前保存的默认值。
+
+<a id="test-rc-p2-02"></a>
+
+#### RC-P2-02：Review 侧栏、短 note、summary 与等待动效（ENRICH-01／UI-15／18／19）
+
+**A. 准备可重置 fixture**
+
+在 Terminal 执行以下命令；只覆盖本节的四个测试副本，不清空 vault：
+
+```bash
+mkdir -p "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests"
+cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 Short.md"
+cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 Conflict.md"
+cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review Multilingual Long Filename 中文 العربية.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md"
+cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review User Summary Collision.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 User Summary Collision.md"
+```
+
+等 Obsidian File explorer 出现四份 note。它们都应进入 OMD Inbox 和 Recent；若旧副本已经
+Reviewed，重新执行以上 copy 并等待 metadata 刷新，不要另做 Capture 生成随机 `-4` 后缀。
+
+**B. Review 与 Generate 分离**
+
+1. 对 **RC P2 Short** 点击 **Review**。主编辑区应打开目标 note，右侧出现 OMD review pane；此时
+   不调用模型，状态仍为 Inbox。关闭侧栏或点 **Keep in Inbox** 都不得写 `reviewed`。
+2. 再次 Review，点击 **Generate suggestions**。等待 badge 应显示一个独立的 12–14px 细环和完整
+   **Generating suggestions… Please wait.**，圆环不覆盖首字，宽度不抖动。重复点击不能启动第二份
+   proposal；reduced motion 下圆环静止但仍占位。
+3. 短 note 必须得到可审查 proposal 或具体、可操作的模型格式错误。若模型返回未知内部 `tag-N`，只
+   省略该 tag 并显示简短 warning，其他有效 summary／links／tags 仍保留。自由文本的新 tag 应作为
+   默认未选中的 **New tag**，不能冒充 existing。模型本轮未触发这些分支时记录 `NOT EXERCISED`；
+   确定性自动回归仍作为发布证据。
+4. **Suggested note topics** 只显示未来可建笔记的想法；没有 checkbox，也不会自动成为 tag。
+
+**C. 可选 summary 与明确完成 Review**
+
+1. Proposal summary 中 **Add summary to note** 默认关闭。先只选择一个 link 或 tag 并 Apply；note
+   仍为 Inbox，正文不得出现空 Summary heading 或 summary marker。
+2. Generate again，勾选 **Add summary to note**，把最后一行改成
+   `Manual edit 中文 العربية 923`。取消其他建议，使 summary 成为唯一选择；Apply 必须可用。
+3. 打开 note 验证出现且只出现一次：
+
+   ```markdown
+   <!-- omd-home:summary:start -->
+   ## Summary
+   ...Manual edit 中文 العربية 923...
+   <!-- omd-home:summary:end -->
+   ```
+
+   区块位于受管 Related notes／`## Full Content` 之前；Apply 后仍为 Inbox。再次对相同内容 Apply
+   不得追加第二个区块。**Copy summary** 复制的内容应与 textarea 一致。
+4. 最后点击 **Done reviewing**。只有这一步把 Property 改为 `omd_home_status: reviewed`；note 从
+   Inbox 消失，但仍在 Recent，状态显示 Reviewed。Apply、Generate、Cancel、关闭侧栏都不能代替它。
+
+**D. 冲突与用户内容保护**
+
+1. 对 **RC P2 Conflict** Generate；保持侧栏打开，在主编辑器末尾加入
+   `MANUAL-CONFLICT-KEEP-923` 并保存，再从旧 proposal 点 Apply。应显示 conflict，保留新行，不写旧
+   summary／links／tags，状态仍为 Inbox。非 modal 侧栏使这一步可以完全在 Obsidian 内完成。
+2. 对 **RC P2 User Summary Collision** Generate，勾选 Add summary to note 后 Apply。应明确说明该
+   note 已有 OMD 不管理的 Summary；`USER-AUTHORED-SUMMARY-KEEP-923` 必须原样保留，不新增 managed
+   summary，也不标记 Reviewed。Copy／Open note 等安全出口仍可使用。
+
+<a id="test-rc-p2-03"></a>
+
+#### RC-P2-03：Inbox／Recent、时间、tags 与响应式操作（UI-16／UI-17）
+
+1. 在 RC-P2-02 C 点 Done 前检查：Inbox 标题数量包含三／四个新 fixture；Recent 同时包含 Inbox、
+   Reviewed 和普通 note，最新 Updated／Captured 在前。Done 后只有对应 note 从 Inbox 数量中移除。
+2. Recent 的 Inbox／Reviewed chip 必须有文字；普通 note 无空 badge。Inbox 不重复显示 Inbox chip。
+   Hover 或键盘 focus 时间可见带时区的完整时间，行内相对时间在等待一分钟后能自行更新。
+3. 每行最多显示两个 tag token 和 `+N`。点 widget header 的 filter，先选 `#review`，再选
+   `#language`：多选使用 AND，父 tag 可匹配 `review/multilingual`、`language/中文` 等 nested tag；
+   计数随筛选更新。Clear filters 恢复原列表，不修改 note Properties。
+4. 宽窗口能到达 Review、AI tags、Summarize、Pin／Unpin。**Summarize** 打开同一个 Review pane 的
+   proposal summary，不自动写正文或改变状态。缩窄 Obsidian 主窗口后，三个长文字动作折入 `…`
+   menu，Pin／Unpin 仍可操作；菜单名称和顺序保持一致。
+5. 用深／浅主题、100%／150% 和多语言长文件名检查。title 保留主要宽度，path、time、status、tags
+   自动换行或省略；不得横向滚动、重叠、仅靠 hover 才能操作或让 Pin／Unpin 列错位。
 
 <a id="test-rc-ui-01"></a>
 
-#### RC-UI-01：本轮发布 UI 增量回归
+#### 历史 RC-UI-01：旧候选 UI 增量回归（归档）
 
 A. **Recent 状态与长文件名（UI-12）**
 
@@ -172,8 +274,10 @@ C. **Capture 留白与响应式布局（UI-13）**
 
 2. 对照 Source、Tags、Recognition、Optional local AI 与底部操作区：标题、说明、dropdown、toggle
    和分隔线都要有一致的垂直留白，顶部文字不能贴着卡片底边。
-3. 缩窄 Obsidian 窗口，再用 **View → Zoom in** 逐步放大到约 150%；按钮应换行或堆叠，不重叠、
-   截断或产生横向滚动。最后运行 **Reset zoom**，点击 Cancel，不产生 note。
+3. Capture 弹窗本身没有拖动缩放手柄；请缩窄 **Obsidian 主窗口**（需要时先 Cancel、缩窄后再打开
+   Capture），再用 **View → Zoom in** 逐步放大到约 150%。弹窗应随可用 viewport 收窄并允许纵向
+   滚动；按钮应换行或堆叠，不能重叠、截断或产生横向滚动，底部操作始终可到达。最后运行
+   **Reset zoom**，点击 Cancel，不产生 note。
 
 D. **关闭单条历史错误（UI-14）**
 
@@ -196,7 +300,7 @@ E. **Settings 统一排版（UI-01／02）**
 
 <a id="test-cap-02-r1"></a>
 
-#### CAP-02-R1：Enrichment、等待状态与 Reviewed 回归
+#### 历史 CAP-02-R1：旧候选 Enrichment 回归（归档）
 
 1. 保持 OMD executable 为本节顶部记录的后端候选，Local writing model 为
    `qwen3:4b-instruct`，先运行 **Check setup**。
@@ -249,18 +353,19 @@ E. **Settings 统一排版（UI-01／02）**
 | --- | --- | --- |
 | CAP-03 | 缺失模型、idle、Retry、设置恢复与 Automatic 状态全部 PASS | 不重复失败注入 |
 | CAP-06 A、D | Home tab 后台继续；Cmd+Q 取消与重开清理 PASS | 只做 B、C |
-| CAP-02 正常 Apply、UI-05、UI-06 | Apply、原生写入和 review 终态已有 PASS | 用 CAP-02-R1 只回归本轮新增状态与 validator |
+| CAP-02 正常 Apply、UI-05、UI-06 | Apply、原生写入和 review 终态已有 PASS | 旧证据保留；新实现改由 RC-P2-02 完整复测 |
 | CAP-01A 扫描 PDF | image-only PDF 显示明确不支持边界且不生成空 note | 不重复；这不代表支持扫描 PDF OCR |
 | CAP-01A 缺语言 pack 隔离 | 缺 `chi_sim` 时错误列出 requested / missing / available 与安装提示 | 不重复 wrapper 测试 |
 | 语音总体验收 | 用户已确认 PASS | 仅补 Auto-detect / Chinese / No preference 的逐模式证据 |
 | Automatic candidate 优选 | 能跳过 enrich-only Homebrew candidate 并找到带 Recognition contract 的 OMD | 当前为精确后端路径；到 OMD-01／REL-01 再验 Automatic |
-| Minimal 与 Pin 对齐 | Pin / Unpin、长标题、正常与 150% 列宽回归已有 PASS | RC-UI-01 只确认新状态文字没有破坏对齐 |
+| Minimal 与 Pin 对齐 | Pin / Unpin、长标题、正常与 150% 列宽回归已有 PASS | 旧证据保留；新 note row 改由 RC-P2-03 完整复测 |
 
-#### 本轮明确不测（DEFERRED / P2）
+#### 仍未完成、留在后续队列
 
 UI-07–11 的 Graph / Local Graph / Backlinks / Search / Bases 建议、ANSWER-01、Douyin／XHS cookies
-bridge，以及 folder / one-item-per-line batch 仍保留在 `ui-backlog.md`。它们不是本轮失败，也不能在
-发布说明中写成已经接入。除非后续代码真正实现，不为这些项目增加手工 PASS。
+bridge，以及 folder / one-item-per-line batch 仍保留在 `ui-backlog.md`。这些项目本轮没有实现；
+CAP-01A 剩余模式、CAP-06 B／C、hosted、Calendar、Extended AI 与 clean-vault release gate 继续按上表
+顺序执行。它们不是本轮失败，也不能在发布说明中写成已经接入。
 
 下面的 2026-09-17／19／20 候选身份与交接只作历史证据；不要从其中的“现在继续”恢复执行。
 
@@ -2155,12 +2260,11 @@ language detection 的文案；polish 不被描述为 OCR 或 translation。
 
 <a id="test-cap-02"></a>
 
-### CAP-02：本地 AI 生成 links/tags，Review 后才写入
+### CAP-02：本地 AI 生成 links/tags，Review 后才写入（历史完整 case）
 
-**本轮执行入口（2026-09-22）**：先做顶部 [CAP-02-R1](#test-cap-02-r1)。下面 1–11 步保留为
-完整 case 与历史证据，不要求把已经 PASS 的正常 Apply 重做一遍。当前 OMD executable 已明确设为
-`/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`，对应本轮后端 commit `0727599`；完成本轮
-enrichment 回归前不要切回 Automatic。Automatic candidate 优选另在 OMD-01／REL-01 验收。
+**不要按下面的旧按钮语义执行。** 本轮入口是顶部 [RC-P2-02](#test-rc-p2-02)。下面 1–11 步只保留
+2026-09-17–22 的完整 case 与历史证据；当时 Apply 会直接写 Reviewed，当前版本已改成 Apply 保持
+Inbox、只有 **Done reviewing** 完成状态。Automatic candidate 优选另在 OMD-01／REL-01 验收。
 
 1. 在 Capture 的 **Optional local AI** 下记录两个 toggle 的初始状态，再开启
    **Review links and tags**。按测试需要决定是否同时开启 **Polish Markdown**；两个动作应保持独立，

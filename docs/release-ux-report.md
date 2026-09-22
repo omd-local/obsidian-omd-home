@@ -1,6 +1,35 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查跨度：2026-09-17–2026-09-21。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；最终 P0 / P1 收口状态见下节，较早段落中的计数和待办只描述对应时间点。
+检查跨度：2026-09-17–2026-09-23。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+
+## P2 Review 工作区候选（2026-09-23）
+
+按用户指定顺序完成 **UI-13 → ENRICH-01 → UI-15 → UI-16 / UI-17 → UI-19 → UI-18**。界面继续
+使用原有 minimal 字体、主题变量、细边框和紧凑密度，没有引入新的视觉系统。
+
+- Review 从阻塞 modal 改为 Obsidian 右侧 pane。打开 Review 不调用模型；Apply 只保存用户选择的
+  summary、links 和 tags，并保持 Inbox。只有 **Done reviewing** 写入 `omd_home_status: reviewed`。
+- Proposal summary 默认不写入；用户可勾选、编辑、复制或单独 Apply。受管 Summary 与 Related notes
+  共用一次正文 transaction；已有用户 Summary、损坏 marker 或并发编辑时安全停止。
+- Inbox 保留待办职责，Recent 保留按时间找回职责。两者共享 metadata-only snapshot、稳定排序、
+  Captured／Updated 时间、Unicode／nested tag 筛选与响应式操作；Reviewed 项提供 **Review again**。
+- 小模型返回未知的内部 `tag-N` reference 时只省略该条并显示 warning，其余有效 proposal 继续进入
+  Review；未知 note/evidence、越权目标与不符合 schema 的输出仍拒绝。
+- Capture 最后一项恢复统一 block-end 留白；生成状态使用独立 namespaced spinner 槽位，避免主题
+  pseudo-element 覆盖文字，reduced motion 时保持静态进度符号。
+
+功能源码：Home `3095379837881a78d0498c4001f5dce44231065b`；OMD
+`113388e0b75fb6ba6b380b5d6be699ef7b4271fd`。候选 bundle SHA-256：`main.js`
+`02efa95548b030d0965d3d3783308c6ff49f47cb3a6d61a4f5abaaa95d311df6`，`styles.css`
+`a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`，`manifest.json`
+`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。
+
+自动门禁：Home TypeScript、ESLint、production build 与 **628 / 628** Node tests 通过；完整测试还在
+带空格的 worktree 路径运行，顺便修复 bridge test 把 URL pathname 的 `%20` 当磁盘路径的问题。
+OMD 后端 **1685 / 1685** tests、Ruff 和排除 macOS `._*` AppleDouble 元数据后的 compileall 通过；
+两个仓库 `git diff --check` 通过。RC-P2-01–03 已使用可重置的短 note、多语言长文件名和用户 Summary
+collision fixture 重写；深浅主题、150%、community theme 与真实模型输出仍由原生人工计划记录，
+不以自动回归冒充人工 PASS。
 
 ## P0 / P1 发布收口（2026-09-21）
 
