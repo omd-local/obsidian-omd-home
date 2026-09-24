@@ -2238,15 +2238,17 @@ export default class OmdHomePlugin extends Plugin {
           if (installed && install.isConnected) install.textContent = "Installed";
         }));
       }
-      const sparse = warningActions.createEl("button", { type: "button", text: "Switch to keyword search" });
-      sparse.title = "Turn off semantic search for future vault questions";
-      sparse.disabled = this.aiSetupBusy();
-      sparse.addEventListener("click", () => void this.useSparseRetrieval().then((selected) => {
-        if (selected && sparse.isConnected) {
-          sparse.textContent = "Keyword search selected";
-          sparse.disabled = true;
-        }
-      }));
+      if (this.settings.hybridRetrievalEnabled) {
+        const sparse = warningActions.createEl("button", { type: "button", text: "Use keyword search by default" });
+        sparse.title = "Turn off semantic search for future vault questions";
+        sparse.disabled = this.aiSetupBusy();
+        sparse.addEventListener("click", () => void this.useSparseRetrieval().then((selected) => {
+          if (selected && sparse.isConnected) {
+            sparse.textContent = "Keyword search is default";
+            sparse.disabled = true;
+          }
+        }));
+      }
       const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
       settings.addEventListener("click", () => this.openRetrievalSettings());
     }

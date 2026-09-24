@@ -372,7 +372,7 @@ test("one-click embedding installation canonicalizes aliases and downloads only 
   ]);
 });
 
-test("Switch to keyword search persists the retrieval choice once and leaves an already-keyword setup unchanged", async () => {
+test("Use keyword search by default persists the retrieval choice once and leaves an already-keyword setup unchanged", async () => {
   const plugin = mainHarness(["useSparseRetrieval"]);
   const calls: string[] = [];
   plugin.settings.hybridRetrievalEnabled = true;
@@ -390,7 +390,7 @@ test("Switch to keyword search persists the retrieval choice once and leaves an 
   assert.equal(plugin.notices.at(-1), "Keyword search is already selected.");
 });
 
-test("Switch to keyword search cannot invalidate an in-flight AI setup action", async () => {
+test("Use keyword search by default cannot invalidate an in-flight AI setup action", async () => {
   const plugin = mainHarness(["useSparseRetrieval"]);
   const calls: string[] = [];
   plugin.settings.hybridRetrievalEnabled = true;
@@ -682,9 +682,9 @@ for (const provider of ["ollama", "openai"] as const) {
 }
 
 for (const [warning, model, expectedButtons] of [
-  ["hybrid_retrieval_model_not_installed", "bge-m3", ["Install model", "Switch to keyword search", "Open retrieval settings"]],
-  ["hybrid_retrieval_daemon_unreachable", null, ["Switch to keyword search", "Open retrieval settings"]],
-  ["hybrid_retrieval_model_unsupported", null, ["Switch to keyword search", "Open retrieval settings"]],
+  ["hybrid_retrieval_model_not_installed", "bge-m3", ["Install model", "Use keyword search by default", "Open retrieval settings"]],
+  ["hybrid_retrieval_daemon_unreachable", null, ["Use keyword search by default", "Open retrieval settings"]],
+  ["hybrid_retrieval_model_unsupported", null, ["Use keyword search by default", "Open retrieval settings"]],
 ] as const) {
   test(`zero-evidence Ask preserves ${warning} recovery actions`, async () => {
     const plugin = mainHarness(["askOmd"]);
@@ -736,6 +736,29 @@ for (const [warning, model, expectedButtons] of [
     assert.deepEqual(buttons, expectedButtons);
   });
 }
+
+test("an already keyword-only setup does not offer a redundant retrieval switch", () => {
+  const plugin = mainHarness();
+  plugin.settings.hybridRetrievalEnabled = false;
+  const buttons: string[] = [];
+  const element = (): Record<string, any> => ({
+    isConnected: true,
+    createDiv() { return element(); },
+    createSpan() { return element(); },
+    createEl(_tag: string, options: { text?: string } = {}) {
+      if (options.text) buttons.push(options.text);
+      return { isConnected: true, disabled: false, addEventListener() {} };
+    },
+  });
+
+  plugin.renderRetrievalDiagnostics(
+    element(),
+    ["hybrid_retrieval_daemon_unreachable"],
+    null,
+  );
+
+  assert.deepEqual(buttons, ["Open retrieval settings"]);
+});
 
 for (const [code, warning] of [
   ["selected_model_missing", "hybrid_retrieval_model_not_installed"],

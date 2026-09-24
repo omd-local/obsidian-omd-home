@@ -1015,6 +1015,12 @@
   max-width: none;
 }
 .omd-settings-model .setting-item-control button { flex: 0 0 auto; }
+.omd-settings-answer-provider {
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 360px);
+}
+.omd-settings-answer-provider .setting-item-control select {
+  width: 100%;
+}
 .omd-settings-model-status {
   margin-top: -4px;
   padding-left: 12px;

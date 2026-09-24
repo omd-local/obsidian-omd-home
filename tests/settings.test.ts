@@ -178,6 +178,7 @@ test("an unavailable calendar list does not erase persisted selections", () => {
 
 test("Phase 2 settings expose an explicit provider choice and inline provider boundary guidance", () => {
   assert.match(source, /setName\("Answer provider"\)/u);
+  assert.match(source, /providerSetting\.settingEl\.addClass\("omd-settings-model", "omd-settings-answer-provider"\)/u);
   assert.match(source, /for \(const value of AI_PROVIDER_VALUES\) dropdown\.addOption\(value, aiProviderLabel\(value\)\)/u);
   assert.match(source, /setDesc\(`Choose where @ questions are answered\. \$\{providerSetupDescription\(provider\)\}`\)/u);
   assert.match(source, /providerSetupDescription\(provider\)/u);
@@ -185,6 +186,8 @@ test("Phase 2 settings expose an explicit provider choice and inline provider bo
   assert.match(source, /text: aiProviderDestination\(provider\)/u);
   assert.match(stylesSource, /\.omd-settings-fixed-value/u);
   assert.match(stylesSource, /\.omd-settings-destination \.setting-item-control/u);
+  assert.match(stylesSource, /\.omd-settings-answer-provider\s*\{[^}]*minmax\(220px, 360px\)/su);
+  assert.match(stylesSource, /\.omd-settings-answer-provider \.setting-item-control select\s*\{[^}]*width:\s*100%/su);
   assert.match(source, /setName\(`Allow \$\{aiProviderLabel\(provider\)\} answers`\)/u);
   assert.match(source, /allowedCloudAnswerProviders/u);
   assert.match(source, /bounded evidence excerpts/u);

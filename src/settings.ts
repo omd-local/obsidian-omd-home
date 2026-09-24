@@ -280,7 +280,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
 
     const provider = this.plugin.settings.aiProvider;
     const aiSetupBusy = this.plugin.aiSetupBusy();
-    new Setting(container)
+    const providerSetting = new Setting(container)
       .setName("Answer provider")
       .setDesc(`Choose where @ questions are answered. ${providerSetupDescription(provider)}`)
       .addDropdown((dropdown) => {
@@ -289,6 +289,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           await this.changeAnswerProvider(value);
         });
       });
+    providerSetting.settingEl.addClass("omd-settings-model", "omd-settings-answer-provider");
 
     if (isCloudAiProvider(provider)) {
       const destination = new Setting(container)
