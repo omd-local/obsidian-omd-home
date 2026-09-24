@@ -80,47 +80,49 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与本轮入口（2026-09-23 NZST）
+### 1.3A 当前候选与本轮入口（2026-09-24 NZST）
 
-本轮先测试已经实现的 UI-13、ENRICH-01、UI-15–19，再继续此前没有完成的人工分支和最终发布门禁。
-旧候选身份与已经明确 PASS 的步骤移到下方归档；不要从历史交接继续，也不要重新清空 vault。
+UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。当前从 CAP-01A 剩余子项继续，再做
+此前没有完成的人工分支和最终发布门禁。旧候选身份与已经明确 PASS 的步骤移到下方归档；不要从
+历史交接继续，也不要重新清空 vault。
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 功能源码 | `7ec42d9`（核心实现 `3095379`；branch `agent/omd-home-baseline`） |
-| OMD 后端 | `113388e0b75fb6ba6b380b5d6be699ef7b4271fd`（branch `agent/release-ux-compat`） |
+| Home 功能源码 | `80b147a`（P2 核心实现 `7ec42d9`；branch `agent/omd-home-baseline`） |
+| OMD 后端 | `7994ba7`（branch `agent/release-ux-compat`） |
 | 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
-| 候选 Home bundle | `main.js` `9c09e6a34578494dd1a5493b4fdc503daa2d7e11c11abb0d53bad4f0b43d9ec5`；`styles.css` `a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| 候选 Home bundle | `main.js` `2a8ee2f303e9c29fec90cee27c03a76fb05a697cad21ca16596c8a8c28d77094`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
 | OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
 | Local writing / answer model | `qwen3:4b-instruct`；2026-09-22 原生 **Check setup** 已显示 ready |
 | 当前数据 | 保留原 `data.json`、笔记、Pin、布局与历史结果；开始时记录实际 Markdown 数量和 Current task |
-| 自动门禁 | Home 630 / 630、TypeScript、ESLint、production build；后端 1685 / 1685、Ruff、compileall（排除 macOS `._*` 元数据） |
+| 自动门禁 | Home 633 / 633、TypeScript、ESLint、production build；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，不清空
-`data.json`、笔记、Pin 或历史结果。安装后的 reload smoke 只能证明插件成功载入；主题、窄窗口、
-键盘和 150% 缩放仍必须按 RC-P2-01–03 人工验收。
+`data.json`、笔记、Pin 或历史结果。安装后的 reload smoke 只能证明插件成功载入；当前候选的主题、
+窄窗口和 150% 缩放已有独立原生证据，仍可在观察到回归时按 RC-P2-01–03 重现。
 
 状态词统一如下：
 
 - **RETEST**：本轮代码改变了该路径，必须重新人工验证。
 - **FIRST PASS**：以前没有完整的原生结果，本轮首次按整项给出结论。
 - **KEEP PASS**：已有充分证据，放在归档，不重复消耗时间。
+- **PASS（独立 QA vault）**：同一 production bundle 已在隔离的原生 Obsidian vault 完成，不写入当前人工 vault。
 - **NOT RUN**：缺少凭证、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-09-23 候选）
+#### 当前执行队列（2026-09-24 候选）
 
-这轮先验证刚完成的 P2 工作区，不再依赖已经 Reviewed 的 `Small local capture fixture-4.md`。每个
-Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixture；做完后只删除本节列出的
-测试副本。插件和 OMD commit、bundle hash 以本轮最终提交／安装记录为准。
+前三项 P2 工作区复测使用独立 QA vault，不依赖已经 Reviewed 的 `Small local capture fixture-4.md`。
+每个 Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixture；证据与步骤保留在下方，
+当前人工测试直接从第 4 行继续。插件和 OMD commit、bundle hash 以本轮最终提交／安装记录为准。
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | RETEST | [RC-P2-01](#test-rc-p2-01) | UI-13 Capture 最后一行留白、viewport 与 150% | `small-local-file.html` |
-| 2 | FIRST PASS | [RC-P2-02](#test-rc-p2-02) | ENRICH-01、UI-15、UI-19、UI-18；Review 侧栏、summary、冲突、明确 Done | 三个 `OMD Review *.md` fixture；`qwen3:4b-instruct` |
-| 3 | FIRST PASS | [RC-P2-03](#test-rc-p2-03) | UI-16／17；Inbox／Recent、时间、状态、tags、筛选、窄窗口操作 | 多语言长文件名 fixture |
+| 1 | PASS（独立 QA vault） | [RC-P2-01](#test-rc-p2-01) | UI-13 Capture 最后一行留白、viewport 与 150% | 已归档；无需在当前 `test-vault` 重做 |
+| 2 | PASS（独立 QA vault） | [RC-P2-02](#test-rc-p2-02) | ENRICH-01、UI-15、UI-19、UI-18；Review 侧栏、summary、冲突、明确 Done | 已归档；真实 `qwen3:4b-instruct` |
+| 3 | PASS（独立 QA vault） | [RC-P2-03](#test-rc-p2-03) | UI-16／17；Inbox／Recent、时间、状态、tags、筛选、窄窗口操作 | 已归档；系统菜单内容仍由下方人工步骤复核 |
 | 4 | RETEST | [CAP-01A](#test-cap-01a) 未完成子项 | 三种 OCR、ASR 逐模式、config / Retry；不重做扫描 PDF 与缺包隔离 | 三张 PNG、`bilingual-speech.wav`、`plain-text-web-page.html` |
-| 5 | FIRST PASS / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 精确 provider/model contract；可用、不可用、未知三种状态 | `gpt-4.1`、`gpt-5.4-pro`、`deepseek-v4-flash`、`deepseek-chat` |
+| 5 | RETEST / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 精确 provider/model contract、provider 下拉可读性、DeepSeek 完整结构化输出 | `gpt-4.1`、`gpt-5.4-pro`、`deepseek-flash`、`deepseek-v4-pro`、`deepseek-chat` |
 | 6 | FIRST PASS | [CAP-06](#test-cap-06) B、C | 用户 Cancel 与 disable/enable plugin 的 child-process 清理 | `slow-bilingual-speech.wav`；tags `cap-06-user-cancel`、`cap-06-unload` |
 | 7 | FIRST PASS | [OMD-01](#test-omd-01) 未完成分支、[AI-02](#test-ai-02) | missing/custom path、daemon、endpoint 与恢复 | `/tmp/omd-home-does-not-exist/omd`、`http://localhost:9999` |
 | 8 | FIRST PASS / 有凭证才做 | AI-03／04／05／11 hosted 实网分支 | 每个 provider 独立检查、preview、取消和恢复 | 问题：`@Which fixture uses the blue key, and on what day?` |
@@ -132,9 +134,9 @@ Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixtu
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
-| RC-P2-01 |  |  |  |  |
-| RC-P2-02 |  |  |  |  |
-| RC-P2-03 |  |  |  |  |
+| RC-P2-01 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/cap01-*.json` | 100%／150%、底部操作、两处最后字段留白与 Cancel 均通过 |
+| RC-P2-02 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/review-*.json` | 真实本地模型、summary、幂等、Done、并发冲突及用户 Summary 保护通过 |
+| RC-P2-03 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/home-*.json` | Inbox／Recent、筛选、时间自动刷新、Summarize、Pin 与响应式通过 |
 | CAP-01A 剩余子项 |  |  |  |  |
 | ANSWER-02-R1 |  |  |  |  |
 | CAP-06 B／C |  |  |  |  |
@@ -144,8 +146,14 @@ Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixtu
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**现在从 RC-P2-01 开始。** 完成一行后记录 `PASS / FAIL / NOT RUN`、时间、截图和一句原因，再进入
-下一行。不要为了做后面的测试提前修改当前 OMD 路径或删除模型。
+**现在从第 4 行 CAP-01A 剩余子项开始。** RC-P2-01–03 已在完全独立的 QA vault 完成并归档，
+不会影响你正在使用的 `test-vault`。完成一行后记录 `PASS / FAIL / NOT RUN`、时间、截图和一句原因，
+再进入下一行。不要为了做后面的测试提前修改当前 OMD 路径或删除模型。当前 CAP-01A 可以继续使用
+已经打开的 Obsidian；进入第 5 行 ANSWER-02-R1 前，先确认安装的三项插件资产与上表最终 hash 一致，
+再停用／启用一次 OMD Home。这样不会在 OCR／ASR 测试中途替换 bundle。
+
+下面三个 RC-P2 case 保留为可复现步骤；本轮无需重复。只有观察到回归，或需要人工打开窄窗系统
+`…` 菜单核对可见文字时，再使用这些 fixture。
 
 <a id="test-rc-p2-01"></a>
 
@@ -158,13 +166,15 @@ Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixtu
    ```
 
 2. 展开 Recognition，逐项检查 **Image text language** 与 **Speech language**。下拉框底部到分隔线应
-   有完整留白；把 Speech language 改成 **No language preference**、**简体中文 + English**、
-   **繁體中文 + English** 各看一次。
+   有完整留白；把 Image text language 改成 **No language preference**、**简体中文 + English**、
+   **繁體中文 + English** 各看一次。Speech language 再依次检查 **No language preference**、
+   **Auto-detect speech**、**English** 与 **Chinese**；这些是语音选项，不应显示 OCR 语言组合。
 3. 检查 Optional local AI 的 **Polish Markdown** 与 **Review links and tags**。最后一行 helper 到卡片
    底边应与语言控件一致，开关 on／off 都不能压缩底部留白。
 4. Capture modal 没有拖动 resize handle。请缩窄 **Obsidian 主窗口**，重新打开 Capture，再用
    **View → Zoom in** 到约 150%。内容可以纵向滚动，不能横向滚动、遮挡或截断底部操作。运行
-   **Reset zoom** 后点击 Cancel；不得产生 note 或改变这次以前保存的默认值。
+   **View → Actual Size**（或命令面板的 Reset zoom）后点击 Cancel；不得产生 note 或改变这次以前
+   保存的默认值。
 
 <a id="test-rc-p2-02"></a>
 
@@ -277,7 +287,7 @@ C. **Capture 留白与响应式布局（UI-13）**
 3. Capture 弹窗本身没有拖动缩放手柄；请缩窄 **Obsidian 主窗口**（需要时先 Cancel、缩窄后再打开
    Capture），再用 **View → Zoom in** 逐步放大到约 150%。弹窗应随可用 viewport 收窄并允许纵向
    滚动；按钮应换行或堆叠，不能重叠、截断或产生横向滚动，底部操作始终可到达。最后运行
-   **Reset zoom**，点击 Cancel，不产生 note。
+   **View → Actual Size**（或命令面板的 Reset zoom），点击 Cancel，不产生 note。
 
 D. **关闭单条历史错误（UI-14）**
 
@@ -335,17 +345,28 @@ E. **Settings 统一排版（UI-01／02）**
    | --- | --- | --- | --- |
    | OpenAI | `gpt-4.1` | `gpt-5.4-pro`（无所需 strict schema） | `future-openai-model` |
    | Anthropic | `claude-sonnet-4-5-20250929` | `claude-sonnet-4-20250514` | `future-claude-model` |
-   | DeepSeek | `deepseek-v4-flash` | `deepseek-chat` | `future-deepseek-model` |
+   | DeepSeek | `deepseek-flash`、`deepseek-v4-pro` | `deepseek-chat` | `future-deepseek-model` |
 
 3. 不支持和未验证型号必须在发送前被拦截，说明准确原因；不得自动切换、降级到另一个 model 或沿用
    上一次 ready。支持型号应显示 provider、model 和 contract 已验证。
-4. 只对一个 supported model 打开 `@` 问题 preview，使用：
+4. 在宽 Settings 面板和约 500px 的窄面板分别关闭 **Answer provider** 下拉框。当前选项必须仍可
+   完整读出，不能只剩箭头、空白框或被说明列挤掉；页面不得出现横向滚动。依次查看五个 provider，
+   不要求粘贴 key。
+5. 只对一个 supported model 打开 `@` 问题 preview，使用：
 
    ```text
    @Which fixture uses the blue key, and on what day?
    ```
 
    核对 destination、问题和 evidence excerpts 后点击 Cancel；本步骤不要求发送真实问题。
+6. 有 DeepSeek 测试 key 时，先选择 `deepseek-v4-pro` 并重新 **Check setup**，再提交同一个问题、
+   检查 preview 并批准。结果应完整返回经过校验的结构化答案，不能出现 **DeepSeek stopped before
+   completing the answer**。随后对 `deepseek-flash` 重复一次；两个结果必须各自显示实际 model，
+   不得静默切换。当前目录缺少某个 ID 或 key 无该型号权限时，将该型号记为 `NOT RUN`。
+
+   OMD 对要求 JSON schema 的 DeepSeek 问答会显式关闭 provider 默认 thinking，把有限输出预算留给
+   最终 JSON；普通非结构化 DeepSeek 请求不受本条影响。若修复后仍出现 incomplete response，保留
+   provider/model、耗时和安全错误类别，不记录 key、原始响应或 evidence excerpt。
 
 #### 已完成结果归档（KEEP PASS，不重复）
 
@@ -1075,6 +1096,8 @@ API key。ChatGPT 或 Claude 的消费者订阅不等于 API 额度。没有可�
    - Hosted API 时的 **Developer key**
    - **Answer model**（本地 Ollama 或当前云端 provider）
    - **Answer setup** 与唯一主操作 **Check setup**
+   在宽面板与约 500px 的窄面板分别保持 **Answer provider** 下拉框关闭；当前 provider 名称必须
+   完整可读，控件不能被左侧说明挤成空白或只剩箭头，也不能引起页面横向滚动。
 4. 确认本地或云端边界说明直接写在主描述文案里，而不是单独再出现一个
    **Local-only boundary** 或 **Cloud boundary** setting。
 5. 确认设置页没有单独的 **Refresh models**、**Model catalog** 或三组 Smoke 按钮。
@@ -1299,10 +1322,12 @@ curl -sS http://localhost:11434/api/status
 11. 点击 **Copy result**，确认复制结果同样保留单来源范围句、逐结论引用和去重后的 `Sources:`。
 12. 如果 **Keyword + semantic search** 因已保存但未安装的 `bge-m3` 降级，结果仍应成功并显示：
     **The selected embedding model is not installed in Ollama, so this answer used keyword search only.**
-    同一 warning 下应有 **Install model**、**Switch to keyword search**、**Open retrieval settings**：
+    同一 warning 下应有 **Install model**、**Use keyword search by default**、**Open retrieval settings**：
     - 本阶段只确认 **Install model** 存在，不要点击；页面加载、Check setup 和提问均不得自动下载；
       保持 `bge-m3` 未安装，供 AI-04 D 的“未安装”分支复测，实际安装留到 AI-09；
-    - **Switch to keyword search** 应关闭 **Keyword + semantic search** 并保存此选择，影响之后的问题；
+    - **Use keyword search by default** 不是再次执行本次检索；本次答案已经自动使用 Keyword search。
+      该按钮应关闭 **Keyword + semantic search** 并保存选择，只影响之后的问题；如果设置原本就是
+      keyword-only，这个按钮不应出现；
     - **Open retrieval settings** 应打开
       **Settings → OMD Home → AI answers → Advanced AI controls → Vault retrieval**，
       并定位到 **Embedding model**。
@@ -1471,6 +1496,15 @@ HTTP 400；换成同一 provider 的 `gpt-4o-mini` 后可收到有来源引用�
 
    预期匹配用例为 `pass`；同一文件中其他不匹配用例显示 `skipped` 是正常现象。
 
+**DeepSeek `deepseek-v4-pro`／`deepseek-flash` 回归**
+
+9. 仅当真实 DeepSeek catalog 返回对应 ID 且测试 key 有权限时，先选择 `deepseek-v4-pro`，运行
+   **Check setup**，再提交本节同一个单来源问题并批准发送。结果必须完整返回并通过引用与结构校验，
+   不能显示 **DeepSeek stopped before completing the answer**；缺少型号或权限时记为 `NOT RUN`。
+10. 改选 `deepseek-flash`、重新 **Check setup** 后重复。两次结果 header 必须显示各自实际型号，
+    不能因为 `v4-pro` 较慢就静默回退到 Flash。结构化 DeepSeek 问答会显式关闭默认 thinking，避免
+    reasoning 占用有界输出预算；若仍失败，记录安全错误类别、耗时与型号，不记录原始响应或凭证。
+
 <a id="test-ai-04-structured"></a>
 
 **结构化答案与失败分类回归（各 provider 共用）**
@@ -1542,11 +1576,12 @@ Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其�
      Thursday 10:30 与 owner Morgan，**Model inference:** 给出有标签的审慎安排建议；
      两段的每项关键结论都有这篇笔记的引用，不得只在末尾统一列来源；
    - warning 精确显示：**The selected embedding model is not installed in Ollama, so this answer used keyword search only.**
-   - warning 下只显示 **Install model**、**Switch to keyword search**、**Open retrieval settings** 三个动作；
+   - warning 下只显示 **Install model**、**Use keyword search by default**、**Open retrieval settings** 三个动作；
    - 没有自动下载模型、自动重新发送、自动切换 provider 或把 `bge-m3` 当 answer model。
 5. 先点击 **Open retrieval settings**，预期直接打开 AI answers、展开 Advanced AI controls，并定位到
-   **Embedding model**。返回结果后点击 **Switch to keyword search**，预期按钮变为
-   **Keyword search selected**，且 **Keyword + semantic search** 被关闭并保存。为了继续 D2，
+   **Embedding model**。返回结果后点击 **Use keyword search by default**，预期按钮变为
+   **Keyword search is default**，且 **Keyword + semantic search** 被关闭并保存。这里保存的是以后
+   问题的默认值，本次答案不会再次运行。为了继续 D2，
    随后手动重新开启 **Keyword + semantic search**，仍选择 `bge-m3`。
 
 **D2. Ollama daemon 不可达（手工 Core）**
@@ -1567,7 +1602,7 @@ Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其�
    - retrieval badge 为 **Keyword search**；
    - 正文满足 D1 的单来源、两段标签与逐项引用要求；
    - warning 精确显示：**The local Ollama service could not be reached, so this answer used keyword search only.**
-   - warning 下只显示 **Switch to keyword search** 与 **Open retrieval settings**；绝对不能显示 **Install model**；
+   - warning 下只显示 **Use keyword search by default** 与 **Open retrieval settings**；绝对不能显示 **Install model**；
    - 不得误报 `bge-m3` 未安装、developer key 无效或整个 bridge failed。
 5. 测试后立即重新打开 Ollama，等待下面命令重新返回 JSON，再继续其他案例：
 
@@ -1580,7 +1615,7 @@ Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其�
 **Based on 1 retrieved note.** 开头的回答；`Source states:` 的各项结论均带该笔记的逐项引用，
 `Model inference:` 为 `None`。测试者报告 hosted provider/model 保持不变、badge 为
 **Keyword search**，warning 准确为 **The local Ollama service could not be reached, so this answer used
-keyword search only.**，且只有 **Switch to keyword search** 与 **Open retrieval settings**，没有
+keyword search only.**，且只有 **Use keyword search by default** 与 **Open retrieval settings**，没有
 **Install model**、missing-model、key 或 bridge 错误。**D2 的 hosted-answer/本地 embedding
 故障隔离变体：PASS（依据测试者反馈；未独立核对 UI 截图或 daemon 停止命令）。**
 这次并非上方固定的 `amber lighthouse checklist` 问题，且没有需要审慎推论的回答，因此
@@ -1601,7 +1636,7 @@ node --test --experimental-strip-types \
 
 预期 `2 pass`：一个用例验证预检查把 `selected_model_incompatible` 分类为 embedding unsupported
 并关闭本次语义检索；另一个验证结果 warning 使用 **does not support embeddings**，且只提供
-**Switch to keyword search**、**Open retrieval settings**，不提供 **Install model**。
+**Use keyword search by default**、**Open retrieval settings**，不提供 **Install model**。
 
 **D4. daemon 可达，但 catalog/model inspection 失败（自动化；手工 `NOT RUN`）**
 
@@ -1616,7 +1651,7 @@ node --test --experimental-strip-types \
 
 预期 `2 pass`：catalog failure 与 model-inspection failure 都归类为
 **The embedding check could not finish, so this answer used keyword search only.**，而不是 daemon
-unreachable 或 model not installed；恢复动作只有 **Switch to keyword search** 与 **Open retrieval settings**。
+unreachable 或 model not installed；恢复动作只有 **Use keyword search by default** 与 **Open retrieval settings**。
 
 **与 embedding 降级独立的答案校验失败**：如果 D1/D2 发送后出现缺少引用、
 分区格式错误或结构化答案无效等 grounded-answer 错误，记录本次为
@@ -1629,10 +1664,10 @@ unreachable 或 model not installed；恢复动作只有 **Switch to keyword sea
 
 | 分支 | 回答是否成功 | Retrieval | 必须出现的动作 | 禁止出现 |
 | --- | --- | --- | --- | --- |
-| D1 未安装 | 是 | Keyword search | Install model / Switch to keyword search / Open retrieval settings | 自动下载、provider 切换 |
-| D2 daemon 不可达 | 是 | Keyword search | Switch to keyword search / Open retrieval settings | Install model、model-not-installed 误报 |
-| D3 不支持 embedding | 自动化验证 | Keyword search | Switch to keyword search / Open retrieval settings | Install model |
-| D4 catalog/show 失败 | 自动化验证 | Keyword search | Switch to keyword search / Open retrieval settings | Install model、daemon-unreachable 误报 |
+| D1 未安装 | 是 | Keyword search | Install model / Use keyword search by default / Open retrieval settings | 自动下载、provider 切换 |
+| D2 daemon 不可达 | 是 | Keyword search | Use keyword search by default / Open retrieval settings | Install model、model-not-installed 误报 |
+| D3 不支持 embedding | 自动化验证 | Keyword search | Use keyword search by default / Open retrieval settings | Install model |
+| D4 catalog/show 失败 | 自动化验证 | Keyword search | Use keyword search by default / Open retrieval settings | Install model、daemon-unreachable 误报 |
 
 通过条件：D1、D2 的答案及 Keyword search 诊断同时满足各自全部预期；D3、D4 的定向自动测试各 `2 pass`；四个分支都不
 自动切换 provider、不自动发送第二次请求，且 **Install model** 只出现在确知模型未安装的 D1。
@@ -1831,7 +1866,7 @@ calendar event 是 distractors。准确答案和评分位于 `docs/benchmark-vau
    相似点，应放在 **Model inference:** 并以审慎措辞说明，不能写成双方原文都确认的交集。
 9. 关闭 **Keyword + semantic search**，再问 D01。Header 应显示 **Keyword search** 且不发 embedding request；之后恢复。
 10. 可选：暂时让 embedding model unavailable。回答应降级为 **Keyword search**，并按准确原因显示 warning：
-    未安装时提供 **Install model**、**Switch to keyword search**、**Open retrieval settings**；daemon 不可达或
+    未安装时提供 **Install model**、**Use keyword search by default**、**Open retrieval settings**；daemon 不可达或
     model 不支持 embedding 时只提供后两个动作，不得错误建议安装。恢复 model 后再次
     **Test embeddings**，并确认 Advanced AI controls 仍展开。
 11. 修改一篇 fixture 后重问，再撤销测试修改。已变更 note 应重新 embedding，未变更 note 可复用

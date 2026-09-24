@@ -80,7 +80,7 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 
 ## UI-05：Summary preview 暗示 Apply 会保存摘要，实际不会写入
 
-**状态：历史问题已修复；UI-19 已进一步加入默认关闭的 summary 写入选项，待 RC-P2-02 原生复测。**
+**状态：已完成；UI-19 的默认关闭 summary 写入选项已通过 RC-P2-02 原生复测。**
 
 **证据与背景：** 2026-09-17 CAP-02 用户反馈：Review 中有 Summary preview，但 Apply 后笔记没有摘要。
 源码确认当前 Apply 只写所选 links / tags 和 reviewed 状态，不写 summary；
@@ -251,7 +251,7 @@ Properties 继续作为唯一数据源，Home 只呈现其当前值。
 
 ### UI-13：统一 Capture 弹窗字段、控件与 section 的垂直留白
 
-**状态：已实现并通过自动回归；待 RC-P2-01 原生视觉复测。优先级：P1。** Capture modal 使用共享
+**状态：已完成；RC-P2-01 原生视觉复测 PASS。优先级：P1。** Capture modal 使用共享
 spacing token，并以足够高且仅限该 modal 的选择器恢复 Obsidian 对最后一项移除的 block-end padding。
 
 **证据与背景：** 2026-09-20 原生 Capture 弹窗复核发现，这不是单个控件的问题。Recognition 中
@@ -356,7 +356,7 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
 
 ### ENRICH-01：短笔记不能因模型把新 tag 归错类而整份失败
 
-**状态：已实现并通过后端全量回归；待 RC-P2-02 真实模型复测。优先级：P2。** 未知、不透明的内部
+**状态：已完成；RC-P2-02 真实模型复测 PASS。优先级：P2。** 未知、不透明的内部
 `tag-N` reference 现在只省略该 tag 并给出 warning，其余有效 proposal 保留；未知 note/evidence、
 越权目标、无效 schema 与保留 tag 继续 fail closed。
 
@@ -388,7 +388,7 @@ model ID、目标 note 长度、vault tag catalog 与后端原始 error code；�
 
 ### UI-15：用显式 Review 完成 Inbox，而不是让 AI tags 代表“已审阅”
 
-**状态：已实现并通过自动回归；待 RC-P2-02 原生操作复测。优先级：P2。** Review 现在是右侧
+**状态：已完成；RC-P2-02 原生操作复测 PASS。优先级：P2。** Review 现在是右侧
 Obsidian `ItemView`：打开 Review 不调用模型，Apply 只保存已选内容并保留 Inbox，只有明确点击
 **Done reviewing** 才写入 `reviewed`。关闭、取消、失败和 conflict 均不会暗中完成 Review。
 
@@ -420,7 +420,7 @@ Obsidian `ItemView`：打开 Review 不调用模型，Apply 只保存已选内�
 
 ### UI-16：保留 Inbox 作为待办队列，Recent 作为按时间找回的活动记录
 
-**状态：已实现并通过自动回归；待 RC-P2-03 原生操作复测。优先级：P2。** Inbox 与 Recent 共享
+**状态：已完成；RC-P2-03 原生操作复测 PASS。优先级：P2。** Inbox 与 Recent 共享
 metadata snapshot 和 row renderer；Inbox 保持待办职责，Recent 保持按时间找回职责，并显示明确的
 Captured／Updated 时间和仅在 Recent 出现的工作流状态。
 
@@ -445,7 +445,7 @@ recent note，并以最新在前帮助用户在 conversion 与 review 同时运�
 
 ### UI-17：统一 note row 的时间、tags、筛选与 AI 操作层级
 
-**状态：已实现并通过自动回归；待 RC-P2-03 原生视觉复测。优先级：P2。** 行内最多显示两个 tag，
+**状态：已完成；RC-P2-03 原生视觉复测 PASS。优先级：P2。** 行内最多显示两个 tag，
 筛选支持 Unicode、nested parent tag 与多条件 AND；窄容器把 Review／AI tags／Summarize 收入 `…`
 菜单，Pin／Unpin 保持直接可用。Reviewed 项显示低优先级 **Review again**。
 
@@ -473,7 +473,7 @@ metadata。Tags 最多显示两个紧凑 token 和 `+N`，不能把每个 tag、
 
 ### UI-18：等待动效使用独立空间，不覆盖 Generating suggestions 文字
 
-**状态：已实现并通过自动回归；待 RC-P2-02 原生视觉复测。优先级：P2。**
+**状态：已完成；RC-P2-02 原生视觉复测 PASS。优先级：P2。**
 
 **证据与背景：** 当前 **Generating suggestions… Please wait.** 左侧紫色圆点压在第一个字母上，
 看起来像文字渲染错误。修复前把通用 `is-loading` class 和 `::before` spinner 放在同一个文字 badge；
@@ -494,7 +494,7 @@ Obsidian／theme 的同名样式可能改变 pseudo-element 定位，因此即�
 
 ### UI-19：Proposal summary 可选择随 links 与 tags 一起写入 note
 
-**状态：已实现并通过自动回归；待 RC-P2-02 原生写入与冲突复测。优先级：P2。** Summary 默认不选，
+**状态：已完成；RC-P2-02 原生写入与冲突复测 PASS。优先级：P2。** Summary 默认不选，
 可编辑并可单独 Apply；受管 block 与 links 在一次正文 transaction 中写入，已有用户 Summary、损坏
 markers 和并发修改会安全停止。Apply 后仍为 Inbox。
 
@@ -531,7 +531,7 @@ markers 和并发修改会安全停止。Apply 后仍为 Inbox。
 
 ### TEST-01：Review 回归 fixture 不依赖已经离开 Inbox 的固定文件名
 
-**状态：已实现；可重置 fixture 与 RC-P2-01–03 已加入人工计划，待原生执行。优先级：P2。**
+**状态：已完成；可重置 fixture 与 RC-P2-01–03 原生执行均 PASS。优先级：P2。**
 
 **问题：** 当前 RC-UI-01 写死从 `Small local capture fixture-4` 的 Inbox 行点击 **AI tags**；但该
 note 一旦完成 Apply 就是 `reviewed`，按设计不会继续出现在 Inbox。测试者只能换用另一个 note，
@@ -694,3 +694,40 @@ Responses API 的严格 JSON schema 输出。OpenAI 的 [GPT-4 模型文档](htt
   不向 UI、日志或测试记录泄漏 key、Authorization header、provider response body 或证据片段。
 - 用真实目录中有权限的兼容模型及合成笔记完成一次人工回答回归；完整结果应显示来源引用、
   正确 provider/model 和检索模式。此项通过前，不将 AI-04 的模型兼容性判为发布通过。
+
+### UI-20：Answer provider 在关闭状态保持可读
+
+**状态：已修复并通过隔离原生视觉复测。优先级：P1。** AI answers 的 provider 行现在给说明列和
+控件列稳定的最小宽度；下拉框占满控件列。原生 Obsidian 在约 500px Settings viewport 下实测
+select 为 189px，当前 **Ollama on this computer** 完整可读，页面没有横向滚动；宽面板为 564px。
+
+继续保持原有 minimal Settings 排版，不固定整行高度，也不为单个 provider 写特殊宽度。后续新增
+更长 provider 名称时，AI-00 仍需检查宽／窄面板、150% 字体、键盘 focus 与关闭状态；不能只在
+下拉展开后确认 option 可见。
+
+### ANSWER-03：区分本次 keyword fallback 与以后问题的默认检索
+
+**状态：已修复并通过原生动作矩阵。优先级：P1。** 结果已经显示 **Keyword search** 时，恢复动作
+不再写成容易被理解为“再次切换本次答案”的 **Switch to keyword search**。按钮现为
+**Use keyword search by default**，title 明确它会关闭以后问题的 semantic search；点击后显示
+**Keyword search is default**。如果持久设置本来就是 keyword-only，该按钮不渲染，只保留与当前
+故障相符的 Install model／Open retrieval settings。
+
+本次答案仍只执行一次；按钮不会重发问题、改变 provider 或安装模型。隔离原生复测确认 hybrid
+开启时显示三个准确动作，关闭后重复渲染只显示 Install model（适用时）与 Open retrieval settings，
+并在测试后恢复原设置。
+
+### ANSWER-04：DeepSeek Pro 结构化答案不能把输出预算耗尽在 thinking
+
+**状态：后端已修复并通过自动回归；真实 DeepSeek key 的 `deepseek-v4-pro`／`deepseek-flash`
+对照仍需 ANSWER-02-R1 原生实网复测。优先级：P0。** 用户观察到 `deepseek-v4-pro` 返回
+**stopped before completing**，而 `deepseek-flash` 成功。该安全错误表示流在完整结构化答案前结束；
+结合 DeepSeek 当前默认开启高强度 thinking，以及 OMD grounded answer 的 1200-token 有界输出，
+最可能的原因是 Pro 的 reasoning 消耗了可用输出预算。由于错误路径有意不保存 provider 原始正文，
+不能把这一次历史请求断言为已确认的 `finish_reason=length`。
+
+OMD 现在只对带 `output_schema` 的 DeepSeek 请求同时发送 JSON mode 与显式
+`thinking: {type: disabled}`，把预算留给最终 JSON；普通非结构化请求不受影响。没有通过提高 token
+上限掩盖问题，也没有自动改用 Flash。后端 1685 tests、Ruff 和过滤 AppleDouble 文件后的
+`py_compile` 通过。人工回归必须分别显示两个真实 model ID、完整引用答案与各自耗时；没有 key、
+catalog 无型号或账号无权限时记为 `NOT RUN`，不能把 Flash 成功代替 Pro 通过。

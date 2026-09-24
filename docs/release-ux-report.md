@@ -1,8 +1,8 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查跨度：2026-09-17–2026-09-23。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+检查跨度：2026-09-17–2026-09-24。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
 
-## P2 Review 工作区候选（2026-09-23）
+## P2 Review 工作区最终复测（2026-09-24）
 
 按用户指定顺序完成 **UI-13 → ENRICH-01 → UI-15 → UI-16 / UI-17 → UI-19 → UI-18**。界面继续
 使用原有 minimal 字体、主题变量、细边框和紧凑密度，没有引入新的视觉系统。
@@ -18,18 +18,52 @@
 - Capture 最后一项恢复统一 block-end 留白；生成状态使用独立 namespaced spinner 槽位，避免主题
   pseudo-element 覆盖文字，reduced motion 时保持静态进度符号。
 
-功能源码：Home `7ec42d9`（核心实现 `3095379`）；OMD
-`113388e0b75fb6ba6b380b5d6be699ef7b4271fd`。候选 bundle SHA-256：`main.js`
-`9c09e6a34578494dd1a5493b4fdc503daa2d7e11c11abb0d53bad4f0b43d9ec5`，`styles.css`
-`a1fd59c28b9a599ff219d4bf930b1d1f1d7ccafe01277542c4909636c4a8e5b8`，`manifest.json`
+功能源码：Home `80b147a`（P2 核心实现 `7ec42d9`）；OMD `7994ba7`。最终候选 bundle SHA-256：`main.js`
+`2a8ee2f303e9c29fec90cee27c03a76fb05a697cad21ca16596c8a8c28d77094`，`styles.css`
+`5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`，`manifest.json`
 `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。
 
-自动门禁：Home TypeScript、ESLint、production build 与 **630 / 630** Node tests 通过；完整测试还在
+自动门禁：Home TypeScript、ESLint、production build 与 **633 / 633** Node tests 通过；完整测试还在
 带空格的 worktree 路径运行，顺便修复 bridge test 把 URL pathname 的 `%20` 当磁盘路径的问题。
-OMD 后端 **1685 / 1685** tests、Ruff 和排除 macOS `._*` AppleDouble 元数据后的 compileall 通过；
-两个仓库 `git diff --check` 通过。RC-P2-01–03 已使用可重置的短 note、多语言长文件名和用户 Summary
-collision fixture 重写；深浅主题、150%、community theme 与真实模型输出仍由原生人工计划记录，
-不以自动回归冒充人工 PASS。
+OMD 后端 **1685 / 1685** tests、Ruff 和排除 macOS `._*` AppleDouble 元数据后的 `py_compile` 通过；
+两个仓库 `git diff --check` 通过。
+
+RC-P2-01–03 已在独立原生 Obsidian vault `/private/tmp/omd-rc-p2-native-vault` 完成；用户同时使用的
+`test-vault` 没有收到点击、键盘、重载或 bundle 安装。结果如下：
+
+- **RC-P2-01 PASS：** Actual Size 与约 150% 下无横向滚动；Recognition／Optional local AI 最后一项
+  均保留 12px block-end 留白；底部 Cancel／Capture 可滚动到达；Cancel 不创建 note 或更改默认值。
+- **RC-P2-02 PASS：** `qwen3:4b-instruct` 对短 fixture 首次生成有效 proposal；等待细环与文字不重叠；
+  Suggested note topics 没有 checkbox；summary 默认关闭、可单独编辑／复制／Apply，重复 Apply 幂等，
+  Apply 后仍为 Inbox，只有 Done reviewing 改为 Reviewed；Generate 后外部编辑触发 conflict 且不覆盖。
+  原生复测另发现用户自有 Summary 冲突后 proposal 被隐藏，随后修复为保留只读 proposal、Copy summary、
+  Open note 与 Generate again；再次复测确认用户内容逐字节保留且没有受管 summary。
+- **RC-P2-03 PASS：** Inbox／Recent 分工、Reviewed 状态、时间、最多两个 tags + `+N`、Unicode nested-tag
+  AND 筛选、Summarize、Pin／Unpin、390px 与 150% 深浅主题均通过；同一 Recent 时间在不重载页面时从
+  `Updated now` 自动变为 `Updated 1m ago`，完整时间含时区。窄窗原生系统菜单本身不暴露给隐藏 CDP；
+  trigger、响应式折叠与 Pin 操作已原生验证，菜单顺序由确定性回归锁定为 Review → AI tags → Summarize。
+
+36 组全页矩阵、10 组 Review generating／proposal 矩阵和 5 组错误态矩阵均无页面异常、横向溢出、
+越界或真实控件重叠；视觉判定 94 / 100，保持原 minimal 风格。最终 production bundle 在独立 vault
+完成停用／启用重载。证据见
+[`native-verification.md`](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/rc-p2-2026-09-24/native-verification.md>)。
+
+## AI answers 收口复测（2026-09-24）
+
+- **Answer provider** 使用独立响应式 control column。隔离原生 Obsidian 在约 500px Settings viewport
+  下实测关闭状态仍完整显示 **Ollama on this computer**，select 宽 189px，页面 `scrollWidth` 与
+  viewport 同为 500px；宽面板 select 为 564px。保持现有字体、边框和密度。
+- Keyword fallback 已经完成当前答案时，动作改为 **Use keyword search by default**，明确只保存以后
+  问题的检索偏好；当前设置已经 keyword-only 时不再显示重复动作。隔离原生动作矩阵覆盖 hybrid
+  on／off，测试后恢复设置，没有发出 provider 请求。
+- DeepSeek 结构化问答现在显式关闭 provider 默认 thinking，把 1200-token 有界输出留给最终 JSON。
+  这修复了 Pro 型号较容易在完整答案前结束的预算竞争，同时不提高上限、不自动切换到 Flash，也不
+  改变普通非结构化请求。真实 `deepseek-v4-pro`／`deepseek-flash` 对照仍列为有 key 才执行的人工复测。
+
+新增代码提交：Home `80b147a`；OMD `7994ba7`。Home 633 / 633 tests、TypeScript、ESLint、production
+build 与 `git diff --check` 通过；OMD 1685 / 1685 tests、Ruff、过滤 `._*` 后的 `py_compile` 与
+`git diff --check` 通过。原生 provider 宽度截图：
+[`answer-provider-500.png`](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/rc-p2-2026-09-24/visual/answer-provider-500.png>)。
 
 ## P0 / P1 发布收口（2026-09-21）
 
