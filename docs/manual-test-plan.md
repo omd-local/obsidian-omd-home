@@ -80,21 +80,22 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与本轮入口（2026-09-24 NZST）
+### 1.3A 当前候选与本轮入口（2026-09-25 NZST）
 
-UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。当前从 CAP-01A 剩余子项继续，再做
-此前没有完成的人工分支和最终发布门禁。旧候选身份与已经明确 PASS 的步骤移到下方归档；不要从
-历史交接继续，也不要重新清空 vault。
+UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工测试者现已走到当前执行队列
+第 8 行 **AI-03**。2026-09-25 已把同一最终 bundle 安装进现有 `test-vault` 并通过原生停用／启用
+重载；不要从历史交接继续，也不要重新清空 vault。第 8 行之前的案例保留测试者原来记录的结论，
+本次升级只补做下方列出的 Answer UI／DeepSeek／Keyword action 定向回归。
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 功能源码 | `80b147a`（P2 核心实现 `7ec42d9`；branch `agent/omd-home-baseline`） |
-| OMD 后端 | `7994ba7`（branch `agent/release-ux-compat`） |
+| Home 候选 | branch `agent/omd-home-baseline`；已安装 bundle 对应候选 `3b97518`，功能源码 `80b147a`（P2 核心实现 `7ec42d9`） |
+| OMD 后端 | branch `agent/release-ux-compat`，已推送 HEAD `92a5aed`；运行时修复 `7994ba7` |
 | 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
 | 候选 Home bundle | `main.js` `2a8ee2f303e9c29fec90cee27c03a76fb05a697cad21ca16596c8a8c28d77094`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
 | OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
-| Local writing / answer model | `qwen3:4b-instruct`；2026-09-22 原生 **Check setup** 已显示 ready |
-| 当前数据 | 保留原 `data.json`、笔记、Pin、布局与历史结果；开始时记录实际 Markdown 数量和 Current task |
+| Local writing / answer model | `qwen3:4b-instruct`；DeepSeek API / `deepseek-flash` 于 2026-09-25 11:02:17 原生 **Check setup** 显示 ready |
+| 当前数据 | 原 `data.json` 保持逐字节一致；安装前后 54 个 Markdown 的 SHA-256 清单一致；Current task 为 idle |
 | 自动门禁 | Home 633 / 633、TypeScript、ESLint、production build；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，不清空
@@ -104,28 +105,30 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。当前
 状态词统一如下：
 
 - **RETEST**：本轮代码改变了该路径，必须重新人工验证。
+- **TARGETED RETEST**：只重测本轮实际改变的子路径；未受影响的既有结论保留。
+- **KEEP RESULT**：测试者已走过该项；保留原 `PASS / FAIL / NOT RUN` 记录，不因安装同一候选而重跑。
 - **FIRST PASS**：以前没有完整的原生结果，本轮首次按整项给出结论。
 - **KEEP PASS**：已有充分证据，放在归档，不重复消耗时间。
 - **PASS（独立 QA vault）**：同一 production bundle 已在隔离的原生 Obsidian vault 完成，不写入当前人工 vault。
 - **NOT RUN**：缺少凭证、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-09-24 候选）
+#### 当前执行队列（2026-09-25 已安装候选）
 
 前三项 P2 工作区复测使用独立 QA vault，不依赖已经 Reviewed 的 `Small local capture fixture-4.md`。
 每个 Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixture；证据与步骤保留在下方，
-当前人工测试直接从第 4 行继续。插件和 OMD commit、bundle hash 以本轮最终提交／安装记录为准。
+当前人工测试者已到第 8 行。插件和 OMD commit、bundle hash 以本轮最终提交／安装记录为准。
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
 | 1 | PASS（独立 QA vault） | [RC-P2-01](#test-rc-p2-01) | UI-13 Capture 最后一行留白、viewport 与 150% | 已归档；无需在当前 `test-vault` 重做 |
 | 2 | PASS（独立 QA vault） | [RC-P2-02](#test-rc-p2-02) | ENRICH-01、UI-15、UI-19、UI-18；Review 侧栏、summary、冲突、明确 Done | 已归档；真实 `qwen3:4b-instruct` |
 | 3 | PASS（独立 QA vault） | [RC-P2-03](#test-rc-p2-03) | UI-16／17；Inbox／Recent、时间、状态、tags、筛选、窄窗口操作 | 已归档；系统菜单内容仍由下方人工步骤复核 |
-| 4 | RETEST | [CAP-01A](#test-cap-01a) 未完成子项 | 三种 OCR、ASR 逐模式、config / Retry；不重做扫描 PDF 与缺包隔离 | 三张 PNG、`bilingual-speech.wav`、`plain-text-web-page.html` |
-| 5 | RETEST / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 精确 provider/model contract、provider 下拉可读性、DeepSeek 完整结构化输出 | `gpt-4.1`、`gpt-5.4-pro`、`deepseek-flash`、`deepseek-v4-pro`、`deepseek-chat` |
-| 6 | FIRST PASS | [CAP-06](#test-cap-06) B、C | 用户 Cancel 与 disable/enable plugin 的 child-process 清理 | `slow-bilingual-speech.wav`；tags `cap-06-user-cancel`、`cap-06-unload` |
-| 7 | FIRST PASS | [OMD-01](#test-omd-01) 未完成分支、[AI-02](#test-ai-02) | missing/custom path、daemon、endpoint 与恢复 | `/tmp/omd-home-does-not-exist/omd`、`http://localhost:9999` |
-| 8 | FIRST PASS / 有凭证才做 | AI-03／04／05／11 hosted 实网分支 | 每个 provider 独立检查、preview、取消和恢复 | 问题：`@Which fixture uses the blue key, and on what day?` |
+| 4 | KEEP RESULT | [CAP-01A](#test-cap-01a) | 本次 Answer 修复未改变 Capture；保留测试者已有结论，不整项重跑 | 原素材仍保留，只有发现 Capture 回归才重现 |
+| 5 | TARGETED RETEST / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 只补 closed provider 可读性、DeepSeek Pro／Flash 完整输出和 Keyword 默认动作；其余 provider 保留已有结论 | `deepseek-flash`、`deepseek-v4-pro`；固定 blue-key 问题 |
+| 6 | KEEP RESULT | [CAP-06](#test-cap-06) B、C | 本次 Answer 修复未改变任务生命周期；保留测试者已有结论 | 不重新运行 114 秒 WAV |
+| 7 | KEEP RESULT | [OMD-01](#test-omd-01)、[AI-02](#test-ai-02) | 本次 Answer 修复未改变本地 OMD／Ollama 状态机；保留测试者已有结论 | 当前精确 OMD 路径已经 ready |
+| 8 | IN PROGRESS / 有凭证才做 | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 hosted 实网分支 | 从 AI-03 当前步骤继续，并在 AI-04 合并完成第 5 行定向回归 | 问题：`@Which fixture uses the blue key, and on what day?` |
 | 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
 | 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
 | 11 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
@@ -137,20 +140,32 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。当前
 | RC-P2-01 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/cap01-*.json` | 100%／150%、底部操作、两处最后字段留白与 Cancel 均通过 |
 | RC-P2-02 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/review-*.json` | 真实本地模型、summary、幂等、Done、并发冲突及用户 Summary 保护通过 |
 | RC-P2-03 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/home-*.json` | Inbox／Recent、筛选、时间自动刷新、Summarize、Pin 与响应式通过 |
-| CAP-01A 剩余子项 |  |  |  |  |
-| ANSWER-02-R1 |  |  |  |  |
-| CAP-06 B／C |  |  |  |  |
-| OMD-01／AI-02 剩余子项 |  |  |  |  |
+| 2026-09-25 test-vault 安装 smoke | PASS | 2026-09-25 11:02 | `test-vault-upgrade-2026-09-25.md` | 三项资产匹配；`data.json` 与 54 个 Markdown 未变；重载、OMD ready、DeepSeek setup ready |
+| CAP-01A 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
+| ANSWER-02-R1 定向补测 |  |  |  | 只记录本次三项最新回归 |
+| CAP-06 B／C 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
+| OMD-01／AI-02 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
 | Hosted 实网 |  |  |  |  |
 | CAL-00–03 |  |  |  |  |
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**现在从第 4 行 CAP-01A 剩余子项开始。** RC-P2-01–03 已在完全独立的 QA vault 完成并归档，
-不会影响你正在使用的 `test-vault`。完成一行后记录 `PASS / FAIL / NOT RUN`、时间、截图和一句原因，
-再进入下一行。不要为了做后面的测试提前修改当前 OMD 路径或删除模型。当前 CAP-01A 可以继续使用
-已经打开的 Obsidian；进入第 5 行 ANSWER-02-R1 前，先确认安装的三项插件资产与上表最终 hash 一致，
-再停用／启用一次 OMD Home。这样不会在 OCR／ASR 测试中途替换 bundle。
+**现在从第 8 行 AI-03 当前步骤继续。** 最新三项插件资产已经核对并通过原生停用／启用重载，
+无需再次 reload。第 1–4、6、7 行不因这次安装重复执行；如果这些行的结果表尚未填写，只补写当时的
+`PASS / FAIL / NOT RUN`、时间与证据，不要把“已经走过”自动改成 PASS。第 5 行无需整项重做，按下面
+三项定向回归合并到 AI-03／AI-04：
+
+1. **Provider closed state：** 当前宽 Settings 中 **DeepSeek API** 已完整可见；测试者只需把 Obsidian
+   主窗口缩窄到约 500px，关闭 Answer provider 下拉框，确认文字仍完整、无横向滚动，再恢复窗口。
+2. **DeepSeek output：** 有有效 key 且 catalog 包含对应 ID 时，按 ANSWER-02-R1 第 6 步，用同一个
+   blue-key 问题分别重测 `deepseek-v4-pro` 与 `deepseek-flash`。缺型号或权限就记 `NOT RUN`；不得静默
+   换型号。原来 Pro 的 incomplete 失败证据继续保留，成功复测不能删除历史失败。
+3. **Keyword action：** 在 AI-04 D1 出现“embedding model 未安装、已使用 Keyword search”的成功答案时，
+   确认按钮为 **Use keyword search by default**。只有准备把以后问题改成 keyword-only 时才点击；点击后
+   应变为 **Keyword search is default**，之后同类结果不再显示重复切换动作。继续 semantic 测试前手动
+   恢复 **Keyword + semantic search**。
+
+这三项以外，ANSWER-02-R1 中已记录的 OpenAI／Anthropic/model contract 结果不需要为了本次升级重跑。
 
 下面三个 RC-P2 case 保留为可复现步骤；本轮无需重复。只有观察到回归，或需要人工打开窄窗系统
 `…` 菜单核对可见文字时，再使用这些 fixture。
@@ -373,20 +388,21 @@ E. **Settings 统一排版（UI-01／02）**
 | Case / 子项 | 已确认结果 | 本轮处理 |
 | --- | --- | --- |
 | CAP-03 | 缺失模型、idle、Retry、设置恢复与 Automatic 状态全部 PASS | 不重复失败注入 |
-| CAP-06 A、D | Home tab 后台继续；Cmd+Q 取消与重开清理 PASS | 只做 B、C |
+| CAP-06 A、D | Home tab 后台继续；Cmd+Q 取消与重开清理 PASS | B／C 如已执行只补录原 verdict，不因本次安装重跑 |
 | CAP-02 正常 Apply、UI-05、UI-06 | Apply、原生写入和 review 终态已有 PASS | 旧证据保留；新实现改由 RC-P2-02 完整复测 |
 | CAP-01A 扫描 PDF | image-only PDF 显示明确不支持边界且不生成空 note | 不重复；这不代表支持扫描 PDF OCR |
 | CAP-01A 缺语言 pack 隔离 | 缺 `chi_sim` 时错误列出 requested / missing / available 与安装提示 | 不重复 wrapper 测试 |
-| 语音总体验收 | 用户已确认 PASS | 仅补 Auto-detect / Chinese / No preference 的逐模式证据 |
-| Automatic candidate 优选 | 能跳过 enrich-only Homebrew candidate 并找到带 Recognition contract 的 OMD | 当前为精确后端路径；到 OMD-01／REL-01 再验 Automatic |
+| 语音总体验收 | 用户已确认 PASS | 逐模式结果如已执行只补录原证据，不因本次安装重跑 |
+| Automatic candidate 优选 | 能跳过 enrich-only Homebrew candidate 并找到带 Recognition contract 的 OMD | 当前精确后端路径已 ready；REL-01 仍做 clean-vault 安装门禁 |
 | Minimal 与 Pin 对齐 | Pin / Unpin、长标题、正常与 150% 列宽回归已有 PASS | 旧证据保留；新 note row 改由 RC-P2-03 完整复测 |
 
 #### 仍未完成、留在后续队列
 
 UI-07–11 的 Graph / Local Graph / Backlinks / Search / Bases 建议、ANSWER-01、Douyin／XHS cookies
 bridge，以及 folder / one-item-per-line batch 仍保留在 `ui-backlog.md`。这些项目本轮没有实现；
-CAP-01A 剩余模式、CAP-06 B／C、hosted、Calendar、Extended AI 与 clean-vault release gate 继续按上表
-顺序执行。它们不是本轮失败，也不能在发布说明中写成已经接入。
+CAP-01A、CAP-06 B／C、OMD-01／AI-02 如结果表仍空，只补录此前实际 verdict 与证据，不重新执行。
+Hosted 定向回归、Calendar、Extended AI 与 clean-vault release gate 继续按上表顺序执行。Deferred 项目
+不是本轮失败，也不能在发布说明中写成已经接入。
 
 下面的 2026-09-17／19／20 候选身份与交接只作历史证据；不要从其中的“现在继续”恢复执行。
 

@@ -1,6 +1,28 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查跨度：2026-09-17–2026-09-24。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+检查跨度：2026-09-17–2026-09-25。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+
+## 最终候选安装与人工计划交接（2026-09-25）
+
+Home branch `agent/omd-home-baseline` 的已安装 bundle 对应候选为 `3b97518`，后端 branch
+`agent/release-ux-compat` 已推送到 `92a5aed`。在现有
+`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` 中只替换 `main.js`、`styles.css`、
+`manifest.json`，随后通过 Obsidian Community plugins 原生停用／启用 OMD Home。安装后的三个
+SHA-256 与下方最终候选完全一致；`data.json` 逐字节未变，安装前后 54 个 Markdown 的 SHA-256
+清单一致，插件仍处于启用状态。旧资产、设置与笔记清单备份在
+`/private/tmp/omd-home-test-vault-pre-3b97518`。
+
+重载后 OMD 显示 **OMD ready**，使用精确候选路径
+`/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`，package `0.3.0b2`、protocol v1；
+DeepSeek API / `deepseek-flash` 的 **Check setup** 于 11:02:17 显示 ready。本次只做 setup check，
+没有发送 Vault 问题或 evidence。原来的 DeepSeek incomplete result／Needs attention 保留，供修复前后
+对照，没有替用户关闭或改写历史错误。
+
+人工计划已从测试者当前进度第 8 行 AI-03 继续。相同候选安装不要求重跑队列第 1–4、6、7 行；
+只补 provider 下拉关闭状态的窄窗可读性、`deepseek-v4-pro`／`deepseek-flash` 完整结构化输出、
+Keyword fallback 默认动作三处。早期结果若尚未填表，只补录实际 verdict 与证据，不能因已经走到
+AI-03 自动记 PASS。完整交接证据见
+[`test-vault-upgrade-2026-09-25.md`](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/rc-p2-2026-09-24/test-vault-upgrade-2026-09-25.md>)。
 
 ## P2 Review 工作区最终复测（2026-09-24）
 
