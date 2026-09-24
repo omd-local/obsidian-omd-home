@@ -188,7 +188,11 @@ test("capture fields share one modal-scoped vertical rhythm", () => {
   );
   assert.match(
     stylesSource,
-    /\.modal\.omd-capture-modal :is\(\.omd-capture-recognition, \.omd-capture-ai\)\s*> \.setting-item:not\(\.setting-item-heading\):last-child\s*\{[^}]*padding-block-end:\s*var\(--omd-capture-field-block\);/su,
+    /\.omd-capture-modal \.omd-capture-section-last\s*\{[^}]*padding-block-end:\s*var\(--omd-capture-field-block\) !important;/su,
+  );
+  assert.equal(
+    modalSource.match(/settingEl\.addClass\("omd-capture-section-last"\)/gu)?.length,
+    2,
   );
 });
 

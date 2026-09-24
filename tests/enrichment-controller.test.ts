@@ -140,6 +140,27 @@ test("cancel, error, conflict and applied states remain explicitly finishable", 
   }
 });
 
+test("an apply error with a retained proposal keeps Copy summary and Open note recovery", async () => {
+  const state = {
+    ...emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"),
+    phase: "error" as const,
+    summary: "Summary that could not be written.",
+  };
+  const rendered = renderActions(state);
+  assert.deepEqual(rendered.buttons.map((button) => button.label), ["Keep in Inbox", "Open note", "Generate again", "Done reviewing"]);
+  await rendered.buttons[1]?.action();
+  assert.deepEqual(rendered.openedPaths, ["Inbox/example.md"]);
+  assert.match(reviewViewSource, /if \(showsProposal\(this\.state\)\) this\.renderProposal\(scroll\)/u);
+  assert.match(reviewViewSource, /Nothing was written\. Copy the summary or open the note, then generate again\./u);
+});
+
+test("a retained proposal without summary does not offer a misleading copy instruction", () => {
+  assert.match(
+    reviewViewSource,
+    /state\.summary\.trim\(\)[\s\S]*Nothing was written\. Copy the summary[\s\S]*Nothing was written\. Review the proposal/u,
+  );
+});
+
 test("candidate evidence failures can disable regeneration without removing Done reviewing", () => {
   const known = mapOmdErrorKind("invalid_request", undefined, "private terminal text", {
     field: "candidate.evidence", reason: "incompatible_text",
@@ -162,6 +183,7 @@ test("generation uses a namespaced non-overlapping progress indicator", () => {
   assert.doesNotMatch(reviewViewSource, /[" ]is-loading[" ]/u);
   assert.doesNotMatch(stylesSource, /\.omd-enrichment-status-badge\.is-loading/u);
   assert.match(stylesSource, /\.omd-enrichment-status-badge--loading\s*\{[^}]*grid-template-columns:\s*13px minmax\(0, 1fr\)[^}]*gap:\s*6px/su);
+  assert.match(stylesSource, /\.omd-enrichment-loading-indicator\s*\{[^}]*align-self:\s*start[^}]*margin-block-start:\s*1px/su);
   assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.omd-enrichment-loading-indicator\s*\{[^}]*animation:\s*none/su);
 });
 
@@ -183,7 +205,8 @@ function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelect
     .flatMap((node) => ts.isClassDeclaration(node) ? [...node.members] : [])
     .find((node) => node.name?.getText(source) === "renderActions");
   assert.ok(member, "The production review view must define renderActions");
-  const compiled = ts.transpileModule(`class Harness { ${member.getText(source)} }`, {
+  const showsProposal = extractMember(reviewViewSource, "function showsProposal(");
+  const compiled = ts.transpileModule(`${showsProposal}\nclass Harness { ${member.getText(source)} }`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText;
   const harness = new Function("canApplyEnrichment", "selectedSuggestions", `${compiled}\nreturn new Harness();`)(

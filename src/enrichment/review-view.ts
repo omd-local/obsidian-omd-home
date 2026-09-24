@@ -145,7 +145,7 @@ export class EnrichmentReviewView extends ItemView {
       status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · Inbox" });
     }
 
-    if (showsProposal(this.state.phase)) this.renderProposal(scroll);
+    if (showsProposal(this.state)) this.renderProposal(scroll);
     else if (this.state.warnings.length) this.renderWarnings(scroll, this.state.warnings);
 
     const footer = shell.createDiv({ cls: "omd-enrichment-footer" });
@@ -153,9 +153,9 @@ export class EnrichmentReviewView extends ItemView {
     const counts = selectedEnrichmentCount(this.state, this.selection);
     footerCopy.createDiv({
       cls: "omd-enrichment-count",
-      text: showsProposal(this.state.phase) ? selectionCountText(this.state, this.selection, counts) : phase.title,
+      text: showsProposal(this.state) ? selectionCountText(this.state, this.selection, counts) : phase.title,
     });
-    footerCopy.createDiv({ cls: "omd-enrichment-footer-note", text: footerNote(this.state.phase) });
+    footerCopy.createDiv({ cls: "omd-enrichment-footer-note", text: footerNote(this.state) });
     this.renderActions(footer.createDiv({ cls: "omd-enrichment-actions" }));
     scroll.scrollTop = scrollTop;
     if (focusKey || this.focusNextRender) {
@@ -371,6 +371,19 @@ export class EnrichmentReviewView extends ItemView {
     }
     if (phase === "applied" || phase === "error" || phase === "conflict" || phase === "cancelled") {
       this.button(parent, "Keep in Inbox", false, () => this.closeReview());
+      const retainedProposal = phase === "error" && showsProposal(state);
+      if (retainedProposal) {
+        const open = this.button(parent, "Open note", false, async () => {
+          if (!callbacks.onOpenPath) return;
+          try {
+            await callbacks.onOpenPath(state.targetPath);
+          } catch {
+            new Notice("Could not open the target note. Use the target path shown above.");
+          }
+        });
+        open.disabled = !callbacks.onOpenPath;
+        open.setAttribute("aria-disabled", String(open.disabled));
+      }
       if (state.canRetry !== false) this.button(parent, "Generate again", false, () => callbacks.onGenerate());
       this.button(parent, "Done reviewing", true, () => callbacks.onDoneReviewing());
       return;
@@ -458,11 +471,19 @@ export class EnrichmentReviewView extends ItemView {
 
 }
 
-function showsProposal(phase: EnrichmentReviewState["phase"]): boolean {
-  return phase === "review" || phase === "applying" || phase === "applied" || phase === "conflict" || phase === "partial-failure";
+function showsProposal(state: EnrichmentReviewState): boolean {
+  const phase = state.phase;
+  if (phase === "review" || phase === "applying" || phase === "applied" || phase === "conflict" || phase === "partial-failure") return true;
+  if (phase !== "error") return false;
+  return Boolean(state.summary.trim())
+    || state.existingLinks.length > 0
+    || state.existingTags.length > 0
+    || state.newTags.length > 0
+    || state.concepts.length > 0;
 }
 
-function footerNote(phase: EnrichmentReviewState["phase"]): string {
+function footerNote(state: EnrichmentReviewState): string {
+  const phase = state.phase;
   if (phase === "idle") return "Suggestions are optional. Done reviewing is the only action that changes Inbox status.";
   if (phase === "review") return "Apply saves the selected summary, links, and tags while keeping this note in Inbox.";
   if (phase === "conflict") return "The old proposal cannot be applied. Generate again from the current note.";
@@ -470,6 +491,11 @@ function footerNote(phase: EnrichmentReviewState["phase"]): string {
   if (phase === "partial-failure") return "Inspect Summary, Related notes, and Properties, then generate a new proposal before trying again.";
   if (phase === "applied") return "Suggestions were saved. The note stays in Inbox until you choose Done reviewing.";
   if (phase === "reviewed") return "The note is marked Reviewed and remains available in Recent notes.";
+  if (phase === "error" && showsProposal(state)) {
+    return state.summary.trim()
+      ? "Nothing was written. Copy the summary or open the note, then generate again."
+      : "Nothing was written. Review the proposal or open the note, then generate again.";
+  }
   return "Generating suggestions does not write to the note.";
 }
 

@@ -124,7 +124,7 @@ export class CaptureModal extends Modal {
             this.setOcrSelection(value);
           });
       });
-    new Setting(recognition)
+    const speechSetting = new Setting(recognition)
       .setName("Speech language")
       .setDesc("For audio and video recordings.")
       .addDropdown((dropdown) => {
@@ -140,6 +140,7 @@ export class CaptureModal extends Modal {
           .setDisabled(!this.languageAvailability.asrAutoDetect && !this.languageAvailability.asrExplicit)
           .onChange((value) => { this.setAsrSelection(value); });
       });
+    speechSetting.settingEl.addClass("omd-capture-section-last");
 
     const localAi = this.contentEl.createDiv({ cls: "omd-capture-ai" });
     new Setting(localAi).setName("Optional local AI").setHeading();
@@ -153,12 +154,13 @@ export class CaptureModal extends Modal {
       .addToggle((toggle) => toggle.setValue(this.polish).onChange((value) => {
         this.polish = value;
       }));
-    new Setting(localAi)
+    const reviewSetting = new Setting(localAi)
       .setName("Review links and tags")
       .setDesc("Suggest links and tags after capture. Review them before applying.")
       .addToggle((toggle) => toggle.setValue(this.suggest).onChange((value) => {
         this.suggest = value;
       }));
+    reviewSetting.settingEl.addClass("omd-capture-section-last");
     const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
       .addButton((button) => button.setCta().setButtonText("Capture").onClick(() => this.submit()));

@@ -187,6 +187,12 @@ test("Inbox and Recent share one cached metadata snapshot and responsive note re
   assert.match(stylesSource, /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-wide-tool \{ display: none; \}/u);
   assert.match(homeSource, /note\.status === "reviewed" \? "Review again" : "Review"/u);
   assert.match(homeSource, /openNoteActionsMenu\(event, note\.file, reviewLabel\)/u);
+  const overflowMenu = extractMethodBody(homeSource, "private openNoteActionsMenu(");
+  assert.match(
+    overflowMenu,
+    /setTitle\(reviewLabel\)[\s\S]*setTitle\("AI tags"\)[\s\S]*setTitle\("Summarize"\)/u,
+    "the narrow menu must preserve the wide action order",
+  );
 });
 
 test("widget move and resize are locked while omnibox results temporarily own the layout", () => {

@@ -724,11 +724,10 @@
   gap: var(--omd-capture-control-gap);
   padding-block: var(--omd-capture-field-block);
 }
-/* Obsidian removes bottom padding from a modal's final setting item. Restore
-   the shared field rhythm for the last Recognition and Local AI controls. */
-.modal.omd-capture-modal :is(.omd-capture-recognition, .omd-capture-ai)
-  > .setting-item:not(.setting-item-heading):last-child {
-  padding-block-end: var(--omd-capture-field-block);
+/* Obsidian removes bottom padding from a modal's final setting item. The
+   explicit class remains stable even when Obsidian appends helper nodes. */
+.omd-capture-modal .omd-capture-section-last {
+  padding-block-end: var(--omd-capture-field-block) !important;
 }
 .omd-capture-modal .omd-modal-intro { margin-bottom: var(--omd-capture-section-gap); }
 .omd-capture-modal .omd-modal-actions { padding-top: var(--omd-capture-field-block); }
@@ -1245,7 +1244,8 @@
   inline-size: 12px;
   block-size: 12px;
   box-sizing: border-box;
-  align-self: center;
+  align-self: start;
+  margin-block-start: 1px;
   border: 2px solid color-mix(in srgb, var(--omd-accent) 28%, var(--omd-line));
   border-top-color: var(--omd-accent);
   border-radius: 50%;
