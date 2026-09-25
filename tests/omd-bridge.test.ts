@@ -1783,7 +1783,7 @@ test("hosted fallback keeps headings and filenames local while restoring citatio
   }
 });
 
-test("Ollama Cloud fallback sends body excerpts without note headings and restores local citations", async () => {
+test("Ollama Cloud uses a prompt-carried schema, sends body excerpts, and restores local citations", async () => {
   const vault = await mkdtemp(join(tmpdir(), "omd-home-ollama-cloud-opaque-"));
   try {
     await writeFile(
@@ -1804,7 +1804,9 @@ test("Ollama Cloud fallback sends body excerpts without note headings and restor
       "sent = {}",
       "def fake_request(endpoint, route, payload):",
       "    sent['source'] = payload['messages'][1]['content']",
-      "    return {'model': request['model'], 'message': {'content': json.dumps({'source_states': [{'claim': 'The cobalt milestone is Friday.', 'citations': ['S1']}], 'model_inference': []})}}",
+      "    sent['system'] = payload['messages'][0]['content']",
+      "    sent['has_format'] = 'format' in payload",
+      "    return {'model': request['model'], 'message': {'content': 'Cloud wrapper\\n```json\\n' + json.dumps({'source_states': [{'claim': 'The cobalt milestone is Friday.', 'citations': ['S1']}], 'model_inference': []}) + '\\n```'} }",
       "bridge._ollama_request = fake_request",
       "result = bridge._execute_ollama_cloud(request, hits, source, retrieval_mode, retrieval_model, warnings)",
       "heading_request = {**request, 'query': 'Secret Acquisition Codename'}",
@@ -1817,7 +1819,7 @@ test("Ollama Cloud fallback sends body excerpts without note headings and restor
       "    heading_error = ''",
       "except ValueError as exc:",
       "    heading_error = str(exc)",
-      "print(json.dumps({'source': sent['source'], 'preview_evidence': preview['evidence'][0]['evidence'], 'text': result['text'], 'warnings': result['warnings'], 'heading_count': len(heading_hits), 'heading_source': heading_source, 'heading_error': heading_error, 'cloud_calls': len(cloud_calls)}))",
+      "print(json.dumps({'source': sent['source'], 'system': sent['system'], 'has_format': sent['has_format'], 'preview_evidence': preview['evidence'][0]['evidence'], 'text': result['text'], 'warnings': result['warnings'], 'heading_count': len(heading_hits), 'heading_source': heading_source, 'heading_error': heading_error, 'cloud_calls': len(cloud_calls)}))",
     ].join("\n");
     const result = spawnPython(["-c", code], {
       encoding: "utf8",
@@ -1826,6 +1828,8 @@ test("Ollama Cloud fallback sends body excerpts without note headings and restor
     assert.equal(result.status, 0, result.stderr);
     const value = JSON.parse(result.stdout) as {
       source: string;
+      system: string;
+      has_format: boolean;
       preview_evidence: string;
       text: string;
       warnings: string[];
@@ -1843,6 +1847,10 @@ test("Ollama Cloud fallback sends body excerpts without note headings and restor
       /Secret Acquisition Codename|Private Project(?:\.md)?|Outline:|Relevant excerpts:|Title \(untrusted\)|Section \(untrusted\)|Kind:/u,
     );
     assert.doesNotMatch(value.source, /Outlines contain extracted note headings/u);
+    assert.equal(value.has_format, false);
+    assert.match(value.system, /Exact response JSON Schema/u);
+    assert.match(value.system, /source_states.+model_inference/u);
+    assert.doesNotMatch(value.text, /Cloud wrapper|```json/u);
     assert.match(value.text, /\[\[Private Project\.md\]\]/u);
     assert.deepEqual(value.warnings, []);
     assert.equal(value.heading_count, 0);

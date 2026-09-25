@@ -117,6 +117,15 @@ ANSWER_OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
+
+def _ollama_cloud_system_prompt() -> str:
+    schema = json.dumps(ANSWER_OUTPUT_SCHEMA, ensure_ascii=True, separators=(",", ":"))
+    return (
+        f"{SYSTEM_PROMPT}\n"
+        "Exact response JSON Schema (return one JSON object, with no commentary):\n"
+        f"{schema}"
+    )
+
 EVIDENCE_LIMIT = 1_600
 MAX_EVIDENCE_HEADINGS = 32
 MAX_EVIDENCE_PASSAGES = 3
@@ -930,9 +939,8 @@ def _execute_ollama_cloud(
         "model": model,
         "stream": False,
         "think": False,
-        "format": ANSWER_OUTPUT_SCHEMA,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": _ollama_cloud_system_prompt()},
             {"role": "user", "content": source},
         ],
         "options": {"num_predict": 1200, "temperature": 0.0},
@@ -961,7 +969,7 @@ def _execute_ollama_cloud(
             provider="ollama-cloud",
             retryable=True,
         )
-    text, structure_warnings = _render_structured_answer(_parse_structured_answer(raw_text))
+    text, structure_warnings = _render_structured_answer(_parse_prompted_structured_answer(raw_text))
     structure_warnings = _merge_warnings(structure_warnings, _answer_contract_warnings(text, hits, source))
     text = _guard_sparse_comparison_answer(_query(request), text, hits, retrieval_mode)
     warnings = _merge_warnings(
@@ -1297,11 +1305,10 @@ def _ollama_cloud_task_sha256(request: dict[str, Any]) -> str:
         "model": _string(request, "model"),
         "capability": "note_organisation",
         "operation": AI_OPERATION,
-        "system_prompt": SYSTEM_PROMPT,
-        "output_schema": ANSWER_OUTPUT_SCHEMA,
+        "system_prompt": _ollama_cloud_system_prompt(),
         "max_output_tokens": 1200,
         "endpoint": _string(request, "endpoint").rstrip("/"),
-        "stream": True,
+        "stream": False,
         "temperature": 0.0,
     }
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
@@ -2026,6 +2033,26 @@ def _parse_structured_answer(text: str) -> dict[str, Any]:
             code="malformed_structured_output",
         )
     return value
+
+
+def _parse_prompted_structured_answer(text: str) -> dict[str, Any]:
+    try:
+        return _parse_structured_answer(text)
+    except BridgeSafeError as strict_error:
+        decoder = json.JSONDecoder()
+        candidates: list[dict[str, Any]] = []
+        for attempt, match in enumerate(re.finditer(r"\{", text)):
+            if attempt >= 32:
+                break
+            try:
+                value, _end = decoder.raw_decode(text[match.start():])
+            except (TypeError, ValueError):
+                continue
+            if isinstance(value, dict) and set(value) == {"source_states", "model_inference"}:
+                candidates.append(value)
+        if len(candidates) == 1:
+            return candidates[0]
+        raise strict_error
 
 
 def _render_structured_answer(value: Any) -> tuple[str, list[str]]:
