@@ -658,6 +658,20 @@ test("maps an unverified Ollama Cloud model to an actionable no-send message", (
   );
 });
 
+test("distinguishes an Ollama Cloud post-send incomplete answer from a bridge setup failure", () => {
+  assert.equal(
+    bridgeErrorMessage({
+      message: "Provider operation failed.",
+      type: "BridgeSafeError",
+      provider: "ollama-cloud",
+      code: "incomplete_response",
+      action: "execute_ai",
+      retryable: true,
+    }, "OMD Home bridge failed"),
+    "Ollama Cloud stopped before completing the answer. The approved vault evidence was sent, but no unverified answer was shown. Try again or ask a narrower question.",
+  );
+});
+
 test("bundled bridge preserves only safe hosted error metadata from a chained cause", () => {
   const code = [
     "import json",
@@ -1838,6 +1852,52 @@ test("Ollama Cloud fallback sends body excerpts without note headings and restor
   } finally {
     await rm(vault, { recursive: true, force: true });
   }
+});
+
+test("Ollama Cloud tolerates missing usage metrics and classifies incomplete HTTP 200 responses", () => {
+  const code = [
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "hit = bridge.SearchHit(path='calendar.md', title='Calendar', score=1.0, evidence='Use weekly planning blocks.')",
+    "source = bridge._context('What does the calendar note say?', [hit])",
+    "base_request = {'provider': 'ollama-cloud', 'model': 'gpt-oss:20b-cloud', 'endpoint': 'http://localhost:11434', 'query': 'What does the calendar note say?', 'consent_granted': True}",
+    "bridge._require_ollama_cloud_ready = lambda endpoint, model: None",
+    "structured = json.dumps({'source_states': [{'claim': 'Use weekly planning blocks.', 'citations': ['S1']}], 'model_inference': []})",
+    "def execute(response):",
+    "    request = dict(base_request)",
+    "    request['consent_grant'] = bridge._issue_ollama_cloud_consent(request, source, [hit])",
+    "    bridge._ollama_request = lambda *args, **kwargs: response",
+    "    try:",
+    "        return bridge._execute_ollama_cloud(request, [hit], source, 'sparse', None, [])",
+    "    except Exception as exc:",
+    "        return {'ok': False, 'error': bridge._error_payload(exc, 'execute_ai')}",
+    "results = {",
+    "    'missing_usage': execute({'model': None, 'done': True, 'prompt_eval_count': None, 'eval_count': None, 'message': {'content': structured}}),",
+    "    'unfinished': execute({'done': False, 'message': {'content': ''}}),",
+    "    'empty': execute({'done': True, 'message': {'content': ''}}),",
+    "    'provider_error': execute({'done': True, 'error': 'private upstream detail', 'message': {'content': ''}}),",
+    "}",
+    "print(json.dumps(results, sort_keys=True))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const scenarios = JSON.parse(result.stdout) as Record<string, any>;
+  assert.equal(scenarios.missing_usage.ok, true);
+  assert.equal(scenarios.missing_usage.model, "gpt-oss:20b-cloud");
+  assert.deepEqual(scenarios.missing_usage.usage, { input_tokens: 0, output_tokens: 0 });
+  for (const name of ["unfinished", "empty"]) {
+    assert.equal(scenarios[name].ok, false, name);
+    assert.deepEqual(scenarios[name].error, {
+      action: "execute_ai",
+      code: "incomplete_response",
+      message: "Provider operation failed.",
+      provider: "ollama-cloud",
+      retryable: true,
+      type: "BridgeSafeError",
+    });
+  }
+  assert.equal(scenarios.provider_error.error.code, "provider_failure");
+  assert.doesNotMatch(JSON.stringify(scenarios.provider_error), /private upstream detail/u);
 });
 
 test("Ollama Cloud pins remote model metadata before sending any chat content", () => {

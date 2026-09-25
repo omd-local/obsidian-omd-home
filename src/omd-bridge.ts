@@ -936,6 +936,7 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   const tokens = normalize(`${detail.kind ?? ""} ${detail.code ?? ""} ${detail.message ?? ""}`);
   if (!tokens) return null;
   const provider = hostedProviderDisplayName(detail.provider);
+  const approvedEvidenceWasSent = detail.action === "execute_ai";
   if (detail.code === "credentials_invalid") {
     return `${provider} rejected the developer API key. Replace it in Settings → OMD Home → AI answers, then check setup again.`;
   }
@@ -961,13 +962,17 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
     return `OMD Home could not connect to ${provider}. Check the network connection and try again.`;
   }
   if (detail.code === "incomplete_response") {
-    return `${provider} stopped before completing the answer. Try again or ask a narrower question.`;
+    return approvedEvidenceWasSent
+      ? `${provider} stopped before completing the answer. The approved vault evidence was sent, but no unverified answer was shown. Try again or ask a narrower question.`
+      : `${provider} stopped before completing the answer. Try again or ask a narrower question.`;
   }
   if (detail.code === "refused") {
     return `${provider} declined this request. Revise the question or choose another model.`;
   }
   if (detail.code === "malformed_structured_output") {
-    return "The answer model did not provide the required Source states / Model inference structure. No unverified answer was shown; try again.";
+    return approvedEvidenceWasSent
+      ? "The answer model did not provide the required Source states / Model inference structure. The approved vault evidence was sent, but no unverified answer was shown; try again."
+      : "The answer model did not provide the required Source states / Model inference structure. No unverified answer was shown; try again.";
   }
   if (detail.code === "malformed_response") {
     return `${provider} returned a response OMD Home could not read. Try again or choose another model.`;
@@ -1083,6 +1088,7 @@ function hostedProviderDisplayName(value: string | undefined): string {
   if (value === "openai") return "OpenAI";
   if (value === "anthropic") return "Anthropic";
   if (value === "deepseek") return "DeepSeek";
+  if (value === "ollama-cloud") return "Ollama Cloud";
   if (value === "ollama") return "Ollama";
   return "The selected AI provider";
 }

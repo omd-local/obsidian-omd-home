@@ -938,10 +938,29 @@ def _execute_ollama_cloud(
         "options": {"num_predict": 1200, "temperature": 0.0},
     }
     response = _ollama_request(endpoint, "/api/chat", payload)
+    if response.get("done") is False:
+        raise BridgeSafeError(
+            "Ollama Cloud stopped before completing the answer.",
+            code="incomplete_response",
+            provider="ollama-cloud",
+            retryable=True,
+        )
+    if isinstance(response.get("error"), str) and response["error"].strip():
+        raise BridgeSafeError(
+            "Ollama Cloud could not complete the answer.",
+            code="provider_failure",
+            provider="ollama-cloud",
+            retryable=True,
+        )
     message = response.get("message")
     raw_text = message.get("content", "").strip() if isinstance(message, dict) else ""
     if not raw_text:
-        raise ValueError("Ollama Cloud returned an empty answer")
+        raise BridgeSafeError(
+            "Ollama Cloud returned an empty answer.",
+            code="incomplete_response",
+            provider="ollama-cloud",
+            retryable=True,
+        )
     text, structure_warnings = _render_structured_answer(_parse_structured_answer(raw_text))
     structure_warnings = _merge_warnings(structure_warnings, _answer_contract_warnings(text, hits, source))
     text = _guard_sparse_comparison_answer(_query(request), text, hits, retrieval_mode)
@@ -955,13 +974,13 @@ def _execute_ollama_cloud(
         "text": text,
         "evidence": [_hit_dict(hit) for hit in hits],
         "provider": "ollama-cloud",
-        "model": response.get("model", model),
+        "model": _optional_string(response.get("model")) or model,
         "retrieval_mode": retrieval_mode,
         "retrieval_model": retrieval_model,
         "warnings": warnings,
         "usage": {
-            "input_tokens": int(response.get("prompt_eval_count", 0)),
-            "output_tokens": int(response.get("eval_count", 0)),
+            "input_tokens": _optional_nonnegative_int(response.get("prompt_eval_count")),
+            "output_tokens": _optional_nonnegative_int(response.get("eval_count")),
         },
         "timing": {"total_ms": round((time.monotonic() - started) * 1000)},
     }
@@ -2277,6 +2296,10 @@ def _string(value: dict[str, Any], key: str) -> str:
 
 def _optional_string(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _optional_nonnegative_int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def _boolean(value: Any, default: bool) -> bool:
