@@ -83,20 +83,20 @@ npm audit --omit=dev
 ### 1.3A 当前候选与本轮入口（2026-09-25 NZST）
 
 UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工测试者现已走到当前执行队列
-第 8 行 **AI-03**。2026-09-25 已把同一最终 bundle 安装进现有 `test-vault` 并通过原生停用／启用
-重载；不要从历史交接继续，也不要重新清空 vault。第 8 行之前的案例保留测试者原来记录的结论，
+第 8 行 **AI-03**。2026-09-25 12:18 已把 Ollama Cloud metadata 兼容修复安装进现有
+`test-vault` 并通过原生重载；不要从历史交接继续，也不要重新清空 vault。第 8 行之前的案例保留测试者原来记录的结论，
 本次升级只补做下方列出的 Answer UI／DeepSeek／Keyword action 定向回归。
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 候选 | branch `agent/omd-home-baseline`；已安装 bundle 对应候选 `3b97518`，功能源码 `80b147a`（P2 核心实现 `7ec42d9`） |
+| Home 候选 | branch `agent/omd-home-baseline`；已安装 bundle 与 Ollama Cloud 修复对应 `cf541dc`（P2 核心实现 `7ec42d9`） |
 | OMD 后端 | branch `agent/release-ux-compat`，已推送 HEAD `92a5aed`；运行时修复 `7994ba7` |
 | 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
-| 候选 Home bundle | `main.js` `2a8ee2f303e9c29fec90cee27c03a76fb05a697cad21ca16596c8a8c28d77094`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| 候选 Home bundle | `main.js` `eba72b266c54dbee1a4c791580072799adbdf13f2ac88abc8f948ae377b7a2bf`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
 | OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
 | Local writing / answer model | `qwen3:4b-instruct`；DeepSeek API / `deepseek-flash` 于 2026-09-25 11:02:17 原生 **Check setup** 显示 ready |
 | 当前数据 | 原 `data.json` 保持逐字节一致；安装前后 54 个 Markdown 的 SHA-256 清单一致；Current task 为 idle |
-| 自动门禁 | Home 633 / 633、TypeScript、ESLint、production build；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
+| 自动门禁 | Home 635 / 635、TypeScript、ESLint、production build；真实 Ollama 0.33.3 metadata preflight 通过且未调用 `/api/chat`；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，不清空
 `data.json`、笔记、Pin 或历史结果。安装后的 reload smoke 只能证明插件成功载入；当前候选的主题、
@@ -128,7 +128,7 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工
 | 5 | TARGETED RETEST / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 只补 closed provider 可读性、DeepSeek Pro／Flash 完整输出和 Keyword 默认动作；其余 provider 保留已有结论 | `deepseek-flash`、`deepseek-v4-pro`；固定 blue-key 问题 |
 | 6 | KEEP RESULT | [CAP-06](#test-cap-06) B、C | 本次 Answer 修复未改变任务生命周期；保留测试者已有结论 | 不重新运行 114 秒 WAV |
 | 7 | KEEP RESULT | [OMD-01](#test-omd-01)、[AI-02](#test-ai-02) | 本次 Answer 修复未改变本地 OMD／Ollama 状态机；保留测试者已有结论 | 当前精确 OMD 路径已经 ready |
-| 8 | IN PROGRESS / 有凭证才做 | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 hosted 实网分支 | 从 AI-03 当前步骤继续，并在 AI-04 合并完成第 5 行定向回归 | 问题：`@Which fixture uses the blue key, and on what day?` |
+| 8 | IN PROGRESS / AI-03 SEND RETEST | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 hosted 实网分支 | AI-03 第 8 步零证据保护已复测；从第 9 步 preview／Send 继续，并在 AI-04 合并完成第 5 行定向回归 | Omnibox 已填入 `amber lighthouse checklist` 单来源问题，尚未提交 |
 | 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
 | 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
 | 11 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
@@ -141,6 +141,7 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工
 | RC-P2-02 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/review-*.json` | 真实本地模型、summary、幂等、Done、并发冲突及用户 Summary 保护通过 |
 | RC-P2-03 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/home-*.json` | Inbox／Recent、筛选、时间自动刷新、Summarize、Pin 与响应式通过 |
 | 2026-09-25 test-vault 安装 smoke | PASS | 2026-09-25 11:02 | `test-vault-upgrade-2026-09-25.md` | 三项资产匹配；`data.json` 与 54 个 Markdown 未变；重载、OMD ready、DeepSeek setup ready |
+| AI-03 Ollama Cloud metadata 修复 | PARTIAL PASS / SEND PENDING | 2026-09-25 12:18–12:19 | commit `cf541dc`；Ollama server log | Check setup ready；零证据问题正确停止，未调用 `/api/chat`；第 9–10 步真实 Send 留给测试者批准 |
 | CAP-01A 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
 | ANSWER-02-R1 定向补测 |  |  |  | 只记录本次三项最新回归 |
 | CAP-06 B／C 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
@@ -150,8 +151,11 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**现在从第 8 行 AI-03 当前步骤继续。** 最新三项插件资产已经核对并通过原生停用／启用重载，
-无需再次 reload。第 1–4、6、7 行不因这次安装重复执行；如果这些行的结果表尚未填写，只补写当时的
+**现在从第 8 行 AI-03 第 9 步继续。** 最新三项插件资产已经核对并通过原生重载；第 8 步
+`@zzqvnoevidence7391` 已显示 **No relevant vault evidence was found. No model request was sent.**，
+Ollama 日志没有 `/api/chat`。Omnibox 已填入 `amber lighthouse checklist` 单来源问题但没有提交；
+由测试者按第 9 步核对 preview 后亲自选择 **Send and answer**。不要再次运行已经通过的第 8 步。
+第 1–4、6、7 行不因这次安装重复执行；如果这些行的结果表尚未填写，只补写当时的
 `PASS / FAIL / NOT RUN`、时间与证据，不要把“已经走过”自动改成 PASS。第 5 行无需整项重做，按下面
 三项定向回归合并到 AI-03／AI-04：
 
