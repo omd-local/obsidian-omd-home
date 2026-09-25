@@ -1315,10 +1315,48 @@ def _require_ollama_cloud_ready(endpoint: str, model: str) -> None:
     if cloud.get("disabled") is not False:
         raise ValueError("Ollama Cloud is disabled in the local Ollama app. Enable Cloud, then try again.")
     metadata = _ollama_request(endpoint, "/api/show", {"model": model})
-    if not _is_cloud_backed_model(model, metadata):
-        raise ValueError(
-            "The selected model is not a verified Ollama Cloud model routed to https://ollama.com."
-        )
+    if _is_cloud_backed_model(model, metadata):
+        return
+    if not _has_ollama_remote_metadata(metadata):
+        catalog = _ollama_get(endpoint, "/api/tags")
+        catalog_metadata = _matching_ollama_catalog_model(model, catalog)
+        if catalog_metadata is not None and _is_cloud_backed_model(model, catalog_metadata):
+            return
+    raise ValueError(
+        "The selected model is not a verified Ollama Cloud model routed to https://ollama.com."
+    )
+
+
+def _matching_ollama_catalog_model(model: str, catalog: dict[str, Any]) -> dict[str, Any] | None:
+    models = catalog.get("models")
+    if not isinstance(models, list):
+        return None
+    for entry in models:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name") or entry.get("model")
+        if isinstance(name, str) and _ollama_model_names_match(name, model):
+            return entry
+    return None
+
+
+def _ollama_model_names_match(left: str, right: str) -> bool:
+    def canonical(value: str) -> str:
+        normalized = value.strip().lower()
+        return normalized[:-7] if normalized.endswith(":latest") else normalized
+
+    return bool(canonical(left)) and canonical(left) == canonical(right)
+
+
+def _has_ollama_remote_metadata(metadata: dict[str, Any]) -> bool:
+    for mapping in (metadata, metadata.get("details"), metadata.get("model_info")):
+        if not isinstance(mapping, dict):
+            continue
+        for key in ("remote_model", "remote_host"):
+            value = mapping.get(key)
+            if isinstance(value, str) and value.strip():
+                return True
+    return False
 
 
 def _is_cloud_backed_model(model: str, metadata: dict[str, Any]) -> bool:

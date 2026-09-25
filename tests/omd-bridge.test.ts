@@ -647,6 +647,17 @@ test("maps a safe zero-evidence bridge failure without blaming local bridge setu
   );
 });
 
+test("maps an unverified Ollama Cloud model to an actionable no-send message", () => {
+  assert.equal(
+    bridgeErrorMessage({
+      message: "The selected model is not a verified Ollama Cloud model routed to https://ollama.com.",
+      type: "ValueError",
+      action: "execute_ai",
+    }, "OMD Home bridge failed"),
+    "The selected model could not be verified as an Ollama Cloud model routed to https://ollama.com. Run Check setup and choose a verified Ollama Cloud model, then try again. No vault evidence was sent.",
+  );
+});
+
 test("bundled bridge preserves only safe hosted error metadata from a chained cause", () => {
   const code = [
     "import json",
@@ -1899,6 +1910,83 @@ test("Ollama Cloud pins remote model metadata before sending any chat content", 
     );
     assert.match(scenarios[host]?.text ?? "", /\[\[calendar\.md\]\]/u, host);
   }
+});
+
+test("Ollama Cloud uses the matching catalog metadata when show omits remote routing fields", () => {
+  const code = [
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "hit = bridge.SearchHit(path='calendar.md', title='Calendar', score=1.0, evidence='Use weekly planning blocks.')",
+    "source = bridge._context('What does the calendar note say?', [hit])",
+    "base_request = {",
+    "    'provider': 'ollama-cloud',",
+    "    'model': 'gpt-oss:20b-cloud',",
+    "    'endpoint': 'http://localhost:11434',",
+    "    'query': 'What does the calendar note say?',",
+    "    'consent_granted': True,",
+    "}",
+    "def scenario(catalog_name, remote_host, show_metadata=None):",
+    "    calls = []",
+    "    def fake_get(endpoint, route):",
+    "        calls.append(route)",
+    "        if route == '/api/status':",
+    "            return {'cloud': {'disabled': False}}",
+    "        if route == '/api/tags':",
+    "            return {'models': [{'name': catalog_name, 'remote_model': 'gpt-oss:20b', 'remote_host': remote_host}]} ",
+    "        raise AssertionError(route)",
+    "    def fake_request(endpoint, route, payload):",
+    "        calls.append(route)",
+    "        if route == '/api/show':",
+    "            return show_metadata or {}",
+    "        if route == '/api/chat':",
+    "            return {'model': 'gpt-oss:20b-cloud', 'message': {'content': json.dumps({'source_states': [{'claim': 'Use weekly planning blocks.', 'citations': ['S1']}], 'model_inference': []})}}",
+    "        raise AssertionError(route)",
+    "    bridge._ollama_get = fake_get",
+    "    bridge._ollama_request = fake_request",
+    "    request = dict(base_request)",
+    "    request['consent_grant'] = bridge._issue_ollama_cloud_consent(request, source, [hit])",
+    "    try:",
+    "        result = bridge._execute_ollama_cloud(request, [hit], source, 'sparse', None, [])",
+    "        return {'ok': True, 'calls': calls, 'text': result['text']}",
+    "    except Exception as exc:",
+    "        return {'ok': False, 'calls': calls, 'error': str(exc)}",
+    "results = {",
+    "    'matching': scenario('gpt-oss:20b-cloud', 'https://ollama.com'),",
+    "    'latest_alias': scenario('gpt-oss:20b-cloud:latest', 'https://ollama.com'),",
+    "    'wrong_model': scenario('different:cloud', 'https://ollama.com'),",
+    "    'wrong_host': scenario('gpt-oss:20b-cloud', 'https://evil.example'),",
+    "    'conflicting_show': scenario('gpt-oss:20b-cloud', 'https://ollama.com', {'remote_model': 'gpt-oss:20b', 'remote_host': 'https://evil.example'}),",
+    "}",
+    "print(json.dumps(results, sort_keys=True))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const scenarios = JSON.parse(result.stdout) as Record<
+    string,
+    { ok: boolean; calls: string[]; error?: string; text?: string }
+  >;
+  for (const name of ["matching", "latest_alias"]) {
+    assert.equal(scenarios[name]?.ok, true, name);
+    assert.deepEqual(
+      scenarios[name]?.calls,
+      ["/api/status", "/api/show", "/api/tags", "/api/chat"],
+      name,
+    );
+    assert.match(scenarios[name]?.text ?? "", /\[\[calendar\.md\]\]/u, name);
+  }
+  for (const name of ["wrong_model", "wrong_host"]) {
+    assert.equal(scenarios[name]?.ok, false, name);
+    assert.deepEqual(
+      scenarios[name]?.calls,
+      ["/api/status", "/api/show", "/api/tags"],
+      name,
+    );
+    assert.doesNotMatch(scenarios[name]?.calls.join(" ") ?? "", /\/api\/chat/u, name);
+    assert.match(scenarios[name]?.error ?? "", /not a verified Ollama Cloud model/u, name);
+  }
+  assert.equal(scenarios.conflicting_show?.ok, false);
+  assert.deepEqual(scenarios.conflicting_show?.calls, ["/api/status", "/api/show"]);
+  assert.doesNotMatch(scenarios.conflicting_show?.calls.join(" ") ?? "", /\/api\/(?:tags|chat)/u);
 });
 
 test("Ask AI rejects oversized queries before retrieval or provider execution", () => {

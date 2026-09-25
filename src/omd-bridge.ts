@@ -1065,6 +1065,9 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   if (tokens.includes("no matched vault body excerpts are available for this question")) {
     return "No relevant vault evidence was found. No model request was sent.";
   }
+  if (tokens.includes("selected model is not a verified ollama cloud model routed to https://ollama.com")) {
+    return "The selected model could not be verified as an Ollama Cloud model routed to https://ollama.com. Run Check setup and choose a verified Ollama Cloud model, then try again. No vault evidence was sent.";
+  }
   if (
     tokens.includes("request must be a json object")
     || tokens.includes("unsupported action")
