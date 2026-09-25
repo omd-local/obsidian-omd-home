@@ -84,20 +84,23 @@ npm audit --omit=dev
 
 UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工测试者现已走到当前执行队列
 第 8 行 **AI-03**。首个获批的 Cloud Send 已到达 `/api/chat` 并收到 HTTP 200，但旧候选在处理
-缺失或未完成的 response 字段时只显示通用 bridge 错误。2026-09-25 12:54 已把 post-send 兼容修复
-安装进现有 `test-vault` 并通过原生重载；不要从历史交接继续，也不要重新清空 vault。第 8 行之前的
-案例保留测试者原来记录的结论，本次升级只补做下方列出的 Answer 定向回归。
+缺失或未完成的 response 字段时只显示通用 bridge 错误。第二次获批 Send 于 2026-09-25 13:06
+到达 `/api/chat`；`gpt-oss:20b-cloud` 没有返回要求的两段结构，插件正确阻止了未验证正文，但该次
+结果仍是 `FAIL: grounded answer contract`。根因是 Ollama Cloud 当前不支持 `format` structured
+outputs。2026-09-25 13:17 已把 prompt-schema 兼容修复安装进现有 `test-vault`、原生重载并完成
+Check setup；不要从历史交接继续，也不要重新清空 vault。第 8 行之前的案例保留测试者原来记录的
+结论，本次升级只补做下方列出的 Answer 定向回归。
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 候选 | branch `agent/omd-home-baseline`；已安装 bundle 对应 `fadca06`（Cloud metadata 基线 `cf541dc`；P2 核心实现 `7ec42d9`） |
+| Home 候选 | branch `agent/omd-home-baseline`；已安装 bundle 对应 `85d950a`（post-send 基线 `fadca06`；Cloud metadata 基线 `cf541dc`；P2 核心实现 `7ec42d9`） |
 | OMD 后端 | branch `agent/release-ux-compat`，已推送 HEAD `92a5aed`；运行时修复 `7994ba7` |
 | 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
-| 候选 Home bundle | `main.js` `a7b965f52f5e99fa9e14a0ffe2cbdb6dff2f17eb42903939ee3d26b9a087027a`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| 候选 Home bundle | `main.js` `0d7cb02ff32671c472735811acad9cdc8a21d1328a503272687ef9fcb5045c04`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
 | OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
 | Local writing / answer model | `qwen3:4b-instruct`；DeepSeek API / `deepseek-flash` 于 2026-09-25 11:02:17 原生 **Check setup** 显示 ready |
 | 当前数据 | 原 `data.json` 保持逐字节一致；安装前后 54 个 Markdown 的 SHA-256 清单一致；Current task 为 idle |
-| 自动门禁 | Home 637 / 637、TypeScript、ESLint、production build；覆盖 null usage、empty／unfinished HTTP 200 与安全错误映射；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
+| 自动门禁 | Home 637 / 637、TypeScript、ESLint、production build；覆盖 Cloud prompt-schema、单一 wrapper JSON 恢复、null usage、empty／unfinished HTTP 200 与安全错误映射；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，不清空
 `data.json`、笔记、Pin 或历史结果。安装后的 reload smoke 只能证明插件成功载入；当前候选的主题、
@@ -129,7 +132,7 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工
 | 5 | TARGETED RETEST / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 只补 closed provider 可读性、DeepSeek Pro／Flash 完整输出和 Keyword 默认动作；其余 provider 保留已有结论 | `deepseek-flash`、`deepseek-v4-pro`；固定 blue-key 问题 |
 | 6 | KEEP RESULT | [CAP-06](#test-cap-06) B、C | 本次 Answer 修复未改变任务生命周期；保留测试者已有结论 | 不重新运行 114 秒 WAV |
 | 7 | KEEP RESULT | [OMD-01](#test-omd-01)、[AI-02](#test-ai-02) | 本次 Answer 修复未改变本地 OMD／Ollama 状态机；保留测试者已有结论 | 当前精确 OMD 路径已经 ready |
-| 8 | RETEST / AI-03 POST-SEND | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 hosted 实网分支 | 保留第 8 步零证据 PASS；用新候选重做第 9–13 步 preview／Send／结果，并在 AI-04 合并完成第 5 行定向回归 | Omnibox 已填入 `amber lighthouse checklist` 单来源问题，尚未提交 |
+| 8 | RETEST / AI-03 `gpt-oss` RESPONSE | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 hosted 实网分支 | 保留第 8 步零证据 PASS 与 13:06 结构失败；用 `85d950a` 重做第 9–13 步 preview／Send／结果，并在 AI-04 合并完成第 5 行定向回归 | Omnibox 已填入 `amber lighthouse checklist` 单来源问题，尚未提交；必须重新 preview 和批准 |
 | 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
 | 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
 | 11 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
@@ -143,7 +146,8 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工
 | RC-P2-03 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/home-*.json` | Inbox／Recent、筛选、时间自动刷新、Summarize、Pin 与响应式通过 |
 | 2026-09-25 test-vault 安装 smoke | PASS | 2026-09-25 11:02 | `test-vault-upgrade-2026-09-25.md` | 三项资产匹配；`data.json` 与 54 个 Markdown 未变；重载、OMD ready、DeepSeek setup ready |
 | AI-03 Ollama Cloud metadata 修复 | PARTIAL PASS / SEND PENDING | 2026-09-25 12:18–12:19 | commit `cf541dc`；Ollama server log | Check setup ready；零证据问题正确停止，未调用 `/api/chat`；第 9–10 步真实 Send 留给测试者批准 |
-| AI-03 首次获批 Send／post-send 修复 | FAIL → RETEST PENDING | 2026-09-25 12:41–12:54 | commit `fadca06`；Ollama server log `/api/chat` 200 | 旧候选误报 bridge setup；新候选容忍缺失 usage，并把 incomplete／empty response 明确标为已发送证据、未显示未验证答案；尚未再次发送 |
+| AI-03 首次获批 Send／post-send 修复 | FAIL → RETEST PENDING | 2026-09-25 12:41–12:54 | commit `fadca06`；Ollama server log `/api/chat` 200 | 旧候选误报 bridge setup；新候选容忍缺失 usage，并把 incomplete／empty response 明确标为已发送证据、未显示未验证答案 |
+| AI-03 `gpt-oss:20b-cloud` 结构答案 | FAIL → RETEST PENDING | 2026-09-25 13:06–13:17 | commit `85d950a`；Ollama server log 13:06:14 `/api/chat` 200；Ollama structured-output 文档 | 13:06 提示在安全层面正确，但没有得到可显示答案；Cloud 不支持 `format` schema，现改为 prompt 携带 schema、客户端严格校验；最新 bundle 已重载且 Check setup ready，尚未重新发送 |
 | CAP-01A 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
 | ANSWER-02-R1 定向补测 |  |  |  | 只记录本次三项最新回归 |
 | CAP-06 B／C 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
@@ -153,13 +157,15 @@ UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**现在从第 8 行 AI-03 第 9 步重新发送。** `fadca06` 的三项插件资产已经核对并通过原生重载；
-Check setup 显示 **Local AI ready / Vault Q&A cloud-provider / Note enrichment ready / Polish Markdown ready**，
-Needs attention 为空。第 8 步
-`@zzqvnoevidence7391` 已显示 **No relevant vault evidence was found. No model request was sent.**，
-Ollama 日志没有 `/api/chat`，这项结果继续保留。Omnibox 已填入 `amber lighthouse checklist` 单来源
-问题但没有提交；由测试者按第 9 步核对 preview 后亲自选择 **Send and answer**。不要再次运行已经
-通过的第 8 步，也不要把 12:41 的首次失败删掉或改写为 PASS。
+**现在从第 8 行 AI-03 第 9 步重新发送。** `85d950a` 的三项插件资产已经核对并通过原生重载；
+2026-09-25 13:17 Check setup 显示 **Local AI ready / Vault Q&A cloud-provider / Note enrichment ready /
+Polish Markdown ready**，Needs attention 为空。第 8 步 `@zzqvnoevidence7391` 已显示
+**No relevant vault evidence was found. No model request was sent.**，Ollama 日志没有 `/api/chat`，
+这项结果继续保留。13:06 的 **did not provide the required Source states / Model inference structure**
+是正确的安全阻止，但不是成功答案，继续保留为 `FAIL: grounded answer contract`。Omnibox 已重新填入
+`amber lighthouse checklist` 单来源问题但没有提交；由测试者按第 9 步核对新的 preview 后亲自选择
+**Send and answer**。不要再次运行已经通过的第 8 步，也不要删除或把 12:41、13:06 两次失败改写为
+PASS。插件不得自动重发已经获批过的 Cloud 请求。
 第 1–4、6、7 行不因这次安装重复执行；如果这些行的结果表尚未填写，只补写当时的
 `PASS / FAIL / NOT RUN`、时间与证据，不要把“已经走过”自动改成 PASS。第 5 行无需整项重做，按下面
 三项定向回归合并到 AI-03／AI-04：
@@ -1332,6 +1338,13 @@ curl -sS http://localhost:11434/api/status
    `Manual Test Notes/English Markdown Note.md`。点击 **Send and answer**。
    vault-relative path 只用于这一个本机 preview，帮助测试者识别来源；真正的 provider prompt
    只能包含问题、获批片段和 `[S1]` 这类不透明标签，不能包含 Vault 文件名或路径。
+
+   Ollama 官方文档当前明确写明
+   [Ollama Cloud 不支持 structured outputs](https://github.com/ollama/ollama/blob/main/docs/capabilities/structured-outputs.mdx)。
+   因此 Cloud 请求不得依赖不受支持的 `format` 参数；OMD Home 应在 system prompt 中携带精确 JSON
+   schema，并在本机按同一 schema、claim 和 citation 规则校验。模型若只在一个有效 JSON object
+   外包了说明文字或 Markdown fence，可丢弃 wrapper 后继续校验；出现多个候选 object、错误字段、
+   无效 claim 或 citation 时仍须安全阻止，且不得显示 wrapper 或未验证正文。
 10. 成功结果必须满足：
    - header 显示 `1 source`，正文第一行准确显示 **Based on 1 retrieved note.**；
    - 不得写成 “the Vault contains …”“all Vault notes …”或以其他方式暗示覆盖整个 Vault；
@@ -1547,13 +1560,14 @@ HTTP 400；换成同一 provider 的 `gpt-4o-mini` 后可收到有来源引用�
 
    ```bash
    node --test --experimental-strip-types \
-     --test-name-pattern='AI tasks request a bounded structured answer|structured AI answers render fixed sections and reject unverified citations|OmdBridge rejects malformed or ungrounded AI answers before they reach the UI|maps hosted provider failures to safe actionable messages' \
+     --test-name-pattern='AI tasks request a bounded structured answer|structured AI answers render fixed sections and reject unverified citations|OmdBridge rejects malformed or ungrounded AI answers before they reach the UI|maps hosted provider failures to safe actionable messages|Ollama Cloud uses a prompt-carried schema' \
      tests/omd-bridge.test.ts
    ```
 
-   预期匹配的 `4` 个用例均为 `pass`；不同 Node 版本可能省略其他用例或将其标为 `skipped`。
-   依次核对：provider task
-   请求包含结构化 schema；缺失/错误结构或空白 claim 被拒绝且不回显原始模型正文；缺失、无效或
+   预期匹配的 `5` 个用例均为 `pass`；不同 Node 版本可能省略其他用例或将其标为 `skipped`。
+   依次核对：支持原生 structured output 的 provider task 请求 schema；Ollama Cloud 不发送不受支持的
+   `format`，而是在 prompt 携带 schema，并只恢复一个通过同一严格校验的 object；缺失/错误结构或
+   空白 claim 被拒绝且不回显原始模型正文；缺失、无效或
    不属于本次检索的引用被拒绝；格式错误和引用错误在结果区得到不同的安全提示。
 3. 错误归类应准确：缺少或无效引用提示 **did not cite every claim**；受控测试中 bridge 报告
    分区校验 warning 时提示 **did not separate Source states from Model inference**；provider 未返回可解析的
