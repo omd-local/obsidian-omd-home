@@ -3431,8 +3431,8 @@ test("social runtime errors use exact provider-aware Home copy without leaking b
     ["cookies_unreadable", "https://xhslink.com/a/abc", /cookies file cannot be read/u],
     ["douyin_fetch_failed", "https://v.douyin.com/a/", /Douyin could not fetch.+update yt-dlp/u],
     ["xhs_fetch_failed", "https://xhslink.com/a/abc", /Xiaohongshu \/ Rednote could not fetch/u],
-    ["douyin_redirect_rejected", "https://v.douyin.com/a/", /outside approved Douyin hosts.+No cookies were sent/u],
-    ["xhs_redirect_rejected", "https://xhslink.com/a/abc", /outside approved Xiaohongshu \/ Rednote hosts.+No cookies were sent/u],
+    ["douyin_redirect_rejected", "https://v.douyin.com/a/", /Douyin could not safely resolve.+No cookies were sent.+Check the link and network/u],
+    ["xhs_redirect_rejected", "https://xhslink.com/a/abc", /Xiaohongshu \/ Rednote could not safely resolve.+No cookies were sent.+Check the link and network/u],
   ] as const;
   for (const [kind, source, expected] of cases) {
     const message = captureErrorMessage(JSON.stringify({

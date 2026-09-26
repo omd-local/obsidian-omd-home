@@ -1375,7 +1375,7 @@ function socialCaptureEventMessage(kind: string | undefined, source: string): st
       return "Xiaohongshu / Rednote could not fetch this post. Check that the link is public and still available, then retry.";
     case "douyin_redirect_rejected":
     case "xhs_redirect_rejected":
-      return `OMD blocked a redirect outside approved ${label} hosts. No cookies were sent to that destination. Check the shared link, then retry.`;
+      return `${label} could not safely resolve this shared link. No cookies were sent to an unapproved destination. Check the link and network, then retry.`;
     default:
       return null;
   }
