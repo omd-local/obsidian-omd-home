@@ -141,6 +141,16 @@ export interface CapabilityResponse {
       modes: string[];
     };
   };
+  capture_auth_options?: {
+    share_text: {
+      supported: boolean;
+      requires_single_http_url: boolean;
+    };
+    platform_cookie_flags: {
+      douyin?: string;
+      xhs?: string;
+    };
+  };
   enrich_note: {
     schema_versions: number[];
     supported: boolean;
@@ -246,6 +256,9 @@ export function validateCapabilityResponse(value: unknown): CapabilityResponse {
   if (record.capture_language_options !== undefined) {
     capability.capture_language_options = validateCaptureLanguageOptions(record.capture_language_options);
   }
+  if (record.capture_auth_options !== undefined) {
+    capability.capture_auth_options = validateCaptureAuthOptions(record.capture_auth_options);
+  }
   return capability;
 }
 
@@ -292,6 +305,35 @@ function validateCaptureLanguageOptions(value: unknown): NonNullable<CapabilityR
       modes: expectBoundedStringArray(asr.modes, 16, 64, "capabilities.capture_language_options.asr.modes"),
     },
   };
+}
+
+function validateCaptureAuthOptions(value: unknown): NonNullable<CapabilityResponse["capture_auth_options"]> {
+  const record = expectRecord(value, "capabilities.capture_auth_options");
+  const shareText = expectRecord(record.share_text, "capabilities.capture_auth_options.share_text");
+  const cookieFlags = expectRecord(
+    record.platform_cookie_flags,
+    "capabilities.capture_auth_options.platform_cookie_flags",
+  );
+  const normalized: NonNullable<CapabilityResponse["capture_auth_options"]> = {
+    share_text: {
+      supported: expectBoolean(shareText.supported, "capabilities.capture_auth_options.share_text.supported"),
+      requires_single_http_url: expectBoolean(
+        shareText.requires_single_http_url,
+        "capabilities.capture_auth_options.share_text.requires_single_http_url",
+      ),
+    },
+    platform_cookie_flags: {},
+  };
+  for (const provider of ["douyin", "xhs"] as const) {
+    if (cookieFlags[provider] !== undefined) {
+      normalized.platform_cookie_flags[provider] = expectBoundedString(
+        cookieFlags[provider],
+        64,
+        `capabilities.capture_auth_options.platform_cookie_flags.${provider}`,
+      );
+    }
+  }
+  return normalized;
 }
 
 function validateOcrReadiness(

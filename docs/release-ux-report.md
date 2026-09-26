@@ -1,6 +1,27 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查跨度：2026-09-17–2026-09-25。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+检查跨度：2026-09-17–2026-09-26。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+
+## Social capture bridge 候选（2026-09-26）
+
+Douyin 与 Xiaohongshu / Rednote share text 及 cookies bridge 已在候选源码实现。Home 只从对应平台
+常见分享文字中提取唯一 HTTP(S) URL；普通网页 prose 必须改为单独粘贴 URL。Settings 与 Capture
+分别提供 Douyin、XHS / Rednote 的 Netscape `cookies.txt` 绝对路径，两者可同时保存但不会跨 provider
+回退。插件只保存路径，cookie 内容停留在本地 OMD 进程；CaptureRequest、failure record、Notice、
+Needs attention、日志、vault 与生成 note 都不保存或显示 cookie 内容，错误也不回显完整路径。
+
+该入口只接受 OMD 明确广告的 exact capability contract：
+`capture_auth_options.share_text.supported` 与 `requires_single_http_url` 都必须为 `true`，且
+`platform_cookie_flags.douyin`／`xhs` 必须分别为 `--douyin-cookies`／`--xhs-cookies`。缺失或不一致
+时 fail closed，并要求 Update OMD / Check setup。弹窗关闭前会运行有界 source-specific preflight，
+区分 missing、unreadable、invalid
+format、wrong domain 与 expired；运行期失败进入 Needs attention。Retry 恢复原分享文字和 Capture
+选项，但读取当前 Settings 中修复后的路径。macOS/Linux Cancel、unload 与退出会终止整个 OMD
+process group，并在宽限期后清理仍存活的嵌套 `yt-dlp`、`ffmpeg` 或 Whisper 进程。
+
+实现与自动回归已经完成；真实平台登录态、下载、窄窗／150%、runtime Retry 和进程树取消仍列在
+CAP-07 做首次原生人工验收。本报告不把这些未执行分支写成 PASS。Local folder 与 one-item-per-line
+batch 仍未连接。
 
 ## 最终候选安装与人工计划交接（2026-09-25）
 
@@ -107,9 +128,9 @@ OMD 后端 **1684 / 1684** tests、Ruff、compileall 以及隔离 wheel 安装�
 `git diff --check` 通过。真实 OpenAI key，以及 UI-01–04、UI-12–14 对应的原生深浅主题、窄窗口、
 键盘和 150% 字体复测仍按人工计划记录，不以自动结果冒充人工 PASS。
 
-Graph／Search／Backlinks／Bases 增强、ANSWER-01、Douyin／XHS cookies bridge 与 folder／list batch
-入口全部保留为 **Deferred / P2**。README 与 release checklist 已限制为 Home 实际连接的一条公共 URL
-或一个本地文件，不把 OMD 引擎自身的 P2 能力写成 Home 已支持。
+在这个 2026-09-21 checkpoint，Graph／Search／Backlinks／Bases、ANSWER-01、Douyin／XHS bridge 与
+folder／list batch 当时都仍是 **Deferred / P2**。Douyin／XHS 后续实现状态与未完成的人工门禁已经由
+报告顶部 2026-09-26 小节取代；Graph 类建议、ANSWER-01 与 Local batch 到当前仍保持 Deferred。
 
 **20:45 候选结果（后续新发现见下方）：当时已发现的界面与交互缺陷已修复，完整前端 563 项、后端 1627 项测试通过，前端类型检查 / ESLint / 构建通过。恢复 minimal 风格后，36 组常规布局 + 8 组 Pin 对齐 + 4 组原生设置宽度模拟，共 48 组浏览器检查通过。**
 

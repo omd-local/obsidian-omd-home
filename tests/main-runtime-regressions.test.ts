@@ -28,6 +28,7 @@ import {
   oneClickInstallableEmbeddingModel,
 } from "../src/local-ai-readiness.ts";
 import { LocalAiError, type LocalAiModelInfo, type LocalAiRuntimeState } from "../src/ollama-local-types.ts";
+import { socialCaptureProvider } from "../src/omnibox-utils.ts";
 
 // Execute the production methods with injected Obsidian/bridge boundaries. This
 // keeps async race regressions runnable without loading the desktop application.
@@ -1343,6 +1344,7 @@ test("shared setup publishes the verified executable and capture probes it befor
     omdReadyMessage: () => "Ready",
     hasCaptureLanguageOverrides: () => false,
     probeOmdCaptureExecutable: async () => {},
+    socialCaptureProvider,
   });
   Object.assign(plugin, {
     settings: { omdExecutable: "omd", captureOcrLanguage: "unsupported-pack", captureAsrLanguage: "zh" },
@@ -1473,6 +1475,7 @@ test("capture retry keeps the last verified OMD ahead of a capture-compatible le
     omdReadyMessage: () => "Ready",
     hasCaptureLanguageOverrides: () => false,
     probeOmdCaptureExecutable: async (executable: string) => { captureProbes.push(executable); },
+    socialCaptureProvider,
   });
   Object.assign(plugin, {
     settings: { omdExecutable: "omd" },
@@ -1555,6 +1558,7 @@ test("cold-start capture shares pending automatic setup discovery before probing
     isEnrichmentError: () => false,
     hasCaptureLanguageOverrides: () => false,
     probeOmdCaptureExecutable: async (executable: string) => { captureProbes.push(executable); },
+    socialCaptureProvider,
   });
   Object.assign(plugin, {
     settings: { omdExecutable: "omd" },
@@ -1603,6 +1607,7 @@ test("cancelled capture stops waiting without cancelling shared automatic discov
       return { executable: "/Applications/OMD/bin/omd", mode: "automatic" };
     },
     process,
+    socialCaptureProvider,
   });
   Object.assign(plugin, {
     settings: { omdExecutable: "omd" },

@@ -16,11 +16,11 @@ test("a pending non-modal review releases the workflow mutex while writes still 
   assert.ok(releaseAt > reviewAt, "review must release ownership so capture can continue beside the pane");
 
   const openCapture = extractMember(mainSource, "openCaptureModal(initialSource:");
-  const submitAt = openCapture.indexOf("async (request) => {");
+  const submitAt = openCapture.lastIndexOf("async (request, sourceAccess) => {");
   assert.match(openCapture, /^openCaptureModal[^\{]*\{\s*if \(this\.captureActive \|\| this\.enrichmentActive\)/u);
   assert.match(
     openCapture.slice(submitAt),
-    /if \(this\.captureActive \|\| this\.enrichmentActive\)[\s\S]*return;[\s\S]*this\.captureActive = true;/u,
+    /if \(this\.captureActive \|\| this\.enrichmentActive\)[\s\S]*throw new Error\([\s\S]*this\.captureActive = true;/u,
   );
 
   const directCapture = extractMember(mainSource, "async captureWithOmd(");
@@ -42,7 +42,7 @@ test("Apply and Capture claim mutually exclusive ownership before either can awa
   assert.ok(applyingAt > captureGuardAt && applyingAt < writeAt);
 
   const openCapture = extractMember(mainSource, "openCaptureModal(initialSource:");
-  const submitAt = openCapture.indexOf("async (request) => {");
+  const submitAt = openCapture.lastIndexOf("async (request, sourceAccess) => {");
   const submit = openCapture.slice(submitAt);
   const claimAt = submit.indexOf("this.captureActive = true;");
   const firstAwaitAt = submit.indexOf("await this.saveSettings();");

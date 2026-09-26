@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
-import { isLocalImageSource } from "../src/omnibox-utils.ts";
+import { isLocalImageSource, parseCaptureSourceInput, socialCaptureProvider } from "../src/omnibox-utils.ts";
 
 type Harness = Record<string, any>;
 
@@ -73,8 +73,11 @@ function omniboxHarness(looksCapturable: (query: string) => boolean = () => fals
   ], {
     looksCapturable,
     isLocalImageSource,
-    captureRequestFromSettings: (source: string) => source,
+    parseCaptureSourceInput,
+    socialCaptureProvider,
+    captureRequestFromSettings: (source: string) => ({ source }),
     normalizeCaptureSource: (source: string) => source,
+    Notice: class {},
   });
   Object.assign(box, {
     previewTimer: null,

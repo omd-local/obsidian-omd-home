@@ -10,6 +10,7 @@ import {
   ocrLanguageValue,
   type CaptureRequest,
 } from "../capture-request.ts";
+import type { SocialCaptureProvider } from "../omnibox-utils.ts";
 
 const CAPABILITY_TIMEOUT_MS = 5_000;
 const CAPABILITY_OUTPUT_LIMIT_BYTES = 16 * 1024;
@@ -148,6 +149,27 @@ export class OmdCapabilityService {
           `The configured OMD build does not advertise ASR mode ${request.asr.mode}. Update OMD or choose No language preference.`,
         );
       }
+    }
+    return capability;
+  }
+
+  async requireSocialCaptureAuth(
+    executable: string,
+    provider: SocialCaptureProvider,
+    signal?: AbortSignal,
+  ): Promise<OmdCapabilities> {
+    const capability = await this.get(executable, signal);
+    const auth = capability.capture_auth_options;
+    if (
+      auth?.share_text.supported !== true
+      || auth.share_text.requires_single_http_url !== true
+      || auth.platform_cookie_flags.douyin !== "--douyin-cookies"
+      || auth.platform_cookie_flags.xhs !== "--xhs-cookies"
+    ) {
+      throw new OmdEnrichmentError(
+        "unsupported_capability",
+        `This OMD build cannot safely accept ${provider === "douyin" ? "Douyin" : "Xiaohongshu / Rednote"} share text and its dedicated cookies path. Update OMD, run Check setup, then try again.`,
+      );
     }
     return capability;
   }

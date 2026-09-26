@@ -142,7 +142,7 @@ test("retry survives unrelated issue replacement and only clears the issue owned
 test("modal and omnibox build requests from vault defaults while capture choices have one clear owner", () => {
   const openModalBody = extractMethodBody(mainSource, "openCaptureModal(initialSource:");
   assert.match(mainSource, /captureRequestFromSettings\(initialSource, this\.settings\)/u);
-  assert.match(omniboxSource, /captureRequestFromSettings\(source, this\.plugin\.settings\)/u);
+  assert.match(omniboxSource, /captureRequestFromSettings\(query, this\.plugin\.settings\)/u);
   assert.match(modalSource, /this\.modalEl\.addClass\("omd-capture-modal"\)/u);
   assert.match(modalSource, /summary", \{ text: "Recognition \(optional\)" \}/u);
   assert.match(modalSource, /setName\("Image text language"\)/u);
@@ -166,7 +166,7 @@ test("modal and omnibox build requests from vault defaults while capture choices
   assert.doesNotMatch(modalSource, /Custom language packs…|setName\("Custom image recognition language packs"\)/u);
   assert.doesNotMatch(modalSource, /onOcrChange|onAsrChange/u);
   assert.doesNotMatch(modalSource, /onPolishChange|onSuggestChange/u);
-  assert.match(openModalBody, /async \(request\) => \{[\s\S]*this\.settings\.capturePolish = request\.polish;[\s\S]*this\.settings\.captureSuggestLinksAndTags = request\.suggest;[\s\S]*try \{[\s\S]*await this\.saveSettings\(\);[\s\S]*\} catch[\s\S]*Capture will continue[\s\S]*await this\.captureWithOmd\(request, retryFailureId, true\);/u);
+  assert.match(openModalBody, /async \(request, sourceAccess\) => \{[\s\S]*this\.settings\.capturePolish = request\.polish;[\s\S]*this\.settings\.captureSuggestLinksAndTags = request\.suggest;[\s\S]*this\.settings\.douyinCookiesPath = sourceAccess\.douyinCookiesPath;[\s\S]*this\.settings\.xhsCookiesPath = sourceAccess\.xhsCookiesPath;[\s\S]*try \{[\s\S]*await this\.saveSettings\(\);[\s\S]*\} catch[\s\S]*Capture will continue[\s\S]*await this\.captureWithOmd\(request, retryFailureId, true\);/u);
 });
 
 test("capture fields share one modal-scoped vertical rhythm", () => {
@@ -180,7 +180,7 @@ test("capture fields share one modal-scoped vertical rhythm", () => {
   );
   assert.match(
     stylesSource,
-    /\.omd-capture-recognition,\s*\.omd-capture-ai\s*\{[^}]*margin:\s*var\(--omd-capture-section-gap\) 0;/su,
+    /\.omd-capture-recognition,\s*\.omd-capture-source-access,\s*\.omd-capture-ai\s*\{[^}]*margin:\s*var\(--omd-capture-section-gap\) 0;/su,
   );
   assert.match(
     stylesSource,
@@ -194,11 +194,17 @@ test("capture fields share one modal-scoped vertical rhythm", () => {
     modalSource.match(/settingEl\.addClass\("omd-capture-section-last"\)/gu)?.length,
     2,
   );
+  assert.match(stylesSource, /\.omd-capture-source\s*\{[^}]*min-height:\s*76px;[^}]*max-height:\s*min\(28vh, 220px\);[^}]*overflow-wrap:\s*anywhere;[^}]*white-space:\s*pre-wrap;/su);
+  assert.match(stylesSource, /:is\(\.omd-capture-modal, \.omd-event-modal\) :is\(input:not\(\[type="checkbox"\]\), textarea\)\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*min-width:\s*0;/su);
+  assert.match(modalSource, /text\.inputEl\.setAttribute\("dir", "ltr"\)/u, "long cookie paths keep a stable reading direction");
+  assert.match(stylesSource, /:is\(\.omd-capture-modal, \.omd-consent-modal, \.omd-event-modal\) \.setting-item-control\s*\{[^}]*min-width:\s*0;[^}]*flex-wrap:\s*wrap;/su);
+  assert.match(stylesSource, /:is\(\.omd-capture-modal, \.omd-event-modal\) \.setting-item:has\(input:not\(\[type="checkbox"\]\)\) \.setting-item-control\s*\{[^}]*width:\s*100%;/su);
+  assert.match(stylesSource, /@media \(max-width: 520px\)\s*\{[\s\S]*\.omd-capture-modal[\s\S]*select\s*\{\s*width:\s*100%;/su);
 });
 
 test("a busy Capture is rejected before it can alter preferences or interrupt Local AI", () => {
   const openModalBody = extractMethodBody(mainSource, "openCaptureModal(initialSource:");
-  const callbackAt = openModalBody.indexOf("async (request) => {");
+  const callbackAt = openModalBody.lastIndexOf("async (request, sourceAccess) => {");
   const callbackBody = openModalBody.slice(callbackAt);
   const busyGuardAt = callbackBody.indexOf("if (this.captureActive || this.enrichmentActive)");
   const claimAt = callbackBody.indexOf("this.captureActive = true;");
@@ -208,6 +214,11 @@ test("a busy Capture is rejected before it can alter preferences or interrupt Lo
   const saveAt = callbackBody.indexOf("await this.saveSettings();");
 
   assert.ok(busyGuardAt >= 0, "the modal submit callback must guard busy work");
+  assert.match(
+    callbackBody.slice(busyGuardAt, claimAt),
+    /throw new Error\("Another OMD action started while this source was being checked\./u,
+    "a late busy race must reject so the modal can reopen the unchanged draft",
+  );
   assert.ok(claimAt > busyGuardAt, "the accepted submission must claim capture synchronously");
   for (const [label, index] of [
     ["polish preference", polishAt],
@@ -235,6 +246,23 @@ test("capture modal and Home omnibox share modern Electron drop-path resolution"
   assert.match(omniboxSource, /captureSourceFromDataTransfer\(event\.dataTransfer\)/u);
   assert.doesNotMatch(modalSource, /"path" in file/u);
   assert.doesNotMatch(omniboxSource, /"path" in file/u);
+});
+
+test("social retries restore share text while preflight and Needs attention use only the canonical URL", () => {
+  const openModalBody = extractMethodBody(mainSource, "openCaptureModal(initialSource:");
+  const preflightBody = extractMethodBody(mainSource, "private async preflightSocialCapture(");
+  const inspectBody = extractMethodBody(mainSource, "private async inspectSocialCapture(");
+  const captureBody = extractMethodBody(mainSource, "async captureWithOmd(");
+  assert.match(openModalBody, /return await this\.preflightSocialCapture\(request, cookiesPath, signal\)/u);
+  assert.match(preflightBody, /cookieRuntimeRecheck: inspection\.cookieRuntimeRecheck/u);
+  assert.match(inspectBody, /captureInspectionError\(inspection, provider, request\.source\)/u);
+  assert.match(inspectBody, /inspectCaptureSource\([\s\S]*request\.source,/u);
+  assert.doesNotMatch(inspectBody, /request\.submittedSource/u);
+  assert.match(captureBody, /await this\.inspectSocialCapture\([\s\S]*await this\.runLocalAiGated\([\s\S]*this\.omdBridge\.capture\(/u);
+  assert.match(mainSource, /this\.openCaptureModal\(failure\.request, failure\.id\)/u);
+  assert.match(modalSource, /this\.source = initialRequest\.submittedSource \?\? initialRequest\.source/u);
+  assert.match(mainSource, /recordIssue\("capture", error, captureRequest\.source\)/u);
+  assert.doesNotMatch(mainSource, /recordIssue\("capture", error, captureRequest\.submittedSource/u);
 });
 
 test("inherited recognition probes the legacy capture command instead of requiring version metadata", () => {

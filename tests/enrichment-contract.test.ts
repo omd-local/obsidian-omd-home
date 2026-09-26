@@ -42,6 +42,10 @@ test("capability validation preserves optional build and capture language metada
         modes: ["inherit-adapter-default", "auto-detect", "explicit"],
       },
     },
+    capture_auth_options: {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+    },
     enrich_note: { supported: true, schema_versions: [1] },
   });
 
@@ -52,6 +56,20 @@ test("capability validation preserves optional build and capture language metada
   assert.deepEqual(capability.capture_language_options?.ocr.aliases, ["--ocr-lang", "--lang"]);
   assert.equal(capability.capture_language_options?.ocr.presets[0]?.value, "chi_sim+eng");
   assert.deepEqual(capability.capture_language_options?.ocr.readiness?.installed_packs, ["eng", "script/HanS"]);
+  assert.deepEqual(capability.capture_auth_options, {
+    share_text: { supported: true, requires_single_http_url: true },
+    platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+  });
+});
+
+test("capability validation rejects malformed social capture auth metadata", () => {
+  assert.throws(() => validateCapabilityResponse({
+    enrich_note: { supported: true, schema_versions: [1] },
+    capture_auth_options: {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: ["--douyin-cookies"], xhs: "--xhs-cookies" },
+    },
+  }), /platform_cookie_flags\.douyin/u);
 });
 
 test("capabilitySupportsEnrichNote accepts additive capability fields", () => {

@@ -6,7 +6,8 @@ import {
   isPluginRecordingWrapperCommand,
   isLocalImageSource,
   looksCapturable,
-  normalizeCaptureSource,
+  parseCaptureSourceInput,
+  socialCaptureProvider,
   recordingQuickActions,
   safeFileName,
 } from "./omnibox-utils";
@@ -232,14 +233,19 @@ export class Omnibox {
       return;
     }
     if (looksCapturable(query)) {
-      const source = normalizeCaptureSource(query);
-      if (isLocalImageSource(source)) {
-        this.plugin.openCaptureModal(source);
-        return;
+      try {
+        // Keep omnibox routing strict even though the lower-level request
+        // factory still accepts legacy relative fixture names.
+        parseCaptureSourceInput(query);
+        const request = captureRequestFromSettings(query, this.plugin.settings);
+        if (isLocalImageSource(request.source) || socialCaptureProvider(request.source)) {
+          this.plugin.openCaptureModal(request);
+          return;
+        }
+        await this.plugin.captureWithOmd(request);
+      } catch (error) {
+        new Notice(error instanceof Error ? error.message : "Enter one HTTP(S) URL or an absolute local file path.");
       }
-      await this.plugin.captureWithOmd(
-        captureRequestFromSettings(source, this.plugin.settings),
-      );
       return;
     }
     if (query.startsWith(">")) {

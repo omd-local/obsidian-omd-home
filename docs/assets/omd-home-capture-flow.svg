@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title-capture desc-capture" shape-rendering="crispEdges">
   <title id="title-capture">OMD Home // Capture, Then Review</title>
-  <desc id="desc-capture">A pixel-styled capture flow showing a URL or file entering OMD Home, running through OMD, producing Markdown and trace files, and optionally generating review-first proposals.</desc>
+  <desc id="desc-capture">A pixel-styled capture flow showing a URL, supported social share message, or file entering OMD Home, running through OMD, producing Markdown and trace files, and optionally generating review-first proposals.</desc>
   <defs>
     <pattern id="grid-capture" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.28"/>
@@ -25,7 +25,7 @@
   <rect x="442" y="214" width="312" height="40" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
   <rect x="776" y="214" width="312" height="40" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
   <rect x="1110" y="214" width="378" height="40" fill="#8064F4" stroke="#202124" stroke-width="4"/>
-  <text x="264" y="239" text-anchor="middle" font-family="Courier New, monospace" font-size="18" font-weight="700" fill="#202124">PASTE URL</text>
+  <text x="264" y="239" text-anchor="middle" font-family="Courier New, monospace" font-size="18" font-weight="700" fill="#202124">URL / SHARE TEXT</text>
   <text x="598" y="239" text-anchor="middle" font-family="Courier New, monospace" font-size="18" font-weight="700" fill="#202124">PASTE LOCAL PATH</text>
   <text x="932" y="239" text-anchor="middle" font-family="Courier New, monospace" font-size="18" font-weight="700" fill="#202124">DROP FILE</text>
   <text x="1299" y="239" text-anchor="middle" font-family="Courier New, monospace" font-size="18" font-weight="700" fill="#F4F1E8">NORMALISE TILDES AND SPACES</text>
@@ -35,7 +35,7 @@
   <rect x="84" y="320" width="1430" height="126" fill="#F4F1E8" stroke="#202124" stroke-width="5"/>
   <rect x="84" y="320" width="1430" height="46" fill="#F4F1E8" stroke="#202124" stroke-width="5"/>
   <text x="108" y="352" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">2  HAND OFF THE SUBMITTED SOURCE</text>
-  <text x="108" y="402" font-family="Courier New, monospace" font-size="18" fill="#202124">Pass the single public URL or local file to OMD; OMD reports conversion progress and failures.</text>
+  <text x="108" y="402" font-family="Courier New, monospace" font-size="18" fill="#202124">Validate one URL, preflight social access, then pass the canonical URL or local file to OMD.</text>
 
   <line x1="800" y1="446" x2="800" y2="478" stroke="#202124" stroke-width="6" marker-end="url(#arrow-capture)"/>
 

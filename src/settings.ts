@@ -42,6 +42,7 @@ import {
   normalizeOcrLanguageSet,
   type CaptureAsrSetting,
 } from "./capture-request.ts";
+import { normalizeLocalAccessPath } from "./omnibox-utils.ts";
 
 const CUSTOM_OCR_DEFAULT_DESCRIPTION = "Advanced: enter up to eight installed Tesseract language pack ids joined with +. Script packs such as script/HanS are supported.";
 const INVALID_CUSTOM_OCR_NOTICE = "Custom OCR must use up to eight safe Tesseract language pack ids joined with +.";
@@ -92,6 +93,8 @@ export interface OmdHomeSettings {
   captureSuggestLinksAndTags: boolean;
   captureOcrLanguage: string;
   captureAsrLanguage: CaptureAsrSetting;
+  douyinCookiesPath: string;
+  xhsCookiesPath: string;
   pinnedNotes: string[];
 }
 
@@ -116,6 +119,8 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
   captureSuggestLinksAndTags: true,
   captureOcrLanguage: "",
   captureAsrLanguage: "inherit-adapter-default",
+  douyinCookiesPath: "",
+  xhsCookiesPath: "",
   pinnedNotes: [],
 };
 
@@ -815,6 +820,27 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         this.display();
       }));
 
+    const sourceAccess = container.createEl("details", { cls: "omd-settings-advanced" });
+    sourceAccess.open = Boolean(this.plugin.settings.douyinCookiesPath || this.plugin.settings.xhsCookiesPath);
+    sourceAccess.createEl("summary", { text: "Social capture access" });
+    sourceAccess.createEl("p", {
+      text: "Optional local Netscape cookies.txt paths for public Douyin or Xiaohongshu/Rednote captures. Only the path is saved; cookie contents stay inside the local OMD process.",
+    });
+    this.renderCookiePathSetting(
+      sourceAccess,
+      "douyin",
+      "Douyin cookies",
+      this.plugin.settings.douyinCookiesPath,
+      async (value) => { this.plugin.settings.douyinCookiesPath = value; },
+    );
+    this.renderCookiePathSetting(
+      sourceAccess,
+      "xhs",
+      "Xiaohongshu / Rednote cookies",
+      this.plugin.settings.xhsCookiesPath,
+      async (value) => { this.plugin.settings.xhsCookiesPath = value; },
+    );
+
     const recognition = container.createEl("details", { cls: "omd-settings-advanced" });
     recognition.createEl("summary", { text: "Recognition defaults" });
     const languageAvailability = this.plugin.captureLanguageAvailability();
@@ -1024,6 +1050,53 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       void this.plugin.checkEnrichmentCapability().finally(() => {
         if (container.isConnected) this.display();
       });
+    }
+  }
+
+  private renderCookiePathSetting(
+    container: HTMLElement,
+    provider: "douyin" | "xhs",
+    name: string,
+    currentValue: string,
+    update: (value: string) => Promise<void>,
+  ): void {
+    let validation: HTMLElement | null = null;
+    const validationId = `omd-settings-${provider}-cookies-validation`;
+    const setting = new Setting(container)
+      .setName(name)
+      .setDesc("Absolute path to a local Netscape cookies.txt file.")
+      .addText((text) => {
+        text.inputEl.setAttribute("dir", "ltr");
+        text.inputEl.setAttribute("aria-describedby", validationId);
+        text.setPlaceholder("/Users/…/cookies.txt")
+          .setValue(currentValue)
+          .onChange(async (value) => {
+          let normalized: string;
+          try {
+            normalized = normalizeLocalAccessPath(value);
+          } catch (error) {
+            setting.settingEl.addClass("is-invalid");
+            text.inputEl.setAttribute("aria-invalid", "true");
+            validation?.setText(error instanceof Error ? error.message : "Choose an absolute local cookies.txt path.");
+            return;
+          }
+          setting.settingEl.removeClass("is-invalid");
+          text.inputEl.removeAttribute("aria-invalid");
+          validation?.setText("");
+          await update(normalized);
+          await this.saveSettingsInOrder();
+          });
+      });
+    setting.settingEl.addClass("omd-settings-cookie-path");
+    validation = setting.settingEl.createDiv({ cls: "omd-settings-path-validation" });
+    validation.id = validationId;
+    validation.setAttribute("role", "alert");
+    if (currentValue) {
+      setting.addButton((button) => button.setButtonText("Clear").onClick(async () => {
+        await update("");
+        await this.saveSettingsInOrder();
+        this.display();
+      }));
     }
   }
 
@@ -1313,6 +1386,8 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
       : DEFAULT_SETTINGS.captureSuggestLinksAndTags,
     captureOcrLanguage: normalizeCaptureOcrLanguage(input.captureOcrLanguage),
     captureAsrLanguage: normalizeCaptureAsrLanguage(input.captureAsrLanguage),
+    douyinCookiesPath: normalizeSavedAccessPath(input.douyinCookiesPath),
+    xhsCookiesPath: normalizeSavedAccessPath(input.xhsCookiesPath),
     pinnedNotes: uniqueStrings(input.pinnedNotes),
   };
 }
@@ -1363,4 +1438,13 @@ function normalizeCaptureAsrLanguage(value: unknown): OmdHomeSettings["captureAs
   return value === "auto-detect" || value === "en" || value === "zh"
     ? value
     : "inherit-adapter-default";
+}
+
+function normalizeSavedAccessPath(value: unknown): string {
+  if (typeof value !== "string") return "";
+  try {
+    return normalizeLocalAccessPath(value);
+  } catch {
+    return "";
+  }
 }

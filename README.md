@@ -59,15 +59,18 @@ widget menu, so a desktop layout does not have to fit a different screen.
 
 ## Bring sources in. Decide what changes.
 
-Paste one public URL, paste one local file path, or drop one file onto Home.
+Paste one public URL, paste one local file path, drop one file onto Home, or
+paste a common Douyin or Xiaohongshu / Rednote share message that contains
+exactly one HTTP(S) URL.
 OMD Home starts a managed OMD process, reports progress, and leaves conversion
 ownership with [Markdown Everything](https://github.com/omd-local/markdown-everything).
 
-The current Home capture path accepts one public HTTP(S) URL or one local file
-per request. The OMD engine supports cookie-gated Douyin and Xiaohongshu /
-Rednote share text, plus local folder and one-item-per-line list batches. Those
-source types are not yet connected in OMD Home. Capture writes the requested
-Markdown note immediately; only optional link and tag changes wait for review.
+Share-message extraction is deliberately limited to Douyin and Xiaohongshu /
+Rednote. Paste an ordinary webpage URL by itself. Text with no HTTP(S) URL,
+more than one URL, or a non-HTTP(S) scheme is rejected instead of guessing.
+Local folder and one-item-per-line batch capture are not connected in OMD Home.
+Capture writes the requested Markdown note immediately; only optional link and
+tag changes wait for review.
 
 <img src="docs/assets/omd-home-capture-flow.svg" alt="OMD Home capture flow" />
 
@@ -76,7 +79,9 @@ Markdown note immediately; only optional link and tag changes wait for review.
 - Drag and drop, `~/` paths, and shell-escaped spaces are normalized without
   evaluating a shell command.
 - Capture continues when the Home tab is backgrounded or closed. Cancel,
-  plugin unload, or quitting Obsidian stops plugin-owned child work.
+  plugin unload, or quitting Obsidian stops plugin-owned child work. On macOS
+  and Linux, cancellation also stops the OMD process group, including nested
+  `yt-dlp`, `ffmpeg`, and Whisper work, with a bounded forced stop if needed.
 - Capture keeps OCR and speech recognition separate. On first use, both controls
   begin with **No language preference**. Vault-wide defaults live under
   **Recognition defaults** in Settings. OCR can also use `eng`, `chi_sim+eng`,
@@ -89,6 +94,47 @@ Markdown note immediately; only optional link and tag changes wait for review.
 - The **Polish Markdown** and **Review links and tags** capture toggles appear
   only in the Capture dialog. New captures remember the last submitted choices. Cancelling the
   dialog does not change them. Polish Markdown is off by default.
+
+### Douyin and Xiaohongshu / Rednote access
+
+These examples can be pasted directly to exercise share-message parsing. The
+Xiaohongshu short link is a format example; replace it with a public post you
+can open when testing a real capture.
+
+```text
+9.74 hoD:/ w@S.YZ :9pm 08/06 9.17 深度理解沃什在议息会议后的发言 https://v.douyin.com/t6DOaFdc39Q/ 复制此链接，打开Dou音搜索，直接观看视频！
+32 复制本条信息，打开【小红书】App查看精彩内容！ http://xhslink.com/a/abcDEF/
+```
+
+Some public posts still require the session from your own browser. Export a
+Netscape-format `cookies.txt`, then set its absolute path under **Settings > OMD
+Home > OMD > Social capture access** or **Site access** in the
+Capture dialog. Douyin and Xiaohongshu / Rednote have separate fields. Both may
+be configured at once; a Douyin request never falls back to the Xiaohongshu
+file, and the reverse is also true.
+
+OMD Home saves only these local paths. It does not read or copy cookie contents
+into plugin settings, notices, logs, the vault, or generated notes. Cookie
+contents stay inside the local OMD conversion process. Before Capture closes,
+OMD Home runs a bounded source-specific readiness check. Missing, unreadable,
+invalid-format, wrong-domain, and expired cookie files produce short corrective
+messages without showing the full local path.
+
+For a Xiaohongshu short link, the first readiness check is provisional because
+the final post host is known only after redirect. OMD Home shows a brief note,
+and local OMD checks the resolved destination again before using the matching
+cookies. A rejected redirect never receives cookies.
+
+This path is enabled only when OMD capabilities explicitly advertise
+`capture_auth_options.share_text.supported: true`,
+`capture_auth_options.share_text.requires_single_http_url: true`, and
+`capture_auth_options.platform_cookie_flags` with the exact `douyin` value
+`--douyin-cookies` and `xhs` value `--xhs-cookies`. If that contract is missing
+or differs, OMD Home asks you to update OMD and run **Check setup** rather than
+inferring support from a version number. A runtime failure appears in **Needs
+attention** with **Retry capture**. Retry restores the original pasted share
+message and its Capture choices, but reads the current cookie-path settings so
+a repaired or replaced file is used.
 
 ## Calendar sync with no silent winner
 
@@ -247,7 +293,7 @@ preset fails, install the named Tesseract language pack and check
 | Capability | Minimum setup | Boundary |
 |---|---|---|
 | Home, search, commands, quick notes, Markdown events | Obsidian desktop | Current vault only |
-| URL and file capture | A compatible local OMD install, discovered automatically when possible | Submitted URL or file; URLs contact their source |
+| URL, social share-message, and file capture | A compatible local OMD install, discovered automatically when possible; social captures require the exact capture-auth capability contract and, when needed, a provider-specific Netscape `cookies.txt` | One submitted URL, supported one-URL Douyin/Xiaohongshu share message, or file; URLs contact their source |
 | Link and tag proposals | A compatible OMD executable and local Ollama | Review-first; no write before Apply |
 | Local Vault Q&A | OMD with retrieval support, a Python interpreter, and local Ollama | Bounded evidence over loopback; read-only |
 | Hosted answer providers | OMD with `ai_service`, provider-model discovery, credential support, and per-question consent grants | Retrieval stays local; after approval the provider receives only the question, bounded excerpts, and opaque source IDs. OMD Home does not add source filenames or paths; text already written inside an approved excerpt is sent exactly as previewed. |
@@ -428,6 +474,10 @@ silently.
   provider automatically.
 - OMD Home reads and writes the current vault. A local file capture reads only
   the external path you explicitly submit; it does not scan neighboring files.
+- Optional Douyin and Xiaohongshu / Rednote access stores only separate absolute
+  `cookies.txt` paths. Cookie contents remain in the local OMD process and are
+  never copied to the vault, generated notes, notices, or logs. Capture errors
+  and Needs attention labels omit the full local cookie path.
 - To launch the bundled bridge, OMD Home may read the detected OMD launcher's
   first line only to identify its Python interpreter. It then starts only the
   local executable you configured or that passed automatic capability checks.

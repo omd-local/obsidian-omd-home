@@ -548,7 +548,7 @@ note 一旦完成 Apply 就是 `reviewed`，按设计不会继续出现在 Inbox
 - 把首次测试与已通过证据分开；UI-15–19 完成后更新 `manual-test-plan.md` 的当前执行队列与例子，
   并保留本次短 note 失败和 loading overlap 截图作为回归基线。
 
-## Capture source 集成缺口
+## Capture source 集成状态
 
 下表区分 OMD 引擎能力与 OMD Home 当前连接状态。**已连接**表示 Home 的单项 Capture 会把干净的
 URL 或绝对文件路径交给 OMD；不等于列表中的每个扩展名和站点都已有本轮原生人工 PASS 证据。
@@ -561,44 +561,49 @@ URL 或绝对文件路径交给 OMD；不等于列表中的每个扩展名和站
 | 普通文章、WeChat、公开网页 | 已连接干净 URL | OMD inspect 分别路由 MarkItDown / WeChat；不绕过登录、验证码或访问限制 |
 | Reddit、X、Bluesky、Mastodon、Threads、Hacker News、Telegram | 已连接干净的公开 URL | OMD inspect 能识别对应 bounded adapter；尚未逐站形成完整原生人工 PASS 证据 |
 | Apple Podcasts、YouTube、TikTok、Bilibili | 已连接干净的公开 URL | OMD inspect 路由 podcast / reel，所需下载与转录工具在当前测试机 ready；登录受限媒体不在承诺范围 |
-| Douyin | **部分连接** | OMD 引擎支持 share blob 和 reel pipeline，但 Home 拒绝整段分享文字，且没有 Douyin cookies bridge；见 CAPTURE-01 |
-| Xiaohongshu / Rednote | **部分连接** | 干净 URL 可到 OMD，但 Home 没有独立 XHS cookies bridge，也不接受整段分享文字；见 CAPTURE-02 |
+| Douyin | **已实现；待原生人工验收** | Home 接受干净 URL 或仅含一个 HTTP(S) URL 的常见分享文字，提供独立 Netscape cookies 路径、提交前 readiness 和运行失败 Retry；见 CAPTURE-01 |
+| Xiaohongshu / Rednote | **已实现；待原生人工验收** | `xiaohongshu.com`、`xhslink.com` 与 `rednote.com` 使用独立 XHS cookies 路径，不回退到 Douyin；见 CAPTURE-02 |
 | 本地文件夹、one-item-per-line 列表 | **未连接** | Home 始终调用单项 `omd capture`，没有 `--batch` 或 batch 入口；见 CAPTURE-03 |
 
 ### CAPTURE-01：Douyin 分享文案与本地 cookies bridge
 
-**状态：Deferred。优先级：P2。发布决策：OMD Home 当前不声明该集成已经接入。**
+**状态：实现完成；自动回归已覆盖，原生人工验收待完成。原优先级：P2。**
 
-**证据与背景：** 2026-09-20 使用用户提供的完整分享文案复核。当前 Capture 只接受以 `http://`、
-`https://` 开头的值或绝对本地路径，因此会在调用 OMD 前拒绝
-`9.74 … https://v.douyin.com/t6DOaFdc39Q/ …` 这类文本。当前 OMD 已能从同一段文字安全提取短链，
-`inspect` 将其识别为 `douyin_url` / `reel`，并报告需要 `f2`、`ffmpeg`、`mlx_whisper` 与 Douyin
-cookies。本机三个工具均已安装；缺口位于 OMD Home：它既不提取分享文字中的 URL，也没有配置／
-传递 `--douyin-cookies`，所以即使只粘贴干净短链也无法完成需要 cookies 的下载。
+**实现证据与剩余边界：** Capture 与 omnibox 现在会从常见 Douyin 分享文字中确定性提取唯一的
+HTTP(S) URL，同时保留原始分享文字供 Retry 恢复；没有 URL、多个 URL、非 HTTP(S) scheme 与超长
+输入都会在启动任务前停止。Settings 与 Capture 提供独立 Douyin Netscape `cookies.txt` 绝对路径，
+提交前调用有界 `omd inspect … --with-readiness --cookies …`，正式 Capture 只传
+`--douyin-cookies`。路径不会进入 CaptureRequest 或 failure record，cookie 内容不由 Home 读取。
+OMD capability 必须精确声明 one-URL share text 与 `--douyin-cookies`；缺失或不一致时显示 Update OMD /
+Check setup。自动测试已覆盖解析、argv 隔离、路径隐私、Retry 与进程组取消；真实登录态、下载和中文
+转录仍须按人工计划给出原生证据，不能在完成前记人工 PASS。
 
 **验收标准：**
 
 - Capture 可接受干净 Douyin URL 或包含唯一 HTTP(S) URL 的常见中文分享文案；复用 OMD 的解析规则
   或等价的严格实现。没有 URL、包含多个候选 URL 或非 HTTP(S) scheme 时保留弹窗并给出明确错误，
   不猜测目标。
-- Settings 或 Capture 的 Advanced 区提供本地 Douyin Netscape `cookies.txt` 文件选择／路径；只持久化
-  必要路径，不读取 cookie 值到插件设置、通知、日志或错误详情，不把 cookie 内容放进命令行。
-- 提交前使用 OMD 的 inspect / readiness 结果检查 `f2`、`ffmpeg`、Whisper 和 cookies；缺失、格式
-  无效、域不匹配、过期／下载拒绝分别给出简短原因与下一步，Needs attention 的 Retry 保留原 share
-  source、Speech language 与 AI 选项。
+- Settings 或 Capture 的 Advanced 区提供本地 Douyin Netscape `cookies.txt` 路径；只持久化必要路径，
+  不读取 cookie 值到插件设置、通知、日志或错误详情。路径作为单一 argv 值交给 OMD，不经 shell。
+- 提交前使用 OMD 的 inspect / readiness 结果检查 `yt-dlp`、`ffmpeg`、Whisper 和 cookies；缺失、格式
+  不可读、格式无效、域不匹配、过期／下载拒绝分别给出简短原因与下一步，且不回显完整路径。
+  Needs attention 的 Retry 保留原 share source、Speech language 与 AI 选项，但重新读取当前 Settings，
+  因此修好的 cookies 路径立即生效。
 - 向 OMD 传递经过验证的 `--douyin-cookies` 路径；取消、失败和插件 unload 清理临时状态，不复制
-  cookies 到 Vault，也不把 cookies 纳入索引或生成笔记。
+  cookies 到 Vault，也不把 cookies 纳入索引或生成笔记；macOS/Linux 取消会终止包含嵌套 converter
+  的进程组，并在有界宽限期后强制清理仍存活的子进程。
 - 自动与原生测试覆盖本次完整中文分享文案、干净 `v.douyin.com` URL、Unicode cookies 路径、无
   cookies、错误域、过期 cookies、下载失败、中文转录和 Retry；长分享文字与窄弹窗不破坏布局。
 
 ### CAPTURE-02：Xiaohongshu / Rednote 分享文案与独立 cookies bridge
 
-**状态：Deferred。优先级：P2。发布决策：OMD Home 当前不声明该集成已经接入。**
+**状态：实现完成；自动回归已覆盖，原生人工验收待完成。原优先级：P2。**
 
-**证据与背景：** OMD inspect 会把 `xiaohongshu.com` / Rednote 来源路由到 `xhs`，并明确要求
-cookies；OMD Home 当前只有通用 URL / file path 和通用 Capture args，没有 XHS cookies 设置。
-整段分享文案同样会被 Home 的前置校验拒绝。Douyin 与 XHS 需要各自的 cookies 文件，不能用一个
-含糊的 Default cookies 字段互相代替。
+**实现证据与剩余边界：** `xiaohongshu.com`、`xhslink.com` 与 `rednote.com` 的干净 URL 或仅含一个
+HTTP(S) URL 的常见分享文字现在会路由到 `xhs`。Home 保存独立的 XHS / Rednote 路径，preflight 使用
+该路径，正式 Capture 只传 `--xhs-cookies`；即使两种路径同时配置，也不会回退到 Douyin。运行失败
+只把 canonical URL 作为安全来源标签，Retry 恢复原始分享文字但使用当前 Settings。自动测试已覆盖
+host 边界、双路径隔离、错误映射与隐私；真实公开／受限帖子仍须人工计划完成。
 
 **验收标准：**
 
@@ -607,7 +612,8 @@ cookies；OMD Home 当前只有通用 URL / file path 和通用 Capture args，�
 - 提供独立的 XHS / Rednote Netscape `cookies.txt` 路径，并向 OMD 传递 `--xhs-cookies`；不得回退
   使用 Douyin cookies，也不得在日志、Vault、frontmatter 或错误详情中暴露 cookie 内容。
 - 提交前显示 source-specific readiness；cookies 缺失、无匹配域、失效、帖子私有／删除／地区受限
-  与下载器缺失有不同且可执行的错误说明，Retry 恢复原 Capture 选择。
+  与下载器缺失有不同且可执行的错误说明；缺失、不可读、格式错误、错误域和过期状态不显示完整
+  路径。Retry 恢复原 Capture 选择，并从当前 Settings 取得更新后的 XHS 路径。
 - 自动与原生测试覆盖公开／受限链接、短链、完整中文分享文案、两种 cookies 同时配置、只配置其中
   一种、Unicode 路径和失效 cookies；不宣称绕过登录、验证码或平台限制。
 
@@ -631,9 +637,9 @@ OMD Home 的 `omdCaptureArgs` 只生成单项 `capture <source> --vault …`，C
 - 测试混合 URL、PDF、图片、音频、Unicode／空格路径、重复项、缺失文件、部分失败、取消、插件
   unload 与大列表；窄窗口和长路径下仍保持 minimal 风格和可访问操作。
 
-以上三项保留为 Deferred / P2 backlog。在完成前，对外能力说明应写成“OMD 引擎支持，OMD Home
-尚未完整接入”，并且不得在 OMD Home 发布页直接声明支持 cookie-gated Douyin、Xiaohongshu /
-Rednote 分享文字或 Local batches。
+CAPTURE-01 与 CAPTURE-02 的实现已完成，但发布前仍需取得 `manual-test-plan.md` 中 CAP-07 的原生
+人工证据。CAPTURE-03 继续保留为 Deferred / P2；在它完成前，对外能力说明不得声明 OMD Home 支持
+Local batches。
 
 ## Answer UX / 模型措辞方向
 

@@ -36,7 +36,14 @@ import {
   reconcileCalendarSelection,
   type OmdHomeSettings,
 } from "./settings";
-import { OmdBridge, spawnProcess, type AiAnswer, type HybridRetrievalOptions } from "./omd-bridge";
+import {
+  captureInspectionError,
+  OmdBridge,
+  spawnProcess,
+  type AiAnswer,
+  type CaptureInspection,
+  type HybridRetrievalOptions,
+} from "./omd-bridge";
 import {
   captureFailureForIssue,
   captureRequestFromSettings,
@@ -55,7 +62,12 @@ import {
   resolveEventKitHelperPath,
 } from "./eventkit-bridge";
 import { eventNotePath, recordFromFrontmatter, serializeEventNote, updateEventNote } from "./event-note";
-import { CaptureModal, CloudAnswerConsentModal } from "./modals";
+import {
+  CaptureModal,
+  CloudAnswerConsentModal,
+  type CapturePreflightResult,
+  type CaptureSourceAccessDraft,
+} from "./modals";
 import { omdCapabilityIdentityLabel, OmdCapabilityService } from "./enrichment/capability";
 import type { OmdCapabilities } from "./enrichment/contract.ts";
 import { EnrichmentWorkflowController } from "./enrichment/controller.ts";
@@ -76,7 +88,9 @@ import {
 } from "./inbox";
 import {
   isPluginRecordingWrapperCommand,
+  captureSourceInputError,
   resolveRecordingCommand,
+  socialCaptureProvider,
   type RecordingCommandRef,
 } from "./omnibox-utils";
 import { isPinnedNote, setPinnedNote } from "./pinned-notes";
@@ -821,9 +835,13 @@ export default class OmdHomePlugin extends Plugin {
         virtualEnvironment: process.env.VIRTUAL_ENV,
       },
       async (executable) => {
+        const socialProvider = socialCaptureProvider(request.source);
+        if (socialProvider) {
+          await this.omdCapabilityService.requireSocialCaptureAuth(executable, socialProvider, signal);
+        }
         if (hasCaptureLanguageOverrides(request)) {
           await this.omdCapabilityService.requireCaptureLanguages(executable, request, signal);
-        } else {
+        } else if (!socialProvider) {
           await probeOmdCaptureExecutable(executable, signal);
         }
       },
@@ -883,15 +901,21 @@ export default class OmdHomePlugin extends Plugin {
     new CaptureModal(
       this.app,
       initialRequest,
+      {
+        douyinCookiesPath: this.settings.douyinCookiesPath,
+        xhsCookiesPath: this.settings.xhsCookiesPath,
+      },
       this.captureLanguageAvailability(),
       this.settings.localWritingModel,
-      async (request) => {
+      async (request, cookiesPath, signal) => {
+        return await this.preflightSocialCapture(request, cookiesPath, signal);
+      },
+      async (request, sourceAccess) => {
         // Claim the capture before changing preferences. In particular,
         // invalidateLocalAiState() aborts local AI work, so it must never run
         // for a second capture submitted while another OMD action is active.
         if (this.captureActive || this.enrichmentActive) {
-          new Notice("Another OMD action is already active.");
-          return;
+          throw new Error("Another OMD action started while this source was being checked. Your capture draft is still open; try again when it finishes.");
         }
         this.captureActive = true;
         this.refreshHomeViews();
@@ -899,6 +923,8 @@ export default class OmdHomePlugin extends Plugin {
         try {
           this.settings.capturePolish = request.polish;
           this.settings.captureSuggestLinksAndTags = request.suggest;
+          this.settings.douyinCookiesPath = sourceAccess.douyinCookiesPath;
+          this.settings.xhsCookiesPath = sourceAccess.xhsCookiesPath;
           if (polishChanged) this.invalidateLocalAiState("capture-polish");
           try {
             await this.saveSettings();
@@ -991,8 +1017,9 @@ export default class OmdHomePlugin extends Plugin {
       return;
     }
     const { polish } = captureRequest;
-    if (!captureRequest.source) {
-      new Notice("Enter a URL or local file path.");
+    const sourceError = captureSourceInputError(captureRequest.submittedSource ?? captureRequest.source);
+    if (sourceError) {
+      new Notice(sourceError);
       return;
     }
     if (retryFailure) this.resetEnrichmentCapability(true);
@@ -1009,6 +1036,14 @@ export default class OmdHomePlugin extends Plugin {
     try {
       if (!retryFailure) this.clearIssue("capture");
       const executable = await this.requireCaptureOmdExecutable(captureRequest, captureController.signal);
+      const sourceAccess = this.captureSourceAccess();
+      const provider = socialCaptureProvider(captureRequest.source);
+      if (provider) {
+        const cookiesPath = provider === "douyin"
+          ? sourceAccess.douyinCookiesPath
+          : sourceAccess.xhsCookiesPath;
+        await this.inspectSocialCapture(executable, captureRequest, cookiesPath, captureController.signal);
+      }
       const vault = this.vaultPath();
       const snapshot = createWorkflowSnapshot("capture", this.settings, polish);
       const outputPath = await this.runLocalAiGated(
@@ -1023,6 +1058,7 @@ export default class OmdHomePlugin extends Plugin {
             model: gatedSnapshot.model,
             host: gatedSnapshot.host,
           },
+          sourceAccess,
           (event) => {
             if (!shouldSurfaceCaptureEvent(event)) return;
             this.processingEvents.push(event);
@@ -1144,6 +1180,45 @@ export default class OmdHomePlugin extends Plugin {
     if (completed && capturedFile && captureRequest.suggest) {
       await this.suggestLinksAndTags(capturedFile);
     }
+  }
+
+  private captureSourceAccess(): CaptureSourceAccessDraft {
+    return {
+      douyinCookiesPath: this.settings.douyinCookiesPath,
+      xhsCookiesPath: this.settings.xhsCookiesPath,
+    };
+  }
+
+  private async preflightSocialCapture(
+    request: CaptureRequest,
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<CapturePreflightResult | void> {
+    const provider = socialCaptureProvider(request.source);
+    if (!provider) return;
+    const executable = await this.requireCaptureOmdExecutable(request, signal);
+    const inspection = await this.inspectSocialCapture(executable, request, cookiesPath, signal);
+    return { cookieRuntimeRecheck: inspection.cookieRuntimeRecheck };
+  }
+
+  private async inspectSocialCapture(
+    executable: string,
+    request: CaptureRequest,
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<CaptureInspection> {
+    const provider = socialCaptureProvider(request.source);
+    if (!provider) throw new Error("This source does not use social access preflight.");
+    const inspection = await this.omdBridge.inspectCaptureSource(
+      executable,
+      request.source,
+      provider === "douyin" ? "douyin_url" : "xhs_url",
+      cookiesPath,
+      signal,
+    );
+    const error = captureInspectionError(inspection, provider, request.source);
+    if (error) throw new Error(error);
+    return inspection;
   }
 
   cancelActiveOmd(): void {

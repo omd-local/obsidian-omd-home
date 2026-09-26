@@ -51,6 +51,63 @@ test("recognition capability rejects enrich-only OMD builds and accepts the capt
   assert.equal(capability.capture_language_options?.supported, true);
 });
 
+test("social capture requires the exact additive share-text and provider flag contract", async () => {
+  const supported = new OmdCapabilityService(async () => ({
+    stdout: JSON.stringify({
+      ...languageCapabilities(),
+      capture_auth_options: {
+        share_text: { supported: true, requires_single_http_url: true },
+        platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+      },
+    }),
+    stderr: "",
+    code: 0,
+  }));
+  assert.equal(
+    (await supported.requireSocialCaptureAuth("omd", "douyin")).capture_auth_options?.platform_cookie_flags.douyin,
+    "--douyin-cookies",
+  );
+  await supported.requireSocialCaptureAuth("omd", "xhs");
+
+  for (const capture_auth_options of [
+    undefined,
+    {
+      share_text: { supported: false, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: false },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--cookies", xhs: "--xhs-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--cookies" },
+    },
+  ]) {
+    const service = new OmdCapabilityService(async () => ({
+      stdout: JSON.stringify({ ...languageCapabilities(), ...(capture_auth_options ? { capture_auth_options } : {}) }),
+      stderr: "",
+      code: 0,
+    }));
+    await assert.rejects(
+      service.requireSocialCaptureAuth("omd", "douyin"),
+      /Update OMD, run Check setup/iu,
+    );
+    await assert.rejects(
+      service.requireSocialCaptureAuth("omd", "xhs"),
+      /Update OMD, run Check setup/iu,
+    );
+  }
+});
+
 test("capability service maps missing executable errors", async () => {
   const service = new OmdCapabilityService(async () => {
     throw new Error("spawn ENOENT");

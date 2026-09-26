@@ -91,7 +91,7 @@ test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures 
   assert.match(readme, /OpenAI API billing\s+stays separate from ChatGPT subscriptions, and Anthropic API billing stays\s+separate from Claude subscriptions/iu);
   assert.match(readme, /OMD Home: Refresh local AI models/iu);
   assert.match(readme, /does not auto-pull, auto-install, auto-select models, or auto-switch\s+providers/iu);
-  assert.match(readme, /Capture writes the requested\s+Markdown note\s+immediately; only optional link and tag changes wait for review/iu);
+  assert.match(readme, /Capture writes the requested\s+Markdown note\s+immediately; only optional link and\s+tag changes wait for review/iu);
   assert.match(readme, /Ollama API introduction/iu);
   assert.match(readme, /OpenAI API model docs/iu);
   assert.match(readme, /Anthropic API overview/iu);
@@ -101,33 +101,48 @@ test("README keeps privacy, dependency, and Phase 2 answer-provider disclosures 
   assert.match(readme, /read the detected OMD launcher's\s+first line only to identify its Python interpreter/iu);
 });
 
-test("release docs keep the single-source capture boundary explicit", () => {
+test("release docs keep social single-source and local-batch boundaries explicit", () => {
   const readme = readText("README.md");
   const captureFlow = readText("docs/assets/omd-home-capture-flow.svg");
   const backlog = readText("docs/ui-backlog.md");
   const releaseChecklist = readText("docs/release-checklist.md");
 
-  assert.match(readme, /accepts one public HTTP\(S\) URL or one local file\s+per request/iu);
   assert.match(
     readme,
-    /The OMD engine supports cookie-gated Douyin and Xiaohongshu \/\s+Rednote share text, plus local folder and one-item-per-line list batches\. Those\s+source types are not yet connected in OMD Home/iu,
+    /paste a common Douyin or Xiaohongshu \/ Rednote share message that contains\s+exactly one HTTP\(S\) URL/iu,
   );
-  assert.doesNotMatch(captureFlow, /Check access, source type, cookies/iu);
-  assert.match(captureFlow, /Pass the single public URL or local file to OMD/iu);
+  assert.match(
+    readme,
+    /Share-message extraction is deliberately limited to Douyin and Xiaohongshu \/\s+Rednote\. Paste an ordinary webpage URL by itself/iu,
+  );
+  assert.match(
+    readme,
+    /saves only these local paths[\s\S]{0,180}Cookie\s+contents stay inside the local OMD conversion process/iu,
+  );
+  assert.match(readme, /Local folder and one-item-per-line batch capture are not connected in OMD Home/iu);
+  assert.match(captureFlow, /preflight social access/iu);
+  assert.match(captureFlow, /canonical URL or local file to OMD/iu);
 
-  for (const issue of ["CAPTURE-01", "CAPTURE-02", "CAPTURE-03"]) {
+  for (const issue of ["CAPTURE-01", "CAPTURE-02"]) {
     const start = backlog.indexOf(`### ${issue}`);
     assert.notEqual(start, -1, `${issue} must remain in the backlog`);
     const end = backlog.indexOf("\n### ", start + 4);
     const section = backlog.slice(start, end === -1 ? undefined : end);
-    assert.match(section, /\*\*状态：Deferred。优先级：P2。/u);
+    assert.match(section, /\*\*状态：实现完成；自动回归已覆盖，原生人工验收待完成。/u);
     assert.match(section, /\*\*验收标准：\*\*/u);
   }
 
+  const batchStart = backlog.indexOf("### CAPTURE-03");
+  assert.notEqual(batchStart, -1, "CAPTURE-03 must remain in the backlog");
+  const batchSection = backlog.slice(batchStart, backlog.indexOf("\n## ", batchStart + 4));
+  assert.match(batchSection, /\*\*状态：Deferred。优先级：P2/u);
+  assert.match(batchSection, /Local batches/iu);
+
   assert.match(
     releaseChecklist,
-    /do not claim cookie-gated Douyin\/XHS share text or folder\/list batches are connected in OMD Home/iu,
+    /Douyin\/XHS share text is accepted only with one HTTP\(S\) URL and the exact advertised provider cookie flag/iu,
   );
+  assert.match(releaseChecklist, /Folder\/list batches remain explicitly unsupported/iu);
 });
 
 test("deferred Obsidian graph enhancements remain in the P2 backlog", () => {

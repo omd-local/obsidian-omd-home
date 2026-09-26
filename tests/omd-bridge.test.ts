@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -22,10 +22,12 @@ import {
   bridgeErrorMessage,
   bridgeProcessFailureMessage,
   bridgeTimeoutMs,
+  captureInspectionError,
   captureErrorMessage,
   firstVerifiedWindowsPython,
   OmdBridge,
   parseBridgeResponse,
+  parseCaptureInspection,
   pythonBridgeArgs,
   pythonBridgeStdin,
   resolveOmdCaptureOutput,
@@ -33,6 +35,7 @@ import {
   windowsPythonCandidatesForOmd,
 } from "../src/omd-bridge.ts";
 import { createCaptureRequest } from "../src/capture-request.ts";
+import type { OmdProgressEvent } from "../src/model.ts";
 
 const bridgeScript = new URL("../bridge/omd_home_bridge.py", import.meta.url);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -379,6 +382,239 @@ test("uses OMD's vault-capture subcommand instead of standalone conversion", () 
   assert.deepEqual(omdCaptureArgs(request, "/tmp/vault"), [
     "capture", "https://example.com", "--vault", "/tmp/vault", "--json-events",
   ]);
+});
+
+test("social inspection is bounded, shell-free, canonical, and does not retain cookie paths", async () => {
+  const calls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
+  const cookiePath = "/Users/test/社交 access/cookies $(touch never).txt";
+  await withNodeRequire(async () => {
+    const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+    const managed = bridge as unknown as {
+      spawnManagedProcess: (
+        command: string,
+        args: string[],
+        options: Record<string, unknown>,
+      ) => Promise<{ stdout: string; stderr: string; code: number }>;
+    };
+    managed.spawnManagedProcess = async (command, args, options) => {
+      calls.push({ command, args, options });
+      return {
+        stdout: JSON.stringify({
+          detected_type: "douyin_url",
+          readiness: {
+            ready: true,
+            missing_tools: [],
+            missing_auth: [],
+            blocking_risks: [],
+            cookie_runtime_recheck: false,
+            cookies_file: { status: "found", path: cookiePath },
+          },
+        }),
+        stderr: "",
+        code: 0,
+      };
+    };
+    const inspection = await bridge.inspectCaptureSource(
+      "/opt/omd",
+      "https://v.douyin.com/abc/",
+      "douyin_url",
+      cookiePath,
+    );
+    assert.deepEqual(inspection, {
+      detectedType: "douyin_url",
+      ready: true,
+      missingTools: [],
+      missingAuth: [],
+      blockingRisks: [],
+      cookieStatus: "found",
+      cookieRuntimeRecheck: false,
+    });
+    assert.doesNotMatch(JSON.stringify(inspection), /Users\/test|cookies \$\(/u);
+    bridge.dispose();
+  });
+  assert.deepEqual(calls[0]?.args, [
+    "inspect", "https://v.douyin.com/abc/", "--json", "--with-readiness", "--cookies", cookiePath,
+  ]);
+  assert.equal(calls[0]?.options.shell, false);
+  assert.equal(calls[0]?.options.maxStdoutBytes, 64 * 1024);
+  assert.equal(calls[0]?.options.maxStderrBytes, 16 * 1024);
+});
+
+test("social inspection parser fails closed and maps every cookie readiness state without path disclosure", () => {
+  const payload = (
+    status: string,
+    extra: Record<string, unknown> = {},
+    cookieRuntimeRecheck = true,
+  ) => JSON.stringify({
+    detected_type: "xhs_url",
+    readiness: {
+      ready: false,
+      missing_tools: [],
+      missing_auth: [],
+      blocking_risks: [],
+      cookie_runtime_recheck: cookieRuntimeRecheck,
+      cookies_file: { status, path: "/private/secret/cookies.txt", ...extra },
+    },
+  });
+  const expected: Record<string, RegExp> = {
+    not_provided: /Add a local Netscape cookies\.txt path/u,
+    missing: /was not found/u,
+    unreadable: /cannot be read/u,
+    invalid_format: /not valid Netscape cookies\.txt format/u,
+    wrong_domain: /does not contain Xiaohongshu \/ Rednote cookies/u,
+    expired: /have expired/u,
+  };
+  for (const [status, message] of Object.entries(expected)) {
+    const inspection = parseCaptureInspection(payload(status));
+    assert.ok(inspection, status);
+    const error = captureInspectionError(inspection, "xhs") ?? "";
+    assert.match(error, message, status);
+    assert.doesNotMatch(error, /private|secret|cookies\.txt$/u, status);
+  }
+  assert.equal(parseCaptureInspection(payload("found"))?.cookieRuntimeRecheck, true);
+  assert.equal(parseCaptureInspection(payload("found", {}, false))?.cookieRuntimeRecheck, false);
+  const noRuntimeRecheck = parseCaptureInspection(
+    payload("found", {}, false).replace('"ready":false', '"ready":true'),
+  );
+  assert.ok(noRuntimeRecheck);
+  assert.equal(
+    captureInspectionError(noRuntimeRecheck, "xhs", "https://www.xiaohongshu.com/explore/abc"),
+    null,
+  );
+  assert.match(
+    captureInspectionError(noRuntimeRecheck, "xhs", "https://xhslink.com/a/abc") ?? "",
+    /Update OMD.+Check OMD setup/u,
+  );
+  const inconsistentReady = parseCaptureInspection(payload("expired").replace('"ready":false', '"ready":true'));
+  assert.ok(inconsistentReady);
+  assert.match(captureInspectionError(inconsistentReady, "xhs") ?? "", /expired/u);
+  const readyWithMissingAuth = parseCaptureInspection(JSON.stringify({
+    detected_type: "xhs_url",
+    readiness: {
+      ready: true,
+      missing_tools: [],
+      missing_auth: ["cookies"],
+      blocking_risks: [],
+      cookie_runtime_recheck: false,
+      cookies_file: { status: "found" },
+    },
+  }));
+  assert.ok(readyWithMissingAuth);
+  assert.match(captureInspectionError(readyWithMissingAuth, "xhs") ?? "", /access is unavailable/u);
+  const readyWithBlockingRisk = parseCaptureInspection(JSON.stringify({
+    detected_type: "xhs_url",
+    readiness: {
+      ready: true,
+      missing_tools: [],
+      missing_auth: [],
+      blocking_risks: ["login_required"],
+      cookie_runtime_recheck: false,
+      cookies_file: { status: "found" },
+    },
+  }));
+  assert.ok(readyWithBlockingRisk);
+  assert.match(captureInspectionError(readyWithBlockingRisk, "xhs") ?? "", /not ready to capture/u);
+  assert.equal(parseCaptureInspection(`${payload("found")}\nlog`), null);
+  assert.equal(parseCaptureInspection(payload("unknown")), null);
+  assert.equal(parseCaptureInspection(payload("found").replace('"cookie_runtime_recheck":true,', "")), null);
+  assert.equal(parseCaptureInspection(payload("found").replace('"cookie_runtime_recheck":true', '"cookie_runtime_recheck":"yes"')), null);
+  assert.equal(parseCaptureInspection(JSON.stringify({
+    detected_type: "xhs_url",
+    readiness: {
+      ready: false,
+      missing_tools: ["x".repeat(65)],
+      missing_auth: [],
+      blocking_risks: [],
+      cookie_runtime_recheck: false,
+      cookies_file: { status: "missing" },
+    },
+  })), null);
+});
+
+test("OmdBridge redacts both social cookie paths from surfaced capture progress", async () => {
+  const paths = {
+    douyinCookiesPath: "/Users/test/抖音 access/cookies.txt",
+    xhsCookiesPath: "/Users/test/小红书 access/cookies.txt",
+  };
+  const events: Array<Record<string, unknown>> = [];
+  await withNodeRequire(async () => {
+    const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+    const managed = bridge as unknown as {
+      spawnManagedProcess: (
+        command: string,
+        args: string[],
+        options: { onStderrLine?: (line: string) => void },
+      ) => Promise<{ stdout: string; stderr: string; code: number }>;
+    };
+    managed.spawnManagedProcess = async (_command, _args, options) => {
+      options.onStderrLine?.(JSON.stringify({
+        v: 1,
+        ts: 1,
+        event: "progress",
+        kind: "download",
+        label: `Using ${paths.douyinCookiesPath}`,
+        message: `Fallback ${paths.xhsCookiesPath}`,
+        output: paths.douyinCookiesPath,
+      }));
+      return { stdout: "", stderr: "converter failed", code: 1 };
+    };
+    await assert.rejects(
+      bridge.capture(
+        "/opt/omd",
+        createCaptureRequest({ source: "https://v.douyin.com/abc/" }),
+        "/vault",
+        { enabled: false, model: "", host: "" },
+        paths,
+        (event) => events.push(event as unknown as Record<string, unknown>),
+      ),
+      /capture failed|could not|converter/iu,
+    );
+    bridge.dispose();
+  });
+  assert.equal(events.length, 1);
+  assert.doesNotMatch(JSON.stringify(events), /Users\/test|cookies\.txt/u);
+  assert.equal(events[0]?.output, undefined);
+});
+
+test("social fatal progress and final failure both use redacted Home copy", async () => {
+  const secret = "/Users/private/OMD-COOKIE-PATH-MUST-NOT-LEAK cookies.txt";
+  const line = JSON.stringify({
+    v: 1,
+    event: "error",
+    ts: 1,
+    kind: "cookies_rejected",
+    message: `Douyin backend rejected ${secret}`,
+  });
+  const events: OmdProgressEvent[] = [];
+  await withNodeRequire(async () => {
+    const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+    const managed = bridge as unknown as {
+      spawnManagedProcess: (
+        command: string,
+        args: string[],
+        options: { onStderrLine?: (value: string) => void },
+      ) => Promise<{ stdout: string; stderr: string; code: number }>;
+    };
+    managed.spawnManagedProcess = async (_command, _args, options) => {
+      options.onStderrLine?.(line);
+      return { stdout: "", stderr: line, code: 1 };
+    };
+    await assert.rejects(
+      bridge.capture(
+        "/opt/omd",
+        createCaptureRequest({ source: "https://v.douyin.com/a/" }),
+        "/vault",
+        { enabled: false, model: "", host: "" },
+        { douyinCookiesPath: secret, xhsCookiesPath: "" },
+        (event) => events.push(event),
+      ),
+      /Douyin rejected the saved cookies.+Sign in again/u,
+    );
+    bridge.dispose();
+  });
+  assert.equal(events.length, 1);
+  assert.match(events[0]?.message ?? "", /Douyin rejected the saved cookies/u);
+  assert.doesNotMatch(JSON.stringify(events), /OMD-COOKIE-PATH-MUST-NOT-LEAK|\/Users\/private/u);
 });
 
 test("capture output reconciliation follows the current OMD sidecar when done reports a stale planned filename", async () => {
@@ -3182,6 +3418,48 @@ test("OmdBridge rejects malformed or ungrounded AI answers before they reach the
   }
 });
 
+test("social runtime errors use exact provider-aware Home copy without leaking backend details", () => {
+  const secret = "/Users/private/OMD-COOKIE-PATH-MUST-NOT-LEAK cookies.txt";
+  const cases = [
+    ["cookies_rejected", "https://v.douyin.com/a/", /Douyin rejected.+Sign in again/u],
+    ["cookies_wrong_domain", "https://xhslink.com/a/abc", /does not contain Xiaohongshu \/ Rednote cookies/u],
+    ["cookies_expired", "https://v.douyin.com/a/", /Douyin cookies have expired/u],
+    ["cookies_invalid", "https://xhslink.com/a/abc", /Xiaohongshu \/ Rednote cookies could not be verified/u],
+    ["cookies_invalid_format", "https://v.douyin.com/a/", /not valid Netscape cookies\.txt format/u],
+    ["cookies_not_provided", "https://xhslink.com/a/abc", /Add a local Netscape cookies\.txt path/u],
+    ["cookies_missing", "https://v.douyin.com/a/", /cookies file was not found/u],
+    ["cookies_unreadable", "https://xhslink.com/a/abc", /cookies file cannot be read/u],
+    ["douyin_fetch_failed", "https://v.douyin.com/a/", /Douyin could not fetch.+update yt-dlp/u],
+    ["xhs_fetch_failed", "https://xhslink.com/a/abc", /Xiaohongshu \/ Rednote could not fetch/u],
+    ["douyin_redirect_rejected", "https://v.douyin.com/a/", /outside approved Douyin hosts.+No cookies were sent/u],
+    ["xhs_redirect_rejected", "https://xhslink.com/a/abc", /outside approved Xiaohongshu \/ Rednote hosts.+No cookies were sent/u],
+  ] as const;
+  for (const [kind, source, expected] of cases) {
+    const message = captureErrorMessage(JSON.stringify({
+      v: 1,
+      event: "error",
+      ts: 1,
+      kind,
+      message: `Backend detail ${secret} https://evil.example/token`,
+    }), source);
+    assert.match(message, expected, kind);
+    assert.doesNotMatch(message, /OMD-COOKIE-PATH-MUST-NOT-LEAK|\/Users\/private|evil\.example|token/u, kind);
+  }
+  for (const kind of ["Cookies_Rejected", "cookies_rejected_extra", "redirect_rejected"]) {
+    assert.equal(
+      captureErrorMessage(JSON.stringify({
+        v: 1,
+        event: "error",
+        ts: 1,
+        kind,
+        message: `cookies_rejected ${secret}`,
+      }), "https://v.douyin.com/a/"),
+      "OMD capture failed. Check the OMD setup and try again.",
+      kind,
+    );
+  }
+});
+
 test("spawnProcess times out runaway children", async () => {
   await withNodeRequire(async () => {
     await assert.rejects(
@@ -3200,6 +3478,39 @@ test("spawnProcess aborts when the signal is cancelled", async () => {
     controller.abort();
     await assert.rejects(pending, /aborted/);
   });
+});
+
+test("spawnProcess cancellation terminates a nested converter process group", { skip: process.platform === "win32" }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-process-tree-"));
+  const pidFile = join(root, "grandchild.pid");
+  let grandchildPid = 0;
+  try {
+    const script = [
+      "const {spawn}=require('node:child_process');",
+      "const fs=require('node:fs');",
+      "const child=spawn(process.execPath,['-e',\"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\"],{stdio:'ignore'});",
+      "fs.writeFileSync(process.argv[1],String(child.pid));",
+      "setInterval(()=>{},1000);",
+    ].join("");
+    await withNodeRequire(async () => {
+      await assert.rejects(
+        spawnProcess(process.execPath, ["-e", script, pidFile], { timeoutMs: 250 }),
+        /timed out/u,
+      );
+    });
+    grandchildPid = Number.parseInt(await readFile(pidFile, "utf8"), 10);
+    assert.ok(Number.isInteger(grandchildPid) && grandchildPid > 0);
+    const deadline = Date.now() + 3_000;
+    while (processExists(grandchildPid) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(processExists(grandchildPid), false, "grandchild must not survive timeout escalation");
+  } finally {
+    if (grandchildPid && processExists(grandchildPid)) {
+      try { process.kill(grandchildPid, "SIGKILL"); } catch {}
+    }
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("OmdBridge relays caller cancellation to a running hybrid bridge", async () => {
@@ -3309,6 +3620,15 @@ async function withNodeRequire<T>(run: () => Promise<T>): Promise<T> {
   } finally {
     if (previous === undefined) Reflect.deleteProperty(runtime, "window");
     else Object.defineProperty(runtime, "window", { value: previous, configurable: true, writable: true });
+  }
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
   }
 }
 

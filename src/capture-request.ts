@@ -1,4 +1,8 @@
-import { normalizeCaptureSource } from "./omnibox-utils.ts";
+import {
+  MAX_CAPTURE_SOURCE_INPUT_CHARS,
+  normalizeCaptureSource,
+  parseCaptureSourceInput,
+} from "./omnibox-utils.ts";
 
 export const OCR_LANGUAGE_PRESETS = ["eng", "chi_sim+eng", "chi_tra+eng"] as const;
 
@@ -17,6 +21,7 @@ export type CaptureAsrOption =
 
 export interface CaptureRequest {
   readonly source: string;
+  readonly submittedSource?: string;
   readonly tags: readonly string[];
   readonly polish: boolean;
   readonly suggest: boolean;
@@ -48,6 +53,7 @@ export type CaptureLanguageAvailability = Readonly<{
 
 export interface CaptureRequestInput {
   source: string;
+  submittedSource?: string;
   tags?: readonly string[];
   polish?: boolean;
   suggest?: boolean;
@@ -63,17 +69,36 @@ export interface CaptureRequestSettings {
 }
 
 export function createCaptureRequest(input: CaptureRequestInput): CaptureRequest {
+  const parsedSource = captureRequestSource(input.source, input.submittedSource);
+  if (input.submittedSource !== undefined) {
+    const expected = parseCaptureSourceInput(input.source).source;
+    if (expected !== parsedSource.source) {
+      throw new Error("The saved share text no longer matches its capture URL.");
+    }
+  }
   const tags = Object.freeze((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean));
   const ocr = Object.freeze(normalizeOcrOption(input.ocr ?? { mode: "inherit" }));
   const asr = Object.freeze(normalizeAsrOption(input.asr ?? { mode: "inherit-adapter-default" }));
   return Object.freeze({
-    source: normalizeCaptureSource(input.source),
+    source: parsedSource.source,
+    ...(parsedSource.submittedSource ? { submittedSource: parsedSource.submittedSource } : {}),
     tags,
     polish: input.polish === true,
     suggest: input.suggest === true,
     ocr,
     asr,
   });
+}
+
+function captureRequestSource(source: string, submittedSource?: string): { source: string; submittedSource?: string } {
+  if (submittedSource !== undefined) return parseCaptureSourceInput(submittedSource);
+  try {
+    return parseCaptureSourceInput(source);
+  } catch {
+    if (source.includes("\0")) throw new Error("The capture source contains an unsupported null character.");
+    if (source.length > MAX_CAPTURE_SOURCE_INPUT_CHARS) throw new Error("The capture source is too long.");
+    return { source: normalizeCaptureSource(source) };
+  }
 }
 
 export function createCaptureFailureRecord(

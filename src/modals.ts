@@ -10,9 +10,33 @@ import {
   type CaptureRequest,
 } from "./capture-request.ts";
 import type { OmdSearchHit } from "./model";
-import { captureSourceFromDataTransfer, isLocalImageSource, normalizeCaptureSource } from "./omnibox-utils";
+import {
+  captureSourceFromDataTransfer,
+  captureSourceInputError,
+  isLocalImageSource,
+  localAccessPathError,
+  normalizeLocalAccessPath,
+  socialCaptureProvider,
+} from "./omnibox-utils";
 
 const IMAGE_TEXT_BOUNDARY = "Does not translate text or recognize scanned PDF pages.";
+const CAPTURE_ACCESS_STATUS_ID = "omd-capture-source-access-status";
+const SOCIAL_SHARE_PLATFORMS = "Douyin or Xiaohongshu / Rednote";
+
+type CaptureMutableControl = {
+  element: HTMLElement;
+  isDisabled: () => boolean;
+  setDisabled: (disabled: boolean) => void;
+};
+
+export interface CaptureSourceAccessDraft {
+  douyinCookiesPath: string;
+  xhsCookiesPath: string;
+}
+
+export interface CapturePreflightResult {
+  cookieRuntimeRecheck: boolean;
+}
 
 export class CaptureModal extends Modal {
   private source = "";
@@ -22,23 +46,42 @@ export class CaptureModal extends Modal {
   private ocr: CaptureOcrOption;
   private asr: CaptureAsrOption;
   private readonly vaultCustomOcrLanguage: string | null;
-  private sourceInput?: HTMLInputElement;
+  private douyinCookiesPath: string;
+  private xhsCookiesPath: string;
+  private sourceInput?: HTMLTextAreaElement;
   private dropZone?: HTMLElement;
   private sourceError?: HTMLElement;
+  private sourceAccessDetails?: HTMLDetailsElement;
+  private sourceAccessStatus?: HTMLElement;
+  private readonly cookieInputs: Partial<Record<"douyin" | "xhs", HTMLInputElement>> = {};
+  private mutableControls: CaptureMutableControl[] = [];
+  private disabledBeforePreflight: Array<{ control: CaptureMutableControl; disabled: boolean }> = [];
+  private captureButton?: HTMLButtonElement;
+  private preflightController: AbortController | null = null;
   private focusTimer: number | null = null;
   private submitting = false;
+  private readonly initialSourceAccess: CaptureSourceAccessDraft;
 
   constructor(
     app: App,
     initialRequest: CaptureRequest,
+    initialSourceAccess: CaptureSourceAccessDraft,
     private readonly languageAvailability: CaptureLanguageAvailability,
     private readonly polishModel: string,
-    private readonly onCapture: (request: CaptureRequest) => Promise<void>,
+    private readonly onPreflight: (
+      request: CaptureRequest,
+      cookiesPath: string,
+      signal: AbortSignal,
+    ) => Promise<CapturePreflightResult | void>,
+    private readonly onCapture: (request: CaptureRequest, sourceAccess: CaptureSourceAccessDraft) => Promise<void>,
   ) {
     super(app);
+    this.initialSourceAccess = { ...initialSourceAccess };
     this.polish = initialRequest.polish;
     this.suggest = initialRequest.suggest;
-    this.source = normalizeCaptureSource(initialRequest.source);
+    this.source = initialRequest.submittedSource ?? initialRequest.source;
+    this.douyinCookiesPath = initialSourceAccess.douyinCookiesPath;
+    this.xhsCookiesPath = initialSourceAccess.xhsCookiesPath;
     this.tags = initialRequest.tags.join(", ");
     this.ocr = this.availableOcrOption(initialRequest.ocr);
     this.asr = this.availableAsrOption(initialRequest.asr);
@@ -47,29 +90,36 @@ export class CaptureModal extends Modal {
 
   onOpen(): void {
     this.contentEl.empty();
+    this.mutableControls = [];
+    this.disabledBeforePreflight = [];
     this.modalEl.addClass("omd-capture-modal");
     this.titleEl.setText("Capture URL or file");
     this.contentEl.createEl("p", {
       cls: "omd-modal-intro",
-      text: "Save a web page or local file as Markdown in this vault.",
+      text: `Save a web page, a ${SOCIAL_SHARE_PLATFORMS} share message, or a local file as Markdown.`,
     });
     const sourceSetting = new Setting(this.contentEl)
-      .setName("URL or file path")
-      .addText((text) => {
+      .setName("URL, share text, or file path")
+      .addTextArea((text) => {
         text.inputEl.addClass("omd-capture-source");
-        text.inputEl.setAttribute("aria-label", "URL or file path");
-        text.setPlaceholder("https://… or /Users/…/document.pdf")
+        text.inputEl.setAttribute("aria-label", "URL, share text, or file path");
+        text.setPlaceholder("https://… · pasted share text · /Users/…/document.pdf")
           .setValue(this.source)
           .onChange((value) => {
-            this.source = normalizeCaptureSource(value);
+            this.source = value;
+            if (this.sourceAccessDetails && this.draftSocialProvider()) {
+              this.sourceAccessDetails.open = true;
+            }
             this.clearSourceError();
+            this.clearSourceAccessStatus();
           });
         text.inputEl.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter" || event.isComposing) return;
+          if (event.key !== "Enter" || event.isComposing || (!event.metaKey && !event.ctrlKey)) return;
           event.preventDefault();
           void this.submit();
         });
         this.sourceInput = text.inputEl;
+        this.trackNativeControl(text.inputEl);
         this.focusTimer = window.setTimeout(() => {
           this.focusTimer = null;
           text.inputEl.focus();
@@ -85,11 +135,33 @@ export class CaptureModal extends Modal {
     const tagsSetting = new Setting(this.contentEl)
       .setName("Tags")
       .setDesc("Optional. Separate tags with commas.")
-      .addText((text) => text
-        .setPlaceholder("Example: inbox, research/calendar")
-        .setValue(this.tags)
-        .onChange((value) => { this.tags = value; }));
+      .addText((text) => {
+        text.setPlaceholder("Example: inbox, research/calendar")
+          .setValue(this.tags)
+          .onChange((value) => { this.tags = value; });
+        this.trackNativeControl(text.inputEl);
+      });
     tagsSetting.settingEl.addClass("omd-capture-tags-setting");
+
+    const sourceAccess = this.contentEl.createEl("details", { cls: "omd-capture-source-access" });
+    this.sourceAccessDetails = sourceAccess;
+    sourceAccess.open = socialCaptureProvider(this.initialCanonicalSource()) !== null;
+    sourceAccess.createEl("summary", { text: "Site access" });
+    sourceAccess.createEl("p", {
+      cls: "omd-capture-help",
+      text: "Local Netscape cookies.txt paths for public posts that require your existing session. Only the path is saved; cookie contents stay inside the local OMD process.",
+    });
+    this.sourceAccessStatus = sourceAccess.createDiv({
+      cls: "omd-capture-access-status",
+      attr: { id: CAPTURE_ACCESS_STATUS_ID, role: "status", "aria-live": "polite" },
+    });
+    this.sourceAccessStatus.hidden = true;
+    this.cookiePathSetting(sourceAccess, "douyin", "Douyin cookies", this.douyinCookiesPath, (value) => {
+      this.douyinCookiesPath = value;
+    });
+    this.cookiePathSetting(sourceAccess, "xhs", "Xiaohongshu / Rednote cookies", this.xhsCookiesPath, (value) => {
+      this.xhsCookiesPath = value;
+    });
 
     const recognition = this.contentEl.createEl("details", { cls: "omd-capture-recognition" });
     recognition.open = isLocalImageSource(this.source);
@@ -123,6 +195,7 @@ export class CaptureModal extends Modal {
           .onChange((value) => {
             this.setOcrSelection(value);
           });
+        this.trackNativeControl(dropdown.selectEl);
       });
     const speechSetting = new Setting(recognition)
       .setName("Speech language")
@@ -139,6 +212,7 @@ export class CaptureModal extends Modal {
           .setValue(this.asrSelection())
           .setDisabled(!this.languageAvailability.asrAutoDetect && !this.languageAvailability.asrExplicit)
           .onChange((value) => { this.setAsrSelection(value); });
+        this.trackNativeControl(dropdown.selectEl);
       });
     speechSetting.settingEl.addClass("omd-capture-section-last");
 
@@ -151,23 +225,35 @@ export class CaptureModal extends Modal {
     new Setting(localAi)
       .setName("Polish Markdown")
       .setDesc("Improve Markdown formatting after conversion. Long documents may take several minutes.")
-      .addToggle((toggle) => toggle.setValue(this.polish).onChange((value) => {
-        this.polish = value;
-      }));
+      .addToggle((toggle) => {
+        toggle.setValue(this.polish).onChange((value) => {
+          this.polish = value;
+        });
+        this.trackComponentControl(toggle.toggleEl, (disabled) => { toggle.setDisabled(disabled); });
+      });
     const reviewSetting = new Setting(localAi)
       .setName("Review links and tags")
       .setDesc("Suggest links and tags after capture. Review them before applying.")
-      .addToggle((toggle) => toggle.setValue(this.suggest).onChange((value) => {
-        this.suggest = value;
-      }));
+      .addToggle((toggle) => {
+        toggle.setValue(this.suggest).onChange((value) => {
+          this.suggest = value;
+        });
+        this.trackComponentControl(toggle.toggleEl, (disabled) => { toggle.setDisabled(disabled); });
+      });
     reviewSetting.settingEl.addClass("omd-capture-section-last");
     const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((button) => button.setCta().setButtonText("Capture").onClick(() => this.submit()));
+      .addButton((button) => {
+        button.setCta().setButtonText("Capture").onClick(() => this.submit());
+        this.captureButton = button.buttonEl;
+      });
     actions.settingEl.addClass("omd-modal-actions");
   }
 
   onClose(): void {
+    this.preflightController?.abort();
+    this.preflightController = null;
+    this.setPreflightBusy(false);
     if (this.focusTimer !== null) {
       window.clearTimeout(this.focusTimer);
       this.focusTimer = null;
@@ -177,7 +263,7 @@ export class CaptureModal extends Modal {
 
   private async submit(): Promise<void> {
     if (this.submitting) return;
-    const sourceError = captureSourceError(this.source);
+    const sourceError = captureSourceInputError(this.source);
     if (sourceError) {
       this.sourceError?.setText(sourceError);
       if (this.sourceError) this.sourceError.hidden = false;
@@ -198,13 +284,75 @@ export class CaptureModal extends Modal {
       new Notice(error instanceof Error ? error.message : "Choose valid recognition options.");
       return;
     }
+    const provider = socialCaptureProvider(request.source);
+    if (provider) {
+      const selectedPath = provider === "douyin" ? this.douyinCookiesPath : this.xhsCookiesPath;
+      const pathError = localAccessPathError(selectedPath);
+      if (pathError) {
+        this.showSourceAccessStatus(pathError, provider);
+        return;
+      }
+    }
+    const sourceAccess = {
+      douyinCookiesPath: this.validPathOrPrevious(this.douyinCookiesPath, this.initialSourceAccess.douyinCookiesPath),
+      xhsCookiesPath: this.validPathOrPrevious(this.xhsCookiesPath, this.initialSourceAccess.xhsCookiesPath),
+    };
+    if (provider === "douyin") {
+      sourceAccess.douyinCookiesPath = normalizeLocalAccessPath(this.douyinCookiesPath);
+    } else if (provider === "xhs") {
+      sourceAccess.xhsCookiesPath = normalizeLocalAccessPath(this.xhsCookiesPath);
+    }
+    if (provider && this.sourceAccessDetails) this.sourceAccessDetails.open = true;
+    const selectedCookiesPath = provider === "douyin"
+      ? sourceAccess.douyinCookiesPath
+      : provider === "xhs" ? sourceAccess.xhsCookiesPath : "";
     this.submitting = true;
-    this.close();
+    this.setPreflightBusy(true);
+    if (this.captureButton) {
+      this.captureButton.disabled = true;
+      this.captureButton.setText("Checking…");
+    }
+    if (provider) this.showSourceAccessStatus("Checking site access…");
+    const preflightController = new AbortController();
+    this.preflightController = preflightController;
+    let preflightResult: CapturePreflightResult | void;
     try {
-      await this.onCapture(request);
+      preflightResult = await this.onPreflight(request, selectedCookiesPath, preflightController.signal);
     } catch (error) {
       if (!(error instanceof Error && error.name === "AbortError")) {
-        new Notice(`Capture failed: ${error instanceof Error ? error.message : "Try again."}`);
+        if (provider) {
+          this.showSourceAccessStatus(error instanceof Error ? error.message : "Could not check site access. Try again.");
+        } else {
+          new Notice(error instanceof Error ? error.message : "Could not check this source. Try again.");
+        }
+      }
+      if (this.preflightController === preflightController) this.preflightController = null;
+      this.submitting = false;
+      this.setPreflightBusy(false);
+      if (this.captureButton) {
+        this.captureButton.disabled = false;
+        this.captureButton.setText("Capture");
+      }
+      return;
+    }
+    if (preflightController.signal.aborted) {
+      if (this.preflightController === preflightController) this.preflightController = null;
+      this.submitting = false;
+      this.setPreflightBusy(false);
+      return;
+    }
+    if (this.preflightController === preflightController) this.preflightController = null;
+    if (provider === "xhs" && preflightResult?.cookieRuntimeRecheck) {
+      new Notice("Xiaohongshu shortlink access will be checked again after it redirects.");
+    }
+    this.clearSourceAccessStatus();
+    this.setPreflightBusy(false);
+    this.close();
+    try {
+      await this.onCapture(request, sourceAccess);
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        new Notice(error instanceof Error ? error.message : "Capture could not start. Try again.");
         this.open();
       }
     } finally {
@@ -212,9 +360,122 @@ export class CaptureModal extends Modal {
     }
   }
 
+  private initialCanonicalSource(): string {
+    try {
+      return createCaptureRequest({ source: this.source }).source;
+    } catch {
+      return "";
+    }
+  }
+
+  private validPathOrPrevious(draft: string, previous: string): string {
+    return localAccessPathError(draft) ? previous : normalizeLocalAccessPath(draft);
+  }
+
+  private draftSocialProvider(): ReturnType<typeof socialCaptureProvider> {
+    return socialCaptureProvider(this.initialCanonicalSource());
+  }
+
+  private cookiePathSetting(
+    container: HTMLElement,
+    provider: "douyin" | "xhs",
+    name: string,
+    value: string,
+    update: (value: string) => void,
+  ): void {
+    let setDisplayedPath = (_next: string) => {};
+    const setting = new Setting(container)
+      .setName(name)
+      .setDesc("Absolute path to a local cookies.txt file.")
+      .addText((text) => {
+        text.inputEl.setAttribute("dir", "ltr");
+        this.cookieInputs[provider] = text.inputEl;
+        this.trackNativeControl(text.inputEl);
+        setDisplayedPath = (next) => { text.setValue(next); };
+        text.setPlaceholder("/Users/…/cookies.txt")
+          .setValue(value)
+          .onChange((next) => {
+            update(next);
+            this.clearSourceAccessStatus();
+          });
+      });
+    if (value) {
+      setting.addButton((button) => {
+        button.setButtonText("Clear").onClick(() => {
+          update("");
+          setDisplayedPath("");
+          button.buttonEl.remove();
+          this.clearSourceAccessStatus();
+        });
+        this.trackNativeControl(button.buttonEl);
+      });
+    }
+  }
+
+  private showSourceError(message: string): void {
+    this.sourceError?.setText(message);
+    if (this.sourceError) this.sourceError.hidden = false;
+    this.sourceInput?.setAttribute("aria-invalid", "true");
+    this.sourceInput?.focus();
+  }
+
   private clearSourceError(): void {
     if (this.sourceError) this.sourceError.hidden = true;
     this.sourceInput?.removeAttribute("aria-invalid");
+  }
+
+  private showSourceAccessStatus(message: string, invalidProvider?: "douyin" | "xhs"): void {
+    if (this.sourceAccessDetails) this.sourceAccessDetails.open = true;
+    this.sourceAccessStatus?.setText(message);
+    if (this.sourceAccessStatus) this.sourceAccessStatus.hidden = false;
+    if (!invalidProvider) return;
+    const input = this.cookieInputs[invalidProvider];
+    input?.setAttribute("aria-invalid", "true");
+    input?.setAttribute("aria-describedby", CAPTURE_ACCESS_STATUS_ID);
+    input?.focus();
+  }
+
+  private clearSourceAccessStatus(): void {
+    if (this.sourceAccessStatus) {
+      this.sourceAccessStatus.hidden = true;
+      this.sourceAccessStatus.setText("");
+    }
+    for (const input of Object.values(this.cookieInputs)) {
+      input?.removeAttribute("aria-invalid");
+      input?.removeAttribute("aria-describedby");
+    }
+  }
+
+  private trackNativeControl(
+    element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement,
+  ): void {
+    this.mutableControls.push({
+      element,
+      isDisabled: () => element.disabled,
+      setDisabled: (disabled) => { element.disabled = disabled; },
+    });
+  }
+
+  private trackComponentControl(element: HTMLElement, setDisabled: (disabled: boolean) => void): void {
+    this.mutableControls.push({ element, isDisabled: () => false, setDisabled });
+  }
+
+  private setPreflightBusy(busy: boolean): void {
+    if (busy) {
+      if (this.disabledBeforePreflight.length) return;
+      this.modalEl.setAttribute("aria-busy", "true");
+      this.dropZone?.setAttribute("aria-disabled", "true");
+      this.disabledBeforePreflight = this.mutableControls.map((control) => ({
+        control,
+        disabled: control.isDisabled(),
+      }));
+      for (const { control } of this.disabledBeforePreflight) control.setDisabled(true);
+      return;
+    }
+    this.modalEl.removeAttribute("aria-busy");
+    this.dropZone?.removeAttribute("aria-disabled");
+    for (const { control, disabled } of this.disabledBeforePreflight) control.setDisabled(disabled);
+    this.disabledBeforePreflight = [];
   }
 
   private ocrSelection(): string {
@@ -286,6 +547,7 @@ export class CaptureModal extends Modal {
     target.addEventListener("drop", (event) => {
       event.preventDefault();
       setActive(false);
+      if (this.submitting) return;
       const source = captureSourceFromDataTransfer(event.dataTransfer);
       if (!source) {
         if (event.dataTransfer?.files.length) {
@@ -388,20 +650,6 @@ export class CloudAnswerConsentModal extends Modal {
     this.resolved = true;
     this.resolveDecision(value);
   }
-}
-
-function captureSourceError(source: string): string | null {
-  if (!source) return "Enter a URL or full local file path.";
-  if (/^https?:\/\//iu.test(source)) {
-    try {
-      new URL(source);
-      return null;
-    } catch {
-      return "Enter a valid web address, such as https://example.com/article.";
-    }
-  }
-  if (source.startsWith("/") && !source.includes("\0")) return null;
-  return "Enter a URL starting with https:// or a full local file path.";
 }
 
 export function trustedProviderPolicyUrl(destination: string, value: string | null | undefined): string | null {

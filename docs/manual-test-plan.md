@@ -135,7 +135,8 @@ Check setup；不要从历史交接继续，也不要重新清空 vault。第 8 
 | 8 | RETEST / AI-03 `gpt-oss` RESPONSE | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 hosted 实网分支 | 保留第 8 步零证据 PASS 与 13:06 结构失败；用 `85d950a` 重做第 9–13 步 preview／Send／结果，并在 AI-04 合并完成第 5 行定向回归 | Omnibox 已填入 `amber lighthouse checklist` 单来源问题，尚未提交；必须重新 preview 和批准 |
 | 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
 | 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
-| 11 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
+| 11 | FIRST PASS / P0 | [CAP-07](#test-cap-07) | Douyin／Xiaohongshu 分享文字、独立 cookies、preflight、Retry、隐私与进程树取消 | 下方有可复制分享文字；真实 Capture 需测试者自己的公开帖子与 Netscape cookies |
+| 12 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
 
 在这里记录本轮结果；未做的行保持空白，不要预填 PASS：
 
@@ -155,6 +156,7 @@ Check setup；不要从历史交接继续，也不要重新清空 vault。第 8 
 | Hosted 实网 |  |  |  |  |
 | CAL-00–03 |  |  |  |  |
 | Extended AI |  |  |  |  |
+| CAP-07 social capture bridge |  |  |  | 实现与自动回归已完成；原生登录态、下载、Retry 和取消尚未验收 |
 | REL-01 |  |  |  |  |
 
 **现在从第 8 行 AI-03 第 9 步重新发送。** `85d950a` 的三项插件资产已经核对并通过原生重载；
@@ -413,11 +415,12 @@ E. **Settings 统一排版（UI-01／02）**
 
 #### 仍未完成、留在后续队列
 
-UI-07–11 的 Graph / Local Graph / Backlinks / Search / Bases 建议、ANSWER-01、Douyin／XHS cookies
-bridge，以及 folder / one-item-per-line batch 仍保留在 `ui-backlog.md`。这些项目本轮没有实现；
-CAP-01A、CAP-06 B／C、OMD-01／AI-02 如结果表仍空，只补录此前实际 verdict 与证据，不重新执行。
-Hosted 定向回归、Calendar、Extended AI 与 clean-vault release gate 继续按上表顺序执行。Deferred 项目
-不是本轮失败，也不能在发布说明中写成已经接入。
+UI-07–11 的 Graph / Local Graph / Backlinks / Search / Bases 建议、ANSWER-01，以及 folder /
+one-item-per-line batch 仍保留在 `ui-backlog.md`。Douyin／XHS share text 与 cookies bridge 已实现并移到
+[CAP-07](#test-cap-07) 做首次原生验收；在结果表完成前只能写“实现完成、人工验收待定”，不能记为
+PASS。CAP-01A、CAP-06 B／C、OMD-01／AI-02 如结果表仍空，只补录此前实际 verdict 与证据，不重新
+执行。Hosted 定向回归、Calendar、Extended AI、CAP-07 与 clean-vault release gate 继续按上表顺序。
+其余 Deferred 项目不是本轮失败，也不能在发布说明中写成已经接入。
 
 下面的 2026-09-17／19／20 候选身份与交接只作历史证据；不要从其中的“现在继续”恢复执行。
 
@@ -880,39 +883,40 @@ shasum -a 256 "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugin
 5. **[OMD-01：首次自动发现、缺失引导和高级覆盖](#test-omd-01)**（Core）— 后续 Capture 和 AI bridge 的共同前置条件。
 6. **[CAP-01：URL、普通路径、空格路径与拖放](#test-cap-01)**（Core）— 先证明不依赖 AI 的转换主链路。
 7. **[CAP-03：失败归属与 Setup health](#test-cap-03)**（Core）— 有成功基线后再注入 OMD/path 失败，错误归属更容易判断。
+8. **[CAP-07：Douyin／Xiaohongshu 分享文字与 cookies bridge](#test-cap-07)**（Core）— 使用最终 Home 与 OMD 候选验证 source-specific access、Retry、隐私和取消。
 
 ### 阶段 C：Calendar / EventKit
 
-8. **[CAL-00：Helper、权限、明确选择 Calendar](#test-cal-00)**（Core）— 先安装 helper 并建立权限和 calendar selection 基线。
-9. **[CAL-01：Start / End 与 All day](#test-cal-01)**（Core）— 先验证单个事件编辑。
-10. **[CAL-02：Vault / Calendar / Linked filters](#test-cal-02)**（Core）— 有事件后再验证来源与筛选。
-11. **[CAL-03：Linked sync 与双向冲突](#test-cal-03)**（Core）— 最后测试依赖前述事件和 filter 的双向同步。
+9. **[CAL-00：Helper、权限、明确选择 Calendar](#test-cal-00)**（Core）— 先安装 helper 并建立权限和 calendar selection 基线。
+10. **[CAL-01：Start / End 与 All day](#test-cal-01)**（Core）— 先验证单个事件编辑。
+11. **[CAL-02：Vault / Calendar / Linked filters](#test-cal-02)**（Core）— 有事件后再验证来源与筛选。
+12. **[CAL-03：Linked sync 与双向冲突](#test-cal-03)**（Core）— 最后测试依赖前述事件和 filter 的双向同步。
 
 ### 阶段 D：本地 AI、Capture 增强与 RAG
 
-12. **[AI-00：Settings 信息架构、文案与响应式布局](#test-ai-00)**（Core）— 先验证 AI 设置主流程的结构。
-13. **[AI-01：本地 Ollama、模型目录与默认 local-only 选择](#test-ai-01)**（Core）— 建立本地 daemon 和 text model 基线。
-14. **[AI-02：Ollama daemon、endpoint 与本地模型隔离](#test-ai-02)**（Core）— 在正常连接通过后验证 daemon/endpoint/model 状态分离。
-15. **[AI-07：本地 Omnibox 结果、证据、复制与返回用时](#test-ai-07)**（Core）— 先证明真实本地问答主链路可用。
-16. **[CAP-02：本地 AI 生成 links/tags，Review 后才写入](#test-cap-02)**（Core）— 同时依赖成功 Capture 与可用本地模型。
-17. **[AI-06：Command Palette 诊断、后台任务与 Cancel](#test-ai-06)**（Extended）— 正常 AI 路径通过后再测诊断和取消。
-18. **[CAP-06：后台继续、unload 和退出取消](#test-cap-06)**（Core）— 复用已经验证的后台任务生命周期。
-19. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Extended）— 在基本 RAG 可用后评估答案质量。
+13. **[AI-00：Settings 信息架构、文案与响应式布局](#test-ai-00)**（Core）— 先验证 AI 设置主流程的结构。
+14. **[AI-01：本地 Ollama、模型目录与默认 local-only 选择](#test-ai-01)**（Core）— 建立本地 daemon 和 text model 基线。
+15. **[AI-02：Ollama daemon、endpoint 与本地模型隔离](#test-ai-02)**（Core）— 在正常连接通过后验证 daemon/endpoint/model 状态分离。
+16. **[AI-07：本地 Omnibox 结果、证据、复制与返回用时](#test-ai-07)**（Core）— 先证明真实本地问答主链路可用。
+17. **[CAP-02：本地 AI 生成 links/tags，Review 后才写入](#test-cap-02)**（Core）— 同时依赖成功 Capture 与可用本地模型。
+18. **[AI-06：Command Palette 诊断、后台任务与 Cancel](#test-ai-06)**（Extended）— 正常 AI 路径通过后再测诊断和取消。
+19. **[CAP-06：后台继续、unload 和退出取消](#test-cap-06)**（Core）— 复用已经验证的后台任务生命周期。
+20. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Extended）— 在基本 RAG 可用后评估答案质量。
 
 ### 阶段 E：云端回答与多 Provider 隔离
 
-20. **[AI-03：Ollama Cloud 设置入口与逐题 preview](#test-ai-03)**（Core）— 保持 `bge-m3` 未安装，先验证 Cloud preview 和“未安装”降级。
-21. **[AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口](#test-ai-04)**（Core）— 保持 `bge-m3` 未安装，逐一验证 credential、preview、发送边界和准确的 embedding 降级原因。
-22. **[AI-09：Multilingual hybrid retrieval 与 semantic rerank](#test-ai-09)**（Extended）— AI-03/04 完成 missing-model 分支后，才安装 `bge-m3` 并建立 Keyword + semantic search 基线。
-23. **[AI-05：Provider 切换、每个 provider 的 model 记忆与本地工作流隔离](#test-ai-05)**（Core）— 必须在多个 provider 已配置后执行。
-24. **[AI-11：Credential 状态、逐题证据与并发取消回归](#test-ai-11)**（Core）— 在正常本地/hosted 路径通过后测试状态刷新、provider 切换与待批准请求的取消。
+21. **[AI-03：Ollama Cloud 设置入口与逐题 preview](#test-ai-03)**（Core）— 保持 `bge-m3` 未安装，先验证 Cloud preview 和“未安装”降级。
+22. **[AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口](#test-ai-04)**（Core）— 保持 `bge-m3` 未安装，逐一验证 credential、preview、发送边界和准确的 embedding 降级原因。
+23. **[AI-09：Multilingual hybrid retrieval 与 semantic rerank](#test-ai-09)**（Extended）— AI-03/04 完成 missing-model 分支后，才安装 `bge-m3` 并建立 Keyword + semantic search 基线。
+24. **[AI-05：Provider 切换、每个 provider 的 model 记忆与本地工作流隔离](#test-ai-05)**（Core）— 必须在多个 provider 已配置后执行。
+25. **[AI-11：Credential 状态、逐题证据与并发取消回归](#test-ai-11)**（Core）— 在正常本地/hosted 路径通过后测试状态刷新、provider 切换与待批准请求的取消。
 
 ### 阶段 F：恢复与发布资产
 
-25. **[AI-10：Stale model、reload/unload 与故障恢复](#test-ai-10)**（Extended）— 故障注入可能改变当前环境，因此放在所有正常路径之后。
-26. **[REL-01：干净 vault 与三项 bundle](#test-rel-01)**（Core）— 使用最终 clean build 做最后发布验收。
+26. **[AI-10：Stale model、reload/unload 与故障恢复](#test-ai-10)**（Extended）— 故障注入可能改变当前环境，因此放在所有正常路径之后。
+27. **[REL-01：干净 vault 与三项 bundle](#test-rel-01)**（Core）— 使用最终 clean build 做最后发布验收。
 
-如果本轮只跑 Core，请按以上顺序跳过标记为 Extended 的 17、19、22、25，不能因为跳过而把它们
+如果本轮只跑 Core，请按以上顺序跳过标记为 Extended 的 18、20、23、26，不能因为跳过而把它们
 记录为 PASS；应记录为 `NOT RUN` 并写明原因。若 Core 中没有可用 hosted developer key，仍完成
 AI-04 的无 key与 opt-in 关闭边界；需要有效 key/model 的 catalog、preview、cancel 和真实网络
 分支记录为 `NOT RUN`，不得假装无 key 也能打开发送 preview。
@@ -2557,6 +2561,149 @@ catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposa
 通过条件：A 后台继续并只生成一个完成 note；B、C、D 都不生成对应 tag 的 note。B 回到 idle 且不把
 用户取消记为失败；C、D 在 10 秒内恢复到进程基线，重开后没有 orphan task、stale active、partial
 success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须通过 unload / quit 触发取消。
+
+<a id="test-cap-07"></a>
+
+### CAP-07：Douyin／Xiaohongshu 分享文字与独立 cookies
+
+**状态：FIRST PASS。** 实现与确定性自动回归已完成；真实登录态、下载、原生布局、Retry 与进程树
+仍待本节人工验收，结果表不得预填 PASS。
+
+本项只在可丢弃 vault 中执行。真实 Capture 请换成测试者有权访问的公开帖子，并使用测试者自己从
+对应站点导出的 Netscape `cookies.txt`；不要把 cookie 内容、完整路径或私人帖子放进截图和报告。
+开始前确认 OMD 的 **Check setup** 已 ready。下面两段用于验证分享文字解析；Xiaohongshu 短链是格式
+示例，真实下载时必须换成当前可打开的公开链接。
+
+```text
+9.74 hoD:/ w@S.YZ :9pm 08/06 9.17 深度理解沃什在议息会议后的发言 # 沃什 # 美联储议息会议 # 预期管理 # 美元 # 黄金 https://v.douyin.com/t6DOaFdc39Q/ 复制此链接，打开Dou音搜索，直接观看视频！
+32 复制本条信息，打开【小红书】App查看精彩内容！ http://xhslink.com/a/abcDEF/
+```
+
+#### A. 能力门禁与输入边界
+
+1. 打开 **Capture URL or file**，逐段粘贴上面两条分享文字。弹窗应保持打开，输入区可完整滚动，
+   **Site access** 自动展开；不能在点击 Capture 前自动启动任务。
+2. 每次点击 Capture 时，Home 应只把其中唯一的 canonical HTTP(S) URL 交给 inspect／capture，同时
+   保留整段原文供 Retry。若 OMD 没有精确声明 one-URL share text 与当前平台专用 cookie flag，弹窗
+   应显示 **Update OMD**／**Check setup** 的可操作说明，且 Current task 不启动。
+   对 Settings 显示的 OMD executable 运行 `capabilities --json` 时，必须明确包含以下 exact contract；
+   不能从 package version 推断：
+
+   ```json
+   {
+     "capture_auth_options": {
+       "share_text": { "supported": true, "requires_single_http_url": true },
+       "platform_cookie_flags": {
+         "douyin": "--douyin-cookies",
+         "xhs": "--xhs-cookies"
+       }
+     }
+   }
+   ```
+
+   任一字段缺失、布尔值不是 `true` 或 flag 不完全一致都应 fail closed。恢复带有精确 contract 的 OMD
+   并再次 **Check setup** 后再继续。
+3. 分别尝试空文本、`复制这段但没有链接`、`ftp://example.com/file`、同一段里两个 `https://` 链接，
+   以及 `read this https://example.com`。前四种应说明零／非 HTTP／多个 URL 的原因；最后一种普通网页
+   分享 prose 应要求只粘贴 URL。随后只粘贴 `https://example.com`，它仍应作为普通网页进入 Capture。
+4. 使用很长的分享前后文并把 Obsidian 主窗口缩窄到约 500px，再 **View → Zoom in** 到约 150%。文本
+   区、cookie 路径、错误和按钮可换行／纵向滚动，不能出现横向滚动、重叠或被截断。Reset zoom 后
+   Cancel；不得产生 note。
+
+#### B. 两个路径、provider 隔离与 preflight
+
+1. 在 **Settings → OMD Home → OMD → Social capture access** 分别填写两个不同的绝对路径；建议用
+   含空格和 Unicode 的隔离路径，例如 `/tmp/OMD 社交 cookies/抖音 cookies.txt` 与
+   `/tmp/OMD 社交 cookies/小红书 cookies.txt`。这里只填写路径，不要把文件内容粘贴进设置。
+   macOS 可先在 vault 外准备副本；把两个源路径占位符换成测试者自己的导出文件，不要原样执行：
+
+   ```bash
+   mkdir -p "/private/tmp/OMD 社交 cookies"
+   cp "/absolute/path/to/exported-douyin-cookies.txt" "/private/tmp/OMD 社交 cookies/抖音 cookies.txt"
+   cp "/absolute/path/to/exported-xhs-cookies.txt" "/private/tmp/OMD 社交 cookies/小红书 cookies.txt"
+   ```
+2. 重新打开 Capture，确认两条路径分别保留且可以单独 **Clear**。Clear 后当前输入框应立即清空，
+   不得重复渲染另一套控件；Cancel 不启动任务。再次填写后继续。
+3. 对 Douyin 分享文字点击 Capture。preflight 应在弹窗仍打开时完成，只检查 Douyin 路径；对 XHS
+   重复时只检查 XHS 路径。两种路径同时存在也不得交叉使用或 fallback。XHS 短链通过 preflight 后
+   应显示一条不阻塞 Capture 的简短提示，说明跳转后会再次检查访问条件；直接 XHS URL 与 Douyin
+   不应显示这条短链提示。若旧 OMD 没有返回该复检标记，Home 应要求更新 OMD，而不是假定已检查。
+4. 用隔离文件依次形成 missing、unreadable、invalid format、wrong domain、expired 条件。每种状态应
+   显示简短原因和下一步，且不回显完整路径；修复或替换当前 provider 的路径后可在同一弹窗重试。
+   可直接使用以下做法：
+   - **missing：** 填一个不存在的绝对路径，例如
+     `/private/tmp/OMD 社交 cookies/OMD-COOKIE-PATH-MUST-NOT-LEAK missing.txt`。
+   - **unreadable：** 复制有效文件到隔离副本，对副本运行 `chmod 000`；观察错误后立刻以
+     `chmod 600` 恢复。不要修改唯一的原始导出。
+   - **invalid format：** 运行
+     `printf '%s\n' 'CAP-07 invalid fixture' > "/private/tmp/OMD 社交 cookies/invalid cookies.txt"`，
+     再选择这个文件。
+   - **wrong domain：** 在 Douyin 字段选择有效 XHS 文件，再反向测试；两次都不能跨 provider fallback。
+   - **expired：** 只使用测试者可安全丢弃的已过期导出；没有稳定 fixture 就记
+     `NOT RUN — no expired-cookie fixture`，不要改真实 cookie 的时间或内容。
+
+   除 Settings / `data.json` 中预期保存的字段外，错误、Notice、Console、Needs attention 与 note 中
+   不得出现完整路径或 `OMD-COOKIE-PATH-MUST-NOT-LEAK`。无法在当前 OS 稳定制造的状态记 `NOT RUN`，
+   不要伪造 PASS。
+5. 安装工具不完整时，错误应点名缺少的本地工具，例如 `yt-dlp`、`ffmpeg` 或 Whisper；不能模糊写成
+   bridge failed。恢复后再运行 **Check setup**。
+
+#### C. 成功、运行失败与 Retry
+
+1. 使用当前可访问的公开 Douyin 帖子和有效 Douyin cookies，Capture 时将 Tags 设为
+   `cap-07-douyin`，Polish Markdown 与 Review links and tags 关闭，Speech language 使用
+   **No language preference**。完成后 Obsidian 原生 Search `tag:#cap-07-douyin` 应恰好有一份 note。
+2. 对公开 Xiaohongshu／Rednote 帖子以 `cap-07-xhs` 重复。两个结果的来源和正文应对应各自帖子；
+   若平台、地区或账户仍拒绝下载，保留明确错误并记 `NOT RUN` 或 FAIL，不宣称绕过限制。
+3. 用临时 wrapper 稳定制造一次 preflight 后才发生的运行错误。把脚本最后一行的占位路径换成
+   Settings 显示的真实 OMD executable；wrapper 会把 `capabilities` 和 `inspect` 委托给真实 OMD，
+   只让正式 `capture` 失败：
+
+   ```bash
+   mkdir -p "/private/tmp/OMD social bridge"
+   cat > "/private/tmp/OMD social bridge/omd-cap07-runtime-failure" <<'SH'
+   #!/bin/sh
+   if [ "$1" = "capture" ]; then
+     printf '%s\n' 'CAP-07 forced runtime failure' >&2
+     exit 17
+   fi
+   exec "/path/shown/by/omd-home" "$@"
+   SH
+   chmod 700 "/private/tmp/OMD social bridge/omd-cap07-runtime-failure"
+   ```
+
+   在 **Advanced OMD paths → OMD executable override** 选择 wrapper，再 **Check setup**；不 ready
+   表示真实路径仍没替换，先修正再继续。提交完整 Douyin 分享文字与有效 Douyin 路径，preflight 应
+   通过，随后 Current task 回到 idle，Needs attention 显示 canonical URL 与 **Retry capture**。它不能
+   显示整段分享文字、任一 cookies 路径或内容。
+4. 清空 override，恢复 Automatic / 原兼容 OMD；在 Settings 把 Douyin 路径换成另一个有效的
+   Unicode／空格路径，再点击 **Retry capture**。弹窗应恢复原始分享文字、Tags、OCR／ASR 与 AI
+   选择，同时显示当前 Settings 的新路径；failure record 不得保存或恢复旧路径。提交后不能再次出现
+   wrapper 的 forced failure。最后保持 override 为空，并删除临时 wrapper；不要删除原始 cookie 导出。
+
+#### D. 取消、unload 与隐私
+
+1. 先记录带 process-group id 的空闲基线，再对会进入下载／转录的真实社交媒体 Capture 点击
+   **Cancel**：
+
+   ```bash
+   ps -axo pid=,ppid=,pgid=,command= | grep -E '(^|[[:space:]/])(omd|yt-dlp|ffmpeg|mlx_whisper)([[:space:]/]|$)'
+   ```
+
+   active 时记录本次 OMD、`yt-dlp`、`ffmpeg`、Whisper PID／PGID；Cancel 后等待最多 10 秒再执行同一命令，
+   新增的整个 process group 都必须退出。若任务在看到嵌套 converter 前已经完成，换更长的公开素材
+   和唯一 tag 重试；“没有观察到 child”只能记 `NOT EXERCISED`，不能记进程树 PASS。
+2. 再运行一次并在 active 时 disable OMD Home；10 秒内恢复进程基线。重新 enable 后不得出现 stale
+   task、partial note 或把 unload 当成可重试失败。macOS／Linux 必须同时验证忽略 SIGTERM 的嵌套
+   converter 不会残留；Windows 只按该平台现有安全终止行为记录。
+3. 检查插件 `data.json`、Needs attention、Notice、Console、生成 note 与可分享截图。`data.json` 只可
+   包含两条本地路径；其他位置不得出现完整路径或 cookie 内容，CaptureRequest／failure record 也不得
+   保存路径。完成报告时把路径以 `<local cookies path>` 代替。
+
+通过条件：两种分享文字都只解析唯一 URL；普通网页 prose 不被误路由；capability 缺失时 fail closed；
+两种 cookies 始终独立，preflight 状态可操作且不泄露路径；Retry 恢复原输入和选项但使用当前设置；
+成功项各写一份正确 note；Cancel／unload 不留下嵌套进程。外部平台拒绝、私人／删除／地区限制按实际
+情况记 `NOT RUN` 或 FAIL，不视为 Home 可以绕过的能力。
 
 ## 10. Release bundle
 

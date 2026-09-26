@@ -11,12 +11,15 @@ import type {
 import {
   appendCommonExecutableDirectoriesToPath,
   type CapturePolishOptions,
+  type CaptureSourceAccessOptions,
   omdCaptureArgs,
   parseOmdEvent,
   parsePythonShebang,
+  sanitizeCaptureProgressEvent,
   prependExecutableDirectoryToPath,
 } from "./omd-events.ts";
 import type { CaptureRequest } from "./capture-request.ts";
+import { isXhsShortlinkSource, socialCaptureProvider } from "./omnibox-utils.ts";
 
 export interface SpawnResult {
   stdout: string;
@@ -41,6 +44,8 @@ const DEFAULT_MAX_STDERR_CHARS = 256_000;
 const BRIDGE_TIMEOUT_MS = 95_000;
 const HYBRID_BRIDGE_TIMEOUT_MS = 5 * 60_000;
 const CAPTURE_TIMEOUT_MS = 10 * 60_000;
+const CAPTURE_INSPECT_TIMEOUT_MS = 30_000;
+const MAX_CAPTURE_INSPECT_BYTES = 64 * 1024;
 const WHICH_TIMEOUT_MS = 5_000;
 const CAPTURE_MANIFEST_CLOCK_SKEW_MS = 1_000;
 const CAPTURE_MANIFEST_RETRY_DELAYS_MS = [0, 75, 175, 350] as const;
@@ -86,6 +91,18 @@ export interface AiAnswer {
   usage?: Record<string, number>;
   timing?: Record<string, number>;
   embeddingFallbackModel?: string;
+}
+
+export type CaptureCookieStatus = "not_provided" | "found" | "missing" | "unreadable" | "invalid_format" | "wrong_domain" | "expired";
+
+export interface CaptureInspection {
+  detectedType: "douyin_url" | "xhs_url";
+  ready: boolean;
+  missingTools: string[];
+  missingAuth: string[];
+  blockingRisks: string[];
+  cookieStatus: CaptureCookieStatus;
+  cookieRuntimeRecheck: boolean;
 }
 
 export interface HybridRetrievalOptions {
@@ -323,6 +340,7 @@ export class OmdBridge {
     request: CaptureRequest,
     vaultPath: string,
     polish: CapturePolishOptions,
+    sourceAccess: CaptureSourceAccessOptions,
     onEvent: (event: OmdProgressEvent) => void,
     signal?: AbortSignal,
   ): Promise<string | null> {
@@ -332,7 +350,7 @@ export class OmdBridge {
     try {
       result = await this.spawnManagedProcess(
         executable,
-        omdCaptureArgs(request, vaultPath, polish),
+        omdCaptureArgs(request, vaultPath, polish, sourceAccess),
         {
           signal,
           timeoutMs: CAPTURE_TIMEOUT_MS,
@@ -340,7 +358,15 @@ export class OmdBridge {
           maxStderrChars: 1_000_000,
           onStderrLine: (line) => {
             const event = parseOmdEvent(line);
-            if (event) onEvent(event);
+            if (event) {
+              const surfacedEvent = event.event === "error" || event.event === "fatal"
+                ? { ...event, message: mapCaptureEventToUserMessage(event, request.source) }
+                : event;
+              onEvent(sanitizeCaptureProgressEvent(surfacedEvent, [
+                sourceAccess.douyinCookiesPath,
+                sourceAccess.xhsCookiesPath,
+              ]));
+            }
           },
         },
       );
@@ -351,6 +377,35 @@ export class OmdBridge {
     if (result.code !== 0) throw new Error(captureErrorMessage(result.stderr, request.source));
     const done = result.stderr.split(/\r?\n/).map(parseOmdEvent).findLast((event) => event?.event === "done");
     return await resolveOmdCaptureOutput(done?.output ?? null, request.source, vaultPath, captureStartedAt);
+  }
+
+  async inspectCaptureSource(
+    executable: string,
+    source: string,
+    expectedType: "douyin_url" | "xhs_url",
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<CaptureInspection> {
+    this.assertDesktop();
+    const args = ["inspect", source, "--json", "--with-readiness"];
+    if (cookiesPath.trim()) args.push("--cookies", cookiesPath.trim());
+    const result = await this.spawnManagedProcess(executable, args, {
+      signal,
+      shell: false,
+      timeoutMs: CAPTURE_INSPECT_TIMEOUT_MS,
+      maxStdoutBytes: MAX_CAPTURE_INSPECT_BYTES,
+      maxStderrBytes: 16 * 1024,
+      maxStdoutChars: MAX_CAPTURE_INSPECT_BYTES,
+      maxStderrChars: 16 * 1024,
+    });
+    if (result.code !== 0) {
+      throw new Error("OMD could not check this social source. Update OMD or verify the link, then try again.");
+    }
+    const inspection = parseCaptureInspection(result.stdout);
+    if (!inspection || inspection.detectedType !== expectedType) {
+      throw new Error("OMD could not verify this link as the selected social source. Check the link and try again.");
+    }
+    return inspection;
   }
 
   async search(vaultPath: string, query: string, signal?: AbortSignal): Promise<OmdSearchHit[]> {
@@ -742,7 +797,13 @@ export async function spawnProcess(
       maxStdoutBytes,
       maxStderrBytes,
     } = options;
-    const child = spawn(command, args, { env, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      env,
+      shell: false,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -752,34 +813,45 @@ export async function spawnProcess(
     let stdinFailure: Error | null = null;
     let settled = false;
     let forceKillTimer: number | null = null;
+    const killTree = (signalName: NodeJS.Signals) => {
+      if (process.platform !== "win32" && typeof child.pid === "number") {
+        try {
+          process.kill(-child.pid, signalName);
+          return;
+        } catch {
+          // The process may have already left its group; retain the direct-child fallback.
+        }
+      }
+      child.kill(signalName);
+    };
+    const stop = (error: Error) => {
+      if (failure) return;
+      failure = error;
+      killTree("SIGTERM");
+      forceKillTimer = window.setTimeout(() => {
+        forceKillTimer = null;
+        killTree("SIGKILL");
+      }, 1_000);
+    };
     const timeoutHandle = timeoutMs === undefined
       ? null
-      : window.setTimeout(() => {
-        failure = new Error(`Process timed out after ${timeoutMs}ms`);
-        child.kill("SIGTERM");
-        forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
-      }, timeoutMs);
-    const abort = () => {
-      failure = abortError();
-      child.kill("SIGTERM");
-      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
-    };
-    const cleanup = () => {
+      : window.setTimeout(() => stop(new Error(`Process timed out after ${timeoutMs}ms`)), timeoutMs);
+    const abort = () => stop(abortError());
+    const cleanup = (keepForceKill = false) => {
       if (timeoutHandle) window.clearTimeout(timeoutHandle);
-      if (forceKillTimer) window.clearTimeout(forceKillTimer);
+      if (forceKillTimer && !keepForceKill) {
+        window.clearTimeout(forceKillTimer);
+        forceKillTimer = null;
+      }
       signal?.removeEventListener("abort", abort);
     };
     const failForOverflow = (stream: "stdout" | "stderr", limit: number) => {
       if (failure) return;
-      failure = new Error(`Process ${stream} exceeded ${limit} characters`);
-      child.kill("SIGTERM");
-      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
+      stop(new Error(`Process ${stream} exceeded ${limit} characters`));
     };
     const failForByteOverflow = (stream: "stdout" | "stderr", limit: number) => {
       if (failure) return;
-      failure = new Error(`Process ${stream} exceeded ${limit} bytes`);
-      child.kill("SIGTERM");
-      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
+      stop(new Error(`Process ${stream} exceeded ${limit} bytes`));
     };
     if (signal?.aborted) {
       abort();
@@ -822,7 +894,9 @@ export async function spawnProcess(
     child.on("close", (code: number | null) => {
       if (settled) return;
       settled = true;
-      cleanup();
+      // A direct child can exit on SIGTERM while a nested converter ignores it.
+      // Keep the bounded SIGKILL escalation alive until it has reached the group.
+      cleanup(failure !== null);
       if (pending) onStderrLine?.(pending);
       if (failure) {
         reject(failure);
@@ -859,6 +933,101 @@ export function parseBridgeResponse(value: string): Record<string, unknown> | nu
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
     : null;
+}
+
+export function parseCaptureInspection(value: string): CaptureInspection | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!isPlainRecord(parsed)) return null;
+  const detectedType = parsed.detected_type;
+  if (detectedType !== "douyin_url" && detectedType !== "xhs_url") return null;
+  if (!isPlainRecord(parsed.readiness)) return null;
+  const readiness = parsed.readiness;
+  if (typeof readiness.ready !== "boolean") return null;
+  const missingTools = boundedInspectionStrings(readiness.missing_tools, 16, 64);
+  const missingAuth = boundedInspectionStrings(readiness.missing_auth, 8, 64);
+  const blockingRisks = boundedInspectionStrings(readiness.blocking_risks, 16, 64);
+  if (!missingTools || !missingAuth || !blockingRisks || !isPlainRecord(readiness.cookies_file)) return null;
+  const cookieStatus = readiness.cookies_file.status;
+  if (!isCaptureCookieStatus(cookieStatus)) return null;
+  if (typeof readiness.cookie_runtime_recheck !== "boolean") return null;
+  return {
+    detectedType,
+    ready: readiness.ready,
+    missingTools,
+    missingAuth,
+    blockingRisks,
+    cookieStatus,
+    cookieRuntimeRecheck: readiness.cookie_runtime_recheck,
+  };
+}
+
+export function captureInspectionError(
+  inspection: CaptureInspection,
+  provider: "douyin" | "xhs",
+  source = "",
+): string | null {
+  const label = provider === "douyin" ? "Douyin" : "Xiaohongshu / Rednote";
+  if (provider === "xhs" && isXhsShortlinkSource(source) && !inspection.cookieRuntimeRecheck) {
+    return "Update OMD and run Check OMD setup before capturing this Xiaohongshu shortlink.";
+  }
+  if (inspection.missingTools.length) {
+    return `Install the required local tools (${inspection.missingTools.join(", ")}), then try again.`;
+  }
+  if (inspection.cookieStatus === "missing") {
+    return `The saved ${label} cookies file was not found. Choose it again, then retry.`;
+  }
+  if (inspection.cookieStatus === "unreadable") {
+    return `The saved ${label} cookies file cannot be read. Check its permissions or choose it again, then retry.`;
+  }
+  if (inspection.cookieStatus === "invalid_format") {
+    return `The ${label} cookies file is not valid Netscape cookies.txt format. Export it again, then retry.`;
+  }
+  if (inspection.cookieStatus === "wrong_domain") {
+    return `The cookies file does not contain ${label} cookies. Export cookies from that site, then retry.`;
+  }
+  if (inspection.cookieStatus === "expired") {
+    return `The ${label} cookies have expired. Sign in again, export fresh cookies, then retry.`;
+  }
+  if (inspection.cookieStatus === "not_provided") {
+    return `Add a local Netscape cookies.txt path for ${label}, then try again.`;
+  }
+  if (inspection.missingAuth.length) {
+    return `${label} access is unavailable. Choose a valid local cookies.txt file, then retry.`;
+  }
+  if (inspection.blockingRisks.length) {
+    return "This source is not ready to capture. Check the public link and try again.";
+  }
+  if (inspection.ready) return null;
+  return "OMD could not verify that this source is ready. Check the local setup, then try again.";
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedInspectionStrings(value: unknown, maxItems: number, maxChars: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maxItems) return null;
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim() || item.length > maxChars || !/^[A-Za-z0-9_.-]+$/u.test(item)) return null;
+    result.push(item);
+  }
+  return result;
+}
+
+function isCaptureCookieStatus(value: unknown): value is CaptureCookieStatus {
+  return value === "not_provided"
+    || value === "found"
+    || value === "missing"
+    || value === "unreadable"
+    || value === "invalid_format"
+    || value === "wrong_domain"
+    || value === "expired";
 }
 
 export function bridgeErrorMessage(error: unknown, fallback: string): string {
@@ -1139,6 +1308,8 @@ function captureProcessErrorMessage(error: unknown): string {
 }
 
 function mapCaptureEventToUserMessage(event: OmdProgressEvent, source = ""): string {
+  const socialFailure = socialCaptureEventMessage(event.kind, source);
+  if (socialFailure) return socialFailure;
   if (event.kind === "ocr_language_pack_missing") return missingOcrLanguagePackMessage(event);
   const tokens = normalize(`${event.kind ?? ""} ${event.event} ${event.message ?? ""}`);
   if (tokens.includes("cancel")) return "OMD capture was cancelled.";
@@ -1171,6 +1342,43 @@ function mapCaptureEventToUserMessage(event: OmdProgressEvent, source = ""): str
   }
   if (tokens.includes("timed out") || tokens.includes("timeout")) return "OMD capture timed out. Try again.";
   return "OMD capture failed. Check the OMD setup and try again.";
+}
+
+function socialCaptureEventMessage(kind: string | undefined, source: string): string | null {
+  if (!kind) return null;
+  const sourceProvider = socialCaptureProvider(source);
+  const provider = kind.startsWith("douyin_")
+    ? "douyin"
+    : kind.startsWith("xhs_") ? "xhs" : sourceProvider;
+  if (!provider) return null;
+  const label = provider === "douyin" ? "Douyin" : "Xiaohongshu / Rednote";
+  switch (kind) {
+    case "cookies_rejected":
+      return `${label} rejected the saved cookies. Sign in again, export fresh ${label} cookies, then retry.`;
+    case "cookies_wrong_domain":
+      return `The saved cookies file does not contain ${label} cookies. Export cookies from the matching signed-in site, then retry.`;
+    case "cookies_expired":
+      return `The saved ${label} cookies have expired. Sign in again, export fresh cookies, then retry.`;
+    case "cookies_invalid":
+      return `The saved ${label} cookies could not be verified. Sign in again, export fresh cookies, then retry.`;
+    case "cookies_invalid_format":
+      return `The saved ${label} cookies file is not valid Netscape cookies.txt format. Export it again, then retry.`;
+    case "cookies_not_provided":
+      return `Add a local Netscape cookies.txt path for ${label}, then retry.`;
+    case "cookies_missing":
+      return `The saved ${label} cookies file was not found. Choose it again, then retry.`;
+    case "cookies_unreadable":
+      return `The saved ${label} cookies file cannot be read. Check its permissions or choose it again, then retry.`;
+    case "douyin_fetch_failed":
+      return "Douyin could not fetch this post. Check that the link is public and still available, update yt-dlp, then retry.";
+    case "xhs_fetch_failed":
+      return "Xiaohongshu / Rednote could not fetch this post. Check that the link is public and still available, then retry.";
+    case "douyin_redirect_rejected":
+    case "xhs_redirect_rejected":
+      return `OMD blocked a redirect outside approved ${label} hosts. No cookies were sent to that destination. Check the shared link, then retry.`;
+    default:
+      return null;
+  }
 }
 
 function boundedLocalCaptureSource(source: string): string {

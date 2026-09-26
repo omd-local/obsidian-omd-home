@@ -1,8 +1,24 @@
 import { homedir } from "node:os";
 
+export const MAX_CAPTURE_SOURCE_INPUT_CHARS = 16_384;
+export const MAX_LOCAL_ACCESS_PATH_CHARS = 4_096;
+
+export type SocialCaptureProvider = "douyin" | "xhs";
+
+export interface ParsedCaptureSource {
+  source: string;
+  submittedSource?: string;
+}
+
 export function looksCapturable(value: string): boolean {
-  const source = normalizeCaptureSource(value);
-  return /^https?:\/\//i.test(source) || source.startsWith("/");
+  const submitted = value.trim();
+  const source = normalizeCaptureSource(submitted);
+  return /^https?:\/\//iu.test(source)
+    || /https?:\/\//iu.test(submitted)
+    || /\b[a-z][a-z0-9+.-]*:\/\//iu.test(submitted)
+    || source.startsWith("/")
+    || /^[A-Za-z]:[\\/]/u.test(source)
+    || /^\\\\[^\\/]+[\\/][^\\/]+/u.test(source);
 }
 
 export function isLocalImageSource(value: string): boolean {
@@ -25,6 +41,120 @@ export function normalizeCaptureSource(value: string): string {
   return normalizedPath.startsWith("~/")
     ? `${homedir()}/${normalizedPath.slice(2)}`
     : normalizedPath;
+}
+
+export function parseCaptureSourceInput(value: string): ParsedCaptureSource {
+  if (value.includes("\0")) throw new Error("The capture source contains an unsupported null character.");
+  if (value.length > MAX_CAPTURE_SOURCE_INPUT_CHARS) {
+    throw new Error(`The capture source is too long. Keep it under ${MAX_CAPTURE_SOURCE_INPUT_CHARS.toLocaleString()} characters.`);
+  }
+  const submitted = value.trim();
+  if (!submitted) throw new Error("Enter one HTTP(S) URL or an absolute local file path.");
+
+  const whole = normalizeCaptureSource(submitted);
+  if (whole.startsWith("/") || isWindowsAbsolutePath(whole)) return { source: whole };
+  if (/^https?:\/\/\S+$/iu.test(whole)) {
+    return { source: validateHttpUrl(whole) };
+  }
+
+  const httpCandidates = extractHttpUrlCandidates(submitted);
+  if (httpCandidates.length > 1) {
+    throw new Error("Found more than one HTTP(S) URL. Keep only the link you want to capture.");
+  }
+  if (httpCandidates.length === 1) {
+    const source = validateHttpUrl(httpCandidates[0]);
+    if (!socialCaptureProvider(source)) {
+      throw new Error("Pasted share text is supported for Douyin and Xiaohongshu / Rednote. Paste other web links by themselves.");
+    }
+    return source === submitted ? { source } : { source, submittedSource: submitted };
+  }
+  if (/\b[a-z][a-z0-9+.-]*:\/\//iu.test(submitted)) {
+    throw new Error("Only HTTP(S) links can be captured from pasted share text.");
+  }
+  throw new Error("Enter one HTTP(S) URL or an absolute local file path.");
+}
+
+export function captureSourceInputError(value: string): string | null {
+  try {
+    parseCaptureSourceInput(value);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Enter one HTTP(S) URL or an absolute local file path.";
+  }
+}
+
+export function socialCaptureProvider(value: string): SocialCaptureProvider | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/u, "");
+  if (hostMatches(hostname, ["douyin.com", "iesdouyin.com"])) return "douyin";
+  if (hostMatches(hostname, ["xiaohongshu.com", "xhslink.com", "rednote.com"])) return "xhs";
+  return null;
+}
+
+export function isXhsShortlinkSource(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/u, "");
+  return hostMatches(hostname, ["xhslink.com"]);
+}
+
+export function normalizeLocalAccessPath(value: string): string {
+  if (value.includes("\0")) throw new Error("The cookies path contains an unsupported null character.");
+  if (value.length > MAX_LOCAL_ACCESS_PATH_CHARS) throw new Error("The cookies path is too long.");
+  if (!value.trim()) return "";
+  const normalized = normalizeCaptureSource(value);
+  if (!normalized.startsWith("/") && !isWindowsAbsolutePath(normalized)) {
+    throw new Error("Choose an absolute local cookies.txt path.");
+  }
+  return normalized;
+}
+
+export function localAccessPathError(value: string): string | null {
+  try {
+    normalizeLocalAccessPath(value);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Choose an absolute local cookies.txt path.";
+  }
+}
+
+function extractHttpUrlCandidates(value: string): string[] {
+  const matches = value.match(/https?:\/\/[^\s<>"'`]+/giu) ?? [];
+  return matches
+    .map((candidate) => candidate.replace(/[\])}>,.!?;:，。！？；：】）》」』]+$/gu, ""))
+    .filter(Boolean);
+}
+
+function validateHttpUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("The HTTP(S) URL is not valid.");
+  }
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) {
+    throw new Error("Only a valid HTTP(S) URL can be captured from pasted share text.");
+  }
+  return value;
+}
+
+function hostMatches(hostname: string, domains: readonly string[]): boolean {
+  return domains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/u.test(value) || /^\\\\[^\\/]+[\\/][^\\/]+/u.test(value);
 }
 
 export function captureSourceFromDrop(

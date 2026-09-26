@@ -6,6 +6,7 @@ import * as providerHelpers from "../src/ai-provider.ts";
 import * as readinessHelpers from "../src/local-ai-readiness.ts";
 import * as captureHelpers from "../src/capture-request.ts";
 import * as discoveryHelpers from "../src/omd-discovery.ts";
+import * as omniboxHelpers from "../src/omnibox-utils.ts";
 
 // Execute production settings callbacks against a minimal Obsidian component boundary.
 // This deliberately exercises behavior, not source-text shape or desktop automation.
@@ -15,16 +16,26 @@ class Element {
   isConnected = true;
   open = false;
   id = "";
+  textContent = "";
+  hidden = false;
+  focused = false;
   children: Element[] = [];
   listeners = new Map<string, () => unknown>();
   attributes = new Map<string, string>();
   addClass(..._names: string[]) {}
   removeClass(..._names: string[]) {}
-  createEl(_tag: string, _options?: unknown) { const child = new Element(); this.children.push(child); return child; }
-  createDiv(options?: unknown) { return this.createEl("div", options); }
-  createSpan(options?: unknown) { return this.createEl("span", options); }
+  createEl(_tag: string, options?: { text?: string; attr?: Record<string, string> }) {
+    const child = new Element();
+    child.textContent = options?.text ?? "";
+    for (const [name, value] of Object.entries(options?.attr ?? {})) child.setAttribute(name, value);
+    this.children.push(child);
+    return child;
+  }
+  createDiv(options?: { text?: string; attr?: Record<string, string> }) { return this.createEl("div", options); }
+  createSpan(options?: { text?: string; attr?: Record<string, string> }) { return this.createEl("span", options); }
   empty() { this.children = []; }
-  setText(_text: string) {}
+  setText(text: string) { this.textContent = text; }
+  focus() { this.focused = true; }
   toggleAttribute(name: string, value: boolean) { if (name === "open") this.open = value; }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   removeAttribute(name: string) { this.attributes.delete(name); }
@@ -55,7 +66,16 @@ class Control {
 }
 
 function createHarness(methods: string[] = []) {
-  const rows: Array<{ name: string; description: string; texts: Control[]; dropdowns: Control[]; toggles: Control[]; buttons: Control[] }> = [];
+  const rows: Array<{
+    name: string;
+    description: string;
+    settingEl: Element;
+    controlEl: Element;
+    texts: Control[];
+    dropdowns: Control[];
+    toggles: Control[];
+    buttons: Control[];
+  }> = [];
   const notices: string[] = [];
   class Setting {
     name = "";
@@ -77,13 +97,13 @@ function createHarness(methods: string[] = []) {
   }
   const source = ts.createSourceFile("settings.ts", readFileSync("src/settings.ts", "utf8"), ts.ScriptTarget.Latest, true);
   const declaration = source.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === "OmdHomeSettingTab")!;
-  const names = new Set(["answerModelSetting", "modelSetting", "saveModelValue", "saveAnswerModel", "saveSettingsInOrder", "changeAnswerProvider", "runAiSetupAction", "modelReadinessRail", "settingsDisclosure", "renderOmdSetup", ...methods]);
+  const names = new Set(["answerModelSetting", "modelSetting", "saveModelValue", "saveAnswerModel", "saveSettingsInOrder", "changeAnswerProvider", "runAiSetupAction", "modelReadinessRail", "settingsDisclosure", "renderOmdSetup", "renderCookiePathSetting", ...methods]);
   const members = declaration.members.filter((node) => ts.isPropertyDeclaration(node) || (node.name && names.has(node.name.getText(source))));
   const helpers = source.statements.filter((node) => ts.isFunctionDeclaration(node) || ts.isVariableStatement(node)).map((node) => node.getText(source).replace(/^export /u, ""));
   const code = ts.transpileModule(`${helpers.join("\n")}\nclass Harness { ${members.map((m) => m.getText(source)).join("\n")} }`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText;
-  const dependencies = { ...providerHelpers, ...readinessHelpers, ...captureHelpers, ...discoveryHelpers, Setting,
+  const dependencies = { ...providerHelpers, ...readinessHelpers, ...captureHelpers, ...discoveryHelpers, ...omniboxHelpers, Setting,
     Platform: { isMacOS: true }, Notice: class { constructor(message: string) { notices.push(message); } } };
   const tab = new Function(...Object.keys(dependencies), `${code}\nreturn new Harness();`)(...Object.values(dependencies)) as Harness;
   let saveCalls = 0;
@@ -92,6 +112,7 @@ function createHarness(methods: string[] = []) {
       aiProvider: "ollama", aiModel: "qwen3:4b-instruct", aiModels: { ...providerHelpers.DEFAULT_AI_MODELS },
       localWritingModel: "qwen3:4b-instruct", omdExecutable: "omd", pythonExecutable: "", pythonBridgePath: "",
       captureOcrLanguage: "", captureAsrLanguage: "inherit-adapter-default",
+      douyinCookiesPath: "", xhsCookiesPath: "",
     },
     enrichmentCapability: { status: "ready", message: "OMD ready" },
     hostedAiState: null,
@@ -295,6 +316,41 @@ test("unavailable saved OCR stays visible instead of claiming no preference", ()
   assert.match(row.description, /unavailable|not supported/iu);
   assert.ok(row.dropdowns[0]!.selectEl.options.some((option) => option.value === "chi_sim+eng" && option.disabled));
   assert.ok(row.buttons.some((button) => button.label === "Clear preference"));
+});
+
+test("social cookie settings reject invalid paths inline and persist only absolute paths or clear", async () => {
+  const h = createHarness();
+  h.tab.renderOmdSetup(h.container);
+  const row = h.row("Douyin cookies");
+  const input = row.texts[0]!;
+  const validation = row.settingEl.children.find((child: Element) => (
+    child.id === "omd-settings-douyin-cookies-validation"
+  ));
+  assert.ok(validation);
+  assert.equal(input.inputEl.attributes.get("dir"), "ltr");
+  assert.equal(input.inputEl.attributes.get("aria-describedby"), validation.id);
+
+  for (const invalid of [
+    "relative/cookies.txt",
+    "x".repeat(omniboxHelpers.MAX_LOCAL_ACCESS_PATH_CHARS + 1),
+    "/Users/test/cookies\0.txt",
+  ]) {
+    await input.change(invalid);
+    assert.equal(h.tab.plugin.settings.douyinCookiesPath, "", invalid);
+    assert.equal(h.saveCalls(), 0, invalid);
+    assert.equal(input.inputEl.attributes.get("aria-invalid"), "true", invalid);
+    assert.notEqual(validation.textContent, "", invalid);
+  }
+
+  await input.change("/Users/test/抖音 access/cookies.txt");
+  assert.equal(h.tab.plugin.settings.douyinCookiesPath, "/Users/test/抖音 access/cookies.txt");
+  assert.equal(h.saveCalls(), 1);
+  assert.equal(input.inputEl.attributes.get("aria-invalid"), undefined);
+  assert.equal(validation.textContent, "");
+
+  await input.change("");
+  assert.equal(h.tab.plugin.settings.douyinCookiesPath, "");
+  assert.equal(h.saveCalls(), 2);
 });
 
 test("failed settings persistence reports a retryable error and does not poison later saves", async () => {

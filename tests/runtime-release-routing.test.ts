@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
-import { isLocalImageSource, isPluginRecordingWrapperCommand, looksCapturable, normalizeCaptureSource, recordingQuickActions } from "../src/omnibox-utils.ts";
+import { captureRequestFromSettings } from "../src/capture-request.ts";
+import { isLocalImageSource, isPluginRecordingWrapperCommand, looksCapturable, normalizeCaptureSource, parseCaptureSourceInput, recordingQuickActions, socialCaptureProvider } from "../src/omnibox-utils.ts";
 
 type Harness = Record<string, any>;
 
@@ -31,16 +32,17 @@ test("omnibox captures normalized multilingual PDF paths and file URLs instead o
   ]) {
     const captured: string[] = [];
     const box = loadMethods("src/omnibox.ts", ["execute"], {
-      isLocalImageSource, looksCapturable,
+      isLocalImageSource, looksCapturable, parseCaptureSourceInput, socialCaptureProvider,
       normalizeCaptureSource,
-      captureRequestFromSettings: (source: string) => source,
+      captureRequestFromSettings: (source: string) => ({ source: normalizeCaptureSource(source) }),
+      Notice: class {},
     });
     Object.assign(box, {
       previewTimer: null,
       input: { value: input },
       beginSubmission() {},
       searchVault() { assert.fail(`Capture input routed to search: ${input}`); },
-      plugin: { settings: {}, captureWithOmd: async (source: string) => { captured.push(source); } },
+      plugin: { settings: {}, captureWithOmd: async (request: { source: string }) => { captured.push(request.source); } },
     });
     await box.execute();
     assert.deepEqual(captured, [expected]);
@@ -51,6 +53,49 @@ test("recognition does not turn ordinary multilingual search terms into captures
   for (const input of ["稠密向量与稀疏向量", "résumé notes", "C++ resources"]) {
     assert.equal(looksCapturable(input), false);
   }
+});
+
+test("omnibox opens supported social share text for review and rejects generic prose", async () => {
+  const opened: Array<{ source: string; submittedSource?: string }> = [];
+  const captured: string[] = [];
+  const notices: string[] = [];
+  const box = loadMethods("src/omnibox.ts", ["execute"], {
+    captureRequestFromSettings,
+    isLocalImageSource,
+    looksCapturable,
+    parseCaptureSourceInput,
+    socialCaptureProvider,
+    Notice: class { constructor(value: string) { notices.push(value); } },
+  });
+  Object.assign(box, {
+    previewTimer: null,
+    input: { value: "复制此链接 https://v.douyin.com/abc/ 打开抖音" },
+    beginSubmission() {},
+    plugin: {
+      settings: {
+        capturePolish: false,
+        captureSuggestLinksAndTags: false,
+        captureOcrLanguage: "",
+        captureAsrLanguage: "inherit-adapter-default",
+      },
+      openCaptureModal(request: { source: string; submittedSource?: string }) { opened.push(request); },
+      captureWithOmd: async (request: { source: string }) => { captured.push(request.source); },
+    },
+  });
+  await box.execute();
+  assert.deepEqual(opened.map(({ source, submittedSource }) => ({ source, submittedSource })), [{
+    source: "https://v.douyin.com/abc/",
+    submittedSource: "复制此链接 https://v.douyin.com/abc/ 打开抖音",
+  }]);
+  assert.deepEqual(captured, []);
+
+  box.input.value = "read this https://example.com/article";
+  await box.execute();
+  assert.match(notices.at(-1) ?? "", /Paste other web links by themselves/u);
+  box.input.value = "https://v.douyin.com/one https://xhslink.com/two";
+  await box.execute();
+  assert.match(notices.at(-1) ?? "", /more than one HTTP\(S\) URL/u);
+  assert.deepEqual(captured, []);
 });
 
 test("an unavailable command explains why it did not run", async () => {
@@ -158,14 +203,15 @@ test("pasted local images open recognition options before any capture starts", a
   ]) {
     const opened: string[] = [];
     const box = loadMethods("src/omnibox.ts", ["execute"], {
-      isLocalImageSource, looksCapturable, normalizeCaptureSource,
-      captureRequestFromSettings: (source: string) => source,
+      isLocalImageSource, looksCapturable, normalizeCaptureSource, parseCaptureSourceInput, socialCaptureProvider,
+      captureRequestFromSettings: (source: string) => ({ source: normalizeCaptureSource(source) }),
+      Notice: class {},
     });
     Object.assign(box, {
       previewTimer: null, input: { value: input }, beginSubmission() {},
       plugin: {
         settings: {},
-        openCaptureModal: (source: string) => { opened.push(source); },
+        openCaptureModal: (request: { source: string }) => { opened.push(request.source); },
         captureWithOmd: async () => { assert.fail("Image capture bypassed recognition options"); },
       },
     });

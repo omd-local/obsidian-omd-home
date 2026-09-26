@@ -89,6 +89,16 @@ test("a failed capture retry belongs only to the issue created by that attempt",
   assert.equal(captureFailureForIssue(null, 17), null);
 });
 
+test("social retry preserves the original share text without persisting cookie paths", () => {
+  const submittedSource = "复制此链接 https://v.douyin.com/AbC123/ 打开抖音";
+  const request = createCaptureRequest({ source: submittedSource, suggest: true });
+  const failure = createCaptureFailureRecord(9, 21, "capture", 123, "Capture failed.", request);
+
+  assert.equal(failure.request.source, "https://v.douyin.com/AbC123/");
+  assert.equal(failure.request.submittedSource, submittedSource);
+  assert.doesNotMatch(JSON.stringify(failure), /cookies|Users\/test|douyinCookiesPath|xhsCookiesPath/iu);
+});
+
 test("capture failure snapshots normalize invalid display metadata", () => {
   const failure = createCaptureFailureRecord(
     5,

@@ -54,6 +54,8 @@ const DEFAULT_SETTINGS: OmdHomeSettings = {
   captureSuggestLinksAndTags: true,
   captureOcrLanguage: "",
   captureAsrLanguage: "inherit-adapter-default",
+  douyinCookiesPath: "",
+  xhsCookiesPath: "",
   pinnedNotes: [],
 };
 

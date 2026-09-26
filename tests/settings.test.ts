@@ -9,6 +9,7 @@ import {
   localWritingModelOptionLabel,
 } from "../src/local-ai-readiness.ts";
 import { OllamaLocalClient } from "../src/ollama-local-client.ts";
+import { normalizeLocalAccessPath } from "../src/omnibox-utils.ts";
 
 const source = readFileSync(resolve("src/settings.ts"), "utf8");
 const captureRequestSource = readFileSync(resolve("src/capture-request.ts"), "utf8");
@@ -154,6 +155,29 @@ test("settings normalization does not persist hosted credentials in plugin data"
   const defaultSettings = extractConstObject(source, "export const DEFAULT_SETTINGS");
   assert.doesNotMatch(settingsInterface, /ApiKey/iu);
   assert.doesNotMatch(defaultSettings, /ApiKey/iu);
+});
+
+test("settings persist only bounded local social-cookie paths and preserve Unicode spaces", () => {
+  const normalized = helpers.normalizeOmdHomeSettings({
+    douyinCookiesPath: "  /Users/test/社交 access/抖音 cookies.txt  ",
+    xhsCookiesPath: "C:\\Users\\test\\小红书 cookies.txt",
+    douyinCookiesContents: "# Netscape HTTP Cookie File\nsecret",
+    xhsCookiesContents: "secret",
+  });
+  assert.equal(normalized.douyinCookiesPath, "/Users/test/社交 access/抖音 cookies.txt");
+  assert.equal(normalized.xhsCookiesPath, "C:\\Users\\test\\小红书 cookies.txt");
+  assert.equal("douyinCookiesContents" in normalized, false);
+  assert.equal("xhsCookiesContents" in normalized, false);
+  assert.equal(helpers.normalizeOmdHomeSettings({ douyinCookiesPath: "relative/cookies.txt" }).douyinCookiesPath, "");
+  assert.equal(helpers.normalizeOmdHomeSettings({ xhsCookiesPath: `/tmp/a\0cookies.txt` }).xhsCookiesPath, "");
+  assert.equal(
+    helpers.normalizeOmdHomeSettings({ xhsCookiesPath: "\\\\server\\share\\小红书 cookies.txt" }).xhsCookiesPath,
+    "\\\\server\\share\\小红书 cookies.txt",
+  );
+
+  const settingsInterface = extractTypeBody(source, "export interface OmdHomeSettings");
+  assert.doesNotMatch(settingsInterface, /cookie.*content/iu);
+  assert.match(source, /Only the path is saved; cookie contents stay inside the local OMD process/u);
 });
 
 test("calendar selection reconciliation clears stale and read-only defaults", () => {
@@ -324,7 +348,7 @@ test("settings use one readable layout for headings, cloud consent, keys, and en
   assert.match(source, /omd-settings-subheading/u);
   assert.match(source, /permission\.settingEl\.addClass\("omd-settings-model", "omd-settings-cloud-permission"\)/u);
   assert.match(source, /endpoint\.settingEl\.addClass\("omd-settings-model", "omd-settings-endpoint"\)/u);
-  assert.match(stylesSource, /\.omd-settings-endpoint-validation\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/su);
+  assert.match(stylesSource, /\.omd-settings-endpoint-validation,\s*\.omd-settings-path-validation\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/su);
   assert.match(stylesSource, /\.omd-settings-model \.setting-item-control :is\(select, input\[type="text"\], input\[type="password"\]\)/u);
   assert.match(stylesSource, /\.omd-settings-heading \.setting-item-name/u);
   assert.match(stylesSource, /\.omd-settings-advanced > p/u);
@@ -686,7 +710,8 @@ function loadSettingsHelpers(fileSource: string): {
     .replaceAll("new Set<string>()", "new Set()");
   const normalizeAsrBody = extractFunctionBody(fileSource, "function normalizeCaptureAsrLanguage")
     .replaceAll(" as OmdHomeSettings[\"captureAsrLanguage\"]", "");
-  return Function(`
+  const normalizeSavedAccessPathBody = extractFunctionBody(fileSource, "function normalizeSavedAccessPath");
+  return Function("normalizeLocalAccessPath", `
     const AI_PROVIDER_VALUES = ["ollama", "ollama-cloud", "openai", "anthropic", "deepseek"];
     const DEFAULT_AI_MODELS = { ollama: "qwen3:4b-instruct", "ollama-cloud": "", openai: "", anthropic: "", deepseek: "" };
     function isStoredAiProvider(value) { return typeof value === "string" && AI_PROVIDER_VALUES.includes(value); }
@@ -711,8 +736,9 @@ function loadSettingsHelpers(fileSource: string): {
     function normalizeOcrLanguageSet(value) ${normalizeOcrLanguageSetBody}
     function normalizeCaptureOcrLanguage(value) ${normalizeOcrBody}
     function normalizeCaptureAsrLanguage(value) ${normalizeAsrBody}
+    function normalizeSavedAccessPath(value) ${normalizeSavedAccessPathBody}
     return { DEFAULT_SETTINGS, normalizeOmdHomeSettings, reconcileCalendarSelection, normalizeDefaultExternalCalendarId };
-  `)() as ReturnType<typeof loadSettingsHelpers>;
+  `)(normalizeLocalAccessPath) as ReturnType<typeof loadSettingsHelpers>;
 }
 
 function extractConstObject(fileSource: string, signature: string): string {
