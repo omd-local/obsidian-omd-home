@@ -111,8 +111,7 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 正文写入后，仍校验写入前的 inode 和 `TFile` 对象；Obsidian 原子刷新后被误判为外部冲突。
 旧 **Review required** 还对所有 partial-failure 误称已尝试 rollback，但某些分支根本未进入 rollback。
 
-[用户截图与现场副本](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/evidence.json>) ·
-[截图](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/review-required-user.png>)
+原始用户截图与现场副本保存在非公开的本地 QA 证据集中；公开仓库不包含用户 vault 副本。
 
 **验收标准：**
 

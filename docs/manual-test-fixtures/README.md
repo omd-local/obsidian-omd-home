@@ -22,7 +22,9 @@ the first launch. They are controlled fixtures, not restored user data.
 - Ordinary path: `capture/small-local-file.html`
 - Path containing spaces: `capture/path with spaces/survival analysis sample.html`
 - Prepared tilde-expansion copy: `~/Desktop/OMD Home Test Fixtures/survival analysis sample.html`
-- Prepared Desktop space-path copy: `/Users/shion/Desktop/OMD Home Test Fixtures/survival analysis sample.html`
+- Prepared Desktop space-path copy: run
+  `printf '%s\n' "$HOME/Desktop/OMD Home Test Fixtures/survival analysis sample.html"` and use the
+  resolved absolute path.
 - Missing path: append `.missing` to either real path; do not create that file.
 - Retry path: submit `capture/retry/retry-source.html` while it is absent. After the failure, copy
   `capture/retry/retry-source.ready.html` to that exact path and use Needs attention -> Retry.

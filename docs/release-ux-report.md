@@ -26,15 +26,12 @@ batch 仍未连接。
 ## 最终候选安装与人工计划交接（2026-09-25）
 
 Home branch `agent/omd-home-baseline` 的已安装 bundle 对应候选为 `3b97518`，后端 branch
-`agent/release-ux-compat` 已推送到 `92a5aed`。在现有
-`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` 中只替换 `main.js`、`styles.css`、
+`agent/release-ux-compat` 已推送到 `92a5aed`。在仓库的可丢弃测试 vault 中只替换 `main.js`、`styles.css`、
 `manifest.json`，随后通过 Obsidian Community plugins 原生停用／启用 OMD Home。安装后的三个
 SHA-256 与下方最终候选完全一致；`data.json` 逐字节未变，安装前后 54 个 Markdown 的 SHA-256
-清单一致，插件仍处于启用状态。旧资产、设置与笔记清单备份在
-`/private/tmp/omd-home-test-vault-pre-3b97518`。
+清单一致，插件仍处于启用状态。旧资产、设置与笔记清单保存在测试机的非公开本地备份中。
 
-重载后 OMD 显示 **OMD ready**，使用精确候选路径
-`/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`，package `0.3.0b2`、protocol v1；
+重载后 OMD 显示 **OMD ready**，使用显式选择的兼容候选 executable，package `0.3.0b2`、protocol v1；
 DeepSeek API / `deepseek-flash` 的 **Check setup** 于 11:02:17 显示 ready。本次只做 setup check，
 没有发送 Vault 问题或 evidence。原来的 DeepSeek incomplete result／Needs attention 保留，供修复前后
 对照，没有替用户关闭或改写历史错误。
@@ -42,8 +39,8 @@ DeepSeek API / `deepseek-flash` 的 **Check setup** 于 11:02:17 显示 ready。
 人工计划已从测试者当前进度第 8 行 AI-03 继续。相同候选安装不要求重跑队列第 1–4、6、7 行；
 只补 provider 下拉关闭状态的窄窗可读性、`deepseek-v4-pro`／`deepseek-flash` 完整结构化输出、
 Keyword fallback 默认动作三处。早期结果若尚未填表，只补录实际 verdict 与证据，不能因已经走到
-AI-03 自动记 PASS。完整交接证据见
-[`test-vault-upgrade-2026-09-25.md`](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/rc-p2-2026-09-24/test-vault-upgrade-2026-09-25.md>)。
+AI-03 自动记 PASS。完整交接记录为本地 QA 证据
+`test-vault-upgrade-2026-09-25.md`，未包含在公开仓库中。
 
 ## P2 Review 工作区最终复测（2026-09-24）
 
@@ -71,8 +68,8 @@ AI-03 自动记 PASS。完整交接证据见
 OMD 后端 **1685 / 1685** tests、Ruff 和排除 macOS `._*` AppleDouble 元数据后的 `py_compile` 通过；
 两个仓库 `git diff --check` 通过。
 
-RC-P2-01–03 已在独立原生 Obsidian vault `/private/tmp/omd-rc-p2-native-vault` 完成；用户同时使用的
-`test-vault` 没有收到点击、键盘、重载或 bundle 安装。结果如下：
+RC-P2-01–03 已在独立、可丢弃的原生 Obsidian QA vault 完成；用户同时使用的主人工测试 vault
+没有收到点击、键盘、重载或 bundle 安装。结果如下：
 
 - **RC-P2-01 PASS：** Actual Size 与约 150% 下无横向滚动；Recognition／Optional local AI 最后一项
   均保留 12px block-end 留白；底部 Cancel／Capture 可滚动到达；Cancel 不创建 note 或更改默认值。
@@ -88,8 +85,7 @@ RC-P2-01–03 已在独立原生 Obsidian vault `/private/tmp/omd-rc-p2-native-v
 
 36 组全页矩阵、10 组 Review generating／proposal 矩阵和 5 组错误态矩阵均无页面异常、横向溢出、
 越界或真实控件重叠；视觉判定 94 / 100，保持原 minimal 风格。最终 production bundle 在独立 vault
-完成停用／启用重载。证据见
-[`native-verification.md`](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/rc-p2-2026-09-24/native-verification.md>)。
+完成停用／启用重载。原生记录 `native-verification.md` 保存在非公开的本地 QA 证据集中。
 
 ## AI answers 收口复测（2026-09-24）
 
@@ -105,8 +101,8 @@ RC-P2-01–03 已在独立原生 Obsidian vault `/private/tmp/omd-rc-p2-native-v
 
 新增代码提交：Home `80b147a`；OMD `7994ba7`。Home 633 / 633 tests、TypeScript、ESLint、production
 build 与 `git diff --check` 通过；OMD 1685 / 1685 tests、Ruff、过滤 `._*` 后的 `py_compile` 与
-`git diff --check` 通过。原生 provider 宽度截图：
-[`answer-provider-500.png`](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/rc-p2-2026-09-24/visual/answer-provider-500.png>)。
+`git diff --check` 通过。原生 provider 宽度截图 `answer-provider-500.png` 保存在非公开的本地 QA
+证据集中。
 
 ## P0 / P1 发布收口（2026-09-21）
 
@@ -139,9 +135,8 @@ folder／list batch 当时都仍是 **Deferred / P2**。Douyin／XHS 后续实�
 ## Automatic OMD 与 Recognition 修复（2026-09-19）
 
 用户重开 Obsidian、选择 Automatic 并点击 **Check again** 后，Recognition 只显示
-**No language preference**。原生重现确认插件先接受 `/opt/homebrew/bin/omd`；该 Homebrew 安装的
-capability 只有 `enrich_note`。同机较后的
-`/opt/homebrew/Caskroom/miniconda/base/bin/omd` 广告完整 capture language contract 和已安装的
+**No language preference**。原生重现确认插件先接受一份旧的 Homebrew OMD launcher；该安装的
+capability 只有 `enrich_note`。同一测试机上的另一份较新 OMD 安装广告完整 capture language contract 和已安装的
 `eng`、`chi_sim`、`chi_tra` packs，但旧探测会在到达它之前停止。
 
 修复使 Automatic 优先选择同时支持 enrichment 与 Recognition contract 的候选，因此会跳过上述
@@ -157,8 +152,8 @@ OMD-01 的旧候选跳过子项记为 **PASS**。CAP-02 第 11 步仍需在真�
 
 安装资产 SHA-256：`main.js` `0b027dd0665daa3701c242bf748566ff99c5f1706fe90f33789e867d9e9120ed`；
 `styles.css` `8e175571fe0e67b8fdcfe3280cda7e982b500f50398c3574a59221123add0c77`；
-`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。
-[原生复测记录](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/automatic-discovery/native-verification.md>)。
+`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。原生复测记录保存在非公开的
+本地 QA 证据集中。
 
 ## CAP-06 后台继续 A（2026-09-20）
 
@@ -225,9 +220,7 @@ enrichment 定向测试 29 / 29。两次独立代码 / 架构复审均为 APPROV
 frontmatter 故障和保护性回滚也使用故障注入测试验证，没有在人工作业中制造文件系统竞态。
 生成等待标识不明显仍见 UI-04；自动发现旧 Homebrew launcher 的独立子项仍未完成。
 
-[原始失败证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-apply-feedback/evidence.json>) ·
-[修复后的原生复测](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ui05-ui06/native-verification.md>) ·
-[8 组视觉结果](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ui05-ui06/visual-results.json>)
+原始失败证据、修复后的原生复测记录和 8 组视觉结果保存在非公开的本地 QA 证据集中。
 
 ## CAP-01A 人工反馈与源码修复（22:50 已安装）
 
@@ -247,7 +240,7 @@ No language preference 标签完整显示，无横向溢出、控件重叠；提
 用户随后提供 **17 Sept 22:26** 的原生截图：Capture failed 正文明确说明无法提取内容，
 建议页面图片 OCR 或文字层 PDF；读取 test-vault 未发现该来源 Markdown。
 **扫描 PDF 限制处理：PASS（用户原生截图 + 只读文件核对）**；扫描 PDF OCR 功能仍不支持。
-[用户截图](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ocr-simplified-investigation/scanned-pdf-native-user.png>)。
+用户截图保存在非公开的本地 QA 证据集中；公开仓库不包含用户 vault 截图。
 
 **22:50–22:54 更新完成**：按用户要求安装新 bundle，经原生插件管理停用 / 启用加载。
 Check setup ready；图片路径先打开 Recognition 的行为、语言选择完整显示、取消后默认恢复均通过。
@@ -255,11 +248,10 @@ Suggested note topics / Idea only 文案包含在当前已核对的 bundle；原
 前后 23 份 Markdown 与插件设置内容一致。语音测试按用户确认记录 **PASS**，未补填逐模式细项。
 CAP-02 草稿已填好小型 HTML，链接 / 标签审核开启、润色关闭，未提交。
 自动发现解析到另一套 Homebrew 安装；本轮保留已验证的工作区 OMD，自发现子项仍待独立验收。
-[安装哈希、原生检查与交接](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-update/native-handoff.md>)。
+安装哈希、原生检查与交接记录保存在非公开的本地 QA 证据集中。
 “new-concept-1/2”等模型生成的占位主题仍是未解决的内容质量问题。当前不应宣称全部发布问题已关闭。
 
-[本轮证据与边界](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ocr-simplified-investigation/verification.md>) ·
-[明确操作步骤](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/manual-test-start.md>)
+本轮证据边界与当时的明确操作步骤保存在非公开的本地 QA 证据集中。
 
 ## Minimal 风格修正与 Pin 对齐（最终候选）
 
@@ -269,7 +261,7 @@ Pin / Unpin 不再按每行文字计算列宽，Recent、Pinned、Inbox 和搜�
 
 本次生产代码仅修改 `src/styles.css`，并同步 `tests/home-view.test.ts` 的布局断言；没有撤回之前的功能修复，也没有新依赖。另更新本报告与 `docs/manual-test-plan.md` 的候选身份，保留旧测试记录。
 
-[本轮 48 组验证、截图与模拟边界](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/minimal-followup/verification.md>) · [原生复测记录](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/minimal-followup/native-verification.md>)
+本轮 48 组验证、截图、模拟边界与原生复测记录保存在非公开的本地 QA 证据集中。
 
 ## 逐项验收
 
@@ -300,7 +292,8 @@ Pin / Unpin 不再按每行文字计算列宽，Recent、Pinned、Inbox 和搜�
 | Markdown 润色 | 模型删句、改日期或损坏链接 / 代码 / 公式时拒绝改写、保留原文并警告 | 两个真实本地模型 + 坏输出回放 |
 | 文案 | 缩短重复模型目录说明；去除实现细节；提示说明下一步；统一术语与同类文字排版 | 源码审查 + 截图 / 原生检查 |
 
-Settings 的 39 项完整清单：[settings-findings.md](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/settings-findings.md>)。其他逐项清单：[Home / Calendar](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/home-findings.md>)、[Capture / Consent](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/modals-findings.md>)、[Omnibox / Runtime](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/runtime-findings.md>)。
+Settings 的 39 项完整清单，以及 Home / Calendar、Capture / Consent、Omnibox / Runtime 的逐项清单，
+保存在非公开的本地 QA 证据集中。
 
 ## 视觉与交互覆盖
 
@@ -312,13 +305,8 @@ Settings 的 39 项完整清单：[settings-findings.md](</Volumes/Transcend_q/a
 - 108 个浏览器动作场景、30 次 provider 切换通过；紧凑布局隐藏的桌面布局控件有明确跳过记录。
 - 浏览器使用真实页面源码、真实 Obsidian CSS、完整 FullCalendar 样式；转换、模型、凭证、外部日历操作在组件环境中模拟。
 
-[视觉报告与截图索引](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/visual/verification.md>) · [可复现浏览器工具与模拟边界](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/visual-harness/README.md>)
-
-![Minimal 风格与一致的 Pin 列](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/minimal-followup/visual/after-home-1280x900-1.5-dark-pin-recent.png>)
-
-![最终日历](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/minimal-followup/visual/after-calendar-900x700-1.5-dark.png>)
-
-![真实设置宽度与长状态文字](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/minimal-followup/visual/after-native-settings-900x700-1-dark.png>)
+视觉报告、截图索引、可复现浏览器工具与模拟边界保存在非公开的本地 QA 证据集中。该证据集包含
+Minimal 风格与一致的 Pin 列、最终日历，以及真实设置宽度与长状态文字三张代表截图。
 
 ## 材料、模型与语言的实测范围
 
@@ -329,7 +317,7 @@ Settings 的 39 项完整清单：[settings-findings.md](</Volumes/Transcend_q/a
 - 0.6b 的部分 enrichment 结果结构合格但语义相关性较弱；4b 生成未知标签的结果被安全拒绝。因此不宣称更大的模型必然成功，或所有模型与所有语言均已合格。
 - Optional polish 和链接 / 标签建议仍使用本地 writing model；切换回答 provider 不会使这些功能自动支持云模型。
 
-[完整兼容性报告与原始结果](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/compatibility/compatibility-findings.md>)
+完整兼容性报告与原始结果保存在非公开的本地 QA 证据集中。
 
 20:45 候选时尚未实测（OCR / 扫描 PDF 的后续证据见上方）：真实云请求 / 凭证、日历写入、麦克风、音视频识别、图像 OCR、扫描 PDF、CJK / Arabic PDF 正文字体、Office / EPUB 等其他转换格式。当前识别界面明确区分图像 OCR 与扫描 PDF；本次没有新增扫描 PDF OCR 功能。界面语言仍为统一英文，本次支持的是多语言文件名、输入、内容与标签，不是完整界面本地化。
 
@@ -339,7 +327,8 @@ OMD Home 实际源码：`src/styles.css`、`settings.ts`、`modals.ts`、`home-v
 
 OMD 后端实际源码：`omd/{_polish_md,tag_normalization,capture,enrich_note,retrieval}.py`。
 
-完整文件清单：[Home 22 个源码 / 测试文件](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/home-integrated-files.json>)、[后端 9 个源码 / 测试文件](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/backend-integrated-files.json>)。原有未提交工作保留。没有新增依赖。
+完整文件清单记录了 Home 的 22 个源码／测试文件和后端的 9 个源码／测试文件，保存在非公开的本地
+QA 证据集中。原有未提交工作保留。没有新增依赖。
 
 简化：主题变量集中到 OMD 页面作用域；统一字体和控件规则；复用既有设置保存队列和日历动作保护；复用 Unicode 标签规范化；删除重复的冗长模型目录拼接。
 
@@ -349,8 +338,9 @@ OMD 后端实际源码：`omd/{_polish_md,tag_normalization,capture,enrich_note,
 
 - 最终 minimal 候选重新运行 `npm run check`：563 / 563 通过；TypeScript、ESLint、生产构建与 `git diff --check` 通过。
 - 上一轮 `.venv/bin/python -m pytest -q`：1627 / 1627 通过，39.55 秒。本次只改前端样式，未重复运行后端测试。
-- 独立 UI 复审发现并解决键盘移动失焦和跨午夜过期；[复审证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/review-findings.md>)。
-- 独立后端复审发现并解决嵌套链接 / 代码 / 公式保护缺口及 Unicode 身份差异；[最终复审](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/backend-review.md>)。
+- 独立 UI 复审发现并解决键盘移动失焦和跨午夜过期；复审记录保存在非公开的本地 QA 证据集中。
+- 独立后端复审发现并解决嵌套链接 / 代码 / 公式保护缺口及 Unicode 身份差异；最终复审记录保存在
+  非公开的本地 QA 证据集中。
 - 上一轮核对的原有 13 份 Markdown 未修改；本次重载前后现有 22 份 Markdown SHA-256 全部一致，插件设置 JSON 内容完全一致。额外文件来自测试库现有内容，不归因为本轮创建。材料转换仍使用上一轮隔离输出库。
 - 20:45 原生复测时的插件 main.js / styles.css / manifest.json 与当时构建哈希一致；后续修复已于 22:50 安装，见上方更新记录。
 - 原源码备份：`source-backup/`；原插件与设置备份：`installed-plugin-backup/`。本次没有修改账号凭证、安装依赖或下载模型。

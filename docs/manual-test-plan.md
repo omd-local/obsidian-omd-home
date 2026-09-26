@@ -11,8 +11,10 @@ OMD Home 是桌面插件。Calendar / EventKit 测试只适用于 macOS 14 或�
 
 - `OMD Home 源码目录`：包含 `package.json`、`src/`、`main.js` 的 Git 仓库。
 - `vault 根目录`：包含笔记以及隐藏目录 `.obsidian` 的文件夹。
-- `插件安装目录`：`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home`。
-- `仓库 test-vault`：`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault`，专门用于隔离测试。
+- `插件安装目录`：`$PLUGIN_DIR`，也就是测试 vault 下的
+  `.obsidian/plugins/omd-home`。
+- `仓库 test-vault`：默认使用 `$REPO_ROOT/test-vault`，专门用于隔离测试；也可以把
+  `$TEST_VAULT` 指向其他可丢弃 vault。
 - `data.json`：该 vault 的 OMD Home 设置、布局和模型选择。它不是发布资产。
 - `发布资产`：只包括 `main.js`、`manifest.json`、`styles.css`。
 - `EventKit helper`：可选的 macOS 可执行文件 `omd-eventkit`，不属于三项 Community
@@ -24,16 +26,35 @@ Obsidian 没有一个必须清理的“全局插件目录”。每个 vault 都�
 `.obsidian/plugins/omd-home`。如果你还创建过其他 sandbox/test vault，只清理那个 vault
 自己的插件目录；不要删除整个 `.obsidian`、`.obsidian/plugins`、vault 或源码仓库。
 
-本文命令中的 `<源码目录>`、`<version>` 和 `/absolute/path/...` 都是占位符，不能
-原样输入：
+开始测试前，在 Terminal 进入 clone 下来的仓库，然后设置本计划使用的路径变量：
 
-- `<源码目录>` 要换成 clone 下来的 `obsidian-omd-home` 文件夹。
+```bash
+cd "/absolute/path/to/obsidian-omd-home"
+export REPO_ROOT="$PWD"
+export TEST_VAULT="$REPO_ROOT/test-vault"
+export PLUGIN_DIR="$TEST_VAULT/.obsidian/plugins/omd-home"
+export OMD_BIN="/absolute/path/to/omd"
+export RELEASE_DIR="$REPO_ROOT/../omd-home-0.1.1-clean"
+```
+
+`OMD_BIN` 必须指向本轮实际测试的 OMD executable；如果使用 Automatic discovery，可以保留
+占位值，但不要把它粘贴进 Settings。`RELEASE_DIR` 只用于 REL-01 的解压／构建资产目录。
+
+本文命令中的 `$REPO_ROOT`、`$TEST_VAULT`、`$PLUGIN_DIR`、`$OMD_BIN`、`$RELEASE_DIR`、
+`<version>` 和 `/absolute/path/...` 都是变量或占位符：
+
+- `$REPO_ROOT` 是 clone 下来的 `obsidian-omd-home` 文件夹。
+- `$TEST_VAULT` 必须是可丢弃的测试 vault，不能指向唯一一份重要 vault。
 - `<version>` 要换成 Release 页面显示的准确版本，例如 `0.1.1`。
 - 路径含空格时保留外层双引号，不要自己在双引号内再加入 `\ `。
 
-本轮测试 vault 已固定为
-`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault`；本文所有 vault 安装、清理和验证命令均使用
-这一准确路径。不要把源码目录 `/Volumes/Transcend_q/APPS/AI/omd-home` 本身当作 vault 删除。
+Shell 命令会展开上述变量。需要把 fixture 路径粘贴进 Obsidian 时，先在 Terminal 运行例如
+`printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"`，再复制输出的
+绝对路径；不要把文字 `$REPO_ROOT` 原样粘进 Capture。
+
+本文所有 vault 安装、清理和验证命令都使用 `$TEST_VAULT`。执行任何删除或替换前先运行
+`printf 'REPO_ROOT=%s\nTEST_VAULT=%s\nPLUGIN_DIR=%s\n' "$REPO_ROOT" "$TEST_VAULT" "$PLUGIN_DIR"`
+核对路径；不要把 `$REPO_ROOT` 本身当作 vault 删除。
 
 不知道 vault 路径时，在 Obsidian 的 vault switcher 中找到该 vault，选择 **Show in system
 explorer / Reveal in Finder**；也可以在 Finder 中找到 vault 文件夹后，把它拖进 Terminal，
@@ -95,9 +116,9 @@ Check setup；不要从历史交接继续，也不要重新清空 vault。第 8 
 | --- | --- |
 | Home 候选 | branch `agent/omd-home-baseline`；已安装 bundle 对应 `85d950a`（post-send 基线 `fadca06`；Cloud metadata 基线 `cf541dc`；P2 核心实现 `7ec42d9`） |
 | OMD 后端 | branch `agent/release-ux-compat`，已推送 HEAD `92a5aed`；运行时修复 `7994ba7` |
-| 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
+| 测试 vault | `$TEST_VAULT` |
 | 候选 Home bundle | `main.js` `0d7cb02ff32671c472735811acad9cdc8a21d1328a503272687ef9fcb5045c04`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
-| OMD executable | `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
+| OMD executable | `$OMD_BIN`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
 | Local writing / answer model | `qwen3:4b-instruct`；DeepSeek API / `deepseek-flash` 于 2026-09-25 11:02:17 原生 **Check setup** 显示 ready |
 | 当前数据 | 原 `data.json` 保持逐字节一致；安装前后 54 个 Markdown 的 SHA-256 清单一致；Current task 为 idle |
 | 自动门禁 | Home 637 / 637、TypeScript、ESLint、production build；覆盖 Cloud prompt-schema、单一 wrapper JSON 恢复、null usage、empty／unfinished HTTP 200 与安全错误映射；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
@@ -191,10 +212,10 @@ PASS。插件不得自动重发已经获批过的 Cloud 请求。
 
 #### RC-P2-01：Capture 留白与 viewport（UI-13）
 
-1. 打开 **Capture URL or file**，粘贴但不要提交：
+1. 在 Terminal 解析 fixture 的绝对路径，然后打开 **Capture URL or file**，粘贴输出但不要提交：
 
-   ```text
-   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
    ```
 
 2. 展开 Recognition，逐项检查 **Image text language** 与 **Speech language**。下拉框底部到分隔线应
@@ -217,11 +238,11 @@ PASS。插件不得自动重发已经获批过的 Cloud 请求。
 在 Terminal 执行以下命令；只覆盖本节的四个测试副本，不清空 vault：
 
 ```bash
-mkdir -p "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests"
-cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 Short.md"
-cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 Conflict.md"
-cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review Multilingual Long Filename 中文 العربية.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md"
-cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/vault-notes/OMD Review User Summary Collision.md" "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/OMD Manual Tests/RC P2 User Summary Collision.md"
+mkdir -p "$TEST_VAULT/OMD Manual Tests"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Short.md"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Conflict.md"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review Multilingual Long Filename 中文 العربية.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review User Summary Collision.md" "$TEST_VAULT/OMD Manual Tests/RC P2 User Summary Collision.md"
 ```
 
 等 Obsidian File explorer 出现四份 note。它们都应进入 OMD Inbox 和 Recent；若旧副本已经
@@ -308,10 +329,10 @@ B. **生成等待状态（UI-04）**
 
 C. **Capture 留白与响应式布局（UI-13）**
 
-1. 打开 **Capture URL or file**，粘贴但不要提交：
+1. 在 Terminal 解析 fixture 的绝对路径，然后打开 **Capture URL or file**，粘贴输出但不要提交：
 
-   ```text
-   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
    ```
 
 2. 对照 Source、Tags、Recognition、Optional local AI 与底部操作区：标题、说明、dropdown、toggle
@@ -323,10 +344,10 @@ C. **Capture 留白与响应式布局（UI-13）**
 
 D. **关闭单条历史错误（UI-14）**
 
-1. Capture 以下确定不存在的路径：
+1. 在 Terminal 解析以下确定不存在的路径，再把输出粘贴进 Capture：
 
-   ```text
-   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/ui-14-dismiss-me.html
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/ui-14-dismiss-me.html"
    ```
 
 2. 等待 Needs attention 出现这一个 **Capture can be retried** 卡片；确认卡片有可读名称的 `×`，用
@@ -439,10 +460,10 @@ PASS。CAP-01A、CAP-06 B／C、OMD-01／AI-02 如结果表仍空，只补录此
 CAP-02 已停在 `capture/small-local-file.html` 的 Capture 草稿，Review links and tags 开启、
 Polish Markdown 关闭、Tags 留空，尚未提交。模型仍为 qwen3:0.6b。
 
-本轮功能验收使用原有已验证的 `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`。
-自动发现探测解析 `/opt/homebrew/bin/omd`，其最小能力响应支持 enrich_note v1，但无 package / protocol 身份，
+本轮功能验收使用原有已验证的 `$OMD_BIN`。
+自动发现探测解析到一份旧的 Homebrew launcher；其最小能力响应支持 enrich_note v1，但无 package / protocol 身份，
 不能确认含本轮后端修复；已恢复原路径。**自动发现与旧安装跳过子项仍待单独验收**，不计入本次功能通过。
-[原生交接证据](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/cap-02-update/native-handoff.md>)。
+原生交接记录保存在非公开的本地 QA 证据集中。
 
 ### 1.3A.2 2026-09-17 20:45 历史候选
 
@@ -453,7 +474,7 @@ Polish Markdown 关闭、Tags 留空，尚未提交。模型仍为 qwen3:0.6b。
 | 构建 / 原生复测时间 | 2026-09-17 20:43–20:45 NZST |
 | 候选来源 | HEAD `bb531beb20fbc4f84d41fb0b8cf980c95da44b04` 加当前未提交修复；下面资产哈希才是本轮准确安装身份，并非已发布 Release |
 | manifest / Obsidian | `0.1.1` / `1.13.7` |
-| 测试 vault | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
+| 测试 vault | `$TEST_VAULT` |
 | 自动化 | `npm run check`：563 / 563，TypeScript / ESLint / production build 通过；`git diff --check` 通过。上一轮后端 1627 项通过；本次 CSS 修正未重复运行后端 |
 | UI 复测 | minimal 风格恢复；48 组浏览器布局检查通过；插件停用 / 启用后原生 Pin、Settings、Capture、Event 校验通过 |
 | 数据状态 | 原生复测前后 22 份 Markdown 与插件设置内容一致；无运行中的任务 |
@@ -483,14 +504,14 @@ node -p 'require("./manifest.json").version'
 | 字段 | 值 |
 | --- | --- |
 | 日期与时间 | 2026-09-13 22:37 NZST |
-| 测试者 | shion |
+| 测试者 | manual tester |
 | 上一轮已记录 baseline commit | `6adac24442caa450a76184c728284ca26bdb086f` |
 | 当前安装候选来源 | branch `agent/omd-home-baseline`，代码与测试 commit `8849dc7`；包含 hosted-answer、embedding recovery、grounding contract、隐私边界、错误分类、Ollama Cloud alias、malformed model metadata fail-closed、hosted key Save & check、检索方式英文文案与 Settings UI-01–03 修复；2026-09-13 22:37 NZST 重新构建并安装到 test-vault；准确 bundle 身份以下方 SHA-256 为准 |
 | manifest 版本 | `0.1.1` |
 | Obsidian 版本 | `1.13.7` |
 | macOS 版本 | `26.6.2` |
-| vault 绝对路径 | `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault` |
-| OMD 版本/commit | `0.3.0b2` / `0d8765fca55ff7a93bd970a00a2d7c0d20b50fe4`；`/opt/homebrew/bin/omd` 是不兼容的旧 Homebrew launcher，兼容候选为 `/opt/homebrew/Caskroom/miniconda/base/bin/omd` 与源码 `.venv/bin/omd`；人工测试时仍以 Settings 实际解析路径为准 |
+| vault 绝对路径 | `$TEST_VAULT` |
+| OMD 版本/commit | `0.3.0b2` / `0d8765fca55ff7a93bd970a00a2d7c0d20b50fe4`；一份旧 Homebrew launcher 不兼容，兼容候选来自另一份本地安装与源码 `.venv/bin/omd`；人工测试时仍以 Settings 实际解析路径为准 |
 | Ollama 版本 | client / daemon `0.33.3`；`/api/status` 为 `cloud.disabled: false`、`source: none`；Cloud 状态仅作环境记录，本地模型测试不要求 `cloud.disabled: true` |
 | Completion model | `qwen3:4b-instruct` 与 `qwen3:0.6b`（本地已安装）；另有 cloud-backed `gpt-oss:20b-cloud`，不得出现在 local-only model 路径 |
 | Embedding model | Settings 已保存 `bge-m3`，但尚未安装；执行 AI-09 前再运行 `ollama pull bge-m3` |
@@ -528,9 +549,7 @@ AI-07/CAP-02 前确认 endpoint 为 `http://localhost:11434`、Ollama 已启动�
 `dist/omd-eventkit` 是可选 helper 的构建产物。`Manual Test Notes/` 中预装的 5 篇 Markdown fixtures 是受控
 测试素材，不是从用户 vault 恢复的数据。上一轮完整 test-vault 没有永久删除，保存在：
 
-```text
-/Volumes/Transcend_q/APPS/AI/omd-home-test-vault-backups/20260909-004952-NZST-pre-final-resume
-```
+历史备份保存在测试机的非公开本地备份目录；该位置不是发布资产，也不是复测输入。
 
 不要为恢复测试而把旧备份覆盖回活动 vault。`npm run install:test-vault` 会保留现有
 `data.json`，但在 helper 已构建时也会安装它；只有专门重测“无 helper 的首次安装”时才按
@@ -542,7 +561,7 @@ Install-00 建立新的干净基线。`_attachments/`、`Index/` 和 `Sources/` 
 ### 1.4 本轮已经准备的测试素材
 
 素材总说明位于
-`/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/README.md`。所有内容都是
+`$REPO_ROOT/docs/manual-test-fixtures/README.md`。所有内容都是
 synthetic，可安全编辑、转换和删除，不包含个人资料。
 
 | 测试 | 素材位置 | 当前状态 |
@@ -550,7 +569,7 @@ synthetic，可安全编辑、转换和删除，不包含个人资料。
 | HOME-01 / Pin / Vault tags | `test-vault/Manual Test Notes/` | 5 篇已预装；首次打开即可使用 |
 | CAP-01 普通路径、空格路径、拖放 | `docs/manual-test-fixtures/capture/` 与 `generated/` | 已生成 |
 | `~/` 路径 | `~/Desktop/OMD Home Test Fixtures/survival analysis sample.html` | 已复制 |
-| Desktop 空格路径 | `/Users/shion/Desktop/OMD Home Test Fixtures/survival analysis sample.html` | 已复制 |
+| Desktop 空格绝对路径 | 运行 `printf '%s\n' "$HOME/Desktop/OMD Home Test Fixtures/survival analysis sample.html"` 后复制输出 | 已复制 |
 | CAP-01A OCR / scanned PDF / ASR | `docs/manual-test-fixtures/generated/` | 3 PNG、1 PDF、2 WAV 已验证 |
 | AI-08 / AI-09 RAG | `docs/benchmark-vault/` | 保留在 vault 外；到相应 Case 才按步骤导入 |
 
@@ -633,16 +652,15 @@ gh release download <version> \
 必须在源码目录运行：
 
 ```bash
-cd "/absolute/path/to/obsidian-omd-home"
+cd "$REPO_ROOT"
 npm run build
 npm run install:test-vault
 ```
 
-脚本会安装到：
-
-```text
-/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home
-```
+`npm run install:test-vault` 固定安装到 `$REPO_ROOT/test-vault/.obsidian/plugins/omd-home`。因此只在
+`$TEST_VAULT` 保持默认值时使用该脚本；若 `$TEST_VAULT` 指向其他可丢弃 vault，请按下方手动复制
+三项发布资产的步骤安装，不要误以为脚本会读取自定义变量。默认配置下，安装位置就是
+`$PLUGIN_DIR`。
 
 它会：
 
@@ -660,7 +678,7 @@ npm run install:test-vault
 分支时，必须先按第 3 节把整个旧目录移走，再运行脚本。
 
 然后在 Obsidian 中选择 **Open folder as vault**，打开
-`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault`。
+`$TEST_VAULT`。
 
 <a id="guide-clean-install"></a>
 
@@ -668,7 +686,7 @@ npm run install:test-vault
 
 ### 3.1 先决定是否保留旧设置
 
-`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/data.json`
+`$PLUGIN_DIR/data.json`
 包含本地设置和布局。
 
 - 要模拟真正的首次安装：把整个 `omd-home` 文件夹移出插件目录，不恢复 `data.json`。
@@ -683,7 +701,7 @@ npm run install:test-vault
 2. 完全退出 Obsidian；只关闭窗口不一定会卸载插件进程。
 3. 在 Finder 按 `Command + Shift + G`。
 4. 输入测试 vault 的准确路径，例如：
-   `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins`。
+   `$TEST_VAULT/.obsidian/plugins`。
 5. 找到文件夹 `omd-home`。如果 Obsidian 的 Uninstall 已经把它删掉，这里看不到是正常的。
 6. 如果仍存在，把整个文件夹移动到 vault 外部的备份位置或废纸篓。
 7. 确认 `.obsidian/plugins` 中不再有 `omd-home`。
@@ -699,31 +717,31 @@ Ollama、模型或其他 vault 中的独立安装；这些也不应该在本测�
 先检查目标，确认输出的确是要测试的 vault：
 
 ```bash
-ls -la "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home"
+ls -la "$PLUGIN_DIR"
 ```
 
 然后把旧插件移到 vault 外的备份位置：
 
 ```bash
-mv "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home" \
+mv "$PLUGIN_DIR" \
    "/absolute/path/outside-vault/omd-home-backup-before-test"
 ```
 
 - 备份目标不能已经存在；如果存在，换一个明确的新名字。
 - 如果 `ls` 显示 “No such file or directory”，表示这个 vault 没有旧安装，可以跳过移动。
 - 不要把备份留在 `.obsidian/plugins` 内，否则 Obsidian 可能仍把它识别为插件。
-- 不要运行针对 `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault`、`.obsidian` 或 `plugins`
+- 不要运行针对 `$TEST_VAULT`、`.obsidian` 或 `plugins`
   上级目录的递归删除命令。
 
 确认已经从 vault 移除：
 
 ```bash
-test ! -e "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home" \
+test ! -e "$PLUGIN_DIR" \
   && echo "Old OMD Home install is absent"
 ```
 
 如果你是手动移动目录而不是使用 Obsidian 的 Uninstall，
-`/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/community-plugins.json`
+`$TEST_VAULT/.obsidian/community-plugins.json`
 中可能仍保留字符串 `"omd-home"`。这不会让缺失的代码
 继续运行，但会影响“用户需要手动 Enable”的首次安装测试。普通重装可以保留它；真正的 onboarding
 测试应优先用 UI Uninstall。如果 UI 无法使用，只在 Obsidian 已退出且已经备份该文件时，用文本
@@ -736,9 +754,9 @@ test ! -e "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/om
 `data.json`，只更新三项资产。首次安装使用两个不同目录，不能混淆：
 
 - **候选资产来源（干净 checkout）**：
-  `/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean`
+  `$RELEASE_DIR`
 - **插件安装目标（实际测试 vault）**：
-  `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home`
+  `$PLUGIN_DIR`
 
 不要在原始 working repo 内再次运行 `git clone`。也不要在
 `omd-home-0.1.1-clean` 中运行 `npm run install:test-vault`：那会安装到干净 checkout 自己的
@@ -747,7 +765,7 @@ test ! -e "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/om
 #### 第一步：确认 Obsidian 已退出，目标仍是干净状态
 
 ```bash
-test ! -e "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home" \
+test ! -e "$PLUGIN_DIR" \
   && echo "Ready: no previous OMD Home install"
 ```
 
@@ -757,7 +775,7 @@ test ! -e "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/om
 #### 第二步：确认候选源码身份并重新构建
 
 ```bash
-cd "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean"
+cd "$RELEASE_DIR"
 git status --short
 git rev-parse HEAD
 node -p 'require("./manifest.json").version'
@@ -776,26 +794,26 @@ npm run build
 
 ```bash
 ls -lh \
-  "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/main.js" \
-  "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/manifest.json" \
-  "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/styles.css"
+  "$RELEASE_DIR/main.js" \
+  "$RELEASE_DIR/manifest.json" \
+  "$RELEASE_DIR/styles.css"
 ```
 
 #### 第三步：创建目标插件目录
 
 ```bash
-mkdir -p "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home"
+mkdir -p "$PLUGIN_DIR"
 ```
 
 #### 第四步：复制同一次 build 的三个文件
 
 ```bash
-cp "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/main.js" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/main.js"
-cp "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/manifest.json" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/manifest.json"
-cp "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/styles.css" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/styles.css"
+cp "$RELEASE_DIR/main.js" \
+   "$PLUGIN_DIR/main.js"
+cp "$RELEASE_DIR/manifest.json" \
+   "$PLUGIN_DIR/manifest.json"
+cp "$RELEASE_DIR/styles.css" \
+   "$PLUGIN_DIR/styles.css"
 ```
 
 #### 第五步：确认安装完整且没有混入另一版本
@@ -804,7 +822,7 @@ cp "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/styles.css" \
 Release。下面的命令忽略这些元数据，只列出实际插件文件：
 
 ```bash
-find "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home" \
+find "$PLUGIN_DIR" \
   -maxdepth 1 -type f ! -name '._*' -print | sort
 ```
 
@@ -812,23 +830,23 @@ find "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-hom
 manifest：
 
 ```bash
-node -p 'require("/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/manifest.json").version'
+node -p "require(process.env.PLUGIN_DIR + '/manifest.json').version"
 ```
 
 预期为 `0.1.1`。最后逐项比较源文件和安装文件：
 
 ```bash
 cmp -s \
-  "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/main.js" \
-  "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/main.js" \
+  "$RELEASE_DIR/main.js" \
+  "$PLUGIN_DIR/main.js" \
   && echo "main.js matches"
 cmp -s \
-  "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/manifest.json" \
-  "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/manifest.json" \
+  "$RELEASE_DIR/manifest.json" \
+  "$PLUGIN_DIR/manifest.json" \
   && echo "manifest.json matches"
 cmp -s \
-  "/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/styles.css" \
-  "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/styles.css" \
+  "$RELEASE_DIR/styles.css" \
+  "$PLUGIN_DIR/styles.css" \
   && echo "styles.css matches"
 ```
 
@@ -838,19 +856,19 @@ cmp -s \
 
 1. 打开 Obsidian vault switcher。
 2. 选择 **Open folder as vault**。
-3. 只选择 `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault`。
+3. 只选择 `$TEST_VAULT`。
 4. 打开 **Settings → Community plugins**，允许 Community plugins。
 5. 在 Installed plugins 中找到 **OMD Home** 并 Enable。
 6. 如果列表没有出现 OMD Home，完全退出并重开 Obsidian，再检查目标目录与 manifest。
 
-不要打开 `/Volumes/Transcend_q/APPS/AI/omd-home-0.1.1-clean/test-vault`；它不是本轮测试目标。
+不要打开 `$RELEASE_DIR/test-vault`；它不是本轮测试目标。
 
 #### 后续测试“保留设置的重装”时
 
 第一次安装不应存在 `data.json`。只有完成首次启动、插件已经创建设置后，才在再次复制前后运行：
 
 ```bash
-shasum -a 256 "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/data.json"
+shasum -a 256 "$PLUGIN_DIR/data.json"
 ```
 
 预期：覆盖三项资产后，`data.json` hash 不变。
@@ -1436,7 +1454,7 @@ preview 出现。
    或 PASS/FAIL 的方式核验当前 test-vault：
 
    ```bash
-   OMD_HOME_DATA_FILE="/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/data.json"
+   OMD_HOME_DATA_FILE="$PLUGIN_DIR/data.json"
 
    jq -r 'paths(scalars) as $p | $p | map(tostring) | join(".")' "$OMD_HOME_DATA_FILE" \
      | rg -i 'api.?key|secret|token|credential|authorization' \
@@ -1822,14 +1840,14 @@ Promise rejection 或僵尸进程。
 Phase 2 set 来验证 settings-aware retrieval 与 source hygiene。先从源码目录执行：
 
 ```bash
-cd "/Volumes/Transcend_q/APPS/AI/omd-home"
-mkdir -p "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Sources/Benchmark"
+cd "$REPO_ROOT"
+mkdir -p "$TEST_VAULT/Sources/Benchmark"
 cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Phase 2 Answer Rules.md" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Sources/Benchmark/"
+   "$TEST_VAULT/Sources/Benchmark/"
 cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Cloud Setup Checklist.md" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Sources/Benchmark/"
+   "$TEST_VAULT/Sources/Benchmark/"
 cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Release Checklist.md" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Sources/Benchmark/"
+   "$TEST_VAULT/Sources/Benchmark/"
 ```
 
 确认三个文件出现在 Vault。前两篇是 ground truth；release checklist 是 distractor。评分细则
@@ -1865,15 +1883,15 @@ sources 精确且不包含 distractors。
 先从源码目录导入 legacy tomato fixtures；AI-08 的三篇 Phase 2 fixtures 不需要删除：
 
 ```bash
-cd "/Volumes/Transcend_q/APPS/AI/omd-home"
-mkdir -p "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Sources/Benchmark"
-mkdir -p "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Calendar/Events"
+cd "$REPO_ROOT"
+mkdir -p "$TEST_VAULT/Sources/Benchmark"
+mkdir -p "$TEST_VAULT/Calendar/Events"
 cp "docs/benchmark-vault/Sources/Benchmark/8 Balcony Tomato Tips for Small-Space Beginners.md" \
    "docs/benchmark-vault/Sources/Benchmark/阳台番茄新手常见三个错误.md" \
    "docs/benchmark-vault/Sources/Benchmark/Hydroponic Lettuce Yield Log.md" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Sources/Benchmark/"
+   "$TEST_VAULT/Sources/Benchmark/"
 cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/Calendar/Events/"
+   "$TEST_VAULT/Calendar/Events/"
 ```
 
 确认共 4 篇 legacy fixtures 出现在 Vault。前两篇 tomato notes 是 ground truth；lettuce 与
@@ -2058,15 +2076,15 @@ npm run install:test-vault
 脚本只有在 helper 可执行时才复制。安装后验证：
 
 ```bash
-"/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/omd-eventkit" version
+"$PLUGIN_DIR/omd-eventkit" version
 ```
 
 4. 安装到其他 vault 时手动复制并保持可执行：
 
 ```bash
 cp "/absolute/path/to/obsidian-omd-home/dist/omd-eventkit" \
-   "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/omd-eventkit"
-chmod 700 "/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home/omd-eventkit"
+   "$PLUGIN_DIR/omd-eventkit"
+chmod 700 "$PLUGIN_DIR/omd-eventkit"
 ```
 
 复制后 reload OMD Home。Community-style 三项基础安装不包含此 helper；这是单独的 macOS
@@ -2166,10 +2184,10 @@ Calendar 测试步骤。
    `Sources/Web/Example Domain*.md` frontmatter 包含 `omd_home_status: inbox`，Home 的 OMD Inbox
    出现该记录，并且不显示 “output path could not be verified”。若外置磁盘索引较慢，允许先显示
    “saved to OMD inbox” 提示；重新打开 Home 后记录仍必须出现。
-2. 选择一个小型本地文件，用普通绝对路径 capture。使用已经准备好的：
+2. 选择一个小型本地文件，用普通绝对路径 capture。先在 Terminal 解析已经准备好的 fixture：
 
-   ```text
-   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
    ```
 
    在 Home 点击 **Capture URL or file**，把整行路径粘贴到输入框后提交；不要把文件路径当作
@@ -2183,9 +2201,9 @@ Calendar 测试步骤。
 3. 使用已准备的 `~/Desktop/OMD Home Test Fixtures/survival analysis sample.html`；插件应展开
    `~/`，并把包含空格的整段路径作为一个 source。这里不再使用 `omd-home-example.pdf`：该文件是
    专门用于识别无文本层扫描 PDF 的样本，不能同时作为普通路径成功用例。
-4. 使用已准备的空格路径：
-   `/Users/shion/Desktop/OMD Home Test Fixtures/survival analysis sample.html`。
-   在 OMD Home 输入框直接粘贴这一整行，不要加入 shell 用的反斜杠。如果从 Terminal 复制出
+4. 在 Terminal 运行
+   `printf '%s\n' "$HOME/Desktop/OMD Home Test Fixtures/survival analysis sample.html"`，复制输出的
+   绝对空格路径。在 OMD Home 输入框直接粘贴这一整行，不要加入 shell 用的反斜杠。如果从 Terminal 复制出
    `OMD\ Home\ Test\ Fixtures`，插件也应还原，但普通用户主路径以无反斜杠形式为准。
 5. 分别验证两个独立的拖放入口：
    - **Home omnibox**：用 `Command + P` 运行 **OMD Home: Open home**。在 OMD Home 页面顶部，
@@ -2195,11 +2213,11 @@ Calendar 测试步骤。
      **Drop a local file here** 区域，再把本地文件拖到该区域并释放。
 
    两处都拖入这个已准备的文件：
-   `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/english-ocr.png`。
+   `$REPO_ROOT/docs/manual-test-fixtures/generated/english-ocr.png`。
    这两项是分别测试两个入口，不是要求把同一个任务从 omnibox 继续拖进弹窗。两处都应自动填入
    文件路径并开始或允许确认 capture，且不会把路径当作 shell 命令执行。
 6. 输入不存在的路径，例如
-   `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/english.png`。
+   `$REPO_ROOT/docs/manual-test-fixtures/generated/english.png`。
    预期显示：`File not found: <刚才输入的完整路径>. Check the filename and location, then try again.`；
    Needs Attention 也保留该路径。不能显示笼统的 “Check the OMD setup” 错误，因为此时 OMD
    配置本身没有问题。
@@ -2263,7 +2281,7 @@ Calendar 测试步骤。
 并明确说明无法提取可读内容，建议改用页面图片 OCR 或带文字层的 PDF。
 读取 test-vault 未发现该来源生成的 Markdown。本项记为 **PASS（不支持功能的限制处理）**，
 不表示扫描 PDF OCR 转换成功；相同文件和设置直接 Retry 不能解除此限制。
-[用户截图](</Volumes/Transcend_q/ai Memory/.omx/work/release-ux/ocr-simplified-investigation/scanned-pdf-native-user.png>)。
+用户截图保存在非公开的本地 QA 证据集中；公开仓库不包含用户 vault 截图。
 
 
 1. 首次测试或先在 **Settings → OMD Home → Recognition defaults** 把两个选项都设为
@@ -2279,9 +2297,9 @@ Calendar 测试步骤。
 
    | UI 选择 | 文件 | 至少应准确出现 |
    | --- | --- | --- |
-   | English | `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/english-ocr.png` | `English invoice code: BLUE-417`、`Meeting: Tuesday 10:30` |
-   | 简体中文 + English | `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/simplified-chinese-english-ocr.png` | `简体中文 OCR 测试`、`蓝色灯笼在窗户旁边。`、`SIM-204` |
-   | 繁體中文 + English | `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/traditional-chinese-english-ocr.png` | `繁體中文 OCR 測試`、`藍色燈籠在窗戶旁邊。`、`TRA-305` |
+   | English | `$REPO_ROOT/docs/manual-test-fixtures/generated/english-ocr.png` | `English invoice code: BLUE-417`、`Meeting: Tuesday 10:30` |
+   | 简体中文 + English | `$REPO_ROOT/docs/manual-test-fixtures/generated/simplified-chinese-english-ocr.png` | `简体中文 OCR 测试`、`蓝色灯笼在窗户旁边。`、`SIM-204` |
+   | 繁體中文 + English | `$REPO_ROOT/docs/manual-test-fixtures/generated/traditional-chinese-english-ocr.png` | `繁體中文 OCR 測試`、`藍色燈籠在窗戶旁邊。`、`TRA-305` |
 
    少量空格或标点差异可以记录为 OCR quality note；语言错用、稳定 code 错误或正文大面积乱码为 FAIL。
    再用缺少其中一个 pack 的隔离测试环境重测，不要改动日常安装；确认错误指出缺失 pack，并提示
@@ -2292,7 +2310,7 @@ Calendar 测试步骤。
    提交后，OMD 仍按 wrapper 默认请求 `chi_sim+eng`，原生错误准确显示 Requested `chi_sim+eng`、
    Missing `chi_sim`、Available `eng, osd`，并给出各平台安装方式与 retry 下一步。22:53 只读核对
    test-vault 未发现这次失败生成的新 Markdown。复测结束后必须把 OMD executable override 从临时
-   wrapper 恢复为 `/Volumes/Transcend_q/APPS/AI/omd/.venv/bin/omd`，再运行 **Check setup**；不要带着
+   wrapper 恢复为 `$OMD_BIN`，再运行 **Check setup**；不要带着
    隔离环境继续正常 OCR 或后续 Case。
 3. 点击首页 **Capture URL or file** 按钮（或 Cmd+P → **OMD Home: Capture URL or file**），
    将 `docs/manual-test-fixtures/capture/plain-text-web-page.html` 的完整本地路径填入 **URL or file path**。
@@ -2310,7 +2328,7 @@ Calendar 测试步骤。
    清楚说明限制且不生成空笔记，才是本项“限制提示”测试的 PASS；这不表示已支持扫描 PDF OCR。
    模糊错误、无下一步提示，或空正文仍显示成功，均记录 FAIL 并保存截图。
 5. 对同一个语音样本
-   `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/bilingual-speech.wav`
+   `$REPO_ROOT/docs/manual-test-fixtures/generated/bilingual-speech.wav`
    分别选择 ASR **Auto-detect** 与 **Chinese**，确认前者传递明确 auto-detect，后者传递明确
    `zh` hint；再验证 **No language preference** 不等同于 Auto-detect。原音内容只有两句：
 
@@ -2322,12 +2340,12 @@ Calendar 测试步骤。
    Auto-detect 应保留两种语言的主要含义；Chinese 至少应正确识别中文句。No language preference
    使用 adapter/config 默认值，记录实际 effective language，不要把它写成“自动检测”的同义词。
 6. 用尚不存在的准确路径
-   `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/retry/retry-source.html`
+   `$REPO_ROOT/docs/manual-test-fixtures/capture/retry/retry-source.html`
    触发一次可重试失败。出现 Needs attention 后，在 Terminal 执行：
 
    ```bash
-   cp "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/retry/retry-source.ready.html" \
-      "/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/retry/retry-source.html"
+   cp "$REPO_ROOT/docs/manual-test-fixtures/capture/retry/retry-source.ready.html" \
+      "$REPO_ROOT/docs/manual-test-fixtures/capture/retry/retry-source.html"
    ```
 
    再点击 **Retry**，确认原 OCR、ASR、polish、tags 与 suggest-links 选项全部保留。测试完成后
@@ -2428,23 +2446,23 @@ frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不
 
    离开输入框或点击 **Check again**。预期为 **Custom OMD path not found**，并提供
    **Use automatic**；不能显示 OMD update required。
-3. 把 override 改成仓库内固定的“不支持 enrichment”测试程序：
+3. 在 Terminal 解析仓库内固定的“不支持 enrichment”测试程序，再把输出粘贴到 override：
 
-   ```text
-   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/tools/omd-unsupported-enrichment
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/tools/omd-unsupported-enrichment"
    ```
 
    点击 **Check again**。预期为 **OMD update required**，说明 custom OMD 太旧或不支持当前能力，
-   并显示 **Update guide**；不能误报 path missing。不要用 `/opt/homebrew/bin/omd` 代替这个 case：
-   当前机器上的该 launcher 支持 enrichment schema v1，只是没有完整 Recognition contract。
+   并显示 **Update guide**；不能误报 path missing。不要用任意其他本地 OMD launcher 代替这个
+   确定性 fixture：某些旧 launcher 支持 enrichment schema v1，却没有完整 Recognition contract。
 4. 点击 **Use automatic**，再点 **Check again**。预期恢复 **OMD ready**，并重新解析到兼容候选；
    确认 override 已清空后再继续。
 5. 在 **Advanced AI controls → Local writing model** 记录当前值，选择 **Custom…**，输入一个
    `ollama list` 中不存在的 ID（本轮固定使用 `omd-home-cap03-missing-model:latest`），点击
-   **Save model**，不要 pull。回到 Home，Capture：
+   **Save model**，不要 pull。在 Terminal 解析 fixture 的绝对路径，再回到 Home Capture 并粘贴输出：
 
-   ```text
-   /Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
    ```
 
    开启 **Polish Markdown**，并记录 **Review links and tags**、OCR、ASR 的选择后提交。预期在写入
@@ -2479,10 +2497,11 @@ Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**；�
 
 ### CAP-06：后台继续、unload 和退出取消
 
-使用同一份约 114 秒的合成双语音频，不使用私人或超大文件：
+使用同一份约 114 秒的合成双语音频，不使用私人或超大文件。先在 Terminal 解析路径，再把输出粘贴
+进 Capture：
 
-```text
-/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/generated/slow-bilingual-speech.wav
+```bash
+printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/generated/slow-bilingual-speech.wav"
 ```
 
 开始前确认 **OMD ready**。每次打开 Capture 后，无论开关当前显示什么，都要逐项确认
@@ -2618,9 +2637,9 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
    macOS 可先在 vault 外准备副本；把两个源路径占位符换成测试者自己的导出文件，不要原样执行：
 
    ```bash
-   mkdir -p "/private/tmp/OMD 社交 cookies"
-   cp "/absolute/path/to/exported-douyin-cookies.txt" "/private/tmp/OMD 社交 cookies/抖音 cookies.txt"
-   cp "/absolute/path/to/exported-xhs-cookies.txt" "/private/tmp/OMD 社交 cookies/小红书 cookies.txt"
+   mkdir -p "/tmp/OMD 社交 cookies"
+   cp "/absolute/path/to/exported-douyin-cookies.txt" "/tmp/OMD 社交 cookies/抖音 cookies.txt"
+   cp "/absolute/path/to/exported-xhs-cookies.txt" "/tmp/OMD 社交 cookies/小红书 cookies.txt"
    ```
 2. 重新打开 Capture，确认两条路径分别保留且可以单独 **Clear**。Clear 后当前输入框应立即清空，
    不得重复渲染另一套控件；Cancel 不启动任务。再次填写后继续。
@@ -2632,11 +2651,11 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
    显示简短原因和下一步，且不回显完整路径；修复或替换当前 provider 的路径后可在同一弹窗重试。
    可直接使用以下做法：
    - **missing：** 填一个不存在的绝对路径，例如
-     `/private/tmp/OMD 社交 cookies/OMD-COOKIE-PATH-MUST-NOT-LEAK missing.txt`。
+     `/tmp/OMD 社交 cookies/OMD-COOKIE-PATH-MUST-NOT-LEAK missing.txt`。
    - **unreadable：** 复制有效文件到隔离副本，对副本运行 `chmod 000`；观察错误后立刻以
      `chmod 600` 恢复。不要修改唯一的原始导出。
    - **invalid format：** 运行
-     `printf '%s\n' 'CAP-07 invalid fixture' > "/private/tmp/OMD 社交 cookies/invalid cookies.txt"`，
+     `printf '%s\n' 'CAP-07 invalid fixture' > "/tmp/OMD 社交 cookies/invalid cookies.txt"`，
      再选择这个文件。
    - **wrong domain：** 在 Douyin 字段选择有效 XHS 文件，再反向测试；两次都不能跨 provider fallback。
    - **expired：** 只使用测试者可安全丢弃的已过期导出；没有稳定 fixture 就记
@@ -2660,8 +2679,8 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
    只让正式 `capture` 失败：
 
    ```bash
-   mkdir -p "/private/tmp/OMD social bridge"
-   cat > "/private/tmp/OMD social bridge/omd-cap07-runtime-failure" <<'SH'
+   mkdir -p "/tmp/OMD social bridge"
+   cat > "/tmp/OMD social bridge/omd-cap07-runtime-failure" <<'SH'
    #!/bin/sh
    if [ "$1" = "capture" ]; then
      printf '%s\n' 'CAP-07 forced runtime failure' >&2
@@ -2669,7 +2688,7 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
    fi
    exec "/path/shown/by/omd-home" "$@"
    SH
-   chmod 700 "/private/tmp/OMD social bridge/omd-cap07-runtime-failure"
+   chmod 700 "/tmp/OMD social bridge/omd-cap07-runtime-failure"
    ```
 
    在 **Advanced OMD paths → OMD executable override** 选择 wrapper，再 **Check setup**；不 ready
@@ -2712,7 +2731,7 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
 ### REL-01：干净 vault 与三项 bundle
 
 1. 使用本轮 disposable test-vault，确认
-   `/Volumes/Transcend_q/APPS/AI/omd-home/test-vault/.obsidian/plugins/omd-home` 不存在。
+   `$PLUGIN_DIR` 不存在。
 2. 从同一 commit build 或同一 GitHub Release 取得三项资产。
 3. 只复制 `manifest.json`、`main.js`、`styles.css` 到新 `omd-home` 目录。
 4. Enable OMD Home。
