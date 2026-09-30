@@ -101,112 +101,92 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与本轮入口（2026-09-25 NZST）
+### 1.3A 当前候选与本轮入口（2026-09-30 NZST）
 
-UI-13、ENRICH-01、UI-15–19 已在独立 QA vault 完成原生复测。人工测试者现已走到当前执行队列
-第 8 行 **AI-03**。首个获批的 Cloud Send 已到达 `/api/chat` 并收到 HTTP 200，但旧候选在处理
-缺失或未完成的 response 字段时只显示通用 bridge 错误。第二次获批 Send 于 2026-09-25 13:06
-到达 `/api/chat`；`gpt-oss:20b-cloud` 没有返回要求的两段结构，插件正确阻止了未验证正文，但该次
-结果仍是 `FAIL: grounded answer contract`。根因是 Ollama Cloud 当前不支持 `format` structured
-outputs。2026-09-25 13:17 已把 prompt-schema 兼容修复安装进现有 `test-vault`、原生重载并完成
-Check setup；不要从历史交接继续，也不要重新清空 vault。第 8 行之前的案例保留测试者原来记录的
-结论，本次升级只补做下方列出的 Answer 定向回归。
+Douyin 整段分享文字与独立 cookies bridge、Xiaohongshu／Rednote cookies bridge 已完成 review，
+Home 与 OMD 后端发布分支均已推送。当前 `test-vault` 仍安装 2026-09-25 的旧 Home bundle；它不包含
+CAP-07 所需界面与桥接逻辑，因此不要用现有 bundle 判断 CAP-07 PASS／FAIL。先按当前执行队列第 1 行
+更新候选；更新后先做不需要真实 cookies 的 CAP-07 A，再按条件进入 B–D。此前 AI-03、Answer、
+Calendar 等实际结果全部保留，不因换 bundle 自动改写或重跑。
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 候选 | branch `agent/omd-home-baseline`；已安装 bundle 对应 `85d950a`（post-send 基线 `fadca06`；Cloud metadata 基线 `cf541dc`；P2 核心实现 `7ec42d9`） |
-| OMD 后端 | branch `agent/release-ux-compat`，已推送 HEAD `92a5aed`；运行时修复 `7994ba7` |
-| 测试 vault | `$TEST_VAULT` |
-| 候选 Home bundle | `main.js` `0d7cb02ff32671c472735811acad9cdc8a21d1328a503272687ef9fcb5045c04`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
-| OMD executable | `$OMD_BIN`；当前使用显式候选路径，避免 Automatic 落到旧 Miniconda bundle |
-| Local writing / answer model | `qwen3:4b-instruct`；DeepSeek API / `deepseek-flash` 于 2026-09-25 11:02:17 原生 **Check setup** 显示 ready |
-| 当前数据 | 原 `data.json` 保持逐字节一致；安装前后 54 个 Markdown 的 SHA-256 清单一致；Current task 为 idle |
-| 自动门禁 | Home 637 / 637、TypeScript、ESLint、production build；覆盖 Cloud prompt-schema、单一 wrapper JSON 恢复、null usage、empty／unfinished HTTP 200 与安全错误映射；后端 1685 / 1685、Ruff、py_compile（排除 macOS `._*` 元数据） |
+| Home 源码候选 | branch `agent/omd-home-baseline`；已推送 HEAD `45b37e7`；social bridge 主实现 `6854542`，公开 QA 路径清理 `d254ede` |
+| OMD 后端候选 | branch `agent/release-ux-compat`；已推送 HEAD `0db129f` |
+| 测试 vault | `$TEST_VAULT`；只保留现有笔记与 `data.json`，不要清空 |
+| 当前已安装旧 bundle | `main.js` `0d7cb02ff32671c472735811acad9cdc8a21d1328a503272687ef9fcb5045c04`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。这组只用于识别旧安装，不能测 CAP-07 |
+| 最新候选构建资产 | 从 `45b37e7` production build：`main.js` `10388bbe8e7257088bcdb9009749f5ee4a61785048b700fc9aad27cce869f170`；`styles.css` `2c4f66a4803d220b9ed82c39da082002dd12ff159e6a72719ec20fec10c62c4a`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| OMD executable | 必须解析到 `0db129f` 对应 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
+| AI 设置 | 安装前记录当前 Answer provider、Local writing model、retrieval mode；本轮 social 测试不主动改模型 |
+| 自动门禁 | Home 665 / 665、TypeScript、ESLint、production build；OMD 1760 / 1760、Ruff、py_compile；两边 `git diff --check` 通过 |
+| 尚未覆盖 | 真实平台登录态、地区／账户限制、真实下载、原生 Retry、嵌套进程取消；这些只能由 CAP-07 人工确认 |
 
-安装时只替换 `main.js`、`manifest.json`、`styles.css` 和已有的可选 EventKit helper，不清空
-`data.json`、笔记、Pin 或历史结果。安装后的 reload smoke 只能证明插件成功载入；当前候选的主题、
-窄窗口和 150% 缩放已有独立原生证据，仍可在观察到回归时按 RC-P2-01–03 重现。
+安装时只替换 `main.js`、`manifest.json`、`styles.css`；不要删除 `data.json`、笔记、Pin、历史结果或
+cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup**。旧 bundle 上已完成的 AI-03
+失败证据继续保留；最新 bundle 安装成功并不会把历史 FAIL 自动变成 PASS。
 
 状态词统一如下：
 
+- **REQUIRED PREP**：不是功能结论；完成后才能测试本轮候选。
 - **RETEST**：本轮代码改变了该路径，必须重新人工验证。
 - **TARGETED RETEST**：只重测本轮实际改变的子路径；未受影响的既有结论保留。
-- **KEEP RESULT**：测试者已走过该项；保留原 `PASS / FAIL / NOT RUN` 记录，不因安装同一候选而重跑。
+- **KEEP RESULT**：测试者已走过该项；保留原 `PASS / FAIL / NOT RUN`，不因安装新候选而重跑。
 - **FIRST PASS**：以前没有完整的原生结果，本轮首次按整项给出结论。
-- **KEEP PASS**：已有充分证据，放在归档，不重复消耗时间。
-- **PASS（独立 QA vault）**：同一 production bundle 已在隔离的原生 Obsidian vault 完成，不写入当前人工 vault。
-- **NOT RUN**：缺少凭证、第二环境或外部权限；写清原因，不算失败，也不算通过。
+- **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-09-25 已安装候选）
+#### 当前执行队列（2026-09-30 social bridge 候选）
 
-前三项 P2 工作区复测使用独立 QA vault，不依赖已经 Reviewed 的 `Small local capture fixture-4.md`。
-每个 Review case 都从仓库复制一份明确带 `omd_home_status: inbox` 的 fixture；证据与步骤保留在下方，
-当前人工测试者已到第 8 行。插件和 OMD commit、bundle hash 以本轮最终提交／安装记录为准。
+只执行表中的活动行。已通过或只需补录的旧案例移到后面的“保留结果”表，避免重复消耗时间。
+CAP-07 A 不需要真实 cookie 内容，可在升级后立即开始；B 的 missing／invalid 可先做，wrong-domain、
+expired 与真实成功路径需要相应 fixture。没有合适凭证时按子项记 `NOT RUN`，不要伪造 PASS。
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | PASS（独立 QA vault） | [RC-P2-01](#test-rc-p2-01) | UI-13 Capture 最后一行留白、viewport 与 150% | 已归档；无需在当前 `test-vault` 重做 |
-| 2 | PASS（独立 QA vault） | [RC-P2-02](#test-rc-p2-02) | ENRICH-01、UI-15、UI-19、UI-18；Review 侧栏、summary、冲突、明确 Done | 已归档；真实 `qwen3:4b-instruct` |
-| 3 | PASS（独立 QA vault） | [RC-P2-03](#test-rc-p2-03) | UI-16／17；Inbox／Recent、时间、状态、tags、筛选、窄窗口操作 | 已归档；系统菜单内容仍由下方人工步骤复核 |
-| 4 | KEEP RESULT | [CAP-01A](#test-cap-01a) | 本次 Answer 修复未改变 Capture；保留测试者已有结论，不整项重跑 | 原素材仍保留，只有发现 Capture 回归才重现 |
-| 5 | TARGETED RETEST / P0 | [ANSWER-02-R1](#test-answer-02-r1) | 只补 closed provider 可读性、DeepSeek Pro／Flash 完整输出和 Keyword 默认动作；其余 provider 保留已有结论 | `deepseek-flash`、`deepseek-v4-pro`；固定 blue-key 问题 |
-| 6 | KEEP RESULT | [CAP-06](#test-cap-06) B、C | 本次 Answer 修复未改变任务生命周期；保留测试者已有结论 | 不重新运行 114 秒 WAV |
-| 7 | KEEP RESULT | [OMD-01](#test-omd-01)、[AI-02](#test-ai-02) | 本次 Answer 修复未改变本地 OMD／Ollama 状态机；保留测试者已有结论 | 当前精确 OMD 路径已经 ready |
-| 8 | RETEST / AI-03 `gpt-oss` RESPONSE | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 hosted 实网分支 | 保留第 8 步零证据 PASS 与 13:06 结构失败；用 `85d950a` 重做第 9–13 步 preview／Send／结果，并在 AI-04 合并完成第 5 行定向回归 | Omnibox 已填入 `amber lighthouse checklist` 单来源问题，尚未提交；必须重新 preview 和批准 |
-| 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | 标题：`OMD CAL manual test – delete after PASS` |
-| 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | 使用 `docs/benchmark-vault/`，不要提前导入 |
-| 11 | FIRST PASS / P0 | [CAP-07](#test-cap-07) | Douyin／Xiaohongshu 分享文字、独立 cookies、preflight、Retry、隐私与进程树取消 | 下方有可复制分享文字；真实 Capture 需测试者自己的公开帖子与 Netscape cookies |
-| 12 | 最后执行 | REL-01 | disposable clean vault、三项 bundle、reload、cold restart | 不复用当前有历史数据的 test-vault 作为 clean-vault 证据 |
+| 1 | REQUIRED PREP | [候选构建与安装](#guide-plugin-assets) | 从 Home `45b37e7` 构建并只替换三项插件资产；让 Settings 解析到 OMD `0db129f`；原生 reload 后记录实际 hashes 和 Check setup | 上表列出预期三项 SHA-256；不删除 `data.json` |
+| 2 | TARGETED RETEST / P0 | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 确认 OMD ready、实际 executable 正确，并返回 `share_text`、single-URL 与两个 exact cookie flags；不做旧版 OMD 全矩阵 | CAP-07 A.2 的 `capabilities --json` contract |
+| 3 | FIRST PASS / P0 | [CAP-07 A](#test-cap-07) | 分享文字解析、零／多链接、普通网页 prose、长文本、窄窗与 150%；最后补一个普通本地文件 control | 下方两段可复制分享文字；`small-local-file.html` |
+| 4 | FIRST PASS / P0 | [CAP-07 B](#test-cap-07) | 两个路径独立保存／Clear、active-provider-only preflight、短链复检提示、missing／unreadable／invalid／wrong-domain／expired | `/tmp/OMD 社交 cookies/...`；无 expired fixture 可单项 `NOT RUN` |
+| 5 | FIRST PASS / P0 | [CAP-07 C](#test-cap-07) | 各完成一份真实公开 Douyin 与 XHS note；制造一次 runtime failure，再从 Needs attention Retry，确认使用当前路径 | tags：`cap-07-douyin`、`cap-07-xhs` |
+| 6 | FIRST PASS / P0 | [CAP-07 D](#test-cap-07) | Cancel、disable/unload、进程组清理，以及 `data.json`／Notice／Console／note 隐私核对 | 下方 `ps ... grep -E` 命令 |
+| 7 | RETEST / hosted | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 | 回到 `amber lighthouse checklist` 的 preview／Send／结果；保留 2026-09-25 的结构失败，不自动重发 | 固定单来源问题；Cloud 无凭证则记 `NOT RUN` |
+| 8 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | closed provider 可读性、DeepSeek Pro／Flash 完整输出、Keyword 默认动作；其余 provider 保留已有结论 | 固定 blue-key 问题 |
+| 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | `OMD CAL manual test – delete after PASS` |
+| 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | `docs/benchmark-vault/`，不要提前导入 |
+| 11 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
-在这里记录本轮结果；未做的行保持空白，不要预填 PASS：
+已完成或不受本轮改动影响的结果保留在这里，不重新执行：
+
+| Case | 处理 |
+| --- | --- |
+| RC-P2-01／02／03 | KEEP PASS；2026-09-24 独立 QA vault 原生通过 |
+| CAP-01A | KEEP RESULT；只有 CAP-07 A 的普通本地文件 control 失败时才升级为整项回归 |
+| CAP-06 B／C／D | KEEP RESULT；不重新运行 114 秒 WAV，只补录已有 verdict |
+| AI-02 本地 Ollama | KEEP RESULT；social bridge 没有改变本地 Answer 请求合同 |
+| 2026-09-25 AI-03 三次记录 | KEEP RESULT；metadata partial pass、post-send 通用错误 FAIL、`gpt-oss:20b-cloud` 两段结构 FAIL 都保留 |
+
+在这里记录本轮新增结果；未执行的行保持空白：
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
-| RC-P2-01 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/cap01-*.json` | 100%／150%、底部操作、两处最后字段留白与 Cancel 均通过 |
-| RC-P2-02 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/review-*.json` | 真实本地模型、summary、幂等、Done、并发冲突及用户 Summary 保护通过 |
-| RC-P2-03 | PASS | 2026-09-24 | `rc-p2-2026-09-24/visual/native/home-*.json` | Inbox／Recent、筛选、时间自动刷新、Summarize、Pin 与响应式通过 |
-| 2026-09-25 test-vault 安装 smoke | PASS | 2026-09-25 11:02 | `test-vault-upgrade-2026-09-25.md` | 三项资产匹配；`data.json` 与 54 个 Markdown 未变；重载、OMD ready、DeepSeek setup ready |
-| AI-03 Ollama Cloud metadata 修复 | PARTIAL PASS / SEND PENDING | 2026-09-25 12:18–12:19 | commit `cf541dc`；Ollama server log | Check setup ready；零证据问题正确停止，未调用 `/api/chat`；第 9–10 步真实 Send 留给测试者批准 |
-| AI-03 首次获批 Send／post-send 修复 | FAIL → RETEST PENDING | 2026-09-25 12:41–12:54 | commit `fadca06`；Ollama server log `/api/chat` 200 | 旧候选误报 bridge setup；新候选容忍缺失 usage，并把 incomplete／empty response 明确标为已发送证据、未显示未验证答案 |
-| AI-03 `gpt-oss:20b-cloud` 结构答案 | FAIL → RETEST PENDING | 2026-09-25 13:06–13:17 | commit `85d950a`；Ollama server log 13:06:14 `/api/chat` 200；Ollama structured-output 文档 | 13:06 提示在安全层面正确，但没有得到可显示答案；Cloud 不支持 `format` schema，现改为 prompt 携带 schema、客户端严格校验；最新 bundle 已重载且 Check setup ready，尚未重新发送 |
-| CAP-01A 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
-| ANSWER-02-R1 定向补测 |  |  |  | 只记录本次三项最新回归 |
-| CAP-06 B／C 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
-| OMD-01／AI-02 原 verdict（待补录） |  |  |  | 只补当时结果与证据，不因本次安装重跑 |
-| Hosted 实网 |  |  |  |  |
+| 2026-09-30 最新 bundle 安装／reload |  |  |  | 记录三项实际 hash、Home/OMD commit、`data.json` 是否保留 |
+| OMD exact capability contract |  |  |  | 记录实际 executable；两个 flag 必须精确匹配 |
+| CAP-07 A 输入／布局／普通文件 control |  |  |  | 不需要真实 cookies；这是升级后第一项功能测试 |
+| CAP-07 B provider 隔离／preflight |  |  |  | 无 fixture 的单个错误分支写 `NOT RUN` |
+| CAP-07 C Douyin 成功／XHS 成功／Retry |  |  |  | 三个子结果分别记录，不能用其中一个代替全部 |
+| CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
+| AI-03 hosted 恢复测试 |  |  |  | 保留历史失败；只记录最新候选的新结果 |
+| ANSWER-02-R1 定向补测 |  |  |  |  |
 | CAL-00–03 |  |  |  |  |
 | Extended AI |  |  |  |  |
-| CAP-07 social capture bridge |  |  |  | 实现与自动回归已完成；原生登录态、下载、Retry 和取消尚未验收 |
 | REL-01 |  |  |  |  |
 
-**现在从第 8 行 AI-03 第 9 步重新发送。** `85d950a` 的三项插件资产已经核对并通过原生重载；
-2026-09-25 13:17 Check setup 显示 **Local AI ready / Vault Q&A cloud-provider / Note enrichment ready /
-Polish Markdown ready**，Needs attention 为空。第 8 步 `@zzqvnoevidence7391` 已显示
-**No relevant vault evidence was found. No model request was sent.**，Ollama 日志没有 `/api/chat`，
-这项结果继续保留。13:06 的 **did not provide the required Source states / Model inference structure**
-是正确的安全阻止，但不是成功答案，继续保留为 `FAIL: grounded answer contract`。Omnibox 已重新填入
-`amber lighthouse checklist` 单来源问题但没有提交；由测试者按第 9 步核对新的 preview 后亲自选择
-**Send and answer**。不要再次运行已经通过的第 8 步，也不要删除或把 12:41、13:06 两次失败改写为
-PASS。插件不得自动重发已经获批过的 Cloud 请求。
-第 1–4、6、7 行不因这次安装重复执行；如果这些行的结果表尚未填写，只补写当时的
-`PASS / FAIL / NOT RUN`、时间与证据，不要把“已经走过”自动改成 PASS。第 5 行无需整项重做，按下面
-三项定向回归合并到 AI-03／AI-04：
+**下一步从第 1 行开始，不要直接测试 CAP-07。** 当前 `test-vault` 三项 hash 仍属于旧 bundle。
+安装上表最新候选并原生 reload 后，先完成第 2 行 Check setup／capability；然后只做
+**CAP-07 A**。A 通过以后再准备真实 Netscape cookies 进入 B；如果暂时没有 cookies，B–D 对应
+子项记 `NOT RUN`，先返回第 7 行继续 AI-03。不要把平台拒绝、地区限制或私人帖子误记成插件已经
+通过，也不要为取得 PASS 尝试绕过平台访问控制。
 
-1. **Provider closed state：** 当前宽 Settings 中 **DeepSeek API** 已完整可见；测试者只需把 Obsidian
-   主窗口缩窄到约 500px，关闭 Answer provider 下拉框，确认文字仍完整、无横向滚动，再恢复窗口。
-2. **DeepSeek output：** 有有效 key 且 catalog 包含对应 ID 时，按 ANSWER-02-R1 第 6 步，用同一个
-   blue-key 问题分别重测 `deepseek-v4-pro` 与 `deepseek-flash`。缺型号或权限就记 `NOT RUN`；不得静默
-   换型号。原来 Pro 的 incomplete 失败证据继续保留，成功复测不能删除历史失败。
-3. **Keyword action：** 在 AI-04 D1 出现“embedding model 未安装、已使用 Keyword search”的成功答案时，
-   确认按钮为 **Use keyword search by default**。只有准备把以后问题改成 keyword-only 时才点击；点击后
-   应变为 **Keyword search is default**，之后同类结果不再显示重复切换动作。继续 semantic 测试前手动
-   恢复 **Keyword + semantic search**。
-
-这三项以外，ANSWER-02-R1 中已记录的 OpenAI／Anthropic/model contract 结果不需要为了本次升级重跑。
-
-下面三个 RC-P2 case 保留为可复现步骤；本轮无需重复。只有观察到回归，或需要人工打开窄窗系统
-`…` 菜单核对可见文字时，再使用这些 fixture。
 
 <a id="test-rc-p2-01"></a>
 
@@ -2628,6 +2608,16 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
 4. 使用很长的分享前后文并把 Obsidian 主窗口缩窄到约 500px，再 **View → Zoom in** 到约 150%。文本
    区、cookie 路径、错误和按钮可换行／纵向滚动，不能出现横向滚动、重叠或被截断。Reset zoom 后
    Cancel；不得产生 note。
+5. 做一个普通本地文件 control，确认新的 share-text 解析没有破坏原有输入。先在 Terminal 运行：
+
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
+   ```
+
+   把输出的绝对路径粘贴进 Capture，Tags 填 `cap-07-control-local`，关闭 Polish Markdown 与 Review
+   links and tags 后提交。完成时应只生成一份 note；Obsidian 原生 Search
+   `tag:#cap-07-control-local` 应恰好为 1，正文仍包含 fixture 标记 `OMD-CAPTURE-SMALL-826`。如果失败，
+   先停止 CAP-07 并把 CAP-01A 升级为 RETEST；不要带着普通 Capture 回归继续测试 cookies。
 
 #### B. 两个路径、provider 隔离与 preflight
 
