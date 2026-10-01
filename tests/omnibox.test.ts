@@ -5,6 +5,7 @@ import {
   MAX_CAPTURE_SOURCE_INPUT_CHARS,
   captureSourceFromDataTransfer,
   captureSourceFromDrop,
+  localFilePathFromDataTransfer,
   localAccessPathError,
   normalizeLocalAccessPath,
   parseCaptureSourceInput,
@@ -136,6 +137,30 @@ test("modern Electron drops resolve images and PDFs through webUtils when File.p
       expectedPath,
     );
   }
+});
+
+test("cookie path drops accept exactly one absolute local file", () => {
+  const file = { name: "douyin cookies.txt" } as File;
+  const transfer = {
+    files: [file],
+    getData: () => "",
+  } as unknown as DataTransfer;
+  assert.equal(
+    localFilePathFromDataTransfer(transfer, {
+      getPathForFile: () => "/Users/example/社交 access/douyin cookies.txt",
+    }),
+    "/Users/example/社交 access/douyin cookies.txt",
+  );
+  assert.equal(
+    localFilePathFromDataTransfer({ files: [file, file] } as unknown as DataTransfer, {
+      getPathForFile: () => "/Users/example/douyin cookies.txt",
+    }),
+    "",
+  );
+  assert.equal(
+    localFilePathFromDataTransfer(transfer, { getPathForFile: () => "relative/cookies.txt" }),
+    "",
+  );
 });
 
 test("recording shortcut only accepts Obsidian recorder toggle names", () => {

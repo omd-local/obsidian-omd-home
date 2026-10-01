@@ -680,8 +680,17 @@ test("OMD setup makes automatic discovery primary and keeps path overrides advan
   assert.match(source, /checkEnrichmentCapability\(true\)/u);
   assert.match(stylesSource, /\.omd-settings-omd-status::before/u);
   assert.match(stylesSource, /--omd-status-accent/u);
+  assert.match(stylesSource, /\.omd-settings-omd-status\s*\{[^}]*display:\s*grid[^}]*min-height:\s*0/su);
+  assert.match(stylesSource, /\.omd-settings-omd-status \.setting-item-control\s*\{[^}]*align-self:\s*start/su);
   assert.doesNotMatch(stylesSource, /\.omd-settings-omd-status\s*\{[^}]*background:/su);
   assert.doesNotMatch(source, /this\.pathSetting\(containerEl, "OMD executable"/u);
+});
+
+test("social access feedback uses the shared status-card hierarchy", () => {
+  assert.match(stylesSource, /\.omd-capture-access-status\s*\{[^}]*border-left:\s*3px[^}]*background:\s*var\(--omd-panel-alt\)[^}]*color:\s*var\(--omd-ink\)/su);
+  assert.match(stylesSource, /\.omd-capture-access-status\.is-warning/u);
+  assert.match(stylesSource, /\.omd-capture-access-status\.is-error/u);
+  assert.match(stylesSource, /\.omd-cookie-path-drop-target\.is-drag-over/u);
 });
 
 function loadSettingsHelpers(fileSource: string): {

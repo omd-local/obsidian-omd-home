@@ -19,11 +19,13 @@ class Element {
   textContent = "";
   hidden = false;
   focused = false;
+  classes = new Set<string>();
   children: Element[] = [];
-  listeners = new Map<string, () => unknown>();
+  listeners = new Map<string, (event?: Harness) => unknown>();
   attributes = new Map<string, string>();
-  addClass(..._names: string[]) {}
-  removeClass(..._names: string[]) {}
+  addClass(...names: string[]) { for (const name of names) this.classes.add(name); }
+  removeClass(...names: string[]) { for (const name of names) this.classes.delete(name); }
+  toggleClass(name: string, active: boolean) { if (active) this.classes.add(name); else this.classes.delete(name); }
   createEl(_tag: string, options?: { text?: string; attr?: Record<string, string> }) {
     const child = new Element();
     child.textContent = options?.text ?? "";
@@ -39,7 +41,7 @@ class Element {
   toggleAttribute(name: string, value: boolean) { if (name === "open") this.open = value; }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   removeAttribute(name: string) { this.attributes.delete(name); }
-  addEventListener(name: string, callback: () => unknown) { this.listeners.set(name, callback); }
+  addEventListener(name: string, callback: (event?: Harness) => unknown) { this.listeners.set(name, callback); }
   querySelector() { return null; }
 }
 
@@ -351,6 +353,38 @@ test("social cookie settings reject invalid paths inline and persist only absolu
   await input.change("");
   assert.equal(h.tab.plugin.settings.douyinCookiesPath, "");
   assert.equal(h.saveCalls(), 2);
+});
+
+test("social cookie settings accept one dropped local file and reject ambiguous drops", async () => {
+  const h = createHarness();
+  h.tab.renderOmdSetup(h.container);
+  const row = h.row("Douyin cookies");
+  let prevented = false;
+  await row.settingEl.listeners.get("drop")!({
+    preventDefault() { prevented = true; },
+    dataTransfer: {
+      files: [{ path: "/Users/test/抖音 access/douyin cookies.txt" }],
+      getData() { return ""; },
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(prevented, true);
+  assert.equal(h.tab.plugin.settings.douyinCookiesPath, "/Users/test/抖音 access/douyin cookies.txt");
+  assert.equal(row.texts[0]!.value, "/Users/test/抖音 access/douyin cookies.txt");
+  assert.equal(h.saveCalls(), 1);
+
+  await row.settingEl.listeners.get("drop")!({
+    preventDefault() {},
+    dataTransfer: {
+      files: [{ path: "/tmp/one.txt" }, { path: "/tmp/two.txt" }],
+      getData() { return ""; },
+    },
+  });
+  const validation = row.settingEl.children.find((child: Element) => (
+    child.id === "omd-settings-douyin-cookies-validation"
+  ));
+  assert.match(validation?.textContent ?? "", /one local cookies\.txt file/u);
+  assert.equal(h.saveCalls(), 1);
 });
 
 test("failed settings persistence reports a retryable error and does not poison later saves", async () => {

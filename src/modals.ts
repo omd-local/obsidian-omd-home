@@ -14,6 +14,7 @@ import {
   captureSourceFromDataTransfer,
   captureSourceInputError,
   isLocalImageSource,
+  localFilePathFromDataTransfer,
   localAccessPathError,
   normalizeLocalAccessPath,
   socialCaptureProvider,
@@ -28,6 +29,8 @@ type CaptureMutableControl = {
   isDisabled: () => boolean;
   setDisabled: (disabled: boolean) => void;
 };
+
+type CaptureAccessTone = "checking" | "warning" | "error";
 
 export interface CaptureSourceAccessDraft {
   douyinCookiesPath: string;
@@ -289,7 +292,7 @@ export class CaptureModal extends Modal {
       const selectedPath = provider === "douyin" ? this.douyinCookiesPath : this.xhsCookiesPath;
       const pathError = localAccessPathError(selectedPath);
       if (pathError) {
-        this.showSourceAccessStatus(pathError, provider);
+        this.showSourceAccessStatus(pathError, provider, "warning");
         return;
       }
     }
@@ -312,7 +315,7 @@ export class CaptureModal extends Modal {
       this.captureButton.disabled = true;
       this.captureButton.setText("Checking…");
     }
-    if (provider) this.showSourceAccessStatus("Checking site access…");
+    if (provider) this.showSourceAccessStatus("Checking site access…", undefined, "checking");
     const preflightController = new AbortController();
     this.preflightController = preflightController;
     let preflightResult: CapturePreflightResult | void;
@@ -386,7 +389,7 @@ export class CaptureModal extends Modal {
     let setDisplayedPath = (_next: string) => {};
     const setting = new Setting(container)
       .setName(name)
-      .setDesc("Absolute path to a local cookies.txt file.")
+      .setDesc("Paste an absolute path or drop a local Netscape cookies.txt file here.")
       .addText((text) => {
         text.inputEl.setAttribute("dir", "ltr");
         this.cookieInputs[provider] = text.inputEl;
@@ -399,6 +402,30 @@ export class CaptureModal extends Modal {
             this.clearSourceAccessStatus();
           });
       });
+    setting.settingEl.addClass("omd-cookie-path-drop-target");
+    const setDropActive = (active: boolean): void => setting.settingEl.toggleClass("is-drag-over", active);
+    setting.settingEl.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      setDropActive(true);
+    });
+    setting.settingEl.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setDropActive(true);
+    });
+    setting.settingEl.addEventListener("dragleave", () => { setDropActive(false); });
+    setting.settingEl.addEventListener("drop", (event) => {
+      event.preventDefault();
+      setDropActive(false);
+      const path = localFilePathFromDataTransfer(event.dataTransfer);
+      if (!path) {
+        this.showSourceAccessStatus("Drop one local cookies.txt file.", provider, "warning");
+        return;
+      }
+      update(path);
+      setDisplayedPath(path);
+      this.clearSourceAccessStatus();
+    });
     if (value) {
       setting.addButton((button) => {
         button.setButtonText("Clear").onClick(() => {
@@ -424,10 +451,21 @@ export class CaptureModal extends Modal {
     this.sourceInput?.removeAttribute("aria-invalid");
   }
 
-  private showSourceAccessStatus(message: string, invalidProvider?: "douyin" | "xhs"): void {
+  private showSourceAccessStatus(
+    message: string,
+    invalidProvider?: "douyin" | "xhs",
+    tone: CaptureAccessTone = invalidProvider ? "warning" : "error",
+  ): void {
     if (this.sourceAccessDetails) this.sourceAccessDetails.open = true;
     this.sourceAccessStatus?.setText(message);
-    if (this.sourceAccessStatus) this.sourceAccessStatus.hidden = false;
+    if (this.sourceAccessStatus) {
+      this.sourceAccessStatus.hidden = false;
+      this.sourceAccessStatus.toggleClass("is-checking", tone === "checking");
+      this.sourceAccessStatus.toggleClass("is-warning", tone === "warning");
+      this.sourceAccessStatus.toggleClass("is-error", tone === "error");
+      this.sourceAccessStatus.setAttribute("role", tone === "checking" ? "status" : "alert");
+      this.sourceAccessStatus.setAttribute("aria-live", tone === "checking" ? "polite" : "assertive");
+    }
     if (!invalidProvider) return;
     const input = this.cookieInputs[invalidProvider];
     input?.setAttribute("aria-invalid", "true");
@@ -439,6 +477,11 @@ export class CaptureModal extends Modal {
     if (this.sourceAccessStatus) {
       this.sourceAccessStatus.hidden = true;
       this.sourceAccessStatus.setText("");
+      this.sourceAccessStatus.toggleClass("is-checking", false);
+      this.sourceAccessStatus.toggleClass("is-warning", false);
+      this.sourceAccessStatus.toggleClass("is-error", false);
+      this.sourceAccessStatus.setAttribute("role", "status");
+      this.sourceAccessStatus.setAttribute("aria-live", "polite");
     }
     for (const input of Object.values(this.cookieInputs)) {
       input?.removeAttribute("aria-invalid");

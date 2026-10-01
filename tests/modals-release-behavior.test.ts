@@ -32,8 +32,9 @@ class ElementMock {
   }
   createDiv(options: Harness = {}) { return this.createEl("div", options); }
   createSpan(options: Harness = {}) { return this.createEl("span", options); }
-  addClass(value: string) { this.classes.push(value); }
-  toggleClass(value: string, active: boolean) { if (active) this.addClass(value); }
+  addClass(...values: string[]) { for (const value of values) if (!this.classes.includes(value)) this.classes.push(value); }
+  removeClass(...values: string[]) { this.classes = this.classes.filter((value) => !values.includes(value)); }
+  toggleClass(value: string, active: boolean) { if (active) this.addClass(value); else this.removeClass(value); }
   setText(value: string) { this.textContent = value; }
   setAttribute(name: string, value: string) { this.attributes[name] = value; }
   removeAttribute(name: string) { delete this.attributes[name]; }
@@ -356,6 +357,49 @@ test("cookie path syntax errors target Site access without invalidating a valid 
   assert.equal(modal.cookieInputs.douyin.attributes["aria-describedby"], "omd-capture-source-access-status");
   assert.equal(modal.cookieInputs.douyin.focused, true);
   assert.match(modal.sourceAccessStatus.textContent, /absolute local cookies\.txt path/u);
+  assert.equal(modal.sourceAccessStatus.attributes.role, "alert");
+  assert.ok(modal.sourceAccessStatus.classes.includes("is-warning"));
+});
+
+test("cookie path rows accept one dropped local file and explain ambiguous drops", async () => {
+  const harness = loadModals();
+  const preflightPaths: string[] = [];
+  const modal = new harness.CaptureModal(
+    {},
+    capture.createCaptureRequest({ source: "https://v.douyin.com/abc/" }),
+    { douyinCookiesPath: "", xhsCookiesPath: "" },
+    availability,
+    "local-writing-model",
+    async (_request: capture.CaptureRequest, cookiesPath: string) => { preflightPaths.push(cookiesPath); },
+    async () => {},
+  ) as Harness;
+  modal.open();
+  const row = harness.settings.find((setting) => setting.name === "Douyin cookies");
+  assert.ok(row);
+  row.settingEl.listeners.drop({
+    preventDefault() {},
+    dataTransfer: {
+      files: [{ path: "/Users/test/抖音 access/douyin cookies.txt" }],
+      getData() { return ""; },
+    },
+  });
+  assert.equal(row.controls[0].value, "/Users/test/抖音 access/douyin cookies.txt");
+  await harness.button("Capture").click();
+  assert.deepEqual(preflightPaths, ["/Users/test/抖音 access/douyin cookies.txt"]);
+
+  const invalidHarness = captureModal("https://v.douyin.com/abc/");
+  const invalidRow = invalidHarness.settings.find((setting) => setting.name === "Douyin cookies");
+  assert.ok(invalidRow);
+  invalidRow.settingEl.listeners.drop({
+    preventDefault() {},
+    dataTransfer: {
+      files: [{ path: "/tmp/one.txt" }, { path: "/tmp/two.txt" }],
+      getData() { return ""; },
+    },
+  });
+  assert.match(invalidHarness.modal.sourceAccessStatus.textContent, /one local cookies\.txt file/u);
+  assert.equal(invalidHarness.modal.sourceAccessStatus.attributes.role, "alert");
+  assert.ok(invalidHarness.modal.sourceAccessStatus.classes.includes("is-warning"));
 });
 
 test("capture validates only the active social provider and preserves invalid unrelated drafts", async () => {
@@ -485,6 +529,7 @@ test("pending social preflight locks mutable fields and a late busy race reopens
   assert.equal(harness.settings.find((item) => item.name === "Polish Markdown")!.controls[0].disabled, true);
   assert.match(modal.sourceAccessStatus.textContent, /Checking site access/u);
   assert.equal(modal.sourceAccessStatus.attributes.role, "status");
+  assert.ok(modal.sourceAccessStatus.classes.includes("is-checking"));
 
   releasePreflight();
   await submission;

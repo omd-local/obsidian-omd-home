@@ -718,13 +718,18 @@
 .omd-capture-access-status {
   margin: 0 var(--omd-capture-field-block) 4px;
   padding: 7px 9px;
-  border: 1px solid var(--omd-line);
-  background: var(--background-primary);
-  color: var(--omd-muted);
+  border: 1px solid var(--omd-line-strong);
+  border-left: 3px solid var(--omd-muted);
+  border-radius: 1px;
+  background: var(--omd-panel-alt);
+  color: var(--omd-ink);
   font-size: var(--omd-font-ui);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.omd-capture-access-status.is-checking { border-left-color: var(--omd-accent); }
+.omd-capture-access-status.is-warning { border-left-color: var(--text-warning, var(--omd-accent)); }
+.omd-capture-access-status.is-error { border-left-color: var(--omd-danger); }
 .omd-capture-access-status[hidden] { display: none; }
 .omd-capture-recognition > .setting-item,
 .omd-capture-source-access > .setting-item,
@@ -954,12 +959,23 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-.omd-settings-omd-status,
 .omd-settings-calendar-status { flex-wrap: wrap; }
+.omd-settings-omd-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px 16px;
+  min-height: 0;
+  padding-block: 12px;
+}
 .omd-settings-omd-status .setting-item-info,
 .omd-settings-calendar-status .setting-item-info {
   flex: 1 1 220px;
   margin-inline-end: 0;
+}
+.omd-settings-omd-status .setting-item-control {
+  align-self: start;
+  margin: 0;
 }
 .omd-settings-omd-status button { white-space: nowrap; }
 .omd-settings-advanced {
@@ -1065,6 +1081,13 @@
 }
 .omd-settings-cookie-path.is-invalid .setting-item-control input {
   border-color: var(--omd-danger);
+}
+.omd-cookie-path-drop-target {
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+.omd-cookie-path-drop-target.is-drag-over {
+  background: color-mix(in srgb, var(--omd-accent) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--omd-accent);
 }
 
 @container omd-home (max-width: 1024px) {
@@ -1695,6 +1718,11 @@
 .omd-consent-evidence-card :is(strong, code, p),
 .omd-consent-modal p, .omd-event-conflict-modal p { overflow-wrap: anywhere; }
 @container omd-settings-page (max-width: 580px) {
+  .omd-settings .omd-settings-omd-status { grid-template-columns: minmax(0, 1fr); }
+  .omd-settings .omd-settings-omd-status .setting-item-control {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
   .omd-settings .setting-item:not(:has(.checkbox-container)) { flex-direction: column; align-items: stretch; }
   .omd-settings .setting-item:not(:has(.checkbox-container)) .setting-item-control { justify-content: flex-start; flex-basis: auto; }
   .omd-settings .setting-item:not(:has(.checkbox-container)) select { flex: 1 1 180px; width: 100%; }
@@ -1712,7 +1740,7 @@
   :is(.omd-capture-modal, .omd-event-modal) select { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .omd-home-view *, .omd-calendar-view * { transition: none; }
+  .omd-home-view *, .omd-calendar-view *, .omd-cookie-path-drop-target { transition: none; }
 }
 
 .omd-capture-error { margin: 8px 0; color: var(--text-error); font-size: var(--omd-font-ui); line-height: 1.5; overflow-wrap: anywhere; }

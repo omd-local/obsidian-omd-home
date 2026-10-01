@@ -42,7 +42,7 @@ import {
   normalizeOcrLanguageSet,
   type CaptureAsrSetting,
 } from "./capture-request.ts";
-import { normalizeLocalAccessPath } from "./omnibox-utils.ts";
+import { localFilePathFromDataTransfer, normalizeLocalAccessPath } from "./omnibox-utils.ts";
 
 const CUSTOM_OCR_DEFAULT_DESCRIPTION = "Advanced: enter up to eight installed Tesseract language pack ids joined with +. Script packs such as script/HanS are supported.";
 const INVALID_CUSTOM_OCR_NOTICE = "Custom OCR must use up to eight safe Tesseract language pack ids joined with +.";
@@ -1061,36 +1061,64 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     update: (value: string) => Promise<void>,
   ): void {
     let validation: HTMLElement | null = null;
+    let textComponent: TextComponent | null = null;
     const validationId = `omd-settings-${provider}-cookies-validation`;
+    const persistPath = async (value: string): Promise<boolean> => {
+      let normalized: string;
+      try {
+        normalized = normalizeLocalAccessPath(value);
+      } catch (error) {
+        setting.settingEl.addClass("is-invalid");
+        textComponent?.inputEl.setAttribute("aria-invalid", "true");
+        validation?.setText(error instanceof Error ? error.message : "Choose an absolute local cookies.txt path.");
+        return false;
+      }
+      setting.settingEl.removeClass("is-invalid");
+      textComponent?.inputEl.removeAttribute("aria-invalid");
+      validation?.setText("");
+      await update(normalized);
+      await this.saveSettingsInOrder();
+      return true;
+    };
     const setting = new Setting(container)
       .setName(name)
-      .setDesc("Absolute path to a local Netscape cookies.txt file.")
+      .setDesc("Paste an absolute path or drop a local Netscape cookies.txt file here.")
       .addText((text) => {
+        textComponent = text;
         text.inputEl.setAttribute("dir", "ltr");
         text.inputEl.setAttribute("aria-describedby", validationId);
         text.setPlaceholder("/Users/…/cookies.txt")
           .setValue(currentValue)
-          .onChange(async (value) => {
-          let normalized: string;
-          try {
-            normalized = normalizeLocalAccessPath(value);
-          } catch (error) {
-            setting.settingEl.addClass("is-invalid");
-            text.inputEl.setAttribute("aria-invalid", "true");
-            validation?.setText(error instanceof Error ? error.message : "Choose an absolute local cookies.txt path.");
-            return;
-          }
-          setting.settingEl.removeClass("is-invalid");
-          text.inputEl.removeAttribute("aria-invalid");
-          validation?.setText("");
-          await update(normalized);
-          await this.saveSettingsInOrder();
-          });
+          .onChange(async (value) => { await persistPath(value); });
       });
-    setting.settingEl.addClass("omd-settings-cookie-path");
+    setting.settingEl.addClass("omd-settings-cookie-path", "omd-cookie-path-drop-target");
     validation = setting.settingEl.createDiv({ cls: "omd-settings-path-validation" });
     validation.id = validationId;
     validation.setAttribute("role", "alert");
+    const setDropActive = (active: boolean): void => setting.settingEl.toggleClass("is-drag-over", active);
+    setting.settingEl.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      setDropActive(true);
+    });
+    setting.settingEl.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setDropActive(true);
+    });
+    setting.settingEl.addEventListener("dragleave", () => { setDropActive(false); });
+    setting.settingEl.addEventListener("drop", (event) => {
+      event.preventDefault();
+      setDropActive(false);
+      const path = localFilePathFromDataTransfer(event.dataTransfer);
+      if (!path) {
+        setting.settingEl.addClass("is-invalid");
+        textComponent?.inputEl.setAttribute("aria-invalid", "true");
+        validation?.setText("Drop one local cookies.txt file.");
+        return;
+      }
+      textComponent?.setValue(path);
+      void persistPath(path).catch(() => {});
+    });
     if (currentValue) {
       setting.addButton((button) => button.setButtonText("Clear").onClick(async () => {
         await update("");

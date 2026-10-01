@@ -174,28 +174,46 @@ interface DroppedFileWebUtils {
   getPathForFile(file: File): string;
 }
 
+function droppedDesktopPath(
+  dataTransfer: DataTransfer | null,
+  webUtils: DroppedFileWebUtils | null,
+  requireExactlyOne = false,
+): string {
+  if (!dataTransfer?.files?.length || (requireExactlyOne && dataTransfer.files.length !== 1)) return "";
+  const file = dataTransfer.files[0];
+  try {
+    const path = webUtils?.getPathForFile(file) ?? "";
+    if (path) return path;
+  } catch {
+    // Fall through to the legacy Electron File.path boundary below.
+  }
+  const legacyPath = (file as File & { path?: unknown }).path;
+  return typeof legacyPath === "string" ? legacyPath : "";
+}
+
 export function captureSourceFromDataTransfer(
   dataTransfer: DataTransfer | null,
   webUtils: DroppedFileWebUtils | null = desktopFileWebUtils(),
 ): string {
-  const file = dataTransfer?.files?.[0];
-  let desktopPath = "";
-  if (file) {
-    try {
-      desktopPath = webUtils?.getPathForFile(file) ?? "";
-    } catch {
-      desktopPath = "";
-    }
-    if (!desktopPath) {
-      const legacyPath = (file as File & { path?: unknown }).path;
-      desktopPath = typeof legacyPath === "string" ? legacyPath : "";
-    }
-  }
+  const desktopPath = droppedDesktopPath(dataTransfer, webUtils);
   return captureSourceFromDrop(
     desktopPath,
     dataTransfer?.getData("text/uri-list") ?? "",
     dataTransfer?.getData("text/plain") ?? "",
   );
+}
+
+export function localFilePathFromDataTransfer(
+  dataTransfer: DataTransfer | null,
+  webUtils: DroppedFileWebUtils | null = desktopFileWebUtils(),
+): string {
+  const desktopPath = droppedDesktopPath(dataTransfer, webUtils, true);
+  if (!desktopPath) return "";
+  try {
+    return normalizeLocalAccessPath(desktopPath);
+  } catch {
+    return "";
+  }
 }
 
 function desktopFileWebUtils(): DroppedFileWebUtils | null {
