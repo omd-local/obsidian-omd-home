@@ -143,7 +143,7 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
 | 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 已从 Home `d883cb8` 构建并替换三项插件资产，保留 `data.json`；原生 reload 后再开始活动行 | 上表三项 SHA-256 |
-| 2 | TARGETED RETEST / P0 | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | `capabilities --json` 四项 exact contract 已在候选 executable 核对；人工只确认 Settings 为 OMD ready、Home 的 Current task 为 No task running | CAP-07 A.2 的命令和字段清单 |
+| 2 | TARGETED RETEST / P0 | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | `capabilities --json` 四项 exact contract 已在候选 executable 核对；人工确认 Settings 为 OMD ready，并记录 Home 的 Current task 基线；失败校验不得启动 capture 或显示 Cancel | CAP-07 A.2 的命令和字段清单 |
 | 3 | RETEST / P0 | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 重测统一 warning、主窗口窄屏／150% 和普通本地文件 control；A.3 的零／非 HTTP／多 URL 已 PASS，不重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
 | 4 | RETEST / P0 | [CAP-07 B](#test-cap-07) | 拖放两个 cookie 文件、路径独立保存／Clear、active-provider-only preflight；重测真实 Douyin export（含孤立 malformed row 时应使用其余安全记录）及各失败分支 | `/tmp/OMD 社交 cookies/...`；无 expired fixture 可单项 `NOT RUN` |
 | 5 | FIRST PASS / P0 | [CAP-07 C](#test-cap-07) | 各完成一份真实公开 Douyin 与 XHS note；制造一次 runtime failure，再从 Needs attention Retry，确认使用当前路径 | tags：`cap-07-douyin`、`cap-07-xhs` |
@@ -182,7 +182,8 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**下一步：** 原生 reload 后先看第 2 行 OMD ready／No task running，然后从第 3 行开始。第 3 行
+**下一步：** 原生 reload 后先看第 2 行 OMD ready，并记录 Current task 基线；没有待 review 项时应为
+No task running。然后从第 3 行开始。第 3 行
 通过以后再进入第 4 行 cookies；如果暂时没有可用 cookies，B–D 对应
 子项记 `NOT RUN`，先返回第 7 行继续 AI-03。不要把平台拒绝、地区限制或私人帖子误记成插件已经
 通过，也不要为取得 PASS 尝试绕过平台访问控制。
@@ -2573,10 +2574,11 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
 开始前确认 OMD 的 **Check setup** 已 ready。下面两段用于验证分享文字解析；Xiaohongshu 短链是格式
 示例，真实下载时必须换成当前可打开的公开链接。
 
-本节的 **Current task** 指 OMD Home 主页面中标题为 **CURRENT TASK** 的卡片；空闲时显示
-**No task running**。它不是 Settings，也不是 macOS Activity Monitor。输入或 capability 校验在 Capture
-弹窗内失败时不得启动后台任务；记录提示后 Cancel／关闭弹窗，回到 Home 确认仍为
-**No task running**。
+本节的 **Current task** 指 OMD Home 主页面中标题为 **CURRENT TASK** 的卡片；没有 capture 或待处理
+review 时显示 **No task running**。如果此前已经打开 proposal／review，它可能显示 **Ready to review**；
+开始 A.2 前先记录当前文字作为基线。它不是 Settings，也不是 macOS Activity Monitor。输入或 capability
+校验在 Capture 弹窗内失败时不得启动后台任务、显示进度或出现 **Cancel**；记录提示后 Cancel／关闭
+弹窗，回到 Home 确认卡片仍保持原基线。关闭已有 review 后再核对时应为 **No task running**。
 
 ```text
 9.74 hoD:/ w@S.YZ :9pm 08/06 9.17 深度理解沃什在议息会议后的发言 # 沃什 # 美联储议息会议 # 预期管理 # 美元 # 黄金 https://v.douyin.com/t6DOaFdc39Q/ 复制此链接，打开Dou音搜索，直接观看视频！
@@ -2614,7 +2616,8 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
    逐项确认 `capture_auth_options.share_text.supported` 与 `requires_single_http_url` 都是 `true`，且
    `platform_cookie_flags.douyin`／`xhs` 分别严格等于上面的两个 flag。本轮四项齐全即可把 capability
    gate 记 PASS；不需要为了制造错误安装旧 OMD。若实际遇到字段缺失，弹窗必须说明 **Update OMD**／
-   **Check setup**，回 Home 确认 **No task running**；恢复带有精确 contract 的 OMD 并再次
+   **Check setup**，回 Home 确认 Current task 保持开始时的基线，且没有 capture 进度或 **Cancel**；恢复
+   带有精确 contract 的 OMD 并再次
    **Check setup** 后再继续。
 3. 分别尝试空文本、`复制这段但没有链接`、`ftp://example.com/file`、同一段里两个 `https://` 链接，
    以及 `read this https://example.com`。前四种应说明零／非 HTTP／多个 URL 的原因；最后一种普通网页
