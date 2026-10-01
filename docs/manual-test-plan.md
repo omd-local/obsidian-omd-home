@@ -111,11 +111,11 @@ Home 的 compact Settings、统一 Site access 状态和 cookie 文件拖放，�
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 源码候选 | branch `agent/omd-home-baseline`；UI/runtime code `41c6d49`；social bridge 主实现 `6854542` |
-| OMD 后端候选 | branch `agent/release-ux-compat`；cookie export compatibility `5472f15`；social bridge 主实现 `0db129f` |
+| Home 源码候选 | branch `agent/omd-home-baseline`；UI/runtime code `d883cb8`；social bridge 主实现 `6854542` |
+| OMD 后端候选 | branch `agent/release-ux-compat`；cookie export compatibility `ba5f9a1`；social bridge 主实现 `0db129f` |
 | 测试 vault | `$TEST_VAULT`；只保留现有笔记与 `data.json`，不要清空 |
-| 当前已安装候选 bundle | 从 `41c6d49` production build：`main.js` `74760de6cbe9e174482d1190e9e0663bc64be726499d5c30e1652b3e5c641599`；`styles.css` `9aad85c32f0d84e677f9144f5bd6bc3edf2100700bc687817d7a17818f460428`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
-| OMD executable | 必须解析到包含 `5472f15` 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
+| 当前已安装候选 bundle | 从 `d883cb8` production build：`main.js` `74760de6cbe9e174482d1190e9e0663bc64be726499d5c30e1652b3e5c641599`；`styles.css` `9aad85c32f0d84e677f9144f5bd6bc3edf2100700bc687817d7a17818f460428`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| OMD executable | 必须解析到包含 `ba5f9a1` 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
 | AI 设置 | 安装前记录当前 Answer provider、Local writing model、retrieval mode；本轮 social 测试不主动改模型 |
 | 自动门禁 | Home 669 / 669、TypeScript、ESLint、production build；OMD 1762 / 1762、Ruff、py_compile；两边 `git diff --check` 通过 |
 | 尚未覆盖 | 真实平台登录态、地区／账户限制、真实下载、原生 Retry、嵌套进程取消；这些只能由 CAP-07 人工确认 |
@@ -142,7 +142,7 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 已从 Home `41c6d49` 构建并替换三项插件资产，保留 `data.json`；原生 reload 后再开始活动行 | 上表三项 SHA-256 |
+| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 已从 Home `d883cb8` 构建并替换三项插件资产，保留 `data.json`；原生 reload 后再开始活动行 | 上表三项 SHA-256 |
 | 2 | TARGETED RETEST / P0 | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | `capabilities --json` 四项 exact contract 已在候选 executable 核对；人工只确认 Settings 为 OMD ready、Home 的 Current task 为 No task running | CAP-07 A.2 的命令和字段清单 |
 | 3 | RETEST / P0 | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 重测统一 warning、主窗口窄屏／150% 和普通本地文件 control；A.3 的零／非 HTTP／多 URL 已 PASS，不重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
 | 4 | RETEST / P0 | [CAP-07 B](#test-cap-07) | 拖放两个 cookie 文件、路径独立保存／Clear、active-provider-only preflight；重测真实 Douyin export（含孤立 malformed row 时应使用其余安全记录）及各失败分支 | `/tmp/OMD 社交 cookies/...`；无 expired fixture 可单项 `NOT RUN` |
