@@ -101,24 +101,23 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与本轮入口（2026-09-30 NZST）
+### 1.3A 当前候选与本轮入口（2026-10-01 NZST）
 
 Douyin 整段分享文字与独立 cookies bridge、Xiaohongshu／Rednote cookies bridge 已完成 review，
-Home 与 OMD 后端发布分支均已推送。当前 `test-vault` 仍安装 2026-09-25 的旧 Home bundle；它不包含
-CAP-07 所需界面与桥接逻辑，因此不要用现有 bundle 判断 CAP-07 PASS／FAIL。先按当前执行队列第 1 行
-更新候选；更新后先做不需要真实 cookies 的 CAP-07 A，再按条件进入 B–D。此前 AI-03、Answer、
-Calendar 等实际结果全部保留，不因换 bundle 自动改写或重跑。
+Home 的 compact Settings、统一 Site access 状态和 cookie 文件拖放，以及 OMD 对混有单条无效记录的
+浏览器 cookie export 兼容修复也已完成自动门禁。`test-vault` 已换成下表的新 Home bundle；原生 reload
+后从当前执行队列的活动行继续。此前 AI-03、Answer、Calendar 等实际结果全部保留，不因换 bundle
+自动改写或重跑。
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 源码候选 | branch `agent/omd-home-baseline`；已推送 HEAD `45b37e7`；social bridge 主实现 `6854542`，公开 QA 路径清理 `d254ede` |
-| OMD 后端候选 | branch `agent/release-ux-compat`；已推送 HEAD `0db129f` |
+| Home 源码候选 | branch `agent/omd-home-baseline`；UI/runtime code `41c6d49`；social bridge 主实现 `6854542` |
+| OMD 后端候选 | branch `agent/release-ux-compat`；cookie export compatibility `5472f15`；social bridge 主实现 `0db129f` |
 | 测试 vault | `$TEST_VAULT`；只保留现有笔记与 `data.json`，不要清空 |
-| 当前已安装旧 bundle | `main.js` `0d7cb02ff32671c472735811acad9cdc8a21d1328a503272687ef9fcb5045c04`；`styles.css` `5424f1bbb7c36f90d1f0cfe7c94316400ec498318f26a13d3ab4c98e5f2972e3`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`。这组只用于识别旧安装，不能测 CAP-07 |
-| 最新候选构建资产 | 从 `45b37e7` production build：`main.js` `10388bbe8e7257088bcdb9009749f5ee4a61785048b700fc9aad27cce869f170`；`styles.css` `2c4f66a4803d220b9ed82c39da082002dd12ff159e6a72719ec20fec10c62c4a`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
-| OMD executable | 必须解析到 `0db129f` 对应 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
+| 当前已安装候选 bundle | 从 `41c6d49` production build：`main.js` `74760de6cbe9e174482d1190e9e0663bc64be726499d5c30e1652b3e5c641599`；`styles.css` `9aad85c32f0d84e677f9144f5bd6bc3edf2100700bc687817d7a17818f460428`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| OMD executable | 必须解析到包含 `5472f15` 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
 | AI 设置 | 安装前记录当前 Answer provider、Local writing model、retrieval mode；本轮 social 测试不主动改模型 |
-| 自动门禁 | Home 665 / 665、TypeScript、ESLint、production build；OMD 1760 / 1760、Ruff、py_compile；两边 `git diff --check` 通过 |
+| 自动门禁 | Home 669 / 669、TypeScript、ESLint、production build；OMD 1762 / 1762、Ruff、py_compile；两边 `git diff --check` 通过 |
 | 尚未覆盖 | 真实平台登录态、地区／账户限制、真实下载、原生 Retry、嵌套进程取消；这些只能由 CAP-07 人工确认 |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css`；不要删除 `data.json`、笔记、Pin、历史结果或
@@ -135,7 +134,7 @@ cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup*
 - **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-09-30 social bridge 候选）
+#### 当前执行队列（2026-10-01 CAP-07 UI / cookie export 候选）
 
 只执行表中的活动行。已通过或只需补录的旧案例移到后面的“保留结果”表，避免重复消耗时间。
 CAP-07 A 不需要真实 cookie 内容，可在升级后立即开始；B 的 missing／invalid 可先做，wrong-domain、
@@ -143,10 +142,10 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | REQUIRED PREP | [候选构建与安装](#guide-plugin-assets) | 从 Home `45b37e7` 构建并只替换三项插件资产；让 Settings 解析到 OMD `0db129f`；原生 reload 后记录实际 hashes 和 Check setup | 上表列出预期三项 SHA-256；不删除 `data.json` |
-| 2 | TARGETED RETEST / P0 | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 确认 OMD ready、实际 executable 正确，并返回 `share_text`、single-URL 与两个 exact cookie flags；不做旧版 OMD 全矩阵 | CAP-07 A.2 的 `capabilities --json` contract |
-| 3 | FIRST PASS / P0 | [CAP-07 A](#test-cap-07) | 分享文字解析、零／多链接、普通网页 prose、长文本、窄窗与 150%；最后补一个普通本地文件 control | 下方两段可复制分享文字；`small-local-file.html` |
-| 4 | FIRST PASS / P0 | [CAP-07 B](#test-cap-07) | 两个路径独立保存／Clear、active-provider-only preflight、短链复检提示、missing／unreadable／invalid／wrong-domain／expired | `/tmp/OMD 社交 cookies/...`；无 expired fixture 可单项 `NOT RUN` |
+| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 已从 Home `41c6d49` 构建并替换三项插件资产，保留 `data.json`；原生 reload 后再开始活动行 | 上表三项 SHA-256 |
+| 2 | TARGETED RETEST / P0 | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | `capabilities --json` 四项 exact contract 已在候选 executable 核对；人工只确认 Settings 为 OMD ready、Home 的 Current task 为 No task running | CAP-07 A.2 的命令和字段清单 |
+| 3 | RETEST / P0 | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 重测统一 warning、主窗口窄屏／150% 和普通本地文件 control；A.3 的零／非 HTTP／多 URL 已 PASS，不重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
+| 4 | RETEST / P0 | [CAP-07 B](#test-cap-07) | 拖放两个 cookie 文件、路径独立保存／Clear、active-provider-only preflight；重测真实 Douyin export（含孤立 malformed row 时应使用其余安全记录）及各失败分支 | `/tmp/OMD 社交 cookies/...`；无 expired fixture 可单项 `NOT RUN` |
 | 5 | FIRST PASS / P0 | [CAP-07 C](#test-cap-07) | 各完成一份真实公开 Douyin 与 XHS note；制造一次 runtime failure，再从 Needs attention Retry，确认使用当前路径 | tags：`cap-07-douyin`、`cap-07-xhs` |
 | 6 | FIRST PASS / P0 | [CAP-07 D](#test-cap-07) | Cancel、disable/unload、进程组清理，以及 `data.json`／Notice／Console／note 隐私核对 | 下方 `ps ... grep -E` 命令 |
 | 7 | RETEST / hosted | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 | 回到 `amber lighthouse checklist` 的 preview／Send／结果；保留 2026-09-25 的结构失败，不自动重发 | 固定单来源问题；Cloud 无凭证则记 `NOT RUN` |
@@ -169,9 +168,11 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
-| 2026-09-30 最新 bundle 安装／reload |  |  |  | 记录三项实际 hash、Home/OMD commit、`data.json` 是否保留 |
-| OMD exact capability contract |  |  |  | 记录实际 executable；两个 flag 必须精确匹配 |
-| CAP-07 A 输入／布局／普通文件 control |  |  |  | 不需要真实 cookies；这是升级后第一项功能测试 |
+| 2026-10-01 最新 bundle 安装 | PASS | 2026-10-01 |  | 三项 hash 与上表一致；`data.json` 保留；原生 reload 后再开始 UI 结论 |
+| OMD exact capability contract | PASS | 2026-10-01 | Terminal | 实际 executable 的两个布尔值与两个 flag 精确匹配 |
+| CAP-07 A.3 零／非 HTTP／多 URL | PASS | 2026-10-01 | 人工反馈 | 都显示明确原因且没有启动任务 |
+| CAP-07 A.1／A.4 布局 |  |  |  | 用新 warning card、主窗口窄屏和 150% 重测 |
+| CAP-07 A.5 普通文件 control | RETEST | 2026-10-01 | 人工反馈 | 上次粘贴不存在的 `/docs/...`；改用完整绝对路径 |
 | CAP-07 B provider 隔离／preflight |  |  |  | 无 fixture 的单个错误分支写 `NOT RUN` |
 | CAP-07 C Douyin 成功／XHS 成功／Retry |  |  |  | 三个子结果分别记录，不能用其中一个代替全部 |
 | CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
@@ -181,9 +182,8 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**下一步从第 1 行开始，不要直接测试 CAP-07。** 当前 `test-vault` 三项 hash 仍属于旧 bundle。
-安装上表最新候选并原生 reload 后，先完成第 2 行 Check setup／capability；然后只做
-**CAP-07 A**。A 通过以后再准备真实 Netscape cookies 进入 B；如果暂时没有 cookies，B–D 对应
+**下一步：** 原生 reload 后先看第 2 行 OMD ready／No task running，然后从第 3 行开始。第 3 行
+通过以后再进入第 4 行 cookies；如果暂时没有可用 cookies，B–D 对应
 子项记 `NOT RUN`，先返回第 7 行继续 AI-03。不要把平台拒绝、地区限制或私人帖子误记成插件已经
 通过，也不要为取得 PASS 尝试绕过平台访问控制。
 
@@ -2573,6 +2573,11 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
 开始前确认 OMD 的 **Check setup** 已 ready。下面两段用于验证分享文字解析；Xiaohongshu 短链是格式
 示例，真实下载时必须换成当前可打开的公开链接。
 
+本节的 **Current task** 指 OMD Home 主页面中标题为 **CURRENT TASK** 的卡片；空闲时显示
+**No task running**。它不是 Settings，也不是 macOS Activity Monitor。输入或 capability 校验在 Capture
+弹窗内失败时不得启动后台任务；记录提示后 Cancel／关闭弹窗，回到 Home 确认仍为
+**No task running**。
+
 ```text
 9.74 hoD:/ w@S.YZ :9pm 08/06 9.17 深度理解沃什在议息会议后的发言 # 沃什 # 美联储议息会议 # 预期管理 # 美元 # 黄金 https://v.douyin.com/t6DOaFdc39Q/ 复制此链接，打开Dou音搜索，直接观看视频！
 32 复制本条信息，打开【小红书】App查看精彩内容！ http://xhslink.com/a/abcDEF/
@@ -2585,8 +2590,14 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
 2. 每次点击 Capture 时，Home 应只把其中唯一的 canonical HTTP(S) URL 交给 inspect／capture，同时
    保留整段原文供 Retry。若 OMD 没有精确声明 one-URL share text 与当前平台专用 cookie flag，弹窗
    应显示 **Update OMD**／**Check setup** 的可操作说明，且 Current task 不启动。
-   对 Settings 显示的 OMD executable 运行 `capabilities --json` 时，必须明确包含以下 exact contract；
-   不能从 package version 推断：
+   人工核对时，在 **Settings → OMD Home → OMD** 的 ready 卡片中找到 executable 绝对路径；在
+   Terminal 中把下面占位符替换为该路径，保留外层引号：
+
+   ```bash
+   "/absolute/path/shown/in/settings" capabilities --json
+   ```
+
+   输出必须明确包含以下 exact contract，不能从 package version 推断：
 
    ```json
    {
@@ -2600,21 +2611,33 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
    }
    ```
 
-   任一字段缺失、布尔值不是 `true` 或 flag 不完全一致都应 fail closed。恢复带有精确 contract 的 OMD
-   并再次 **Check setup** 后再继续。
+   逐项确认 `capture_auth_options.share_text.supported` 与 `requires_single_http_url` 都是 `true`，且
+   `platform_cookie_flags.douyin`／`xhs` 分别严格等于上面的两个 flag。本轮四项齐全即可把 capability
+   gate 记 PASS；不需要为了制造错误安装旧 OMD。若实际遇到字段缺失，弹窗必须说明 **Update OMD**／
+   **Check setup**，回 Home 确认 **No task running**；恢复带有精确 contract 的 OMD 并再次
+   **Check setup** 后再继续。
 3. 分别尝试空文本、`复制这段但没有链接`、`ftp://example.com/file`、同一段里两个 `https://` 链接，
    以及 `read this https://example.com`。前四种应说明零／非 HTTP／多个 URL 的原因；最后一种普通网页
    分享 prose 应要求只粘贴 URL。随后只粘贴 `https://example.com`，它仍应作为普通网页进入 Capture。
-4. 使用很长的分享前后文并把 Obsidian 主窗口缩窄到约 500px，再 **View → Zoom in** 到约 150%。文本
-   区、cookie 路径、错误和按钮可换行／纵向滚动，不能出现横向滚动、重叠或被截断。Reset zoom 后
-   Cancel；不得产生 note。
-5. 做一个普通本地文件 control，确认新的 share-text 解析没有破坏原有输入。先在 Terminal 运行：
+   2026-10-01 已人工确认：零链接、非 HTTP 与多个 URL 都显示明确原因且未启动任务，记 PASS。
+4. Capture modal 本身不能拖动改变宽度；输入文本区只支持纵向拉长。先 **Cancel**，关闭 Settings，并在
+   需要时退出全屏；把 Obsidian 主工作区窗口缩到 macOS 允许的最窄宽度（能到约 500px 时用 500px），
+   再重新打开 Capture，填入很长的分享前后文，然后 **View → Zoom in** 到约 150%。若系统最小宽度
+   大于 500px，记录实际最小宽度，不因达不到 500px 判 FAIL。文本区、cookie 路径、错误和按钮可
+   换行／纵向滚动，不能出现横向滚动、重叠或被截断。Reset zoom 后 Cancel；不得产生 note。
+5. 做一个普通本地文件 control，确认新的 share-text 解析没有破坏原有输入。不要把 `/docs/...`、
+   `docs/...` 或字面量 `$REPO_ROOT/...` 粘进 Capture；它们不是该 fixture 的绝对路径。先确认本
+   Terminal 已按第 0 节设置 `REPO_ROOT`，再运行：
 
    ```bash
-   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
+   printf 'REPO_ROOT=%s\n' "$REPO_ROOT"
+   find "$REPO_ROOT/docs/manual-test-fixtures/capture" -name small-local-file.html -print
    ```
 
-   把输出的绝对路径粘贴进 Capture，Tags 填 `cap-07-control-local`，关闭 Polish Markdown 与 Review
+   第二条命令必须输出一条以实际 checkout 路径开头、以
+   `/docs/manual-test-fixtures/capture/small-local-file.html` 结尾的路径；无输出时先修正 `REPO_ROOT`。
+   只复制这条完整输出，也可以把 Finder 中的该文件拖到 Capture source 区。Tags 填
+   `cap-07-control-local`，关闭 Polish Markdown 与 Review
    links and tags 后提交。完成时应只生成一份 note；Obsidian 原生 Search
    `tag:#cap-07-control-local` 应恰好为 1，正文仍包含 fixture 标记 `OMD-CAPTURE-SMALL-826`。如果失败，
    先停止 CAP-07 并把 CAP-01A 升级为 RETEST；不要带着普通 Capture 回归继续测试 cookies。
@@ -2623,7 +2646,9 @@ success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须�
 
 1. 在 **Settings → OMD Home → OMD → Social capture access** 分别填写两个不同的绝对路径；建议用
    含空格和 Unicode 的隔离路径，例如 `/tmp/OMD 社交 cookies/抖音 cookies.txt` 与
-   `/tmp/OMD 社交 cookies/小红书 cookies.txt`。这里只填写路径，不要把文件内容粘贴进设置。
+   `/tmp/OMD 社交 cookies/小红书 cookies.txt`。可以粘贴绝对路径，也可以把一个本地
+   `cookies.txt` 直接拖到对应的 Douyin 或 Xiaohongshu / Rednote 行；拖入两个文件或非本地内容应
+   留在当前页面并提示只选择一个本地文件。这里只填写路径，不要把文件内容粘贴进设置。
    macOS 可先在 vault 外准备副本；把两个源路径占位符换成测试者自己的导出文件，不要原样执行：
 
    ```bash
