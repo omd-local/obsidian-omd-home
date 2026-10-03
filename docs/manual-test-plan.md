@@ -134,7 +134,7 @@ cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup*
 - **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-10-01 CAP-07 UI / cookie export 候选）
+#### 当前执行队列（2026-10-03 CAP-07 UI / cookie export 候选）
 
 只执行表中的活动行。已通过或只需补录的旧案例移到后面的“保留结果”表，避免重复消耗时间。
 CAP-07 A 不需要真实 cookie 内容，可在升级后立即开始；B 的 missing／invalid 可先做，wrong-domain、
@@ -142,8 +142,8 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 已从 Home `d883cb8` 构建并替换三项插件资产，保留 `data.json`；原生 reload 后再开始活动行 | 上表三项 SHA-256 |
-| 2 | TARGETED RETEST / P0 | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | `capabilities --json` 四项 exact contract 已在候选 executable 核对；人工确认 Settings 为 OMD ready，并记录 Home 的 Current task 基线；失败校验不得启动 capture 或显示 Cancel | CAP-07 A.2 的命令和字段清单 |
+| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 2026-10-03 从 Home `d883cb8` 重新构建并替换三项插件资产；`data.json` SHA-256 前后不变，并完成原生 Force Reload | 上表三项 SHA-256 |
+| 2 | DONE / NATIVE | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 2026-10-03 原生 Check setup 后 Needs attention 为 healthy、Settings／System 为 OMD ready、Local AI ready；Current task 基线为 No task running | exact contract 仍沿用已通过的 Terminal 证据 |
 | 3 | RETEST / P0 | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 重测统一 warning、主窗口窄屏／150% 和普通本地文件 control；A.3 的零／非 HTTP／多 URL 已 PASS，不重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
 | 4 | RETEST / P0 | [CAP-07 B](#test-cap-07) | 拖放两个 cookie 文件、路径独立保存／Clear、active-provider-only preflight；重测真实 Douyin export（含孤立 malformed row 时应使用其余安全记录）及各失败分支 | `/tmp/OMD 社交 cookies/...`；无 expired fixture 可单项 `NOT RUN` |
 | 5 | FIRST PASS / P0 | [CAP-07 C](#test-cap-07) | 各完成一份真实公开 Douyin 与 XHS note；制造一次 runtime failure，再从 Needs attention Retry，确认使用当前路径 | tags：`cap-07-douyin`、`cap-07-xhs` |
@@ -168,8 +168,9 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
-| 2026-10-01 最新 bundle 安装 | PASS | 2026-10-01 |  | 三项 hash 与上表一致；`data.json` 保留；原生 reload 后再开始 UI 结论 |
+| 2026-10-03 最新 bundle 重装 | PASS | 2026-10-03 | 原生 Obsidian | 三项 hash 与上表一致；`data.json` SHA-256 前后不变；Force Reload 完成 |
 | OMD exact capability contract | PASS | 2026-10-01 | Terminal | 实际 executable 的两个布尔值与两个 flag 精确匹配 |
+| OMD native setup baseline | PASS | 2026-10-03 | 原生 Obsidian | Check setup 后 healthy；OMD ready、Local AI ready、Current task 为 No task running |
 | CAP-07 A.3 零／非 HTTP／多 URL | PASS | 2026-10-01 | 人工反馈 | 都显示明确原因且没有启动任务 |
 | CAP-07 A.1／A.4 布局 |  |  |  | 用新 warning card、主窗口窄屏和 150% 重测 |
 | CAP-07 A.5 普通文件 control | RETEST | 2026-10-01 | 人工反馈 | 上次粘贴不存在的 `/docs/...`；改用完整绝对路径 |
@@ -182,8 +183,7 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**下一步：** 原生 reload 后先看第 2 行 OMD ready，并记录 Current task 基线；没有待 review 项时应为
-No task running。然后从第 3 行开始。第 3 行
+**下一步：** 第 1、2 行已完成，直接从第 3 行 CAP-07 A.1 开始，随后完成 A.4 与 A.5。第 3 行
 通过以后再进入第 4 行 cookies；如果暂时没有可用 cookies，B–D 对应
 子项记 `NOT RUN`，先返回第 7 行继续 AI-03。不要把平台拒绝、地区限制或私人帖子误记成插件已经
 通过，也不要为取得 PASS 尝试绕过平台访问控制。
