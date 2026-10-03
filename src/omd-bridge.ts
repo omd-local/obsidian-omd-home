@@ -1373,6 +1373,16 @@ function socialCaptureEventMessage(kind: string | undefined, source: string): st
       return "Douyin could not fetch this post. Check that the link is public and still available, update yt-dlp, then retry.";
     case "xhs_fetch_failed":
       return "Xiaohongshu / Rednote could not fetch this post. Check that the link is public and still available, then retry.";
+    case "xhs_video_unavailable":
+      return "Xiaohongshu / Rednote identified a video post but found no supported video stream. Update OMD or export fresh cookies, then retry.";
+    case "xhs_media_download_failed":
+      return "Xiaohongshu / Rednote found the post, but could not download its video. Check the post, network connection, and available local storage, then retry.";
+    case "xhs_audio_extract_failed":
+      return "The Rednote video downloaded, but OMD could not extract its audio. Run Check setup to verify ffmpeg, then retry.";
+    case "xhs_transcription_failed":
+      return "The Rednote audio was prepared, but local transcription could not finish. Run Check setup to verify Whisper and retry.";
+    case "xhs_polish_failed":
+      return "The Rednote transcript was created, but Markdown polish could not finish. Check the local writing model, then retry.";
     case "douyin_redirect_rejected":
     case "xhs_redirect_rejected":
       return `${label} could not safely resolve this shared link. No cookies were sent to an unapproved destination. Check the link and network, then retry.`;

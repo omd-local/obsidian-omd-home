@@ -175,8 +175,10 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 | CAP-07 A.3 零／非 HTTP／多 URL | PASS | 2026-10-01 | 人工反馈 | 都显示明确原因且没有启动任务 |
 | CAP-07 A.1／A.4 布局 |  |  |  | 用新 warning card、主窗口窄屏和 150% 重测 |
 | CAP-07 A.5 普通文件 control | RETEST | 2026-10-01 | 人工反馈 | 上次粘贴不存在的 `/docs/...`；改用完整绝对路径 |
-| CAP-07 B provider 隔离／preflight |  |  |  | 无 fixture 的单个错误分支写 `NOT RUN` |
-| CAP-07 C Douyin 成功／XHS 成功／Retry |  |  |  | 三个子结果分别记录，不能用其中一个代替全部 |
+| CAP-07 B provider 隔离／preflight | RETEST | 2026-10-03 | 人工反馈 | 旧候选出现 XHS 路径写入后无 Clear、成功 preflight 不可见；新候选需重测动态 Clear 与成功 Notice |
+| CAP-07 C.1 Douyin 成功 | RETEST | 2026-10-03 | 人工反馈＋隔离诊断 | 旧候选的 yt-dlp size 参数不兼容并被误报为 post fetch；修复后复用 `XHBDW3VW-6U` 样本 |
+| CAP-07 C.2 XHS 视频成功 | RETEST | 2026-10-03 | 人工反馈＋产物检查 | 正文／metadata 已写入但 EF4 视频流被漏掉，无 Transcript；新候选必须生成非空 Transcript |
+| CAP-07 C.3／C.4 runtime failure／Retry |  |  |  | 两个子结果仍是 FIRST PASS，不能由真实平台失败代替 wrapper |
 | CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
 | AI-03 hosted 恢复测试 |  |  |  | 保留历史失败；只记录最新候选的新结果 |
 | ANSWER-02-R1 定向补测 |  |  |  |  |
@@ -2660,12 +2662,16 @@ review 时显示 **No task running**。如果此前已经打开 proposal／revie
    cp "/absolute/path/to/exported-douyin-cookies.txt" "/tmp/OMD 社交 cookies/抖音 cookies.txt"
    cp "/absolute/path/to/exported-xhs-cookies.txt" "/tmp/OMD 社交 cookies/小红书 cookies.txt"
    ```
-2. 重新打开 Capture，确认两条路径分别保留且可以单独 **Clear**。Clear 后当前输入框应立即清空，
-   不得重复渲染另一套控件；Cancel 不启动任务。再次填写后继续。
+2. 不关闭当前 Settings，先从空的 Xiaohongshu / Rednote 行粘贴或拖入有效路径；**Clear** 应立即出现，
+   不能要求关闭并重开 Settings。点击后当前输入框应立即清空，Clear 隐藏，且不得重复渲染另一套
+   控件或让键盘焦点跳到别处。Douyin 行重复一次。重新填写两条路径，再打开 Capture；Capture 内的
+   两行也应遵循相同的动态 Clear 行为。Cancel 不启动任务。
 3. 对 Douyin 分享文字点击 Capture。preflight 应在弹窗仍打开时完成，只检查 Douyin 路径；对 XHS
-   重复时只检查 XHS 路径。两种路径同时存在也不得交叉使用或 fallback。XHS 短链通过 preflight 后
-   应显示一条不阻塞 Capture 的简短提示，说明跳转后会再次检查访问条件；直接 XHS URL 与 Douyin
-   不应显示这条短链提示。若旧 OMD 没有返回该复检标记，Home 应要求更新 OMD，而不是假定已检查。
+   重复时只检查 XHS 路径。两种路径同时存在也不得交叉使用或 fallback。检查期间弹窗显示
+   **Checking site access…**；Douyin 或直接 XHS URL 通过后，弹窗关闭并出现
+   **Site access checked. Starting capture.**。XHS 短链通过后改为一条不阻塞 Capture 的提示，说明
+   跳转后会再次检查访问条件，不能同时重复显示两条成功 Notice。若旧 OMD 没有返回该复检标记，Home
+   应要求更新 OMD，而不是假定已检查。
 4. 用隔离文件依次形成 missing、unreadable、invalid format、wrong domain、expired 条件。每种状态应
    显示简短原因和下一步，且不回显完整路径；修复或替换当前 provider 的路径后可在同一弹窗重试。
    可直接使用以下做法：
@@ -2688,11 +2694,20 @@ review 时显示 **No task running**。如果此前已经打开 proposal／revie
 
 #### C. 成功、运行失败与 Retry
 
-1. 使用当前可访问的公开 Douyin 帖子和有效 Douyin cookies，Capture 时将 Tags 设为
-   `cap-07-douyin`，Polish Markdown 与 Review links and tags 关闭，Speech language 使用
-   **No language preference**。完成后 Obsidian 原生 Search `tag:#cap-07-douyin` 应恰好有一份 note。
-2. 对公开 Xiaohongshu／Rednote 帖子以 `cap-07-xhs` 重复。两个结果的来源和正文应对应各自帖子；
-   若平台、地区或账户仍拒绝下载，保留明确错误并记 `NOT RUN` 或 FAIL，不宣称绕过限制。
+1. 复用本轮公开 Douyin 样本 `https://v.douyin.com/XHBDW3VW-6U/` 和有效 Douyin cookies。Capture 时将
+   Tags 设为 `cap-07-douyin-retest`，Polish Markdown 与 Review links and tags 关闭，Speech language
+   使用 **No language preference**。完成后 Obsidian 原生 Search
+   `tag:#cap-07-douyin-retest` 应恰好有一份 note，并包含非空 transcript；不能再次显示笼统的
+   **Douyin could not fetch this post**。若仍失败，记录新的具体错误，不要反复更新已是当前版本的
+   `yt-dlp`。
+2. 复用本轮已确认 `Type: video` 的 Rednote 帖子，完整 URL 从测试者自己的浏览器复制，不把
+   `xsec_token` 查询值写进报告。Tags 使用 `cap-07-xhs-video-retest`。完成 note 必须同时含正确的
+   metadata／正文与非空 **Transcript**；只有正文和图片而没有 Transcript 记 FAIL。旧的部分成功 note
+   可以保留作对照，但 Search `tag:#cap-07-xhs-video-retest` 必须恰好为 1。若下载、ffmpeg 或 Whisper
+   任一阶段失败，Needs attention 应分别说明失败阶段并提供 Retry，不能把缺少视频内容呈现为成功。
+   打开新 note 及其同名 `.omd.json` 时，保存的来源应保留帖子路径但不含 `xsec_token` 或其他访问
+   查询值；不要把这些值复制进测试记录。
+   若平台、地区或账户拒绝访问，保留明确错误并记 `NOT RUN` 或 FAIL，不宣称绕过限制。
 3. 用临时 wrapper 稳定制造一次 preflight 后才发生的运行错误。把脚本最后一行的占位路径换成
    Settings 显示的真实 OMD executable；wrapper 会把 `capabilities` 和 `inspect` 委托给真实 OMD，
    只让正式 `capture` 失败：

@@ -477,12 +477,12 @@ test("XHS shortlink preflight gives one nonblocking redirect recheck note", asyn
   await harness.button("Capture").click();
   assert.equal(captures, 1);
   assert.deepEqual(harness.notices, [
-    "Xiaohongshu shortlink access will be checked again after it redirects.",
+    "Site access checked. Access will be checked again after redirect.",
   ]);
   assert.doesNotMatch(harness.notices[0], /xhslink|\/saved|cookies\.txt/u);
 });
 
-test("direct XHS capture does not show the shortlink redirect recheck note", async () => {
+test("direct XHS capture confirms preflight before handing off", async () => {
   const harness = loadModals();
   let captures = 0;
   const modal = new harness.CaptureModal(
@@ -497,7 +497,25 @@ test("direct XHS capture does not show the shortlink redirect recheck note", asy
   modal.open();
   await harness.button("Capture").click();
   assert.equal(captures, 1);
-  assert.deepEqual(harness.notices, []);
+  assert.deepEqual(harness.notices, ["Site access checked. Starting capture."]);
+});
+
+test("Douyin capture confirms preflight before handing off", async () => {
+  const harness = loadModals();
+  let captures = 0;
+  const modal = new harness.CaptureModal(
+    {},
+    capture.createCaptureRequest({ source: "复制 https://v.douyin.com/abc/ 打开抖音" }),
+    { douyinCookiesPath: "/saved/douyin cookies.txt", xhsCookiesPath: "" },
+    availability,
+    "local-writing-model",
+    async () => {},
+    async () => { captures += 1; },
+  ) as Harness;
+  modal.open();
+  await harness.button("Capture").click();
+  assert.equal(captures, 1);
+  assert.deepEqual(harness.notices, ["Site access checked. Starting capture."]);
 });
 
 test("pending social preflight locks mutable fields and a late busy race reopens the unchanged draft", async () => {
@@ -525,6 +543,16 @@ test("pending social preflight locks mutable fields and a late busy race reopens
   assert.equal(modal.modalEl.attributes["aria-busy"], "true");
   assert.equal(modal.sourceInput.disabled, true);
   assert.equal(modal.cookieInputs.douyin.disabled, true);
+  const douyinCookies = harness.settings.find((item) => item.name === "Douyin cookies")!;
+  assert.equal(douyinCookies.settingEl.attributes["aria-disabled"], "true");
+  douyinCookies.settingEl.listeners.drop({
+    preventDefault() {},
+    dataTransfer: {
+      files: [{ path: "/Users/test/replacement-cookies.txt" }],
+      getData() { return ""; },
+    },
+  });
+  assert.equal(douyinCookies.controls[0].value, "/Users/test/抖音 cookies.txt");
   assert.equal(harness.settings.find((item) => item.name === "Tags")!.controls[0].inputEl.disabled, true);
   assert.equal(harness.settings.find((item) => item.name === "Polish Markdown")!.controls[0].disabled, true);
   assert.match(modal.sourceAccessStatus.textContent, /Checking site access/u);
@@ -539,6 +567,7 @@ test("pending social preflight locks mutable fields and a late busy race reopens
   assert.equal(modal.sourceInput.value, "复制 https://v.douyin.com/abc/ 打开抖音");
   assert.equal(modal.sourceInput.disabled, false);
   assert.equal(modal.modalEl.attributes["aria-busy"], undefined);
+  assert.equal(douyinCookies.settingEl.attributes["aria-disabled"], undefined);
   assert.ok(harness.notices.some((notice) => /draft is still open/u.test(notice)));
 });
 
@@ -572,7 +601,7 @@ test("closing the capture modal aborts social preflight before capture can start
   assert.deepEqual(harness.notices, []);
 });
 
-test("clearing a social cookie path updates the existing control without duplicating modal content", () => {
+test("social cookie Clear appears after entry and hides after clearing without a rerender", async () => {
   const harness = loadModals();
   const modal = new harness.CaptureModal(
     {},
@@ -588,10 +617,15 @@ test("clearing a social cookie path updates the existing control without duplica
   const xhs = harness.settings.find((setting) => setting.name === "Xiaohongshu / Rednote cookies");
   assert.ok(xhs);
   assert.equal(xhs.controls[0].value, "/Users/test/小红书 cookies.txt");
-  harness.button("Clear").click();
+  assert.equal(xhs.controls[1].buttonEl.hidden, false);
+  await xhs.controls[1].click();
   assert.equal(xhs.controls[0].value, "");
-  assert.equal(xhs.controls[1].buttonEl.removed, true);
+  assert.equal(xhs.controls[1].buttonEl.hidden, true);
+  assert.equal(modal.cookieInputs.xhs.focused, true);
   assert.equal(harness.settings.length, settingsBefore);
+
+  await xhs.controls[0].change("/Users/test/new-xhs-cookies.txt");
+  assert.equal(xhs.controls[1].buttonEl.hidden, false);
 });
 
 function consentModal() {

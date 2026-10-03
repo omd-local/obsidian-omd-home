@@ -128,7 +128,7 @@ test("release docs keep social single-source and local-batch boundaries explicit
     assert.notEqual(start, -1, `${issue} must remain in the backlog`);
     const end = backlog.indexOf("\n### ", start + 4);
     const section = backlog.slice(start, end === -1 ? undefined : end);
-    assert.match(section, /\*\*状态：实现完成；自动回归已覆盖，原生人工验收待完成。/u);
+    assert.match(section, /\*\*状态：[^\n]*(?:待复测|待完成)[^\n]*\*\*/u);
     assert.match(section, /\*\*验收标准：\*\*/u);
   }
 

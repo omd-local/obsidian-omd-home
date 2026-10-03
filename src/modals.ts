@@ -57,6 +57,7 @@ export class CaptureModal extends Modal {
   private sourceAccessDetails?: HTMLDetailsElement;
   private sourceAccessStatus?: HTMLElement;
   private readonly cookieInputs: Partial<Record<"douyin" | "xhs", HTMLInputElement>> = {};
+  private readonly cookieDropTargets: HTMLElement[] = [];
   private mutableControls: CaptureMutableControl[] = [];
   private disabledBeforePreflight: Array<{ control: CaptureMutableControl; disabled: boolean }> = [];
   private captureButton?: HTMLButtonElement;
@@ -95,6 +96,7 @@ export class CaptureModal extends Modal {
     this.contentEl.empty();
     this.mutableControls = [];
     this.disabledBeforePreflight = [];
+    this.cookieDropTargets.length = 0;
     this.modalEl.addClass("omd-capture-modal");
     this.titleEl.setText("Capture URL or file");
     this.contentEl.createEl("p", {
@@ -345,8 +347,12 @@ export class CaptureModal extends Modal {
       return;
     }
     if (this.preflightController === preflightController) this.preflightController = null;
-    if (provider === "xhs" && preflightResult?.cookieRuntimeRecheck) {
-      new Notice("Xiaohongshu shortlink access will be checked again after it redirects.");
+    if (provider) {
+      new Notice(
+        provider === "xhs" && preflightResult?.cookieRuntimeRecheck
+          ? "Site access checked. Access will be checked again after redirect."
+          : "Site access checked. Starting capture.",
+      );
     }
     this.clearSourceAccessStatus();
     this.setPreflightBusy(false);
@@ -387,6 +393,7 @@ export class CaptureModal extends Modal {
     update: (value: string) => void,
   ): void {
     let setDisplayedPath = (_next: string) => {};
+    let setClearVisible = (_visible: boolean): void => {};
     const setting = new Setting(container)
       .setName(name)
       .setDesc("Paste an absolute path or drop a local Netscape cookies.txt file here.")
@@ -399,17 +406,24 @@ export class CaptureModal extends Modal {
           .setValue(value)
           .onChange((next) => {
             update(next);
+            setClearVisible(Boolean(next.trim()));
             this.clearSourceAccessStatus();
           });
       });
     setting.settingEl.addClass("omd-cookie-path-drop-target");
+    this.cookieDropTargets.push(setting.settingEl);
     const setDropActive = (active: boolean): void => setting.settingEl.toggleClass("is-drag-over", active);
     setting.settingEl.addEventListener("dragenter", (event) => {
       event.preventDefault();
+      if (this.submitting) return;
       setDropActive(true);
     });
     setting.settingEl.addEventListener("dragover", (event) => {
       event.preventDefault();
+      if (this.submitting) {
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+        return;
+      }
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
       setDropActive(true);
     });
@@ -417,6 +431,7 @@ export class CaptureModal extends Modal {
     setting.settingEl.addEventListener("drop", (event) => {
       event.preventDefault();
       setDropActive(false);
+      if (this.submitting) return;
       const path = localFilePathFromDataTransfer(event.dataTransfer);
       if (!path) {
         this.showSourceAccessStatus("Drop one local cookies.txt file.", provider, "warning");
@@ -424,19 +439,21 @@ export class CaptureModal extends Modal {
       }
       update(path);
       setDisplayedPath(path);
+      setClearVisible(true);
       this.clearSourceAccessStatus();
     });
-    if (value) {
-      setting.addButton((button) => {
-        button.setButtonText("Clear").onClick(() => {
-          update("");
-          setDisplayedPath("");
-          button.buttonEl.remove();
-          this.clearSourceAccessStatus();
-        });
-        this.trackNativeControl(button.buttonEl);
+    setting.addButton((button) => {
+      setClearVisible = (visible) => { button.buttonEl.hidden = !visible; };
+      setClearVisible(Boolean(value));
+      button.setButtonText("Clear").onClick(() => {
+        update("");
+        setDisplayedPath("");
+        this.cookieInputs[provider]?.focus();
+        setClearVisible(false);
+        this.clearSourceAccessStatus();
       });
-    }
+      this.trackNativeControl(button.buttonEl);
+    });
   }
 
   private showSourceError(message: string): void {
@@ -508,6 +525,7 @@ export class CaptureModal extends Modal {
       if (this.disabledBeforePreflight.length) return;
       this.modalEl.setAttribute("aria-busy", "true");
       this.dropZone?.setAttribute("aria-disabled", "true");
+      for (const target of this.cookieDropTargets) target.setAttribute("aria-disabled", "true");
       this.disabledBeforePreflight = this.mutableControls.map((control) => ({
         control,
         disabled: control.isDisabled(),
@@ -517,6 +535,7 @@ export class CaptureModal extends Modal {
     }
     this.modalEl.removeAttribute("aria-busy");
     this.dropZone?.removeAttribute("aria-disabled");
+    for (const target of this.cookieDropTargets) target.removeAttribute("aria-disabled");
     for (const { control, disabled } of this.disabledBeforePreflight) control.setDisabled(disabled);
     this.disabledBeforePreflight = [];
   }

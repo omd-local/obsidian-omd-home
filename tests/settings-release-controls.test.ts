@@ -50,6 +50,7 @@ class Control {
   disabled = false;
   label = "";
   inputEl = new Element();
+  buttonEl = new Element();
   selectEl = { options: [] as Array<{ value: string; label: string; disabled: boolean; title: string }> };
   callback: (value: any) => unknown = () => {};
   setValue(value: string | boolean) { this.value = value; return this; }
@@ -331,6 +332,9 @@ test("social cookie settings reject invalid paths inline and persist only absolu
   assert.ok(validation);
   assert.equal(input.inputEl.attributes.get("dir"), "ltr");
   assert.equal(input.inputEl.attributes.get("aria-describedby"), validation.id);
+  const clear = row.buttons.find((button) => button.label === "Clear");
+  assert.ok(clear);
+  assert.equal(clear.buttonEl.hidden, true);
 
   for (const invalid of [
     "relative/cookies.txt",
@@ -349,10 +353,34 @@ test("social cookie settings reject invalid paths inline and persist only absolu
   assert.equal(h.saveCalls(), 1);
   assert.equal(input.inputEl.attributes.get("aria-invalid"), undefined);
   assert.equal(validation.textContent, "");
+  assert.equal(clear.buttonEl.hidden, false);
 
-  await input.change("");
+  await clear.click();
   assert.equal(h.tab.plugin.settings.douyinCookiesPath, "");
   assert.equal(h.saveCalls(), 2);
+  assert.equal(input.value, "");
+  assert.equal(clear.buttonEl.hidden, true);
+  assert.equal(input.inputEl.focused, true);
+});
+
+test("social cookie Clear appears before a slow save finishes and remains usable after failure", async () => {
+  const h = createHarness();
+  let release!: () => void;
+  const pendingSave = new Promise<void>((resolve) => { release = resolve; });
+  h.tab.plugin.saveSettings = async () => { await pendingSave; };
+  h.tab.renderOmdSetup(h.container);
+  const row = h.row("Xiaohongshu / Rednote cookies");
+  const input = row.texts[0]!;
+  const clear = row.buttons.find((button) => button.label === "Clear")!;
+
+  const change = input.change("/Users/test/小红书 cookies.txt");
+  assert.equal(clear.buttonEl.hidden, false);
+  release();
+  await change;
+
+  h.tab.plugin.saveSettings = async () => { throw new Error("disk unavailable"); };
+  await assert.rejects(input.change("/Users/test/new-xhs-cookies.txt"), /disk unavailable/u);
+  assert.equal(clear.buttonEl.hidden, false);
 });
 
 test("social cookie settings accept one dropped local file and reject ambiguous drops", async () => {
@@ -372,6 +400,7 @@ test("social cookie settings accept one dropped local file and reject ambiguous 
   assert.equal(h.tab.plugin.settings.douyinCookiesPath, "/Users/test/抖音 access/douyin cookies.txt");
   assert.equal(row.texts[0]!.value, "/Users/test/抖音 access/douyin cookies.txt");
   assert.equal(h.saveCalls(), 1);
+  assert.equal(row.buttons.find((button) => button.label === "Clear")?.buttonEl.hidden, false);
 
   await row.settingEl.listeners.get("drop")!({
     preventDefault() {},

@@ -1,6 +1,26 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查跨度：2026-09-17–2026-09-26。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+检查跨度：2026-09-17–2026-10-04。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+
+## CAP-07 社交媒体首次人工结果与修复候选（2026-10-03）
+
+首次真实平台测试发现四个发布前问题：空的 XHS cookies 行在同一次 Settings 会话内填入路径后不会
+创建 Clear；成功 preflight 立即关窗，用户看不到完成反馈；Douyin 下载把 `yt-dlp --max-filesize`
+错误写成 `524288000B`；Rednote 视频的新页面结构使用 `EF4` 等 stream key 与
+`rednotecdn.com` CDN，旧解析器因此只写 metadata／正文而没有启动转录。
+
+修复候选让 Settings 与 Capture 的 Clear 随输入／拖放立即显示并可原地清除；社交 preflight 成功
+后统一显示非阻塞的 **Site access checked. Starting capture.**，短链改为一次 redirect recheck 提示。
+OMD 改用 yt-dlp 可接受的纯数字 byte limit；XHS adapter 识别旧 codec 与当前 EF stream，并把平台
+返回的受控 HTTP media URL升级为 HTTPS。新 CDN 只进入无 cookies 的媒体下载边界，认证 page cookies
+仍严格限定在 Xiaohongshu／Rednote 页面域。视频 stream 缺失、媒体下载、ffmpeg、Whisper 与 polish
+失败现在分别返回可操作错误，不再把缺 transcript 的视频 note 呈现为成功。
+保存到 Markdown、frontmatter 与 sidecar 的 Rednote／XHS 来源会去除访问查询参数；原始 URL 仍只用于
+当次受控抓取。普通网页与 podcast 等依赖 query 的来源不受该规则影响。
+
+自动证据：OMD **1775 / 1775** tests 通过，当前 yt-dlp 实际接受修正后的 `524288000` 参数；Home
+TypeScript、ESLint、production build 与 **671 / 671** Node tests 通过。真实 Douyin 与 Rednote 的
+修复后 Capture 仍需按 CAP-07 C.1／C.2 原生复测，不能在取得新 note 与非空 transcript 前记 PASS。
 
 ## Social capture bridge 候选（2026-09-26）
 

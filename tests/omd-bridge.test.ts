@@ -3431,6 +3431,11 @@ test("social runtime errors use exact provider-aware Home copy without leaking b
     ["cookies_unreadable", "https://xhslink.com/a/abc", /cookies file cannot be read/u],
     ["douyin_fetch_failed", "https://v.douyin.com/a/", /Douyin could not fetch.+update yt-dlp/u],
     ["xhs_fetch_failed", "https://xhslink.com/a/abc", /Xiaohongshu \/ Rednote could not fetch/u],
+    ["xhs_video_unavailable", "https://www.rednote.com/discovery/item/abc", /video post.+no supported video stream.+Update OMD/u],
+    ["xhs_media_download_failed", "https://www.rednote.com/discovery/item/abc", /found the post.+could not download its video.+network connection.+local storage/u],
+    ["xhs_audio_extract_failed", "https://www.rednote.com/discovery/item/abc", /downloaded.+could not extract its audio.+ffmpeg/u],
+    ["xhs_transcription_failed", "https://www.rednote.com/discovery/item/abc", /audio was prepared.+transcription could not finish.+Whisper/u],
+    ["xhs_polish_failed", "https://www.rednote.com/discovery/item/abc", /transcript was created.+Markdown polish could not finish.+writing model/u],
     ["douyin_redirect_rejected", "https://v.douyin.com/a/", /Douyin could not safely resolve.+No cookies were sent.+Check the link and network/u],
     ["xhs_redirect_rejected", "https://xhslink.com/a/abc", /Xiaohongshu \/ Rednote could not safely resolve.+No cookies were sent.+Check the link and network/u],
   ] as const;

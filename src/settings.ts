@@ -1062,6 +1062,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   ): void {
     let validation: HTMLElement | null = null;
     let textComponent: TextComponent | null = null;
+    let setClearVisible = (_visible: boolean): void => {};
     const validationId = `omd-settings-${provider}-cookies-validation`;
     const persistPath = async (value: string): Promise<boolean> => {
       let normalized: string;
@@ -1076,6 +1077,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       setting.settingEl.removeClass("is-invalid");
       textComponent?.inputEl.removeAttribute("aria-invalid");
       validation?.setText("");
+      setClearVisible(Boolean(normalized));
       await update(normalized);
       await this.saveSettingsInOrder();
       return true;
@@ -1119,13 +1121,20 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       textComponent?.setValue(path);
       void persistPath(path).catch(() => {});
     });
-    if (currentValue) {
-      setting.addButton((button) => button.setButtonText("Clear").onClick(async () => {
+    setting.addButton((button) => {
+      setClearVisible = (visible) => { button.buttonEl.hidden = !visible; };
+      setClearVisible(Boolean(currentValue));
+      button.setButtonText("Clear").onClick(async () => {
+        textComponent?.setValue("");
+        textComponent?.inputEl.focus();
+        setClearVisible(false);
         await update("");
         await this.saveSettingsInOrder();
-        this.display();
-      }));
-    }
+        setting.settingEl.removeClass("is-invalid");
+        textComponent?.inputEl.removeAttribute("aria-invalid");
+        validation?.setText("");
+      });
+    });
   }
 
   private modelSetting(

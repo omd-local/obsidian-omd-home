@@ -560,13 +560,13 @@ URL 或绝对文件路径交给 OMD；不等于列表中的每个扩展名和站
 | 普通文章、WeChat、公开网页 | 已连接干净 URL | OMD inspect 分别路由 MarkItDown / WeChat；不绕过登录、验证码或访问限制 |
 | Reddit、X、Bluesky、Mastodon、Threads、Hacker News、Telegram | 已连接干净的公开 URL | OMD inspect 能识别对应 bounded adapter；尚未逐站形成完整原生人工 PASS 证据 |
 | Apple Podcasts、YouTube、TikTok、Bilibili | 已连接干净的公开 URL | OMD inspect 路由 podcast / reel，所需下载与转录工具在当前测试机 ready；登录受限媒体不在承诺范围 |
-| Douyin | **已实现；待原生人工验收** | Home 接受干净 URL 或仅含一个 HTTP(S) URL 的常见分享文字，提供独立 Netscape cookies 路径、提交前 readiness 和运行失败 Retry；见 CAPTURE-01 |
-| Xiaohongshu / Rednote | **已实现；待原生人工验收** | `xiaohongshu.com`、`xhslink.com` 与 `rednote.com` 使用独立 XHS cookies 路径，不回退到 Douyin；见 CAPTURE-02 |
+| Douyin | **修复候选已完成；待原生复测** | Home 接受干净 URL 或仅含一个 HTTP(S) URL 的常见分享文字；首次真实测试发现并修复 yt-dlp size argv 不兼容，见 CAPTURE-01 |
+| Xiaohongshu / Rednote | **修复候选已完成；待视频复测** | 独立 XHS cookies 不回退到 Douyin；首次真实视频测试已补 EF stream、无-cookie HTTPS CDN 与分阶段错误，见 CAPTURE-02 |
 | 本地文件夹、one-item-per-line 列表 | **未连接** | Home 始终调用单项 `omd capture`，没有 `--batch` 或 batch 入口；见 CAPTURE-03 |
 
 ### CAPTURE-01：Douyin 分享文案与本地 cookies bridge
 
-**状态：实现完成；自动回归已覆盖，原生人工验收待完成。原优先级：P2。**
+**状态：首次人工测试已定位并修复 runtime argv；原生成功 Capture 待复测。原优先级：P2。**
 
 **实现证据与剩余边界：** Capture 与 omnibox 现在会从常见 Douyin 分享文字中确定性提取唯一的
 HTTP(S) URL，同时保留原始分享文字供 Retry 恢复；没有 URL、多个 URL、非 HTTP(S) scheme 与超长
@@ -575,7 +575,9 @@ HTTP(S) URL，同时保留原始分享文字供 Retry 恢复；没有 URL、多�
 `--douyin-cookies`。路径不会进入 CaptureRequest 或 failure record，cookie 内容不由 Home 读取。
 OMD capability 必须精确声明 one-URL share text 与 `--douyin-cookies`；缺失或不一致时显示 Update OMD /
 Check setup。自动测试已覆盖解析、argv 隔离、路径隐私、Retry 与进程组取消；真实登录态、下载和中文
-转录仍须按人工计划给出原生证据，不能在完成前记人工 PASS。
+转录仍须按人工计划给出原生证据，不能在完成前记人工 PASS。2026-10-03 的真实样本证明 post、当前
+cookies 与 yt-dlp extractor 都可读取，失败来自 OMD 传入无效的 `524288000B`；候选已改为纯数字
+byte count，并用已安装 yt-dlp parser 与自动测试锁定。
 
 **验收标准：**
 
@@ -596,13 +598,18 @@ Check setup。自动测试已覆盖解析、argv 隔离、路径隐私、Retry �
 
 ### CAPTURE-02：Xiaohongshu / Rednote 分享文案与独立 cookies bridge
 
-**状态：实现完成；自动回归已覆盖，原生人工验收待完成。原优先级：P2。**
+**状态：metadata／正文首次人工通过，视频转录修复后待复测。原优先级：P2。**
 
 **实现证据与剩余边界：** `xiaohongshu.com`、`xhslink.com` 与 `rednote.com` 的干净 URL 或仅含一个
 HTTP(S) URL 的常见分享文字现在会路由到 `xhs`。Home 保存独立的 XHS / Rednote 路径，preflight 使用
 该路径，正式 Capture 只传 `--xhs-cookies`；即使两种路径同时配置，也不会回退到 Douyin。运行失败
 只把 canonical URL 作为安全来源标签，Retry 恢复原始分享文字但使用当前 Settings。自动测试已覆盖
 host 边界、双路径隔离、错误映射与隐私；真实公开／受限帖子仍须人工计划完成。
+2026-10-03 的真实 video post 返回 `EF4` stream 与 `rednotecdn.com` media host；候选现已兼容 EF stream，
+只对无 cookies 的 HTTPS media 请求放行该 CDN。视频未暴露 stream、下载失败、ffmpeg、Whisper 与
+polish 失败会明确停止并进入恢复流程，不能再以只有正文、没有 Transcript 的 note 作为成功。持久化
+来源会去除 XHS／Rednote 访问查询参数，避免把浏览器访问上下文写进 Markdown 或 sidecar；抓取请求
+仍使用测试者提交的原始 URL。
 
 **验收标准：**
 
