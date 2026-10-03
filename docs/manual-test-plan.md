@@ -171,6 +171,7 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 | 2026-10-03 最新 bundle 重装 | PASS | 2026-10-03 | 原生 Obsidian | 三项 hash 与上表一致；`data.json` SHA-256 前后不变；Force Reload 完成 |
 | OMD exact capability contract | PASS | 2026-10-01 | Terminal | 实际 executable 的两个布尔值与两个 flag 精确匹配 |
 | OMD native setup baseline | PASS | 2026-10-03 | 原生 Obsidian | Check setup 后 healthy；OMD ready、Local AI ready、Current task 为 No task running |
+| repeated Force Reload stability | RETEST IN REL-01 | 2026-10-03 | 原生 Obsidian | 首次 reload 正常；第二次连续 Force Reload 曾空白超过 16 秒，完整退出重开后恢复且 `data.json` 未变；在 REL-01 重复 reload／cold restart 后再定结论 |
 | CAP-07 A.3 零／非 HTTP／多 URL | PASS | 2026-10-01 | 人工反馈 | 都显示明确原因且没有启动任务 |
 | CAP-07 A.1／A.4 布局 |  |  |  | 用新 warning card、主窗口窄屏和 150% 重测 |
 | CAP-07 A.5 普通文件 control | RETEST | 2026-10-01 | 人工反馈 | 上次粘贴不存在的 `/docs/...`；改用完整绝对路径 |
