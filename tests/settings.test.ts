@@ -323,6 +323,7 @@ test("AI answer settings rerender only their section and expose durable action f
   assert.match(source, /localAiFeedback/u);
   assert.match(source, /omd-settings-feedback/u);
   assert.match(source, /setName\("Answer setup"\)/u);
+  assert.match(source, /status\.settingEl\.addClass\("omd-settings-answer-status"\)/u);
   assert.match(source, /canOpenOllamaDesktopApp\(\)/u);
   assert.match(source, /setButtonText\("Open Ollama app"\)/u);
   assert.match(source, /this\.plugin\.openOllamaApp\(\)/u);
@@ -354,6 +355,8 @@ test("settings use one readable layout for headings, cloud consent, keys, and en
   assert.match(stylesSource, /\.omd-settings-advanced > p/u);
   assert.match(stylesSource, /\.omd-settings-local-ai\s*\{[^}]*container:\s*omd-settings\s*\/\s*inline-size/su);
   assert.match(stylesSource, /@container omd-settings \(max-width: 580px\)\s*\{[^}]*\.omd-settings-model\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /\.omd-settings-answer-status\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/su);
+  assert.match(stylesSource, /@container omd-settings-page \(max-width: 680px\)\s*\{[^}]*\.omd-settings \.omd-settings-answer-status\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/su);
 });
 
 test("local completion selectors show every downloaded local model while disabling unsafe choices", () => {

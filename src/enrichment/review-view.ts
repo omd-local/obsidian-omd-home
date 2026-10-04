@@ -237,12 +237,12 @@ export class EnrichmentReviewView extends ItemView {
       text: "Optional. Review or edit it before applying. Done reviewing does not add it.",
     });
 
+    this.renderWarnings(shell, state.warnings);
     const sections = shell.createDiv({ cls: "omd-enrichment-sections" });
     this.renderSuggestionSection(sections, "Existing links", state.existingLinks);
     this.renderSuggestionSection(sections, "Existing tags", state.existingTags);
     this.renderSuggestionSection(sections, "New tags", state.newTags);
     this.renderSuggestionSection(sections, "Suggested note topics", state.concepts, true);
-    this.renderWarnings(sections, state.warnings);
   }
 
   private renderSuggestionSection(
@@ -317,14 +317,62 @@ export class EnrichmentReviewView extends ItemView {
 
   private renderWarnings(parent: HTMLElement, warnings: string[]): void {
     if (!warnings.length) return;
+    const groups = groupEnrichmentWarnings(warnings);
     const section = parent.createDiv({ cls: "omd-enrichment-section" });
     const header = section.createDiv({ cls: "omd-enrichment-section-header" });
-    header.createEl("h3", { text: "Warnings" });
-    header.createSpan({ cls: "omd-enrichment-section-count", text: String(warnings.length) });
+    header.createEl("h3", { text: "Review notes" });
     const list = section.createDiv({ cls: "omd-enrichment-warning-list" });
-    for (const warning of warnings) {
-      list.createDiv({ cls: "omd-enrichment-warning", text: warningDescription(warning), attr: { title: warning } });
+
+    if (groups.sourceContext.length) {
+      this.renderReviewNote(
+        list,
+        "Suggestions may be incomplete",
+        "Only part of this note fit in the model's context. Suggestions may miss content from the rest of the note.",
+        groups.sourceContext,
+      );
     }
+
+    for (const warning of groups.unknown) {
+      this.renderReviewNote(
+        list,
+        "Some suggestions need review",
+        "OMD reported an unexpected review limitation. Check the suggestions before applying.",
+        [warning],
+      );
+    }
+
+    if (groups.relatedContext.length || groups.filtered.length) {
+      const details = list.createEl("details", { cls: "omd-enrichment-review-details" });
+      details.createEl("summary", { text: "More about this review" });
+      const body = details.createDiv({ cls: "omd-enrichment-review-details-body" });
+      const detailList = body.createEl("ul");
+      if (groups.relatedContext.length) {
+        detailList.createEl("li", {
+          text: relatedContextDescription(groups.relatedContext),
+          attr: { title: groups.relatedContext.join(", ") },
+        });
+      }
+      for (const warning of groups.filtered) {
+        detailList.createEl("li", {
+          text: warningDescription(warning),
+          attr: { title: warning },
+        });
+      }
+    }
+  }
+
+  private renderReviewNote(
+    parent: HTMLElement,
+    title: string,
+    body: string,
+    warningCodes: string[],
+  ): void {
+    const note = parent.createDiv({
+      cls: "omd-enrichment-review-note is-caution",
+      attr: { role: "note", title: warningCodes.join(", ") },
+    });
+    note.createDiv({ cls: "omd-enrichment-review-note-title", text: title });
+    note.createDiv({ cls: "omd-enrichment-review-note-body", text: body });
   }
 
   private renderMeta(parent: HTMLElement, label: string, value: string): void {
@@ -524,6 +572,51 @@ function suggestionKindLabel(suggestion: EnrichmentSuggestion): string {
   }
 }
 
+interface EnrichmentWarningGroups {
+  sourceContext: string[];
+  relatedContext: string[];
+  filtered: string[];
+  unknown: string[];
+}
+
+function groupEnrichmentWarnings(warnings: string[]): EnrichmentWarningGroups {
+  const groups: EnrichmentWarningGroups = {
+    sourceContext: [],
+    relatedContext: [],
+    filtered: [],
+    unknown: [],
+  };
+  for (const warning of warnings) {
+    switch (warning) {
+      case "source_truncated_for_model_context":
+        groups.sourceContext.push(warning);
+        break;
+      case "candidate_catalog_truncated_for_model_context":
+      case "vault_tags_truncated_for_model_context":
+        groups.relatedContext.push(warning);
+        break;
+      case "existing_tag_already_present":
+      case "existing_concept_omitted":
+      case "unexplained_tag_omitted":
+      case "unknown_tag_reference_omitted":
+        groups.filtered.push(warning);
+        break;
+      default:
+        groups.unknown.push(warning);
+    }
+  }
+  return groups;
+}
+
+function relatedContextDescription(warnings: string[]): string {
+  const candidatesLimited = warnings.includes("candidate_catalog_truncated_for_model_context");
+  const tagsLimited = warnings.includes("vault_tags_truncated_for_model_context");
+  if (candidatesLimited && tagsLimited) {
+    return "Some candidate notes and vault tags did not fit in the model's context. Relevant links or tags may be missing.";
+  }
+  return warningDescription(warnings[0] ?? "");
+}
+
 function warningDescription(warning: string): string {
   switch (warning) {
     case "source_truncated_for_model_context":
@@ -533,13 +626,13 @@ function warningDescription(warning: string): string {
     case "vault_tags_truncated_for_model_context":
       return "Only some vault tags fit in the model's context. Other relevant tags may be missing from these suggestions.";
     case "existing_tag_already_present":
-      return "A suggested tag is already on this note and was left out of the proposal.";
+      return "Tag suggestions already on this note were skipped.";
     case "existing_concept_omitted":
-      return "A suggested concept already has a note in this vault and was left out of the proposal.";
+      return "Suggested topics that already have notes in this vault were skipped.";
     case "unexplained_tag_omitted":
-      return "Tag suggestions without a useful explanation were left out of the proposal.";
+      return "Tag suggestions without a useful explanation were skipped.";
     case "unknown_tag_reference_omitted":
-      return "One tag suggestion used an unknown catalog reference and was left out.";
+      return "Tag suggestions that did not match the current vault catalog were skipped.";
     default:
       return warning;
   }

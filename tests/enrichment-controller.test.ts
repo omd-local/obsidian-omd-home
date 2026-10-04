@@ -174,7 +174,7 @@ test("candidate evidence failures can disable regeneration without removing Done
 });
 
 test("unknown catalog tag omissions have concise user-facing copy", () => {
-  assert.match(reviewViewSource, /case "unknown_tag_reference_omitted"[\s\S]*unknown catalog reference and was left out/u);
+  assert.match(reviewViewSource, /case "unknown_tag_reference_omitted"[\s\S]*did not match the current vault catalog were skipped/u);
 });
 
 test("generation uses a namespaced non-overlapping progress indicator", () => {

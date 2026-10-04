@@ -76,6 +76,28 @@ test("capture snapshots clone and freeze mutable caller data", () => {
   }, TypeError);
 });
 
+test("capture requests keep the recognition defaults present when each request is created", () => {
+  const settings = {
+    capturePolish: false,
+    captureSuggestLinksAndTags: false,
+    captureOcrLanguage: "eng",
+    captureAsrLanguage: "en" as const,
+  };
+  const first = captureRequestFromSettings("first.png", settings);
+
+  const changed = {
+    ...settings,
+    captureOcrLanguage: "chi_sim+eng",
+    captureAsrLanguage: "auto-detect" as const,
+  };
+  const second = captureRequestFromSettings("second.png", changed);
+
+  assert.deepEqual(first.ocr, { mode: "preset", language: "eng" });
+  assert.deepEqual(first.asr, { mode: "explicit", language: "en" });
+  assert.deepEqual(second.ocr, { mode: "preset", language: "chi_sim+eng" });
+  assert.deepEqual(second.asr, { mode: "auto-detect" });
+});
+
 test("a failed capture retry belongs only to the issue created by that attempt", () => {
   const request = createCaptureRequest({ source: "image.png", polish: true });
   const failure = createCaptureFailureRecord(4, 17, "ai", 1_725_000_000_000, "Model unavailable.", request);

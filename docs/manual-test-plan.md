@@ -134,7 +134,7 @@ cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup*
 - **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-10-04；保持现有 bundle）
+#### 当前执行队列（2026-10-05；保持现有 bundle）
 
 **不要在进行 Hosted AI-03／04／05／11、ANSWER-02-R1、CAL-00–03 或 Extended AI 时替换插件资产、
 reload 插件或重开 Obsidian。** 继续用当前已安装 bundle 完成这些活动项；结果仍然有效。后续窄范围
@@ -149,11 +149,13 @@ Answer、Calendar 或 Extended AI 结果。CAP-07 的旧候选结果先按下表
 | 4 | HOLD / TARGETED | [CAP-07 B.2](#test-cap-07) | 2026-10-04 旧候选 FAIL：字段已清空，但 Clear 仍可见；只在最终候选安装后重测 B.2 | 两个 provider 各做输入 → Clear → 再输入 |
 | 5 | HOLD / TARGETED | [CAP-07 C.2](#test-cap-07) | 旧候选 backend 已产出 note、sidecar 与非空 transcript，但 Home 对账失败；只在最终候选安装后重测 | 使用测试者有权访问的公开 Rednote 视频；不要记录访问查询值 |
 | 6 | HOLD / KEEP RESULT | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | 保留已经取得的逐项结果；未执行项仍按原计划 FIRST PASS，不由 B.2／C.2 修复自动改写 | 下方 `ps ... grep -E` 命令 |
-| 7 | RETEST / hosted | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 | 回到 `amber lighthouse checklist` 的 preview／Send／结果；保留 2026-09-25 的结构失败，不自动重发 | 固定单来源问题；Cloud 无凭证则记 `NOT RUN` |
-| 8 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | closed provider 可读性、DeepSeek Pro／Flash 完整输出、Keyword 默认动作；其余 provider 保留已有结论 | 固定 blue-key 问题 |
-| 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | `OMD CAL manual test – delete after PASS` |
-| 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | `docs/benchmark-vault/`，不要提前导入 |
-| 11 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
+| 7 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | closed provider 可读性、DeepSeek Pro／Flash 完整输出、Keyword 默认动作；其余 provider 保留已有结论 | 固定 blue-key 问题 |
+| 8 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | `OMD CAL manual test – delete after PASS` |
+| 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补重复点击、tuple 失效、disable/reload 与 Console，不要在 Smoke 上等待 Home 的 Current task／Cancel | synthetic smoke prompts |
+| 10 | PREP + RERUN | [AI-08](#test-ai-08) | **先完成 ANSWER-02-R1**，再导入三篇 Phase 2 fixtures 并通过 hard preflight；2026-10-05 的缺 fixture 运行无产品结论 | `docs/benchmark-vault/` |
+| 11 | FIRST PASS / Extended | AI-09／10 | multilingual retrieval、semantic rerank 与 reload 恢复 | AI-08 fixtures 保留，再导入 legacy fixtures |
+| 12 | TARGETED NATIVE DELTA | [AI-11](#test-ai-11) | 自动回归已覆盖 unload 与 Recognition defaults 核心边界；只补原生 disable/quit、Console 和下一次 Capture 使用新默认值 | 固定本地 fixture 问题 |
+| 13 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
 最终候选构建、自动门禁与 review 全部完成后，先结束上表正在进行的 Hosted／Answer／Calendar／
 Extended AI，再一次性安装并 reload。安装后只做下面三项 mandatory targeted retest；其余已通过或已
@@ -195,15 +197,22 @@ Extended AI，再一次性安装并 reload。安装后只做下面三项 mandato
 | CAP-07 C.3／C.4 runtime failure／Retry |  |  |  | 两个子结果仍是 FIRST PASS，不能由真实平台失败代替 wrapper |
 | CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
 | RC-P2-04 AI tools／Improve formatting | TARGETED RETEST |  |  | 实现完成；最终候选安装后的原生 preview／Apply／Cancel／conflict／responsive 结果待填 |
-| AI-03 hosted 恢复测试 |  |  |  | 保留历史失败；只记录最新候选的新结果 |
+| AI-03 grounded answer contract | FAIL；fail-closed safety PASS | 2026-10-05 | 人工反馈 | `amber lighthouse checklist` 返回 `did not cite every claim`；未经验证正文未显示、未自动重发，所以安全阻断正确，但本次 grounded answer 不能记 PASS |
+| AI-03 zero-evidence safety | PASS；文案缺陷已在源码修复 | 2026-10-05 | 人工反馈＋自动回归 | `@zzqvnoevidence7391` 未打开 preview、未发送 model request；语义降级说明与零证据可同时出现，但旧文案误称 “this answer”，源码已改为 “This evidence check used keyword search only.” |
+| DeepSeek keyword fallback 子分支 | PASS；完整 grounded answer PARTIAL | 2026-10-05 | 截图 2／3 | model missing 与 daemon unreachable 被分别说明，恢复动作正确，header 显示 provider/model/source/mode/time；截图未覆盖完整 Model inference、Copy result 与 preview，因此不能据此把整个 hosted answer case 记 PASS |
+| AI-05 local workflow isolation | PASS；AI-05 overall PARTIAL | 2026-10-05 | 人工反馈 | Claude hosted key 按计划不可用时，Generate AI tags 仍通过本地 writing model；尚缺三 provider model memory、reload persistence 与 `data.json` secret 检查 |
 | ANSWER-02-R1 定向补测 |  |  |  |  |
 | CAL-00–03 |  |  |  |  |
-| Extended AI |  |  |  |  |
+| AI-06 | PARTIAL；native baseline PASS | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running，符合修订后的职责；重复点击、tuple 失效及 disable/reload 原生差额仍待测 |
+| AI-08 Phase 2 benchmark | INVALID SETUP / NOT RUN；format-only PASS | 2026-10-05 | test-vault 文件核对＋截图 5＋人工答案 | 三篇 Phase 2 fixtures 均未导入；截图 5 的 Based on／Source states／Model inference／source chips 格式正确，但 P01–P05 命中无关笔记，只能保留为无效环境证据；ANSWER-02-R1 后导入并重跑 P01–P06 |
+| AI-11.8 pending consent unload | automated core PASS；native delta NOT RUN | 2026-10-05 | `tests/main-runtime-regressions.test.ts` | 自动回归确认 unload 关闭 consent、排队中的批准也不能发送；仍需原生 disable/reload 与完全退出 Obsidian smoke，确认无 Console orphan/rejection |
+| AI-11.10 Recognition defaults isolation | automated PASS；native delta NOT RUN | 2026-10-05 | 109/109 定向回归 | 本地 Ask 运行中修改 OCR／ASR 不取消问答；旧 OMD 无 recognition override 仍可 Q&A；Capture request 固定创建时语言快照。原生仍需观察更改只作用于下一次 Capture |
+| AI-09／10 |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**下一步：** 不替换或 reload 当前 bundle，继续完成第 7–10 行中尚未完成的 Hosted AI、
-ANSWER-02-R1、Calendar 与 Extended AI。最终候选准备完成且这些活动测试停止后，再按 F1 → F2 → F3
-做三项定向复测，然后执行 REL-01。平台拒绝、地区限制或私人帖子属于访问结果，必须与“backend 已
+**下一步：** 不替换或 reload 当前 bundle，依次完成 ANSWER-02-R1、CAL-00–03、AI-06 的原生差额；
+随后才导入 Phase 2 fixtures 并重跑 AI-08，再完成 AI-09／10 和 AI-11 的原生差额。最终候选准备完成
+且这些活动测试停止后，再按 F1 → F2 → F3 做三项定向复测，然后执行 REL-01。平台拒绝、地区限制或私人帖子属于访问结果，必须与“backend 已
 完成但 Home 无法对账最终 output”分开记录；不要为取得 PASS 尝试绕过平台访问控制。
 
 
@@ -1008,7 +1017,7 @@ shasum -a 256 "$PLUGIN_DIR/data.json"
 15. **[AI-02：Ollama daemon、endpoint 与本地模型隔离](#test-ai-02)**（Core）— 在正常连接通过后验证 daemon/endpoint/model 状态分离。
 16. **[AI-07：本地 Omnibox 结果、证据、复制与返回用时](#test-ai-07)**（Core）— 先证明真实本地问答主链路可用。
 17. **[CAP-02：本地 AI 生成 links/tags，Review 后才写入](#test-cap-02)**（Core）— 同时依赖成功 Capture 与可用本地模型。
-18. **[AI-06：Command Palette 诊断、后台任务与 Cancel](#test-ai-06)**（Extended）— 正常 AI 路径通过后再测诊断和取消。
+18. **[AI-06：Command Palette 诊断、busy 状态与生命周期](#test-ai-06)**（Extended）— 正常 AI 路径通过后再测诊断、tuple 失效与 unload。
 19. **[CAP-06：后台继续、unload 和退出取消](#test-cap-06)**（Core）— 复用已经验证的后台任务生命周期。
 20. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Extended）— 在基本 RAG 可用后评估答案质量。
 
@@ -1499,6 +1508,13 @@ curl -sS http://localhost:11434/api/status
 每个关键结论有来源；原文陈述与模型归纳明确分开；embedding 不可用时安全降级为 **Keyword search**，
 而不是把整次云端回答标记为失败。
 
+**2026-10-05 结果：** `amber lighthouse checklist` 返回 **did not cite every claim**，因此本次是
+`FAIL: grounded answer contract`；未经验证正文未显示且没有自动重发，fail-closed safety 为 PASS。
+`@zzqvnoevidence7391` 未打开 preview、未调用 answer model，zero-evidence safety 为 PASS。缺 embedding
+model 的降级说明可以与零证据同时出现，因为它解释本次 evidence check 的检索能力；旧候选写成
+“this answer used keyword search” 容易误解，源码与自动回归现已改为 **This evidence check used keyword
+search only.**，待最终候选原生定向复测。
+
 <a id="test-ai-04"></a>
 
 ### AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口
@@ -1844,6 +1860,11 @@ Windows/Linux 只显示环境变量路径；credential → model → retrieval �
 hosted 答案具备准确范围、逐结论引用和 provenance；三类 embedding 原因不互相混淆；错误安全、
 可行动且不泄漏 secrets。
 
+**2026-10-05 DeepSeek 截图结论：** `deepseek-flash` 在 embedding model missing 与 local Ollama daemon
+unreachable 两个分支均成功退回 Keyword search；两类原因、可用动作及 provider/model/source/mode/time
+显示正确，这两个 fallback 子分支记 PASS。截图未完整显示 **Model inference** 内容、Copy result 和
+逐题 preview，因此只记 hosted grounded answer PARTIAL，不能由这些截图推导整项 AI-04 PASS。
+
 <a id="test-ai-05"></a>
 
 ### AI-05：Provider 切换、每个 provider 的 model 记忆与本地工作流隔离
@@ -1863,9 +1884,14 @@ hosted 答案具备准确范围、逐结论引用和 provenance；三类 embeddi
 通过条件：没有跨 provider model 污染、fallback 或隐藏 egress；回答 provider 与本地
 capture/enrichment 的职责边界清楚。
 
+**2026-10-05 结果：** Claude hosted credential 按计划不可用时，**Generate AI tags** 仍由本地
+writing model 成功完成，步骤 4 的 local workflow isolation 记 PASS。步骤 1／2／5 的三 provider
+model memory、reload persistence 与 `data.json` secret 检查尚无完整记录，因此 AI-05 overall 为
+PARTIAL，不能只凭 AI tags 成功改为整项 PASS。
+
 <a id="test-ai-06"></a>
 
-### AI-06：Command Palette 诊断、后台任务与 Cancel
+### AI-06：Command Palette 诊断、busy 状态与生命周期
 
 前置：选择 **Ollama on this computer**。如果你正在验证 Ollama daemon 的 local-only 政策，
 再额外完成 AI-02 的可选步骤；普通本地测试不需要把 Cloud 关回去。
@@ -1877,19 +1903,34 @@ capture/enrichment 的职责边界清楚。
    - **OMD Home: Smoke local AI: Note enrichment**
    - **OMD Home: Smoke local AI: Polish Markdown**
    - **OMD Home: Test local AI embeddings**
-   - **OMD Home: Start or stop recording**
-2. Smoke 只发送 synthetic prompt，不读取或写入 Vault。记录每项 latency 和结果。
-3. 启动较慢的 Smoke 或 embedding test，切离 Settings 并关闭 OMD Home tab，但不要 disable
-   plugin。任务应继续，由 plugin-level state 持有。
-4. 重开 Home 或 Settings，确认任务完成或仍显示运行状态。
-5. 再启动一个任务；只有任务仍可取消时才应显示 **Cancel**，点击后任务停止。若 capture 已由
-   OMD 保存、只剩 Inbox/indexing 收尾，Current task 可以继续显示 active，但 **Cancel** 应消失，
-   不能留下一个点击后无作用的按钮。
-6. 在任务进行中修改 provider、endpoint 或 model。旧 tuple 的完成结果不得覆盖新设置。
-7. 最后在 Community plugins disable/reload OMD Home；运行中的 request/child process 必须取消。
+   Recorder wrapper 不属于本 Case；放在 [CMD-01](#test-cmd-01) 测试。
+2. Smoke 只发送 synthetic prompt，不读取或写入 Vault。每次从 **Settings → OMD Home → Optional
+   local AI** 附近观察对应 workflow rail 或 feedback：开始时显示 busy／checking，完成后显示该动作的
+   success 或准确 failure。记录 latency 和结果。
+3. 不要用 Home 的 **Current task** 判断 Smoke／embedding 是否运行。Current task 只描述
+   capture／enrichment 工作流；这些诊断也不承诺在 Home 提供 **Cancel**。运行较慢诊断时切离 Settings、
+   关闭 OMD Home tab，再回到 Settings；plugin-level action 应完成或保留准确的最终反馈，且不产生第二个
+   重叠动作。
+4. 在一个诊断进行时，确认相邻的 Check setup、Save／Remove credential、embedding check 等共享
+   setup 动作清楚显示 busy／disabled。连续点击不得启动重复 request 或 child process。
+5. 在动作进行中改变 provider、endpoint 或 model，使原 workflow tuple 失效。旧 tuple 的迟到成功、
+   失败或取消不得覆盖新设置的 ready／feedback；新 tuple 可在旧进程完全收尾后重新检查。
+6. 最后在 Community plugins disable／reload OMD Home。运行中的 request／child process 必须取消，
+   Settings 不留下 busy，Console 不得出现未处理 Promise rejection；重新启用后第一次诊断必须建立
+   新状态，不能复用 unload 前的 completion。
+7. 需要验证用户可见 **Cancel** 时，使用 CAP-06 的 capture／transcription Case；不要把 capture 的
+   Current task／Cancel 合同套到本 Case 的 Smoke 命令。
 
-通过条件：低频诊断不占据主设置页；后台切 tab 不取消；显式 Cancel 与 unload 会取消；无未处理
-Promise rejection 或僵尸进程。
+通过条件：低频诊断不占据主设置页；Settings 邻近区域准确显示 busy 与最终反馈；共享 setup 动作不
+重叠；tuple 失效和 unload 后没有 stale ready、未处理 rejection 或僵尸进程。Recorder 只在 CMD-01
+验证，Current task／Cancel 只按 capture／enrichment Case 验证。
+
+**2026-10-05 结果：`PARTIAL；native baseline PASS`。** 原生 Obsidian 中模型刷新找到 4 个模型；
+Check setup 后 Vault Q&A、Note enrichment、Polish Markdown 均为 ready；三个 synthetic smoke 完成，
+System 显示 AI last action success；embedding 检查通过（`459ms · 2 vectors × 384 dims`）。Home 的
+Current task 全程保持 **No task running**，符合修订后的职责。自动回归还确认 setup actions 拒绝重叠、
+unload 后拒绝新 local-AI signal work、过期请求不能发布 stale 状态。尚未原生执行步骤 4 的重复点击、
+步骤 5 的 tuple 失效和步骤 6 的 disable／reload＋Console 检查，所以不能把整项记为 PASS。
 
 <a id="test-ai-07"></a>
 
@@ -1941,31 +1982,163 @@ cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Release Checklist.md" \
    "$TEST_VAULT/Sources/Benchmark/"
 ```
 
-确认三个文件出现在 Vault。前两篇是 ground truth；release checklist 是 distractor。评分细则
-位于 `docs/benchmark-vault/benchmark-cases.md`。
+执行 hard preflight；任何一项显示 `MISSING` 都必须立刻停止，本次记为 `INVALID SETUP / NOT RUN`，
+不能用其他 Vault 笔记产生的答案判断产品 PASS／FAIL：
 
-选择本地 provider，依次运行：
+```bash
+for fixture in \
+  "OMD Home Phase 2 Answer Rules.md" \
+  "OMD Home Cloud Setup Checklist.md" \
+  "OMD Home Release Checklist.md"
+do
+  test -f "$TEST_VAULT/Sources/Benchmark/$fixture" \
+    && printf 'READY  %s\n' "$fixture" \
+    || printf 'MISSING %s\n' "$fixture"
+done
+```
+
+只有三行均为 `READY` 才继续。在 Obsidian Quick switcher 逐一打开三个 exact filename，等待 Vault
+索引更新，并确认 Search `path:"Sources/Benchmark"` 能看到三篇。前两篇是 ground truth；release
+checklist 是 distractor。评分细则位于 `docs/benchmark-vault/benchmark-cases.md`。
+
+**执行顺序：先完成 ANSWER-02-R1，再导入这些 fixtures。** 提前导入会改变该 Case 的检索语料，
+使前后结果不可比较。
+
+<details>
+<summary>2026-10-05 无效环境运行：保留的 P01–P05 原始答案证据</summary>
+
+本轮运行时三篇 Phase 2 fixtures 全部缺失，所以结论是 **INVALID SETUP / NOT RUN**。以下回答证明
+检索落到了无关的既有笔记，不能据此判定 AI-08 产品失败或通过。每题 a／b／c 三次输出相同；为
+避免重复，仅保留一份完整正文和全部 sources。
+
+#### P01 recorded response（a／b／c identical）
+
+原问题：
+   `@What stays local in the Phase 2 answer flow, even for cloud providers?`
+
+Based on 3 retrieved notes.
+
+Source states:
+- The install script creates the local Obsidian fixture, and captures or notes created while testing must remain local. [[README.md]]
+- A deterministic workflow for storing and reviewing a blue key at Orchid station on Tuesday is outlined, with a focus on local research review. [[OMD Manual Tests/RC P2 Conflict.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Sources/Documents/Small local capture fixture-4.raw.md]]
+- [[README.md]]
+- [[OMD Manual Tests/RC P2 Conflict.md]]
+
+#### P02 recorded response（a／b／c identical）
+
+原问题：
+`@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?`
+
+Based on 3 retrieved notes.
+
+Source states:
+- Dense embeddings represent data as lower-dimensional vectors where every value is non-zero or near-zero and capture semantic relationships between data points. [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.md]]
+- Dense embeddings are typically lower in dimensionality than sparse embeddings and distribute information across all dimensions, capturing semantic relationships between data points. [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.raw.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Manual Test Notes/Synthetic OMD Inbox Capture.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.raw.md]]
+
+#### P03 recorded response（a／b／c identical）
+
+原问题：
+`@Which actions share the local writing model, and how are they different?`
+
+Based on 1 retrieved note.
+
+Source states:
+- Review is an explicit user decision while summary links and tags are optional proposal items. [[OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md]]
+
+#### P04 recorded response（a／b／c identical）
+
+原问题：
+`@What should the recording command surface say, and what should it avoid guessing?`
+
+Based on 5 retrieved notes.
+
+Source states:
+- The recording command surface should display metadata including URL, platform, language, transcript status, and a warning about transcript duration exceeding source duration. [[Sources/Audio/Recording 20260909203142.md]]
+- The command surface should avoid guessing or relying on example.com as a functional service, since it is designated for documentation examples only. [[Sources/Web/example.com.raw.md]] [[Sources/Web/example.com.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Sources/Audio/Recording 20260909203142.md]]
+- [[Sources/Web/example.com.raw.md]]
+- [[Sources/Web/example.com.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.raw.md]]
+
+#### P05 recorded response（a／b／c identical）
+
+原问题：
+`@Summarise the phase 2 answer flow in one paragraph, using only the two primary notes.`
+
+Based on 2 retrieved notes.
+
+Source states:
+- Web adapters should preserve a specific paragraph without sending it through image OCR. [[Sources/Documents/Plain web text fixture.raw.md]]
+- A synthetic fixture behaves like an unreviewed capture to test Inbox Pin and Unpin actions before a real OMD conversion. [[Manual Test Notes/Synthetic OMD Inbox Capture.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Sources/Documents/Plain web text fixture.raw.md]]
+- [[Manual Test Notes/Synthetic OMD Inbox Capture.md]]
+
+</details>
+
+hard preflight 通过后，选择本地 provider，依次运行：
 
 1. **P01**，连续三次：
    `@What stays local in the Phase 2 answer flow, even for cloud providers?`
-   必须回答 retrieval、source selection、local writing tools stay local，cloud answers 仍需 preview。
-2. **P02**：
+   必须回答 local retrieval、source selection、local writing tools stay local，cloud answers 仍需 preview
+   和 approval，且没有跨 provider fallback。
+2. **P02**，连续三次：
    `@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?`
-3. **P03**：
+   必须按 Cloud setup primary note 给出从 install／sign-in 到 preview approve／cancel 的七步顺序。
+3. **P03**，连续三次：
    `@Which actions share the local writing model, and how are they different?`
-4. **P04**：
+   必须说明 links/tags 与 capture polish 共用 local writing model；前者 review-first，后者每次 capture
+   可选。
+4. **P04**，连续三次：
    `@What should the recording command surface say, and what should it avoid guessing?`
-5. **P05**：
+   必须给出 wrapper command 名称，并说明仅有 Start／Stop commands 时不能猜测 recording 状态。
+5. **P05**，连续三次：
    `@Summarise the phase 2 answer flow in one paragraph, using only the two primary notes.`
-6. 每次记录：回答、Copy result、sources、retrieval mode、warnings、elapsed time、4 分制得分。
+   必须只使用两篇 primary notes，简短覆盖 local default、cloud opt-in preview、local writing tools 和
+   no fallback。
+6. **P06**，连续三次：
+   `@Does the release checklist explain cloud answer routing?`
+   必须 abstain 或重定向到正确 primary note；release checklist 是 distractor，不能从它编造 routing。
+7. 每次记录：回答、Copy result、sources、retrieval mode、warnings、elapsed time、4 分制得分。
    所有非空答案均应由固定的 **Source states:** / **Model inference:** 两段组成，每个关键
    事实、行动、比较或推论旁都有对应 primary note 引用；推论不能伪装成原文事实。P01、P02、P05
    若没有合理推论，**Model inference:** 可以为 **None.**。查看 Copy result 时也要核对分区和引用。
-7. P01/P02/P03/P04 必须 4/4；P05 至少 3/4。任何 distractor citation、编造 cloud 发送路径、
+8. P01/P02/P03/P04/P06 必须 4/4；P05 至少 3/4。任何 distractor citation、编造 cloud 发送路径、
    缺少逐结论引用、分区错误或 `[S#]` / `[E#]` placeholder 泄漏都是 release blocker。
 
-通过条件：section evidence 不退化成 title-only；计数、分类、overlap 与 abstention 正确；
-sources 精确且不包含 distractors。
+通过条件：P01–P04 对本地边界、Cloud setup、共享 writing model 和 recording wrapper 的事实完整且
+只引用对应 primary note；P05 只用两篇 primary notes 总结；P06 对 distractor 明确 abstain／redirect；
+每个结论有邻近引用，sources 不包含 release checklist distractor，也不泄漏 placeholder。
 
 <a id="test-ai-09"></a>
 
@@ -2107,6 +2280,14 @@ process 或跨 provider 反馈；Capture 后的 link/tag enrichment 不会把自
    问答应继续，不因仅影响 capture 的语言默认值被取消、失去 ready 或报缺少 OCR/ASR capability。
    更改后的默认值只在新 Capture 中生效；旧版 OMD 缺少可选 recognition override 能力时，仍可
    使用其已支持的 Q&A 功能。恢复默认语言后再次确认 Capture 使用新值。
+
+**2026-10-05 自动回归结果：** 109 项定向测试通过。第 8 步的 core boundary 已确认：pending preview
+期间 unload 会 abort request、不开 consent、零 evidence send、无遗留 controller／issue；较早已有
+回归也覆盖 consent 已打开且批准刚排队时 unload 仍阻止发送。第 10 步已确认：运行中的本地 Ask 不因
+OCR／ASR 设置变化而取消；旧 OMD 缺 recognition override 仍可 Q&A；Capture request 固定创建时的
+语言快照，后续设置只影响新 request。人工仍需补两项原生差额：disable／reload 与完全退出 Obsidian
+后的 Console／orphan smoke，以及更改语言后下一次真实 Capture 使用新值。未做这两项前，分别记录为
+`automated core PASS / native delta NOT RUN`，不要把整项 AI-11 自动记为 PASS。
 
 通过条件：credential 状态无刷新循环；AI setup 动作不会重叠；provider 切换和 abort 只影响所属
 请求；所有异步结果遵守 latest-submission-wins；云端发送严格绑定本次批准的证据；待批准时 unload

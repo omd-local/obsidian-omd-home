@@ -322,6 +322,21 @@ test("unavailable saved OCR stays visible instead of claiming no preference", ()
   assert.ok(row.buttons.some((button) => button.label === "Clear preference"));
 });
 
+test("recognition dropdowns save capture defaults without invalidating local AI", async () => {
+  const h = createHarness();
+  const invalidations: string[] = [];
+  h.tab.plugin.invalidateLocalAiState = (reason: string) => { invalidations.push(reason); };
+  h.tab.renderOmdSetup(h.container);
+
+  await h.row("Image text language").dropdowns[0]!.change("eng");
+  await h.row("Speech language").dropdowns[0]!.change("zh");
+
+  assert.equal(h.tab.plugin.settings.captureOcrLanguage, "eng");
+  assert.equal(h.tab.plugin.settings.captureAsrLanguage, "zh");
+  assert.equal(h.saveCalls(), 2);
+  assert.deepEqual(invalidations, [], "capture-only language defaults must not cancel or stale a running Q&A request");
+});
+
 test("social cookie settings reject invalid paths inline and persist only absolute paths or clear", async () => {
   const h = createHarness();
   h.tab.renderOmdSetup(h.container);

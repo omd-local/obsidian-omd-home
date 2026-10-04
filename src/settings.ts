@@ -717,6 +717,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       .setDesc(isCloudAiProvider(provider)
         ? `${detail} Check setup verifies access and model availability without sending vault content.`
         : detail);
+    status.settingEl.addClass("omd-settings-answer-status");
     const canOpenOllama = (provider === "ollama" || provider === "ollama-cloud")
       && canOpenOllamaDesktopApp()
       && this.plugin.localAiState.daemonCode === "daemon_unreachable";

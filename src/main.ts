@@ -1314,6 +1314,7 @@ export default class OmdHomePlugin extends Plugin {
             output,
             preview.preview.warnings ?? [],
             preview.embeddingFallbackModel,
+            "evidence-check",
           );
           return;
         }
@@ -1343,6 +1344,7 @@ export default class OmdHomePlugin extends Plugin {
             output,
             preview.preview.warnings ?? [],
             preview.embeddingFallbackModel,
+            "evidence-check",
           );
           return;
         }
@@ -2437,12 +2439,13 @@ export default class OmdHomePlugin extends Plugin {
     output: HTMLElement,
     warnings: string[],
     embeddingFallbackModel: string | null,
+    context: "answer" | "evidence-check" = "answer",
   ): void {
     if (!warnings.length) return;
     const diagnostics = output.createDiv({ cls: "omd-answer-diagnostics" });
     for (const warning of warnings) {
       const diagnostic = diagnostics.createDiv({ cls: "omd-answer-warning" });
-      diagnostic.createSpan({ text: humanizeRetrievalWarning(warning) });
+      diagnostic.createSpan({ text: humanizeRetrievalWarning(warning, context) });
       if (!isEmbeddingRetrievalWarning(warning)) continue;
       const warningActions = diagnostic.createDiv({ cls: "omd-answer-warning-actions" });
       const installableModel = warning === "hybrid_retrieval_model_not_installed"
@@ -3504,42 +3507,52 @@ function withEmbeddingFallbackModel<T extends AiAnswer>(value: T, model: string 
   return { ...value, embeddingFallbackModel: model };
 }
 
-function humanizeRetrievalWarning(value: string): string {
+function humanizeRetrievalWarning(
+  value: string,
+  context: "answer" | "evidence-check" = "answer",
+): string {
+  const keywordFallback = (reason: string): string => context === "evidence-check"
+    ? `${reason}. This evidence check used keyword search only.`
+    : `${reason}, so this answer used keyword search only.`;
   if (value === "hybrid_retrieval_unsupported_by_omd") {
-    return "This OMD build does not support semantic search yet, so this answer used keyword search only.";
+    return keywordFallback("This OMD build does not support semantic search yet");
   }
   if (value === "hybrid_retrieval_model_missing") {
-    return "No local embedding model is selected, so this answer used keyword search only.";
+    return keywordFallback("No local embedding model is selected");
   }
   if (value === "hybrid_retrieval_model_not_installed") {
-    return "The selected embedding model is not installed in Ollama, so this answer used keyword search only.";
+    return keywordFallback("The selected embedding model is not installed in Ollama");
   }
   if (value === "hybrid_retrieval_daemon_unreachable") {
-    return "The local Ollama service could not be reached, so this answer used keyword search only.";
+    return keywordFallback("The local Ollama service could not be reached");
   }
   if (value === "hybrid_retrieval_model_unsupported") {
-    return "The selected Ollama model does not support embeddings, so this answer used keyword search only.";
+    return keywordFallback("The selected Ollama model does not support embeddings");
   }
   if (value === "hybrid_retrieval_model_remote_blocked") {
-    return "The selected embedding model is cloud-backed and cannot be used for local search, so this answer used keyword search only.";
+    return keywordFallback("The selected embedding model is cloud-backed and cannot be used for local search");
   }
   if (value === "hybrid_retrieval_endpoint_invalid") {
-    return "The Ollama endpoint is not an accepted loopback address, so this answer used keyword search only.";
+    return keywordFallback("The Ollama endpoint is not an accepted loopback address");
   }
   if (value === "hybrid_retrieval_check_failed") {
-    return "The embedding check could not finish, so this answer used keyword search only. Open retrieval settings for details.";
+    return `${keywordFallback("The embedding check could not finish")} Open retrieval settings for details.`;
   }
   if (value === "hybrid_retrieval_failed") {
-    return "Semantic search was unavailable, so this answer used keyword search only.";
+    return keywordFallback("Semantic search was unavailable");
   }
   if (value === "hybrid_retrieval_local_safety_fallback") {
-    return "The local embedding setup could not be verified, so this answer used keyword search only.";
+    return keywordFallback("The local embedding setup could not be verified");
   }
   if (value === "semantic_recall_unavailable") {
-    return "Semantic search was unavailable for this answer, so keyword search stayed in effect.";
+    return context === "evidence-check"
+      ? "Semantic search was unavailable during this evidence check, so keyword search stayed in effect."
+      : "Semantic search was unavailable for this answer, so keyword search stayed in effect.";
   }
   if (value === "semantic_rerank_unavailable") {
-    return "Semantic reranking was unavailable for this answer, so the keyword search order was kept.";
+    return context === "evidence-check"
+      ? "Semantic reranking was unavailable during this evidence check, so the keyword search order was kept."
+      : "Semantic reranking was unavailable for this answer, so the keyword search order was kept.";
   }
   if (value === "answer_citation_coverage_incomplete") {
     return "Some generated claims did not include an inline citation. Treat those claims as unverified and retry before relying on them.";

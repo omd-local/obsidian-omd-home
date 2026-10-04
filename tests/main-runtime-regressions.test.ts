@@ -734,9 +734,35 @@ for (const [warning, model, expectedButtons] of [
       : warning === "hybrid_retrieval_daemon_unreachable"
         ? /could not be reached/u
         : /does not support embeddings/u);
+    assert.match(texts.join(" "), /This evidence check used keyword search only\./u);
+    assert.doesNotMatch(texts.join(" "), /this answer used keyword search only/iu);
     assert.deepEqual(buttons, expectedButtons);
   });
 }
+
+test("retrieval diagnostics use answer wording after an answer exists", () => {
+  const plugin = mainHarness();
+  plugin.settings.hybridRetrievalEnabled = true;
+  const texts: string[] = [];
+  const element = (): Record<string, any> => ({
+    isConnected: true,
+    createDiv() { return element(); },
+    createSpan(options: { text?: string } = {}) {
+      if (options.text) texts.push(options.text);
+      return element();
+    },
+    createEl() { return { isConnected: true, disabled: false, addEventListener() {} }; },
+  });
+
+  plugin.renderRetrievalDiagnostics(
+    element(),
+    ["hybrid_retrieval_daemon_unreachable"],
+    null,
+  );
+
+  assert.match(texts.join(" "), /, so this answer used keyword search only\./u);
+  assert.doesNotMatch(texts.join(" "), /evidence check/iu);
+});
 
 test("an already keyword-only setup does not offer a redundant retrieval switch", () => {
   const plugin = mainHarness();
@@ -1978,6 +2004,181 @@ test("unload closes cloud consent and blocks even an approval queued just before
   assert.equal(formattingClosed, 1);
   assert.equal(plugin.markdownFormattingModals.size, 0);
   assert.equal(plugin.cloudAnswerConsentModals.size, 0);
+  assert.deepEqual(plugin.issues, []);
+});
+
+test("unload aborts a pending cloud preview before consent or evidence send", async () => {
+  const previewEntered = deferred<void>();
+  let previewSignal: AbortSignal | undefined;
+  let consentOpened = false;
+  let executeCalls = 0;
+  let bridgeDisposed = 0;
+  const plugin = mainHarness(["askOmd", "previewCloudAnswer", "executeCloudAnswer", "onunload"], {
+    DEFAULT_SETTINGS: { ollamaHost: "http://localhost:11434" },
+    cloudAnswerPermissionEnabled: () => true,
+    normalizeLocalOllamaHost,
+    CloudAnswerConsentModal: class {
+      constructor() { consentOpened = true; }
+    },
+  });
+  Object.assign(plugin.settings, {
+    aiProvider: "openai",
+    aiModel: "o3-mini",
+    aiModels: { openai: "o3-mini" },
+    hybridRetrievalEnabled: false,
+    ollamaHost: "http://localhost:11434",
+  });
+  plugin.hostedAiState = {
+    provider: "openai",
+    checkedModel: "o3-mini",
+    checkedAnswerCompatibility: "supported",
+    checkedAnswerContract: "strict_json_schema",
+    code: "ready",
+    activeAction: "",
+    models: [{ name: "o3-mini" }],
+    credential,
+    destinationDomain: "api.openai.com",
+  };
+  Object.assign(plugin, {
+    markdownFormattingModals: new Set(),
+    calendarRefreshTimer: null,
+    calendarWriteOverrides: new Map(),
+    localAiSummaries: new Map(),
+    omdCapabilityService: { dispose() {} },
+    omdEnrichmentRunner: { dispose() {} },
+    currentLocalAiHost: () => null,
+    qaRetrievalOptions: () => ({ hybridRetrievalEnabled: false }),
+    prepareQaRetrieval: async () => ({
+      options: { hybridRetrievalEnabled: false },
+      warning: null,
+      warningModel: null,
+    }),
+    vaultPath: () => "/test-vault",
+    omdBridge: {
+      hostedCredentialState: async () => credential,
+      previewAi: async (
+        _vault: string,
+        _query: string,
+        _provider: string,
+        _model: string,
+        _endpoint: string,
+        _retrieval: unknown,
+        signal: AbortSignal,
+      ) => {
+        previewSignal = signal;
+        previewEntered.resolve();
+        return await new Promise((_resolve, reject) => signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("Plugin unloaded", "AbortError")),
+          { once: true },
+        ));
+      },
+      executeAi: async () => {
+        executeCalls += 1;
+        return {};
+      },
+      dispose: () => { bridgeDisposed += 1; },
+    },
+  });
+  const output = { hidden: false, empty() {}, createDiv() { return {}; } };
+
+  const asking = plugin.askOmd("Summarise the note", output);
+  await previewEntered.promise;
+  assert.equal(plugin.cloudAnswerControllers.size, 1);
+  plugin.onunload();
+  await asking;
+
+  assert.equal(previewSignal?.aborted, true);
+  assert.equal(consentOpened, false);
+  assert.equal(executeCalls, 0);
+  assert.equal(plugin.cloudAnswerControllers.size, 0);
+  assert.equal(plugin.localAiControllers.size, 0);
+  assert.equal(plugin.cloudAnswerConsentModals.size, 0);
+  assert.equal(bridgeDisposed, 1);
+  assert.deepEqual(plugin.issues, []);
+});
+
+test("recognition-default changes do not cancel a running local Ask", async () => {
+  const previewEntered = deferred<void>();
+  const releasePreview = deferred<void>();
+  let previewSignal: AbortSignal | undefined;
+  let renderedAnswer: unknown;
+  const plugin = mainHarness(["askOmd"]);
+  Object.assign(plugin.settings, {
+    aiProvider: "ollama",
+    aiModel: "qwen3:4b-instruct",
+    hybridRetrievalEnabled: false,
+    captureOcrLanguage: "eng",
+    captureAsrLanguage: "en",
+  });
+  Object.assign(plugin, {
+    requireReadyOmdExecutable: async () => "/legacy/bin/omd",
+    previewLocalAnswer: async (_query: string, parentSignal?: AbortSignal) => await plugin.withLocalAiSignal(
+      async (signal: AbortSignal) => {
+        previewSignal = signal;
+        previewEntered.resolve();
+        await releasePreview.promise;
+        signal.throwIfAborted();
+        return {
+          preview: {
+            evidence: [{ path: "Note.md", title: "Note", evidence: "Local fact", score: 1 }],
+            warnings: [],
+          },
+          retrieval: { hybridRetrievalEnabled: false },
+          embeddingFallbackModel: null,
+        };
+      },
+      parentSignal,
+    ),
+    executeLocalAnswer: async () => ({ answer_markdown: "Source states:\n- Local fact. [[Note.md]]\n\nModel inference:\n- None." }),
+    renderAiAnswer: (_output: unknown, answer: unknown) => { renderedAnswer = answer; },
+  });
+  const output = { hidden: false, empty() {}, createDiv() { return {}; } };
+
+  const asking = plugin.askOmd("What does the note say?", output);
+  await previewEntered.promise;
+  plugin.settings.captureOcrLanguage = "chi_sim+eng";
+  plugin.settings.captureAsrLanguage = "auto-detect";
+  assert.equal(previewSignal?.aborted, false);
+  releasePreview.resolve();
+  await asking;
+
+  assert.deepEqual(renderedAnswer, {
+    answer_markdown: "Source states:\n- Local fact. [[Note.md]]\n\nModel inference:\n- None.",
+  });
+  assert.equal(plugin.localAiControllers.size, 0);
+  assert.deepEqual(plugin.issues, []);
+});
+
+test("local Q&A remains available when the selected OMD has no recognition override", async () => {
+  let rendered = false;
+  const plugin = mainHarness(["askOmd"]);
+  Object.assign(plugin.settings, {
+    aiProvider: "ollama",
+    aiModel: "qwen3:4b-instruct",
+    hybridRetrievalEnabled: false,
+    captureOcrLanguage: "chi_sim+eng",
+    captureAsrLanguage: "zh",
+  });
+  Object.assign(plugin, {
+    requireReadyOmdExecutable: async () => "/legacy/bin/omd",
+    requireCaptureOmdExecutable: async () => assert.fail("Q&A must not require recognition capability"),
+    previewLocalAnswer: async () => ({
+      preview: {
+        evidence: [{ path: "Legacy.md", title: "Legacy", evidence: "Supported Q&A", score: 1 }],
+        warnings: [],
+      },
+      retrieval: { hybridRetrievalEnabled: false },
+      embeddingFallbackModel: null,
+    }),
+    executeLocalAnswer: async () => ({ answer_markdown: "Source states:\n- Supported Q&A. [[Legacy.md]]\n\nModel inference:\n- None." }),
+    renderAiAnswer: () => { rendered = true; },
+  });
+  const output = { hidden: false, empty() {}, createDiv() { return {}; } };
+
+  await plugin.askOmd("Can legacy OMD answer?", output);
+
+  assert.equal(rendered, true);
   assert.deepEqual(plugin.issues, []);
 });
 
