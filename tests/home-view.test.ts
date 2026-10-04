@@ -184,15 +184,36 @@ test("Inbox and Recent share one cached metadata snapshot and responsive note re
   assert.match(homeSource, /text: `\$\{label\} \$\{formatRelativeHomeNoteTime\(display\.timestamp\)\}`/u);
   assert.match(homeSource, /datetime: new Date\(display\.timestamp\)\.toISOString\(\)/u);
   assert.match(stylesSource, /\.omd-widget-inbox,\s*\.omd-widget-recent\s*\{ container: omd-note-widget \/ inline-size; \}/u);
-  assert.match(stylesSource, /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-wide-tool \{ display: none; \}/u);
+  assert.match(stylesSource, /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-list-row \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
   assert.match(homeSource, /note\.status === "reviewed" \? "Review again" : "Review"/u);
-  assert.match(homeSource, /openNoteActionsMenu\(event, note\.file, reviewLabel\)/u);
-  const overflowMenu = extractMethodBody(homeSource, "private openNoteActionsMenu(");
+  assert.match(homeSource, /this\.createAiToolsButton\(actions, note\.file\)/u);
+  const aiTools = extractMethodBody(homeSource, "private createAiToolsButton(");
+  assert.match(aiTools, /"aria-haspopup": "menu"/u);
+  assert.match(aiTools, /"aria-expanded": "false"/u);
+  assert.match(aiTools, /AI tools for \$\{file\.basename\}/u);
+  const aiMenu = extractMethodBody(homeSource, "private openAiToolsMenu(");
   assert.match(
-    overflowMenu,
-    /setTitle\(reviewLabel\)[\s\S]*setTitle\("AI tags"\)[\s\S]*setTitle\("Summarize"\)/u,
-    "the narrow menu must preserve the wide action order",
+    aiMenu,
+    /setTitle\("Improve formatting"\)[\s\S]*setTitle\("Generate suggestions · summary, links, tags"\)/u,
+    "AI tools must describe its two distinct operations",
   );
+  assert.match(aiMenu, /trigger\.getBoundingClientRect\(\)[\s\S]*showAtPosition/u);
+  assert.match(aiMenu, /trigger\.setAttribute\("aria-expanded", "true"\)[\s\S]*showAtPosition/u);
+  assert.match(aiMenu, /menu\.onHide\(\(\) => \{[\s\S]*trigger\.setAttribute\("aria-expanded", "false"\)/u);
+  assert.match(aiMenu, /let actionChosen = false[\s\S]*actionChosen = true[\s\S]*menu\.onHide\(\(\) => \{[\s\S]*if \(!actionChosen\) trigger\.focus\(\)/u);
+  assert.doesNotMatch(homeSource, /"AI tags"|"Summarize"/u);
+});
+
+test("long note titles and three actions reflow without horizontal overlap", () => {
+  assert.match(stylesSource, /\.omd-result-title, \.omd-note-title\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis/su);
+  assert.match(stylesSource, /\.omd-note-tools\s*\{[^}]*max-width:\s*100%/su);
+  assert.match(
+    stylesSource,
+    /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-list-row \{ grid-template-columns: minmax\(0, 1fr\); \}[\s\S]*\.omd-note-tools \{[^}]*flex-wrap: wrap/su,
+  );
+  const row = extractMethodBody(homeSource, "private renderWorkflowNoteRow(");
+  assert.match(row, /createNoteTool[\s\S]*createAiToolsButton[\s\S]*createPinButton/u);
+  assert.doesNotMatch(row, /createNoteTool[\s\S]*createNoteTool[\s\S]*createNoteTool/u);
 });
 
 test("widget move and resize are locked while omnibox results temporarily own the layout", () => {

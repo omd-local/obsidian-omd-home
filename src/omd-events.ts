@@ -119,10 +119,9 @@ export function sanitizeCaptureProgressEvent(
 }
 
 export function shouldSurfaceCaptureEvent(event: OmdProgressEvent): boolean {
-  // OMD currently emits `done` when the converter finishes writing its
-  // temporary route path. The capture command still has to rename the note,
-  // write frontmatter and its sidecar, and update the vault index. OMD Home
-  // owns the user-visible terminal event after those steps and Inbox marking.
+  // Current OMD emits `done` only after the final title-based rename, manifest,
+  // and index update. Home still owns the user-visible terminal event because
+  // the generated note must also be verified and marked for Inbox review.
   return event.event !== "done";
 }
 

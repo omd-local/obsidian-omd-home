@@ -68,6 +68,15 @@ import {
   type CapturePreflightResult,
   type CaptureSourceAccessDraft,
 } from "./modals";
+import { MarkdownFormattingModal } from "./markdown-formatting-modal.ts";
+import {
+  applyMarkdownFormattingPreview,
+  FORMATTING_CONFLICT_MESSAGE,
+  FORMATTING_NO_CHANGES_MESSAGE,
+  FORMATTING_UNSAFE_OUTPUT_MESSAGE,
+  markdownBodyForFormatting,
+  preserveMarkdownFrontmatter,
+} from "./markdown-formatting.ts";
 import { omdCapabilityIdentityLabel, OmdCapabilityService } from "./enrichment/capability";
 import type { OmdCapabilities } from "./enrichment/contract.ts";
 import { EnrichmentWorkflowController } from "./enrichment/controller.ts";
@@ -198,6 +207,7 @@ export default class OmdHomePlugin extends Plugin {
   private hostedCredentialHydration: Promise<void> | null = null;
   private hostedCredentialHydrationProvider: HostedAiProvider | null = null;
   private readonly cloudAnswerConsentModals = new Set<CloudAnswerConsentModal>();
+  private readonly markdownFormattingModals = new Set<MarkdownFormattingModal>();
   private readonly cloudAnswerControllers = new Set<AbortController>();
   private cloudAnswerConsentGeneration = 0;
   private hostedAiController: AbortController | null = null;
@@ -260,6 +270,7 @@ export default class OmdHomePlugin extends Plugin {
       callback: () => this.openOmdInstallGuide(),
     });
     this.addCommand({ id: "suggest-links-and-tags", name: "Suggest links and tags", callback: () => void this.suggestLinksAndTags() });
+    this.addCommand({ id: "improve-note-formatting", name: "Improve note formatting", callback: () => void this.improveNoteFormatting() });
     this.addCommand({ id: "refresh-local-models", name: "Refresh local AI models", callback: () => void this.refreshLocalAiCatalog(true) });
     this.addCommand({ id: "check-local-ai", name: "Check local AI connection", callback: () => void this.checkLocalAiConnection() });
     this.addCommand({ id: "smoke-local-ai-qa", name: "Smoke local AI: Vault question", callback: () => void this.smokeLocalAiWorkflow("qa") });
@@ -313,7 +324,11 @@ export default class OmdHomePlugin extends Plugin {
           .setIcon("list-checks")
           .onClick(() => void this.reviewNote(file)));
         menu.addItem((item) => item
-          .setTitle("Suggest links and tags")
+          .setTitle("Improve formatting")
+          .setIcon("text")
+          .onClick(() => void this.improveNoteFormatting(file)));
+        menu.addItem((item) => item
+          .setTitle("Generate suggestions · summary, links, tags")
           .setIcon("sparkles")
           .onClick(() => void this.suggestLinksAndTags(file)));
       }
@@ -339,6 +354,8 @@ export default class OmdHomePlugin extends Plugin {
     this.omdCapabilityGeneration += 1;
     this.invalidateCloudAnswerConsent();
     this.cancelHostedAiAction();
+    for (const modal of this.markdownFormattingModals) modal.close();
+    this.markdownFormattingModals.clear();
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
     this.calendarWriteOverrides.clear();
     for (const controller of this.localAiControllers) controller.abort();
@@ -1390,6 +1407,132 @@ export default class OmdHomePlugin extends Plugin {
       return;
     }
     await this.enrichmentWorkflowController.start(file);
+  }
+
+  async improveNoteFormatting(file = this.app.workspace.getActiveFile()): Promise<void> {
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    if (this.captureActive || this.enrichmentActive) {
+      new Notice("Another OMD action is already active.");
+      return;
+    }
+
+    const controller = new AbortController();
+    this.captureActive = true;
+    this.captureCancelable = true;
+    this.captureController = controller;
+    this.processingEvents = [{
+      v: 1,
+      event: "stage",
+      kind: "markdown_formatting",
+      ts: Date.now() / 1_000,
+      label: "Improving formatting…",
+    }];
+    this.clearIssue("ai");
+    this.refreshHomeViews();
+
+    const modal = new MarkdownFormattingModal(this.app, file.basename, () => {
+      if (this.captureController !== controller || !this.captureCancelable) return;
+      controller.abort();
+      this.captureCancelable = false;
+      this.refreshHomeViews();
+    });
+    let decision: Promise<boolean> | null = null;
+    let baseline = "";
+    let preview = "";
+    let previewReady = false;
+
+    try {
+      this.markdownFormattingModals.add(modal);
+      decision = modal.openAndWait().finally(() => this.markdownFormattingModals.delete(modal));
+      baseline = await this.app.vault.read(file);
+      controller.signal.throwIfAborted();
+      const executable = await this.requireReadyOmdExecutable();
+      controller.signal.throwIfAborted();
+      const snapshot = createWorkflowSnapshot("capture", this.settings, true);
+      const body = markdownBodyForFormatting(baseline);
+      const formatted = await this.runLocalAiGated(
+        snapshot,
+        () => createWorkflowSnapshot("capture", this.settings, true),
+        async (gatedSnapshot, signal) => await this.omdBridge.previewMarkdownFormatting(
+          executable,
+          body,
+          gatedSnapshot.model,
+          gatedSnapshot.host,
+          signal,
+        ),
+        controller.signal,
+      );
+      controller.signal.throwIfAborted();
+      preview = preserveMarkdownFrontmatter(baseline, formatted);
+      if (preview === baseline) {
+        modal.finishGeneration();
+        modal.close();
+        this.processingEvents.push({
+          v: 1,
+          event: "done",
+          kind: "markdown_formatting_noop",
+          ts: Date.now() / 1_000,
+          message: FORMATTING_NO_CHANGES_MESSAGE,
+        });
+        new Notice(FORMATTING_NO_CHANGES_MESSAGE);
+        return;
+      }
+      previewReady = true;
+      modal.showPreview(preview);
+      this.processingEvents.push({
+        v: 1,
+        event: "done",
+        kind: "markdown_formatting_preview",
+        ts: Date.now() / 1_000,
+        message: "Formatting preview ready",
+      });
+    } catch (error) {
+      const cancelled = isAbortError(error) || controller.signal.aborted;
+      this.processingEvents.push({
+        v: 1,
+        event: cancelled ? "cancelled" : "error",
+        kind: cancelled ? "cancelled" : "markdown_formatting_failed",
+        ts: Date.now() / 1_000,
+        message: cancelled ? "Formatting cancelled" : "Formatting could not finish",
+      });
+      if (!cancelled) {
+        const detail = noteFormattingFailureMessage(error);
+        modal.finishGeneration();
+        this.reportLocalAiWorkflowIssue(error instanceof LocalAiError ? error : new Error(detail), file.path);
+        new Notice(detail);
+      }
+      modal.close();
+      return;
+    } finally {
+      this.captureActive = false;
+      this.captureCancelable = false;
+      if (this.captureController === controller) this.captureController = null;
+      this.refreshHomeViews();
+    }
+
+    if (!previewReady || decision === null) return;
+    if (!await decision) return;
+    if (this.unloaded) return;
+    try {
+      const result = await applyMarkdownFormattingPreview(this.app.vault, file, baseline, preview);
+      if (result === "conflict") {
+        new Notice(FORMATTING_CONFLICT_MESSAGE);
+        return;
+      }
+      if (result === "no-op") {
+        new Notice(FORMATTING_NO_CHANGES_MESSAGE);
+        return;
+      }
+      this.refreshHomeViews();
+      new Notice("Formatting applied. Review status is unchanged.");
+    } catch {
+      const detail = "Could not apply formatting. The note was not changed.";
+      this.reportLocalAiWorkflowIssue(new Error(detail), file.path);
+      new Notice(detail);
+    }
   }
 
   async reviewNote(file = this.app.workspace.getActiveFile()): Promise<void> {
@@ -3273,6 +3416,16 @@ function mapHostedErrorCode(error: unknown): HostedAiRuntimeState["code"] {
 }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+function noteFormattingFailureMessage(error: unknown): string {
+  if (error instanceof LocalAiError) {
+    return `${error.message} The note was not changed.`;
+  }
+  if (error instanceof Error && error.message === FORMATTING_UNSAFE_OUTPUT_MESSAGE) {
+    return error.message;
+  }
+  return "Could not improve formatting. The note was not changed. Check the local writing model, then try again.";
+}
 
 function waitForSharedPromise<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return pending;

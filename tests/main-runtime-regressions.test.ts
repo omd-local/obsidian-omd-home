@@ -1939,6 +1939,7 @@ test("unload closes cloud consent and blocks even an approval queued just before
   const decision = deferred<boolean>();
   const opened = deferred<void>();
   let closed = 0;
+  let formattingClosed = 0;
   const plugin = mainHarness(["askOmd", "onunload"], {
     cloudAnswerPermissionEnabled: () => true,
     CloudAnswerConsentModal: class {
@@ -1948,6 +1949,7 @@ test("unload closes cloud consent and blocks even an approval queued just before
   });
   Object.assign(plugin, {
     cloudAnswerConsentModals: new Set(),
+    markdownFormattingModals: new Set([{ close() { formattingClosed += 1; } }]),
     calendarRefreshTimer: null,
     calendarWriteOverrides: new Map(),
     localAiSummaries: new Map(),
@@ -1973,6 +1975,8 @@ test("unload closes cloud consent and blocks even an approval queued just before
   plugin.onunload();
   await answer;
   assert.equal(closed, 1);
+  assert.equal(formattingClosed, 1);
+  assert.equal(plugin.markdownFormattingModals.size, 0);
   assert.equal(plugin.cloudAnswerConsentModals.size, 0);
   assert.deepEqual(plugin.issues, []);
 });

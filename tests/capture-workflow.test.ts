@@ -197,7 +197,7 @@ test("capture fields share one modal-scoped vertical rhythm", () => {
   assert.match(stylesSource, /\.omd-capture-source\s*\{[^}]*min-height:\s*76px;[^}]*max-height:\s*min\(28vh, 220px\);[^}]*overflow-wrap:\s*anywhere;[^}]*white-space:\s*pre-wrap;/su);
   assert.match(stylesSource, /:is\(\.omd-capture-modal, \.omd-event-modal\) :is\(input:not\(\[type="checkbox"\]\), textarea\)\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*min-width:\s*0;/su);
   assert.match(modalSource, /text\.inputEl\.setAttribute\("dir", "ltr"\)/u, "long cookie paths keep a stable reading direction");
-  assert.match(stylesSource, /:is\(\.omd-capture-modal, \.omd-consent-modal, \.omd-event-modal\) \.setting-item-control\s*\{[^}]*min-width:\s*0;[^}]*flex-wrap:\s*wrap;/su);
+  assert.match(stylesSource, /:is\(\.omd-capture-modal, \.omd-consent-modal, \.omd-formatting-modal, \.omd-event-modal\) \.setting-item-control\s*\{[^}]*min-width:\s*0;[^}]*flex-wrap:\s*wrap;/su);
   assert.match(stylesSource, /:is\(\.omd-capture-modal, \.omd-event-modal\) \.setting-item:has\(input:not\(\[type="checkbox"\]\)\) \.setting-item-control\s*\{[^}]*width:\s*100%;/su);
   assert.match(stylesSource, /@media \(max-width: 520px\)\s*\{[\s\S]*\.omd-capture-modal[\s\S]*select\s*\{\s*width:\s*100%;/su);
 });

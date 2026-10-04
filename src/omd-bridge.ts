@@ -1,4 +1,5 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import type { OmdProgressEvent, OmdSearchHit } from "./model.ts";
@@ -44,6 +45,7 @@ const DEFAULT_MAX_STDERR_CHARS = 256_000;
 const BRIDGE_TIMEOUT_MS = 95_000;
 const HYBRID_BRIDGE_TIMEOUT_MS = 5 * 60_000;
 const CAPTURE_TIMEOUT_MS = 10 * 60_000;
+const MARKDOWN_FORMATTING_TIMEOUT_MS = 5 * 60_000;
 const CAPTURE_INSPECT_TIMEOUT_MS = 30_000;
 const MAX_CAPTURE_INSPECT_BYTES = 64 * 1024;
 const WHICH_TIMEOUT_MS = 5_000;
@@ -379,6 +381,55 @@ export class OmdBridge {
     return await resolveOmdCaptureOutput(done?.output ?? null, request.source, vaultPath, captureStartedAt);
   }
 
+  async previewMarkdownFormatting(
+    executable: string,
+    markdown: string,
+    model: string,
+    host: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    this.assertDesktop();
+    const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "omd-home-format-"));
+    const temporaryNote = path.join(temporaryDirectory, "note.md");
+    try {
+      signal?.throwIfAborted();
+      await writeFile(temporaryNote, markdown, "utf8");
+      const result = await this.spawnManagedProcess(executable, [
+        temporaryNote,
+        "--polish-md",
+        "--polish-md-model",
+        model,
+        "--polish-md-host",
+        host,
+        "--json-events",
+      ], {
+        signal,
+        shell: false,
+        timeoutMs: MARKDOWN_FORMATTING_TIMEOUT_MS,
+        maxStdoutChars: 32_000,
+        maxStderrChars: 1_000_000,
+      });
+      signal?.throwIfAborted();
+      if (result.code !== 0) {
+        throw new Error("OMD could not improve formatting. The note was not changed.");
+      }
+      if (hasMarkdownFormattingFailureEvent(result.stderr)) {
+        throw new Error("OMD could not improve formatting. The note was not changed.");
+      }
+      const formatted = await readFile(temporaryNote, "utf8");
+      if (!formatted.trim()) {
+        throw new Error("OMD returned an empty formatting preview. The note was not changed.");
+      }
+      return formatted;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      if (error instanceof Error && /note was not changed/u.test(error.message)) throw error;
+      throw new Error("OMD could not improve formatting. The note was not changed.", { cause: error as Error });
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
+
   async inspectCaptureSource(
     executable: string,
     source: string,
@@ -661,6 +712,19 @@ export class OmdBridge {
       this.activeControllers.delete(controller);
     }
   }
+}
+
+function hasMarkdownFormattingFailureEvent(stderr: string): boolean {
+  return stderr.split(/\r?\n/u).some((line) => {
+    const event = parseOmdEvent(line);
+    if (!event) return false;
+    if (event.event === "error" || event.event === "fatal") return true;
+    if (event.event !== "warn" || typeof event.message !== "string") return false;
+    const warning = event.message.toLowerCase();
+    return warning.includes("markdown polish skipped")
+      || (warning.includes("polish chunk") && warning.includes("failed"))
+      || warning.includes("markdown polish failed");
+  });
 }
 
 export async function resolveOmdCaptureOutput(

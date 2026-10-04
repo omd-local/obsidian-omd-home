@@ -617,6 +617,171 @@ test("social fatal progress and final failure both use redacted Home copy", asyn
   assert.doesNotMatch(JSON.stringify(events), /OMD-COOKIE-PATH-MUST-NOT-LEAK|\/Users\/private/u);
 });
 
+test("Markdown formatting preview uses an isolated temp note and cleans every generated artifact", async () => {
+  const baseline = "---\nomd_home_status: inbox\n---\n# Note\n\nraw transcript\n";
+  const formatted = "---\nomd_home_status: inbox\n---\n# Note\n\nRaw transcript.\n";
+  let temporaryNote = "";
+  await withNodeRequire(async () => {
+    const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+    const managed = bridge as unknown as {
+      spawnManagedProcess: (
+        command: string,
+        args: string[],
+        options: { shell?: false; timeoutMs?: number },
+      ) => Promise<{ stdout: string; stderr: string; code: number }>;
+    };
+    managed.spawnManagedProcess = async (command, args, options) => {
+      assert.equal(command, "/opt/omd");
+      temporaryNote = args[0] ?? "";
+      assert.match(temporaryNote, /omd-home-format-.+[/\\]note\.md$/u);
+      assert.equal(await readFile(temporaryNote, "utf8"), baseline);
+      assert.deepEqual(args.slice(1), [
+        "--polish-md",
+        "--polish-md-model",
+        "qwen3:4b-instruct",
+        "--polish-md-host",
+        "http://localhost:11434",
+        "--json-events",
+      ]);
+      assert.equal(options.shell, false);
+      assert.ok((options.timeoutMs ?? 0) > 0);
+      await writeFile(temporaryNote, formatted, "utf8");
+      await writeFile(temporaryNote.replace(/\.md$/u, ".raw.md"), baseline, "utf8");
+      await writeFile(`${temporaryNote}.omd.json`, "{}", "utf8");
+      return { stdout: "", stderr: "", code: 0 };
+    };
+
+    assert.equal(
+      await bridge.previewMarkdownFormatting(
+        "/opt/omd",
+        baseline,
+        "qwen3:4b-instruct",
+        "http://localhost:11434",
+      ),
+      formatted,
+    );
+    bridge.dispose();
+  });
+  await assert.rejects(readFile(temporaryNote, "utf8"), /ENOENT/u);
+  await assert.rejects(readFile(temporaryNote.replace(/\.md$/u, ".raw.md"), "utf8"), /ENOENT/u);
+  await assert.rejects(readFile(`${temporaryNote}.omd.json`, "utf8"), /ENOENT/u);
+});
+
+test("Markdown formatting failure and cancellation keep temp paths private and still clean up", async () => {
+  for (const mode of ["failure", "cancel"] as const) {
+    let temporaryNote = "";
+    await withNodeRequire(async () => {
+      const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+      const managed = bridge as unknown as {
+        spawnManagedProcess: (
+          command: string,
+          args: string[],
+        ) => Promise<{ stdout: string; stderr: string; code: number }>;
+      };
+      managed.spawnManagedProcess = async (_command, args) => {
+        temporaryNote = args[0] ?? "";
+        if (mode === "cancel") {
+          const error = new Error(`aborted ${temporaryNote}`);
+          error.name = "AbortError";
+          throw error;
+        }
+        return { stdout: "", stderr: `private temp ${temporaryNote}`, code: 1 };
+      };
+      await assert.rejects(
+        bridge.previewMarkdownFormatting(
+          "/opt/omd",
+          "# Note\n\nraw\n",
+          "qwen3:4b-instruct",
+          "http://localhost:11434",
+        ),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          if (mode === "cancel") return error.name === "AbortError";
+          assert.equal(error.message, "OMD could not improve formatting. The note was not changed.");
+          assert.doesNotMatch(error.message, /omd-home-format-|note\.md/u);
+          return true;
+        },
+      );
+      bridge.dispose();
+    });
+    await assert.rejects(readFile(temporaryNote, "utf8"), /ENOENT/u);
+  }
+});
+
+test("Markdown formatting rejects a zero-exit OMD polish failure instead of calling it a no-op", async () => {
+  const baseline = "# Note\n\nraw transcript\n";
+  await withNodeRequire(async () => {
+    const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+    const managed = bridge as unknown as {
+      spawnManagedProcess: (
+        command: string,
+        args: string[],
+      ) => Promise<{ stdout: string; stderr: string; code: number }>;
+    };
+    managed.spawnManagedProcess = async (_command, args) => {
+      await writeFile(args[0] ?? "", baseline, "utf8");
+      return {
+        stdout: "",
+        stderr: `${JSON.stringify({
+          v: 1,
+          event: "warn",
+          ts: Date.now() / 1_000,
+          message: "Ollama Markdown polish skipped: model unavailable. Keeping the original Markdown.",
+        })}\n`,
+        code: 0,
+      };
+    };
+
+    await assert.rejects(
+      bridge.previewMarkdownFormatting(
+        "/opt/omd",
+        baseline,
+        "missing:model",
+        "http://localhost:11434",
+      ),
+      /OMD could not improve formatting\. The note was not changed\./u,
+    );
+    bridge.dispose();
+  });
+});
+
+test("Markdown formatting permits an informational size warning and a true unchanged result", async () => {
+  const baseline = "# Note\n\nAlready formatted.\n";
+  await withNodeRequire(async () => {
+    const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+    const managed = bridge as unknown as {
+      spawnManagedProcess: (
+        command: string,
+        args: string[],
+      ) => Promise<{ stdout: string; stderr: string; code: number }>;
+    };
+    managed.spawnManagedProcess = async (_command, args) => {
+      await writeFile(args[0] ?? "", baseline, "utf8");
+      return {
+        stdout: "",
+        stderr: `${JSON.stringify({
+          v: 1,
+          event: "warn",
+          ts: Date.now() / 1_000,
+          message: "polishing 60000 chars — this will take a while via Ollama (8 chunks)",
+        })}\n`,
+        code: 0,
+      };
+    };
+
+    assert.equal(
+      await bridge.previewMarkdownFormatting(
+        "/opt/omd",
+        baseline,
+        "qwen3:4b-instruct",
+        "http://localhost:11434",
+      ),
+      baseline,
+    );
+    bridge.dispose();
+  });
+});
+
 test("capture output reconciliation follows the current OMD sidecar when done reports a stale planned filename", async () => {
   const root = await mkdtemp(join(tmpdir(), "omd-home-capture-output-"));
   const outputDirectory = join(root, "Sources", "Documents");

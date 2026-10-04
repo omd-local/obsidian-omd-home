@@ -508,16 +508,8 @@ export class OmdHomeView extends ItemView {
     const actions = row.createDiv({ cls: "omd-note-tools" });
     const reviewLabel = context === "recent" && note.status === "reviewed" ? "Review again" : "Review";
     this.createNoteTool(actions, note.file, reviewLabel, "list-checks", () => void this.plugin.reviewNote(note.file));
-    this.createNoteTool(actions, note.file, "AI tags", "tags", () => this.generateNoteProposal(note.file));
-    this.createNoteTool(actions, note.file, "Summarize", "align-left", () => this.generateNoteProposal(note.file));
+    this.createAiToolsButton(actions, note.file);
     this.createPinButton(actions, note.file);
-    const more = actions.createEl("button", {
-      cls: "omd-note-tool omd-note-overflow",
-      type: "button",
-      attr: { title: `More actions for ${note.title}`, "aria-label": `More actions for ${note.title}` },
-    });
-    setIcon(more, "more-horizontal");
-    more.addEventListener("click", (event) => this.openNoteActionsMenu(event, note.file, reviewLabel));
   }
 
   private renderNoteTime(parent: HTMLElement, note: HomeNoteRow, context: "inbox" | "recent"): void {
@@ -552,12 +544,12 @@ export class OmdHomeView extends ItemView {
   private createNoteTool(
     parent: HTMLElement,
     file: TFile,
-    label: "Review" | "Review again" | "AI tags" | "Summarize",
+    label: "Review" | "Review again",
     icon: string,
     action: () => void,
   ): HTMLButtonElement {
     const button = parent.createEl("button", {
-      cls: "omd-note-tool omd-note-wide-tool",
+      cls: "omd-note-tool",
       type: "button",
       attr: { title: `${label} ${file.basename}`, "aria-label": `${label} ${file.basename}` },
     });
@@ -567,16 +559,53 @@ export class OmdHomeView extends ItemView {
     return button;
   }
 
+  private createAiToolsButton(parent: HTMLElement, file: TFile): HTMLButtonElement {
+    const label = `AI tools for ${file.basename}`;
+    const button = parent.createEl("button", {
+      cls: "omd-note-tool omd-ai-tools",
+      type: "button",
+      attr: {
+        title: `${label}: improve formatting or generate summary, link, and tag suggestions`,
+        "aria-label": `${label}. Improve formatting or generate summary, link, and tag suggestions.`,
+        "aria-haspopup": "menu",
+        "aria-expanded": "false",
+      },
+    });
+    setIcon(button, "sparkles");
+    button.createSpan({ text: "AI tools" });
+    button.addEventListener("click", (event) => this.openAiToolsMenu(event, file, button));
+    return button;
+  }
+
   private generateNoteProposal(file: TFile): void {
     void this.plugin.suggestLinksAndTags(file);
   }
 
-  private openNoteActionsMenu(event: MouseEvent, file: TFile, reviewLabel: "Review" | "Review again"): void {
+  private openAiToolsMenu(event: MouseEvent, file: TFile, trigger: HTMLButtonElement): void {
+    event.preventDefault();
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle(reviewLabel).setIcon("list-checks").onClick(() => void this.plugin.reviewNote(file)));
-    menu.addItem((item) => item.setTitle("AI tags").setIcon("tags").onClick(() => this.generateNoteProposal(file)));
-    menu.addItem((item) => item.setTitle("Summarize").setIcon("align-left").onClick(() => this.generateNoteProposal(file)));
-    menu.showAtMouseEvent(event);
+    let actionChosen = false;
+    menu.addItem((item) => item
+      .setTitle("Improve formatting")
+      .setIcon("text")
+      .onClick(() => {
+        actionChosen = true;
+        void this.plugin.improveNoteFormatting(file);
+      }));
+    menu.addItem((item) => item
+      .setTitle("Generate suggestions · summary, links, tags")
+      .setIcon("sparkles")
+      .onClick(() => {
+        actionChosen = true;
+        this.generateNoteProposal(file);
+      }));
+    menu.onHide(() => {
+      trigger.setAttribute("aria-expanded", "false");
+      if (!actionChosen) trigger.focus();
+    });
+    const bounds = trigger.getBoundingClientRect();
+    trigger.setAttribute("aria-expanded", "true");
+    menu.showAtPosition({ x: bounds.left, y: bounds.bottom, width: bounds.width });
   }
 
   private openNoteFilterMenu(event: MouseEvent, context: "inbox" | "recent"): void {
