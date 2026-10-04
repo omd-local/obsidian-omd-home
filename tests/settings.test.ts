@@ -460,10 +460,12 @@ test("rapid provider, model, and permission callbacks preserve provider-scoped s
   const tab = loadSettingTabMethods([
     "saveSettingsInOrder",
     "changeAnswerProvider",
+    "autoCheckHostedProvider",
     "changeCloudAnswerPermission",
     "saveAnswerModel",
   ], {
     isStoredAiProvider: (value: string) => ["ollama", "ollama-cloud", "openai", "anthropic", "deepseek"].includes(value),
+    isHostedApiProvider: (provider: string) => ["openai", "anthropic", "deepseek"].includes(provider),
     isCloudAiProvider: (provider: string) => provider !== "ollama",
     aiProviderLabel: (provider: string) => provider,
     Notice: class {
@@ -490,6 +492,12 @@ test("rapid provider, model, and permission callbacks preserve provider-scoped s
     },
     invalidateLocalAiState: () => {},
     invalidateCloudAnswerConsent: () => {},
+    aiSetupRevision: () => 0,
+    async ensureHostedCredentialState(provider: string) {
+      if (this.settings.aiProvider !== provider) return;
+      this.hostedAiState = { provider, credential: { source: "missing" }, activeAction: "" };
+    },
+    checkHostedAiConnection: async () => false,
     async saveSettings() {
       saveCalls += 1;
       activeSaves += 1;

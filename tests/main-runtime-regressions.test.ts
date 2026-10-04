@@ -89,6 +89,7 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     cloudAnswerControllers: new Set<AbortController>(),
     hostedCredentialHydration: null,
     hostedCredentialHydrationProvider: null,
+    hostedCredentialHydrationActionToken: null,
     hostedAiController: null,
     hostedCredentialMutation: null,
     cloudAnswerConsentGeneration: 0,
@@ -887,25 +888,36 @@ test("failed OMD hydration records one attempt and Check setup explicitly retrie
 test("hosted setup rejects an unexpected provider destination before checking a model", async () => {
   const plugin = mainHarness([], { LocalAiError });
   let modelChecks = 0;
+  let catalogChecks = 0;
   Object.assign(plugin.settings, {
     aiProvider: "openai",
     aiModel: "test-model",
     aiModels: { openai: "test-model" },
   });
   plugin.omdBridge = {
-    discoverProviderModels: async () => ({
-      models: ["test-model"],
-      credential,
-      destinationDomain: "unexpected.example",
-    }),
+    discoverProviderModels: async () => {
+      catalogChecks += 1;
+      throw new Error("Selected-model setup must use the combined model check");
+    },
     checkProviderModel: async () => {
       modelChecks += 1;
-      throw new Error("The model check must not run after a destination mismatch");
+      return {
+        model: "test-model",
+        available: true,
+        answerCompatibility: "supported",
+        answerCompatibilityReason: "The exact model contract was checked.",
+        answerContract: "strict_json_schema",
+        models: ["test-model"],
+        alternativeModels: [],
+        credential,
+        destinationDomain: "unexpected.example",
+      };
     },
   };
 
   assert.equal(await plugin.checkHostedAiConnection(), false);
-  assert.equal(modelChecks, 0);
+  assert.equal(modelChecks, 1);
+  assert.equal(catalogChecks, 0);
   assert.equal(plugin.hostedAiState.code, "provider_destination_mismatch");
   assert.match(plugin.hostedAiState.detail, /unexpected request destination/iu);
 });
@@ -930,7 +942,7 @@ for (const [model, expectedStatus] of [["gpt-4", "unsupported"], ["future-openai
         answerCompatibility: expectedStatus,
         answerCompatibilityReason: `${model} failed the exact backend answer contract check.`,
         answerContract: null,
-        models: [model],
+        models: [model, "gpt-4o-mini", "o3-mini"],
         alternativeModels: [],
         credential,
         destinationDomain: "api.openai.com",
@@ -949,31 +961,37 @@ for (const [model, expectedStatus] of [["gpt-4", "unsupported"], ["future-openai
 
 test("hosted setup trusts the exact backend compatibility result for GPT-4.1", async () => {
   const plugin = mainHarness();
+  let catalogCalls = 0;
+  let modelCheckCalls = 0;
   Object.assign(plugin.settings, {
     aiProvider: "openai",
     aiModel: "gpt-4.1",
     aiModels: { openai: "gpt-4.1" },
   });
   plugin.omdBridge = {
-    discoverProviderModels: async () => ({
-      models: ["gpt-4", "gpt-4.1"],
-      credential,
-      destinationDomain: "api.openai.com",
-    }),
-    checkProviderModel: async () => ({
-      model: "gpt-4.1",
-      available: true,
-      answerCompatibility: "supported",
-      answerCompatibilityReason: "gpt-4.1 supports the OpenAI JSON schema answer contract.",
-      answerContract: "strict_json_schema",
-      models: ["gpt-4.1"],
-      alternativeModels: [],
-      credential,
-      destinationDomain: "api.openai.com",
-    }),
+    discoverProviderModels: async () => {
+      catalogCalls += 1;
+      throw new Error("Selected-model setup must not repeat catalog discovery");
+    },
+    checkProviderModel: async () => {
+      modelCheckCalls += 1;
+      return {
+        model: "gpt-4.1",
+        available: true,
+        answerCompatibility: "supported",
+        answerCompatibilityReason: "gpt-4.1 supports the OpenAI JSON schema answer contract.",
+        answerContract: "strict_json_schema",
+        models: ["gpt-4", "gpt-4.1"],
+        alternativeModels: [],
+        credential,
+        destinationDomain: "api.openai.com",
+      };
+    },
   };
 
   assert.equal(await plugin.checkHostedAiConnection(), true);
+  assert.equal(catalogCalls, 0);
+  assert.equal(modelCheckCalls, 1);
   assert.equal(plugin.hostedAiState.code, "ready");
   assert.equal(plugin.hostedAiState.checkedModel, "gpt-4.1");
   assert.equal(plugin.hostedAiState.checkedAnswerCompatibility, "supported");
@@ -1027,6 +1045,37 @@ test("failed credential bridge hydration remains attempted until explicitly forc
   assert.equal(attempts, 1);
   assert.equal(plugin.hostedAiState.code, "credentials_missing");
   await plugin.ensureHostedCredentialState("openai", true);
+  assert.equal(attempts, 2);
+  assert.equal(plugin.hostedAiState.credential, credential);
+});
+
+test("credential hydration restarts after switching away from and back to the same provider", async () => {
+  const plugin = mainHarness();
+  const firstCredential = deferred<unknown>();
+  const enteredFirst = deferred<void>();
+  let attempts = 0;
+  plugin.omdBridge = { hostedCredentialState: async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      enteredFirst.resolve();
+      return await firstCredential.promise;
+    }
+    return credential;
+  } };
+
+  const first = plugin.ensureHostedCredentialState("openai");
+  await enteredFirst.promise;
+  plugin.settings.aiProvider = "ollama";
+  plugin.localAiActionToken += 1;
+  plugin.syncHostedAiState("");
+  plugin.settings.aiProvider = "openai";
+  plugin.localAiActionToken += 1;
+  plugin.syncHostedAiState("");
+
+  await plugin.ensureHostedCredentialState("openai");
+  firstCredential.resolve({ ...credential, source: "missing" });
+  await first;
+
   assert.equal(attempts, 2);
   assert.equal(plugin.hostedAiState.credential, credential);
 });

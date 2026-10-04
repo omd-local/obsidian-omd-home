@@ -440,8 +440,21 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     this.customModelModes.delete("qa");
     this.plugin.invalidateLocalAiState("provider");
     this.rerenderLocalAiSection();
+    const aiSetupRevision = this.plugin.aiSetupRevision();
     await this.saveSettingsInOrder();
+    if (isHostedApiProvider(value)) await this.autoCheckHostedProvider(value, aiSetupRevision);
     return true;
+  }
+
+  private async autoCheckHostedProvider(provider: HostedAiProvider, aiSetupRevision: number): Promise<void> {
+    await this.plugin.ensureHostedCredentialState(provider);
+    if (this.plugin.settings.aiProvider !== provider) return;
+    if (this.plugin.aiSetupRevision() !== aiSetupRevision) return;
+    const state = this.plugin.hostedAiState?.provider === provider
+      ? this.plugin.hostedAiState
+      : null;
+    if (state?.credential?.source !== "env" && state?.credential?.source !== "keychain") return;
+    await this.runAiSetupAction(() => this.plugin.checkHostedAiConnection());
   }
 
   private async changeCloudAnswerPermission(provider: StoredAiProvider, enabled: boolean): Promise<boolean> {

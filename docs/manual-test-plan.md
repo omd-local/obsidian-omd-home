@@ -149,7 +149,7 @@ Answer、Calendar 或 Extended AI 结果。CAP-07 的旧候选结果先按下表
 | 4 | HOLD / TARGETED | [CAP-07 B.2](#test-cap-07) | 2026-10-04 旧候选 FAIL：字段已清空，但 Clear 仍可见；只在最终候选安装后重测 B.2 | 两个 provider 各做输入 → Clear → 再输入 |
 | 5 | HOLD / TARGETED | [CAP-07 C.2](#test-cap-07) | 旧候选 backend 已产出 note、sidecar 与非空 transcript，但 Home 对账失败；只在最终候选安装后重测 | 使用测试者有权访问的公开 Rednote 视频；不要记录访问查询值 |
 | 6 | HOLD / KEEP RESULT | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | 保留已经取得的逐项结果；未执行项仍按原计划 FIRST PASS，不由 B.2／C.2 修复自动改写 | 下方 `ps ... grep -E` 命令 |
-| 7 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | closed provider 可读性、DeepSeek Pro／Flash 完整输出、Keyword 默认动作；其余 provider 保留已有结论 | 固定 blue-key 问题 |
+| 7 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | Anthropic 官方 `claude-opus-5-5`（仅当 catalog 返回）、切换 provider 后自动 setup、DeepSeek Pro／Flash 的事实／推论分离；保留 OpenAI 与 Claude Opus 4.5 已通过结论 | 固定 blue-key station 问题 |
 | 8 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | `OMD CAL manual test – delete after PASS` |
 | 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补重复点击、tuple 失效、disable/reload 与 Console，不要在 Smoke 上等待 Home 的 Current task／Cancel | synthetic smoke prompts |
 | 10 | PREP + RERUN | [AI-08](#test-ai-08) | **先完成 ANSWER-02-R1**，再导入三篇 Phase 2 fixtures 并通过 hard preflight；2026-10-05 的缺 fixture 运行无产品结论 | `docs/benchmark-vault/` |
@@ -199,9 +199,9 @@ Extended AI，再一次性安装并 reload。安装后只做下面三项 mandato
 | RC-P2-04 AI tools／Improve formatting | TARGETED RETEST |  |  | 实现完成；最终候选安装后的原生 preview／Apply／Cancel／conflict／responsive 结果待填 |
 | AI-03 grounded answer contract | FAIL；fail-closed safety PASS | 2026-10-05 | 人工反馈 | `amber lighthouse checklist` 返回 `did not cite every claim`；未经验证正文未显示、未自动重发，所以安全阻断正确，但本次 grounded answer 不能记 PASS |
 | AI-03 zero-evidence safety | PASS；文案缺陷已在源码修复 | 2026-10-05 | 人工反馈＋自动回归 | `@zzqvnoevidence7391` 未打开 preview、未发送 model request；语义降级说明与零证据可同时出现，但旧文案误称 “this answer”，源码已改为 “This evidence check used keyword search only.” |
-| DeepSeek keyword fallback 子分支 | PASS；完整 grounded answer PARTIAL | 2026-10-05 | 截图 2／3 | model missing 与 daemon unreachable 被分别说明，恢复动作正确，header 显示 provider/model/source/mode/time；截图未覆盖完整 Model inference、Copy result 与 preview，因此不能据此把整个 hosted answer case 记 PASS |
+| DeepSeek keyword fallback 子分支 | PASS；完整 grounded answer PARTIAL | 2026-10-05 | 截图 2／3 | model missing 与 daemon unreachable 被分别说明，恢复动作正确；Pro／Flash 均完整渲染实际 model、sources、mode、time、Copy 与 citations，但把来源中的 Orchid station／Tuesday 直接事实重复写入 Model inference，provenance 语义未通过 |
 | AI-05 local workflow isolation | PASS；AI-05 overall PARTIAL | 2026-10-05 | 人工反馈 | Claude hosted key 按计划不可用时，Generate AI tags 仍通过本地 writing model；尚缺三 provider model memory、reload persistence 与 `data.json` secret 检查 |
-| ANSWER-02-R1 定向补测 |  |  |  |  |
+| ANSWER-02-R1 定向补测 | PARTIAL；OpenAI 与 Claude Opus 4.5 contract PASS；Anthropic 官方 `claude-opus-5-5`（如 catalog 有）、DeepSeek provenance RETEST | 2026-10-05 | 人工反馈＋截图 1／2／3 | observed `claude-opus-5.5` 被正确 fail-closed，不得改写为官方 `claude-opus-5-5`；`claude-sonnet-5` setup ready；retired old Sonnet 与 `deepseek-chat` 缺席 catalog 均为 NOT RUN。DeepSeek Pro／Flash transport/schema/citations PASS，但事实／推论分离 FAIL；OpenAI 本轮 exact model ID 尚待补录 |
 | CAL-00–03 |  |  |  |  |
 | AI-06 | PARTIAL；native baseline PASS | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running，符合修订后的职责；重复点击、tuple 失效及 disable/reload 原生差额仍待测 |
 | AI-08 Phase 2 benchmark | INVALID SETUP / NOT RUN；format-only PASS | 2026-10-05 | test-vault 文件核对＋截图 5＋人工答案 | 三篇 Phase 2 fixtures 均未导入；截图 5 的 Based on／Source states／Model inference／source chips 格式正确，但 P01–P05 命中无关笔记，只能保留为无效环境证据；ANSWER-02-R1 后导入并重跑 P01–P06 |
@@ -489,16 +489,19 @@ E. **Settings 统一排版（UI-01／02）**
 本节只在对应 provider 已有合法 developer key 时做实网检查；没有 key 就完成文案与禁用态，然后把
 实网分支记为 `NOT RUN — no test credential`。不要把 key 写进截图、笔记或 Console。
 
-1. 每次切换 provider 后运行 **Check setup**。模型目录中“存在”不等于可回答；只有状态为 supported
-   且带非空 answer contract 才能 ready。
+1. 切换到 hosted provider 时，如果该 provider 已有 Keychain 或环境变量 credential，Settings 应自动
+   执行与 **Check setup** 相同的模型发现与验证并加载下拉列表；**Check setup** 保留为明确的人工
+   重试。没有 credential 时不得请求 catalog。快速连续切换 provider 时，旧检查结果不得覆盖当前
+   provider。模型目录中“存在”不等于可回答；只有状态为 supported 且带非空 answer contract 才能
+   ready。
 2. 当前后端的可复制例子如下；只测试当前 catalog 实际返回的 ID，catalog 没有该 ID 时记
    `NOT RUN — model absent from current catalog`，不要伪造可用性：
 
    | Provider | 应支持的例子 | 应阻止的例子 | 未知例子 |
    | --- | --- | --- | --- |
    | OpenAI | `gpt-4.1` | `gpt-5.4-pro`（无所需 strict schema） | `future-openai-model` |
-   | Anthropic | `claude-sonnet-4-5-20250929` | `claude-sonnet-4-20250514` | `future-claude-model` |
-   | DeepSeek | `deepseek-flash`、`deepseek-v4-pro` | `deepseek-chat` | `future-deepseek-model` |
+   | Anthropic | `claude-opus-5-5`、`claude-sonnet-5-5`、`claude-sonnet-5`、`claude-opus-4-5-20251101` | catalog 中已退休的 `claude-sonnet-4-20250514` | observed `claude-opus-5.5`、`future-claude-model` |
+   | DeepSeek | `deepseek-flash`、`deepseek-v4-pro` | 已退休且通常不在 catalog 的 `deepseek-chat` | `future-deepseek-model` |
 
 3. 不支持和未验证型号必须在发送前被拦截，说明准确原因；不得自动切换、降级到另一个 model 或沿用
    上一次 ready。支持型号应显示 provider、model 和 contract 已验证。
@@ -508,10 +511,13 @@ E. **Settings 统一排版（UI-01／02）**
 5. 只对一个 supported model 打开 `@` 问题 preview，使用：
 
    ```text
-   @Which fixture uses the blue key, and on what day?
+   @According to the retrieved notes, which station uses the blue key, and on what day?
    ```
 
-   核对 destination、问题和 evidence excerpts 后点击 Cancel；本步骤不要求发送真实问题。
+   核对 destination、问题和 evidence excerpts 后点击 Cancel；本步骤不要求发送真实问题。预期
+   **Source states** 回答 Orchid station／Tuesday；题目没有要求推论，因此 **Model inference** 应为
+   **None**。不要再使用 “Which fixture…”：fixture 可能被模型理解为文件名，也可能被理解为内容中的
+   地点，不能稳定检验事实／推论合同。
 6. 有 DeepSeek 测试 key 时，先选择 `deepseek-v4-pro` 并重新 **Check setup**，再提交同一个问题、
    检查 preview 并批准。结果应完整返回经过校验的结构化答案，不能出现 **DeepSeek stopped before
    completing the answer**。随后对 `deepseek-flash` 重复一次；两个结果必须各自显示实际 model，
@@ -520,6 +526,18 @@ E. **Settings 统一排版（UI-01／02）**
    OMD 对要求 JSON schema 的 DeepSeek 问答会显式关闭 provider 默认 thinking，把有限输出预算留给
    最终 JSON；普通非结构化 DeepSeek 请求不受本条影响。若修复后仍出现 incomplete response，保留
    provider/model、耗时和安全错误类别，不记录 key、原始响应或 evidence excerpt。
+
+   有效 JSON、完整渲染、合法 citation 与正确 provider/model 只证明 transport/schema 合同。直接来自
+   evidence 的事实必须留在 **Source states**；若同一事实被改写后放进 **Model inference**，人工
+   provenance 判定仍为 FAIL，不能把该 run 记为 grounded answer PASS。
+
+**2026-10-05 已取得证据：** OpenAI run PASS，但 exact model ID 仍待补录；`claude-sonnet-5` 为
+setup ready／answer NOT RUN；截图实际 ID `claude-opus-4-5-20251101` 的完整回答通过 output contract，
+用户口头所说 “Opus 4.4” 不作为 model ID。实际报错中的 `claude-opus-5.5` 与 Anthropic 官方
+`claude-opus-5-5` 是两个不同 ID；前者保持 unverified 并被正确 fail-closed，不得静默正规化。仅当
+provider catalog 返回官方连字符 ID 时才重测它。`claude-sonnet-4-20250514` 与 `deepseek-chat` 均为 retired／catalog absent，
+记录 NOT RUN，不要求出现在 dropdown。DeepSeek Pro／Flash 均通过 transport/schema/citation，但旧
+prompt 下把直接事实写入 Model inference，记录 PARTIAL／RETEST。
 
 #### 已完成结果归档（KEEP PASS，不重复）
 
@@ -1931,6 +1949,16 @@ System 显示 AI last action success；embedding 检查通过（`459ms · 2 vect
 Current task 全程保持 **No task running**，符合修订后的职责。自动回归还确认 setup actions 拒绝重叠、
 unload 后拒绝新 local-AI signal work、过期请求不能发布 stale 状态。尚未原生执行步骤 4 的重复点击、
 步骤 5 的 tuple 失效和步骤 6 的 disable／reload＋Console 检查，所以不能把整项记为 PASS。
+
+只补以下原生差额，已通过的 Refresh／Check／三项 smoke／embedding 不再重复：
+
+- [ ] **Step 4 · 重复点击：** 一个诊断 active 时再次触发同一命令，并操作邻近 Check setup、
+  Save／Remove credential 与 embedding check；必须清楚 busy／disabled，且只产生一个 request／child。
+- [ ] **Step 5 · tuple 失效：** 动作 active 时更改 provider、endpoint 或 model；旧 tuple 的迟到
+  success／failure／cancel 不得覆盖新状态，旧进程收尾后新 tuple 可以重新检查。
+- [ ] **Step 6 · lifecycle：** 动作 active 时 disable／reload 插件；request／child 被取消，Settings
+  不残留 busy，DevTools Console 没有 unhandled Promise rejection；重新启用后的第一次诊断建立
+  fresh 状态，不复用 unload 前 completion。
 
 <a id="test-ai-07"></a>
 

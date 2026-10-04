@@ -206,6 +206,7 @@ export default class OmdHomePlugin extends Plugin {
   private localAiFailure: LocalAiConnectionSummary | null = null;
   private hostedCredentialHydration: Promise<void> | null = null;
   private hostedCredentialHydrationProvider: HostedAiProvider | null = null;
+  private hostedCredentialHydrationActionToken: number | null = null;
   private readonly cloudAnswerConsentModals = new Set<CloudAnswerConsentModal>();
   private readonly markdownFormattingModals = new Set<MarkdownFormattingModal>();
   private readonly cloudAnswerControllers = new Set<AbortController>();
@@ -494,14 +495,21 @@ export default class OmdHomePlugin extends Plugin {
       if (!this.isCurrentHostedAiAction(action, provider)) return false;
       const model = selectedAiModel(this.settings);
       const { catalog, checked } = await this.withLocalAiSignal(async (signal) => {
-        const catalog = await this.omdBridge.discoverProviderModels(provider, signal);
-        this.assertProviderDestination(provider, catalog.destinationDomain);
-        signal.throwIfAborted();
-        if (!model) return { catalog, checked: null };
+        if (!model) {
+          const catalog = await this.omdBridge.discoverProviderModels(provider, signal);
+          this.assertProviderDestination(provider, catalog.destinationDomain);
+          return { catalog, checked: null };
+        }
         const checked = await this.omdBridge.checkProviderModel(provider, model, signal);
         this.assertProviderDestination(provider, checked.destinationDomain);
         return {
-          catalog,
+          catalog: {
+            provider,
+            destinationDomain: checked.destinationDomain,
+            models: checked.models,
+            elapsedSeconds: checked.elapsedSeconds,
+            credential: checked.credential,
+          },
           checked,
         };
       });
@@ -605,6 +613,10 @@ export default class OmdHomePlugin extends Plugin {
     } finally {
       this.finishHostedAiAction(action, provider);
     }
+  }
+
+  aiSetupRevision(): number {
+    return this.localAiActionToken;
   }
 
   async checkOllamaCloudConnection(): Promise<boolean> {
@@ -3142,18 +3154,23 @@ export default class OmdHomePlugin extends Plugin {
     if (this.unloaded || this.currentHostedProvider() !== provider) return;
     if (!force && this.hostedAiState?.provider === provider
       && (this.hostedAiState.credential || this.hostedAiState.checkedAt !== undefined || this.hostedAiState.activeAction)) return;
-    if (!force && this.hostedCredentialHydration && this.hostedCredentialHydrationProvider === provider) {
+    const actionToken = this.localAiActionToken;
+    if (!force && this.hostedCredentialHydration
+      && this.hostedCredentialHydrationProvider === provider
+      && this.hostedCredentialHydrationActionToken === actionToken) {
       return await this.hostedCredentialHydration;
     }
     const pending = this.loadHostedCredentialState(provider);
     this.hostedCredentialHydration = pending;
     this.hostedCredentialHydrationProvider = provider;
+    this.hostedCredentialHydrationActionToken = actionToken;
     try {
       await pending;
     } finally {
       if (this.hostedCredentialHydration === pending) {
         this.hostedCredentialHydration = null;
         this.hostedCredentialHydrationProvider = null;
+        this.hostedCredentialHydrationActionToken = null;
       }
     }
   }

@@ -101,7 +101,7 @@ function createHarness(methods: string[] = []) {
   }
   const source = ts.createSourceFile("settings.ts", readFileSync("src/settings.ts", "utf8"), ts.ScriptTarget.Latest, true);
   const declaration = source.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === "OmdHomeSettingTab")!;
-  const names = new Set(["answerModelSetting", "modelSetting", "saveModelValue", "saveAnswerModel", "saveSettingsInOrder", "changeAnswerProvider", "runAiSetupAction", "modelReadinessRail", "settingsDisclosure", "renderOmdSetup", "renderCookiePathSetting", ...methods]);
+  const names = new Set(["answerModelSetting", "modelSetting", "saveModelValue", "saveAnswerModel", "saveSettingsInOrder", "changeAnswerProvider", "autoCheckHostedProvider", "runAiSetupAction", "modelReadinessRail", "settingsDisclosure", "renderOmdSetup", "renderCookiePathSetting", ...methods]);
   const members = declaration.members.filter((node) => ts.isPropertyDeclaration(node) || (node.name && names.has(node.name.getText(source))));
   const helpers = source.statements.filter((node) => ts.isFunctionDeclaration(node) || ts.isVariableStatement(node)).map((node) => node.getText(source).replace(/^export /u, ""));
   const code = ts.transpileModule(`${helpers.join("\n")}\nclass Harness { ${members.map((m) => m.getText(source)).join("\n")} }`, {
@@ -122,7 +122,12 @@ function createHarness(methods: string[] = []) {
     hostedAiState: null,
     localAiState: { models: [], workflows: { qa: { code: "unchecked", detail: "Check setup" }, enrichment: { code: "unchecked", detail: "Check setup" } } },
     aiSetupBusy: () => false,
+    aiSetupRevision: () => 0,
     invalidateLocalAiState: () => {},
+    ensureHostedCredentialState: async (provider: string) => {
+      tab.plugin.hostedAiState = { provider, credential: { source: "missing" }, activeAction: "" };
+    },
+    checkHostedAiConnection: async () => false,
     saveSettings: async () => { saveCalls += 1; },
     usesAutomaticOmdDiscovery: () => true,
     captureLanguageAvailability: () => ({ status: "supported", message: "Ready", ocrPresets: [{ value: "eng", label: "English" }], customOcr: true, ocrBackendAvailable: true, ocrInstalledPacks: ["eng", "deu"], asrAutoDetect: true, asrExplicit: true }),
@@ -460,4 +465,148 @@ test("writing model and provider changes share one ordered persistence queue", a
   release();
   await Promise.all([writing, provider]);
   assert.equal(saves, 2);
+});
+
+test("switching to a hosted provider automatically loads models when a saved credential exists", async () => {
+  const h = createHarness();
+  const checkedProviders: string[] = [];
+  const busyRenders: boolean[] = [];
+  h.tab.plugin.ensureHostedCredentialState = async (provider: string) => {
+    h.tab.plugin.hostedAiState = {
+      provider,
+      credential: { source: "keychain" },
+      activeAction: "",
+    };
+  };
+  h.tab.plugin.checkHostedAiConnection = async () => {
+    checkedProviders.push(h.tab.plugin.settings.aiProvider);
+    h.tab.plugin.hostedAiState.activeAction = "check-connection";
+    await Promise.resolve();
+    h.tab.plugin.hostedAiState.activeAction = "";
+    return true;
+  };
+  h.tab.plugin.aiSetupBusy = () => h.tab.plugin.hostedAiState?.activeAction === "check-connection";
+  h.tab.rerenderLocalAiSection = () => busyRenders.push(h.tab.plugin.aiSetupBusy());
+
+  assert.equal(await h.tab.changeAnswerProvider("anthropic"), true);
+  assert.deepEqual(checkedProviders, ["anthropic"]);
+  assert.ok(busyRenders.includes(true), "automatic setup must render its checking state");
+  assert.equal(busyRenders.at(-1), false);
+});
+
+test("switching to a hosted provider does not request its catalog without a saved credential", async () => {
+  const h = createHarness();
+  let checks = 0;
+  h.tab.plugin.ensureHostedCredentialState = async (provider: string) => {
+    h.tab.plugin.hostedAiState = {
+      provider,
+      credential: { source: "missing" },
+      activeAction: "",
+    };
+  };
+  h.tab.plugin.checkHostedAiConnection = async () => { checks += 1; return true; };
+
+  assert.equal(await h.tab.changeAnswerProvider("deepseek"), true);
+  assert.equal(checks, 0);
+});
+
+test("a delayed hosted credential lookup cannot start setup after the provider changes again", async () => {
+  const h = createHarness();
+  let releaseOpenAi!: () => void;
+  const openAiCredential = new Promise<void>((resolve) => { releaseOpenAi = resolve; });
+  const checkedProviders: string[] = [];
+  h.tab.plugin.ensureHostedCredentialState = async (provider: string) => {
+    if (provider === "openai") await openAiCredential;
+    h.tab.plugin.hostedAiState = {
+      provider,
+      credential: { source: "env" },
+      activeAction: "",
+    };
+  };
+  h.tab.plugin.checkHostedAiConnection = async () => {
+    checkedProviders.push(h.tab.plugin.settings.aiProvider);
+    return true;
+  };
+
+  const openAi = h.tab.changeAnswerProvider("openai");
+  await Promise.resolve();
+  await Promise.resolve();
+  const anthropic = h.tab.changeAnswerProvider("anthropic");
+  releaseOpenAi();
+  await Promise.all([openAi, anthropic]);
+
+  assert.deepEqual(checkedProviders, ["anthropic"]);
+  assert.equal(h.tab.plugin.settings.aiProvider, "anthropic");
+});
+
+test("automatic provider setup does not repeat a manual check completed during the settings save", async () => {
+  const h = createHarness();
+  let releaseSave!: () => void;
+  const pendingSave = new Promise<void>((resolve) => { releaseSave = resolve; });
+  let checks = 0;
+  let aiSetupRevision = 0;
+  h.tab.plugin.settings.aiModels.anthropic = "claude-sonnet-5";
+  h.tab.plugin.saveSettings = async () => await pendingSave;
+  h.tab.plugin.ensureHostedCredentialState = async () => {};
+  h.tab.plugin.checkHostedAiConnection = async () => {
+    aiSetupRevision += 1;
+    checks += 1;
+    return true;
+  };
+  h.tab.plugin.aiSetupRevision = () => aiSetupRevision;
+
+  const switching = h.tab.changeAnswerProvider("anthropic");
+  await Promise.resolve();
+  await Promise.resolve();
+  h.tab.plugin.hostedAiState = {
+    provider: "anthropic",
+    credential: { source: "keychain" },
+    activeAction: "",
+    checkedAt: Date.now(),
+    checkedModel: "claude-sonnet-5",
+    checkedAnswerCompatibility: "supported",
+    checkedAnswerContract: "strict_json_schema",
+    code: "ready",
+    models: [{ name: "claude-sonnet-5", supportsCompletion: true }],
+  };
+  await h.tab.plugin.checkHostedAiConnection();
+  releaseSave();
+  await switching;
+
+  assert.equal(checks, 1);
+});
+
+test("automatic provider setup does not repeat a failed manual check completed during the settings save", async () => {
+  const h = createHarness();
+  let releaseSave!: () => void;
+  const pendingSave = new Promise<void>((resolve) => { releaseSave = resolve; });
+  let aiSetupRevision = 0;
+  let checks = 0;
+  h.tab.plugin.settings.aiModels.openai = "gpt-4.1";
+  h.tab.plugin.saveSettings = async () => await pendingSave;
+  h.tab.plugin.ensureHostedCredentialState = async () => {};
+  h.tab.plugin.aiSetupRevision = () => aiSetupRevision;
+  h.tab.plugin.checkHostedAiConnection = async () => {
+    aiSetupRevision += 1;
+    checks += 1;
+    return false;
+  };
+
+  const switching = h.tab.changeAnswerProvider("openai");
+  await Promise.resolve();
+  await Promise.resolve();
+  h.tab.plugin.hostedAiState = {
+    provider: "openai",
+    credential: { source: "keychain" },
+    activeAction: "",
+    checkedAt: Date.now(),
+    checkedModel: undefined,
+    code: "transport_error",
+    models: [],
+  };
+  await h.tab.plugin.checkHostedAiConnection();
+  releaseSave();
+  await switching;
+
+  assert.equal(checks, 1);
 });

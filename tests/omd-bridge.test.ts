@@ -260,6 +260,7 @@ class Availability:
     answer_compatibility: str
     answer_compatibility_reason: str
     answer_contract: str | None
+    catalog_models: tuple[str, ...]
 
 def discover_provider_models(provider, api_key, timeout_seconds):
     assert api_key == "env-secret-value"
@@ -278,6 +279,7 @@ def validate_selected_model(provider, model, api_key, timeout_seconds):
         "supported" if model == "gpt-test-a" else "unverified",
         "The exact test provider/model answer contract was checked.",
         "strict_json_schema" if model == "gpt-test-a" else None,
+        ("gpt-test-a", "gpt-test-b"),
     )
 `.trimStart());
     const baseEnv = {
@@ -316,6 +318,7 @@ def validate_selected_model(provider, model, api_key, timeout_seconds):
     assert.equal(checked.model, "gpt-test-a");
     assert.equal(checked.answer_compatibility, "supported");
     assert.equal(checked.answer_contract, "strict_json_schema");
+    assert.deepEqual(checked.models, ["gpt-test-a", "gpt-test-b"]);
     assert.match(checked.answer_compatibility_reason, /exact test provider\/model/u);
     assert.doesNotMatch(JSON.stringify(checked), /env-secret-value/u);
 
@@ -3162,7 +3165,10 @@ test("Ask AI scopes exhaustive questions and keeps evidence categories separate"
   assert.match(source, /Return JSON with source_states and model_inference arrays/u);
   assert.match(source, /Each item has one\s+claim and citations: an array of source IDs/u);
   assert.match(source, /Cite every\s+factual claim; use only IDs supplied with the evidence/u);
-  assert.match(source, /Put explicit source\s+claims in source_states and only cautious synthesis in model_inference/u);
+  assert.match(source, /Put directly supported\s+claims in source_states, including cited paraphrases or combinations/u);
+  assert.match(source, /Never\s+repeat\/rephrase them in model_inference/u);
+  assert.match(source, /When the question explicitly asks for an\s+inference and the evidence warrants it, include the requested inference/iu);
+  assert.match(source, /otherwise leave model_inference empty/iu);
   assert.match(source, /Follow retrieval\s+response rules\/category\/count/u);
   assert.match(source, /Give each item one supported\s+action\/detail/u);
   assert.match(source, /compatible explicit actions in both sources/u);
@@ -3202,6 +3208,21 @@ test("AI tasks request a bounded structured answer with two claim sections", () 
     assert.equal(section.items.properties.citations.type, "array");
     assert.equal(section.items.properties.citations.items.type, "string");
   }
+  assert.doesNotMatch(JSON.stringify(schema), /"description"/u, "the frozen OMD schema validator rejects description keywords");
+  const allowedKeywords = new Set(["type", "properties", "required", "additionalProperties", "items", "enum"]);
+  const checkKeywords = (value: unknown): void => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const node = value as Record<string, unknown>;
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "properties") {
+        for (const property of Object.values(child as Record<string, unknown>)) checkKeywords(property);
+      } else {
+        assert.ok(allowedKeywords.has(key), `unsupported frozen-schema keyword: ${key}`);
+        checkKeywords(child);
+      }
+    }
+  };
+  checkKeywords(schema);
 });
 
 test("structured AI answers render fixed sections and reject unverified citations", () => {
@@ -3373,7 +3394,7 @@ test("sparse comparison guard preserves source identities and supported negative
     "guarded = bridge._execute_result(bad, hits, source, 'sparse', None, [], 'Across both notes, what overlaps?')",
     "paraphrased = SimpleNamespace(text='Raw answer must not be shown.', structured={'source_states': [{'claim': 'The notes share no recommendations.', 'citations': ['S1', 'S3']}], 'model_inference': []}, provider='openai', actual_model='test', usage={}, timing={})",
     "guarded_paraphrase = bridge._execute_result(paraphrased, hits, source, 'sparse', None, [], 'Across both notes, what overlaps?')",
-    "supported = SimpleNamespace(text='Raw answer must not be shown.', structured={'source_states': [{'claim': 'Both notes explicitly report no overlap.', 'citations': ['S1', 'S3']}], 'model_inference': [{'claim': 'The negative finding is supported.', 'citations': ['S1', 'S3']}]}, provider='openai', actual_model='test', usage={}, timing={})",
+    "supported = SimpleNamespace(text='Raw answer must not be shown.', structured={'source_states': [{'claim': 'Both notes explicitly report no overlap.', 'citations': ['S1', 'S3']}], 'model_inference': []}, provider='openai', actual_model='test', usage={}, timing={})",
     "kept = bridge._execute_result(supported, hits, source, 'sparse', None, [], 'Do both retrieved excerpts explicitly say there is no overlap?')",
     "print(json.dumps({'guarded': guarded, 'guarded_paraphrase': guarded_paraphrase, 'kept': kept}))",
   ].join("\n");
@@ -3386,6 +3407,7 @@ test("sparse comparison guard preserves source identities and supported negative
   assert.deepEqual(value.guarded.warnings, []);
   assert.match(value.guarded_paraphrase.text, /comparison is inconclusive/iu);
   assert.match(value.kept.text, /explicitly report no overlap/iu);
+  assert.match(value.kept.text, /Model inference:\s*- None\./iu);
   assert.doesNotMatch(value.kept.text, /comparison is inconclusive/iu);
 });
 
@@ -3410,7 +3432,7 @@ test("vault metadata control characters stay quoted inside the evidence boundary
   assert.equal(value.carriage, "[S1]");
 });
 
-test("hosted OpenAI tasks omit temperature while other answer providers remain deterministic", () => {
+test("hosted OpenAI and Anthropic tasks omit temperature while local and DeepSeek tasks remain deterministic", () => {
   const code = [
     "import json",
     "from types import SimpleNamespace",
@@ -3425,10 +3447,52 @@ test("hosted OpenAI tasks omit temperature while other answer providers remain d
   const result = spawnPython(["-c", code], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {
-    anthropic: 0,
+    anthropic: null,
     deepseek: 0,
     ollama: 0,
     openai: null,
+  });
+});
+
+test("current Claude 5 tasks reserve thinking budget while older Claude models keep the bounded budget", () => {
+  const code = [
+    "import json",
+    "from types import SimpleNamespace",
+    "import bridge.omd_home_bridge as bridge",
+    "bridge.AITextTask = lambda **kwargs: SimpleNamespace(**kwargs)",
+    "bridge.AIOutputSchema = lambda **kwargs: SimpleNamespace(**kwargs)",
+    "def budget(model):",
+    "    return bridge._task({'provider': 'anthropic', 'model': model, 'endpoint': 'http://localhost:11434'}).max_output_tokens",
+    "print(json.dumps({'opus55': budget('claude-opus-5-5'), 'sonnet5': budget('claude-sonnet-5'), 'fable51': budget('claude-fable-5-1'), 'mythosPreview': budget('claude-mythos-preview'), 'legacy': budget('claude-opus-4-5-20251101')}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    fable51: 4096,
+    legacy: 1200,
+    mythosPreview: 4096,
+    opus55: 4096,
+    sonnet5: 4096,
+  });
+});
+
+test("legacy OMD model checks perform one compatibility-only catalog discovery", () => {
+  const code = [
+    "import json",
+    "from types import SimpleNamespace",
+    "import bridge.omd_home_bridge as bridge",
+    "calls = []",
+    "bridge._provider_catalog = lambda provider: (calls.append(provider) or SimpleNamespace(models=('claude-opus-4-5-20251101', 'claude-sonnet-5')))",
+    "legacy = SimpleNamespace(selected_model='claude-opus-4-5-20251101', available=True)",
+    "current = SimpleNamespace(catalog_models=('claude-opus-5-5', 'claude-sonnet-5'))",
+    "print(json.dumps({'legacy': bridge._availability_catalog_models('anthropic', legacy), 'current': bridge._availability_catalog_models('anthropic', current), 'calls': calls}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    calls: ["anthropic"],
+    current: ["claude-opus-5-5", "claude-sonnet-5"],
+    legacy: ["claude-opus-4-5-20251101", "claude-sonnet-5"],
   });
 });
 
@@ -3463,7 +3527,7 @@ test("Ask AI prefers OMD's bounded section-aware answer context without changing
   assert.match(source, /EVIDENCE BLOCKS/u);
   assert.match(source, /f"BLOCK E\{index\}/u);
   assert.match(source, /f"Source: \{source_id\}\\n"/u);
-  assert.match(source, /temperature=None if provider == "openai" else 0\.0/u);
+  assert.match(source, /temperature=None if provider in \{"openai", "anthropic"\} else 0\.0/u);
   assert.match(source, /return search_notes\(vault, query, limit=limit\)/u);
 });
 
