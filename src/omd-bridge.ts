@@ -731,7 +731,21 @@ function parseCaptureManifest(value: string): Record<string, unknown> | null {
 }
 
 function captureManifestMatchesSource(manifest: Record<string, unknown>, source: string): boolean {
-  return manifest.source === source || manifest.local_source_path === source;
+  const expectedIdentity = persistedCaptureSourceIdentity(source);
+  return [manifest.source, manifest.local_source_path].some((candidate) => (
+    typeof candidate === "string"
+    && persistedCaptureSourceIdentity(candidate) === expectedIdentity
+  ));
+}
+
+function persistedCaptureSourceIdentity(source: string): string {
+  if (socialCaptureProvider(source) !== "xhs") return source;
+  const queryIndex = source.indexOf("?");
+  const fragmentIndex = source.indexOf("#");
+  const boundary = [queryIndex, fragmentIndex]
+    .filter((index) => index >= 0)
+    .reduce((lowest, index) => Math.min(lowest, index), source.length);
+  return source.slice(0, boundary);
 }
 
 function captureManifestTimestamp(manifest: Record<string, unknown>, fallback: number): number {

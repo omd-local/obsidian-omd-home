@@ -643,6 +643,66 @@ test("capture output reconciliation follows the current OMD sidecar when done re
   }
 });
 
+test("capture output reconciliation matches sanitized Xiaohongshu and Rednote source identities", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-private-source-output-"));
+  const hosts = ["www.xiaohongshu.com", "www.rednote.com", "xhslink.com"] as const;
+  try {
+    for (const [index, host] of hosts.entries()) {
+      const vault = join(root, `vault-${index}`);
+      const outputDirectory = join(vault, "Sources", "Xiaohongshu");
+      const actualOutput = join(outputDirectory, "Readable title.md");
+      const reportedOutput = join(outputDirectory, "2026-10-04-xhs-source-deadbeef.md");
+      const persistedSource = `https://${host}/discovery/item/demo`;
+      const submittedSource = `${persistedSource}?access=private-value#shared`;
+      const captureStartedAt = Date.now();
+      await mkdir(outputDirectory, { recursive: true });
+      await writeFile(actualOutput, "# Captured\n");
+      await writeFile(join(outputDirectory, "Readable title.omd.json"), JSON.stringify({
+        source: persistedSource,
+        output: actualOutput,
+        updated_at: new Date(captureStartedAt + 10).toISOString(),
+      }));
+
+      assert.equal(
+        await resolveOmdCaptureOutput(reportedOutput, submittedSource, vault, captureStartedAt),
+        await realpath(actualOutput),
+        host,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("capture output reconciliation keeps ordinary URL query parameters in source identity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-query-source-output-"));
+  const outputDirectory = join(root, "Sources", "Web");
+  const actualOutput = join(outputDirectory, "Readable title.md");
+  const reportedOutput = join(outputDirectory, "2026-10-04-webpage-source-deadbeef.md");
+  const captureStartedAt = Date.now();
+  try {
+    await mkdir(outputDirectory, { recursive: true });
+    await writeFile(actualOutput, "# Captured\n");
+    await writeFile(join(outputDirectory, "Readable title.omd.json"), JSON.stringify({
+      source: "https://example.com/article?version=one",
+      output: actualOutput,
+      updated_at: new Date(captureStartedAt + 10).toISOString(),
+    }));
+
+    assert.equal(
+      await resolveOmdCaptureOutput(
+        reportedOutput,
+        "https://example.com/article?version=two",
+        root,
+        captureStartedAt,
+      ),
+      null,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("capture output reconciliation keeps a valid reported file and ignores unrelated sidecars", async () => {
   const root = await mkdtemp(join(tmpdir(), "omd-home-capture-output-valid-"));
   const outputDirectory = join(root, "Sources", "Documents");
