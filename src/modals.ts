@@ -443,7 +443,10 @@ export class CaptureModal extends Modal {
       this.clearSourceAccessStatus();
     });
     setting.addButton((button) => {
-      setClearVisible = (visible) => { button.buttonEl.hidden = !visible; };
+      setClearVisible = (visible) => {
+        button.buttonEl.hidden = !visible;
+        button.buttonEl.style.display = visible ? "" : "none";
+      };
       setClearVisible(Boolean(value));
       button.setButtonText("Clear").onClick(() => {
         update("");

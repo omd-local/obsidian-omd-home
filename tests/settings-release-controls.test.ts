@@ -23,6 +23,7 @@ class Element {
   children: Element[] = [];
   listeners = new Map<string, (event?: Harness) => unknown>();
   attributes = new Map<string, string>();
+  style = { display: "" };
   addClass(...names: string[]) { for (const name of names) this.classes.add(name); }
   removeClass(...names: string[]) { for (const name of names) this.classes.delete(name); }
   toggleClass(name: string, active: boolean) { if (active) this.classes.add(name); else this.classes.delete(name); }
@@ -360,6 +361,7 @@ test("social cookie settings reject invalid paths inline and persist only absolu
   assert.equal(h.saveCalls(), 2);
   assert.equal(input.value, "");
   assert.equal(clear.buttonEl.hidden, true);
+  assert.equal(clear.buttonEl.style.display, "none", "Clear must be visually absent even when the host theme overrides [hidden]");
   assert.equal(input.inputEl.focused, true);
 });
 

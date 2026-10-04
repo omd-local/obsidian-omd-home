@@ -18,6 +18,7 @@ class ElementMock {
   removed = false;
   classes: string[] = [];
   attributes: Record<string, string> = {};
+  style = { display: "" };
   children: ElementMock[] = [];
   listeners: Record<string, (event: Harness) => void> = {};
   tag: string;
@@ -621,11 +622,13 @@ test("social cookie Clear appears after entry and hides after clearing without a
   await xhs.controls[1].click();
   assert.equal(xhs.controls[0].value, "");
   assert.equal(xhs.controls[1].buttonEl.hidden, true);
+  assert.equal(xhs.controls[1].buttonEl.style.display, "none", "Clear must be visually absent even when the host theme overrides [hidden]");
   assert.equal(modal.cookieInputs.xhs.focused, true);
   assert.equal(harness.settings.length, settingsBefore);
 
   await xhs.controls[0].change("/Users/test/new-xhs-cookies.txt");
   assert.equal(xhs.controls[1].buttonEl.hidden, false);
+  assert.equal(xhs.controls[1].buttonEl.style.display, "");
 });
 
 function consentModal() {

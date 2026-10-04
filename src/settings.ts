@@ -1122,7 +1122,10 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       void persistPath(path).catch(() => {});
     });
     setting.addButton((button) => {
-      setClearVisible = (visible) => { button.buttonEl.hidden = !visible; };
+      setClearVisible = (visible) => {
+        button.buttonEl.hidden = !visible;
+        button.buttonEl.style.display = visible ? "" : "none";
+      };
       setClearVisible(Boolean(currentValue));
       button.setButtonText("Clear").onClick(async () => {
         textComponent?.setValue("");
