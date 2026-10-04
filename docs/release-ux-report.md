@@ -2,6 +2,46 @@
 
 检查跨度：2026-09-17–2026-10-04。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
 
+## Note AI tools 与 Rednote 输出对账候选（2026-10-04）
+
+2026-10-04 的旧候选补充测试产生两条明确结论。CAP-07 B.2 点击 cookie path 的 **Clear** 后，字段
+已经清空，但 Clear 按钮仍然可见，记为旧候选 **FAIL**；最终候选改为同时同步语义 hidden 状态与
+实际 display，仍须在 Settings 与 Capture 的两个 provider 行做原生定向复测。21:20 的 Rednote C.2
+不是平台下载拒绝：backend 已生成 note、sidecar 与非空 transcript，但持久化 Rednote／XHS 来源按
+隐私规则省略 query／fragment，Home 仍拿它与带访问查询的原请求做完整字符串比较，因此拒绝已经完成
+的 output，Inbox 未更新。候选只为 Rednote／XHS family 使用去 query／fragment 的持久化 source
+identity 对账；普通网页仍保持严格 source matching。最终原生复测必须取得恰好一份带测试 tag 的
+note、Inbox 与 Recent 条目、指向最终 note 的 sidecar output、非空 transcript，并确认任何 query、
+fragment 或访问 token 都没有持久化。平台／地区／账户拒绝继续与 reconciliation failure 分开记录。
+
+UI-21 已实现 note row 的最终最小动作层级：每行只显示 **Review**／**Review again**、**AI tools**、
+**Pin**／**Unpin**。AI tools 正好包含 **Improve formatting** 与
+**Generate suggestions · summary, links, tags**；旧 **AI tags** 和 **Summarize** 实际重复同一 combined
+proposal，现已移除这些误导入口。Generate suggestions 继续进入现有 summary／links／tags Review，
+Apply 前不写入，Apply 也不自动标记 Reviewed。
+
+Improve formatting 使用系统临时副本调用本地写作模型，生成期间可取消；完整 Markdown 先进入
+review-first preview，Apply 前 vault note 不变。Apply 通过 Obsidian 的串行写入边界逐字节核对原
+baseline，只采用用户已看到的正文格式；并发修改触发 conflict。frontmatter、工作流 status 与 sidecar
+保持不变，不在 vault 生成 `.raw.md`，格式改善也不会自动完成 Review。missing model、运行错误、no-op、
+Cancel 与关闭 preview 均为零写入并回到 idle。OMD 即使在运行失败时以退出码 0 保留原文，Home 也会
+识别其结构化 skipped／failed warning，不能把失败误报成 no-op；真正无 warning 的原样结果才是 no-op。
+OMD 的受约束 prompt 允许恢复来源已明确暗示的段落、无序列表与 heading marker，词序与原文字仍由
+多语言、数字、链接、code、math 和 operator fidelity guards 保护。视觉继续使用原 minimal 字体、颜色、细边框与紧凑间距；
+宽／窄窗口、150%、键盘和辅助技术矩阵列在 RC-P2-04。
+
+**自动验证：** Home 完整 Node tests **689 / 689**、TypeScript、ESLint、production build 与
+`git diff --check` 通过；覆盖 Clear、临时文件清理、warning／no-op 区分、preview／Apply／conflict、
+unload、frontmatter、AI tools a11y 和 Rednote provider-scoped reconciliation。OMD 完整 pytest
+**1777 / 1777**、Ruff 与 `git diff --check` 通过；覆盖单一最终 done path 与 source-indicated
+multilingual structure restoration。为避免中断活动 test-vault，本轮没有把静态 mock 当作原生视觉 PASS；
+RC-P2-04 的深浅主题、窄窗口与 150% 仍由最终候选原生复测给结论。
+
+**原生状态：待定向复测。** 测试者当前正在完成 Hosted AI-03／04／05／11、ANSWER-02-R1、
+CAL-00–03 与 Extended AI；在这些操作结束前不替换 bundle、不 reload test-vault。它们的结果继续
+有效，窄范围候选安装后无需重跑。最终候选安装后只强制定向重测 CAP-07 B.2、Rednote reconciliation
+与 RC-P2-04，随后再执行 REL-01。
+
 ## CAP-07 社交媒体首次人工结果与修复候选（2026-10-03）
 
 首次真实平台测试发现四个发布前问题：空的 XHS cookies 行在同一次 Settings 会话内填入路径后不会
@@ -98,10 +138,11 @@ RC-P2-01–03 已在独立、可丢弃的原生 Obsidian QA vault 完成；用�
   Apply 后仍为 Inbox，只有 Done reviewing 改为 Reviewed；Generate 后外部编辑触发 conflict 且不覆盖。
   原生复测另发现用户自有 Summary 冲突后 proposal 被隐藏，随后修复为保留只读 proposal、Copy summary、
   Open note 与 Generate again；再次复测确认用户内容逐字节保留且没有受管 summary。
-- **RC-P2-03 PASS：** Inbox／Recent 分工、Reviewed 状态、时间、最多两个 tags + `+N`、Unicode nested-tag
-  AND 筛选、Summarize、Pin／Unpin、390px 与 150% 深浅主题均通过；同一 Recent 时间在不重载页面时从
+- **RC-P2-03 PASS（历史布局）：** Inbox／Recent 分工、Reviewed 状态、时间、最多两个 tags + `+N`、
+  Unicode nested-tag AND 筛选、Pin／Unpin、390px 与 150% 深浅主题均通过；同一 Recent 时间在不重载页面时从
   `Updated now` 自动变为 `Updated 1m ago`，完整时间含时区。窄窗原生系统菜单本身不暴露给隐藏 CDP；
-  trigger、响应式折叠与 Pin 操作已原生验证，菜单顺序由确定性回归锁定为 Review → AI tags → Summarize。
+  trigger、响应式折叠与 Pin 操作已原生验证。旧 Review → AI tags → Summarize 动作顺序仅作为当时证据，
+  已由 UI-21／RC-P2-04 取代；其他 PASS 证据继续保留。
 
 36 组全页矩阵、10 组 Review generating／proposal 矩阵和 5 组错误态矩阵均无页面异常、横向溢出、
 越界或真实控件重叠；视觉判定 94 / 100，保持原 minimal 风格。最终 production bundle 在独立 vault

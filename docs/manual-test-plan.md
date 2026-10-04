@@ -101,7 +101,7 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前候选与本轮入口（2026-10-01 NZST）
+### 1.3A 当前已安装候选与本轮入口（2026-10-04 NZST）
 
 Douyin 整段分享文字与独立 cookies bridge、Xiaohongshu／Rednote cookies bridge 已完成 review，
 Home 的 compact Settings、统一 Site access 状态和 cookie 文件拖放，以及 OMD 对混有单条无效记录的
@@ -111,10 +111,10 @@ Home 的 compact Settings、统一 Site access 状态和 cookie 文件拖放，�
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 源码候选 | branch `agent/omd-home-baseline`；UI/runtime code `d883cb8`；social bridge 主实现 `6854542` |
+| Home 源码候选 | branch `agent/omd-home-baseline`；当前 test-vault UI/runtime code `1d54299`；social bridge 主实现 `6854542` |
 | OMD 后端候选 | branch `agent/release-ux-compat`；cookie export compatibility `ba5f9a1`；social bridge 主实现 `0db129f` |
 | 测试 vault | `$TEST_VAULT`；只保留现有笔记与 `data.json`，不要清空 |
-| 当前已安装候选 bundle | 从 `d883cb8` production build：`main.js` `74760de6cbe9e174482d1190e9e0663bc64be726499d5c30e1652b3e5c641599`；`styles.css` `9aad85c32f0d84e677f9144f5bd6bc3edf2100700bc687817d7a17818f460428`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| 当前已安装候选 bundle | 从 `1d54299` production build：`main.js` `1804066eae16e1e451cf9a9b559d6d9d575e8ea148cd97bded947400dc101136`；`styles.css` `9aad85c32f0d84e677f9144f5bd6bc3edf2100700bc687817d7a17818f460428`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
 | OMD executable | 必须解析到包含 `ba5f9a1` 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
 | AI 设置 | 安装前记录当前 Answer provider、Local writing model、retrieval mode；本轮 social 测试不主动改模型 |
 | 自动门禁 | Home 669 / 669、TypeScript、ESLint、production build；OMD 1762 / 1762、Ruff、py_compile；两边 `git diff --check` 通过 |
@@ -134,31 +134,44 @@ cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup*
 - **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-10-03 CAP-07 UI / cookie export 候选）
+#### 当前执行队列（2026-10-04；保持现有 bundle）
 
-只执行表中的活动行。已通过或只需补录的旧案例移到后面的“保留结果”表，避免重复消耗时间。
-CAP-07 A 不需要真实 cookie 内容，可在升级后立即开始；B 的 missing／invalid 可先做，wrong-domain、
-expired 与真实成功路径需要相应 fixture。没有合适凭证时按子项记 `NOT RUN`，不要伪造 PASS。
+**不要在进行 Hosted AI-03／04／05／11、ANSWER-02-R1、CAL-00–03 或 Extended AI 时替换插件资产、
+reload 插件或重开 Obsidian。** 继续用当前已安装 bundle 完成这些活动项；结果仍然有效。后续窄范围
+候选只改 Clear 显隐、Rednote 输出对账与 note 行 AI tools，因此安装该候选后无需重跑这些 Hosted、
+Answer、Calendar 或 Extended AI 结果。CAP-07 的旧候选结果先按下表保留，不要在半成品 bundle 上重测。
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 2026-10-03 从 Home `d883cb8` 重新构建并替换三项插件资产；`data.json` SHA-256 前后不变，并完成原生 Force Reload | 上表三项 SHA-256 |
+| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 当前运行的是 Home `1d54299` 的三项插件资产；`data.json` 保持原值且已完成该候选的原生 Force Reload。本轮修复尚未覆盖到 test-vault | 上表三项 SHA-256 |
 | 2 | DONE / NATIVE | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 2026-10-03 原生 Check setup 后 Needs attention 为 healthy、Settings／System 为 OMD ready、Local AI ready；Current task 基线为 No task running | exact contract 仍沿用已通过的 Terminal 证据 |
-| 3 | RETEST / P0 | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 重测统一 warning、主窗口窄屏／150% 和普通本地文件 control；A.3 的零／非 HTTP／多 URL 已 PASS，不重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
-| 4 | RETEST / P0 | [CAP-07 B](#test-cap-07) | 拖放两个 cookie 文件、路径独立保存／Clear、active-provider-only preflight；重测真实 Douyin export（含孤立 malformed row 时应使用其余安全记录）及各失败分支 | `/tmp/OMD 社交 cookies/...`；无 expired fixture 可单项 `NOT RUN` |
-| 5 | FIRST PASS / P0 | [CAP-07 C](#test-cap-07) | 各完成一份真实公开 Douyin 与 XHS note；制造一次 runtime failure，再从 Needs attention Retry，确认使用当前路径 | tags：`cap-07-douyin`、`cap-07-xhs` |
-| 6 | FIRST PASS / P0 | [CAP-07 D](#test-cap-07) | Cancel、disable/unload、进程组清理，以及 `data.json`／Notice／Console／note 隐私核对 | 下方 `ps ... grep -E` 命令 |
+| 3 | HOLD / FINAL CANDIDATE | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 旧候选结果保留；这些路径不受本轮窄修复影响，除非已记录 FAIL，否则不新增重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
+| 4 | HOLD / TARGETED | [CAP-07 B.2](#test-cap-07) | 2026-10-04 旧候选 FAIL：字段已清空，但 Clear 仍可见；只在最终候选安装后重测 B.2 | 两个 provider 各做输入 → Clear → 再输入 |
+| 5 | HOLD / TARGETED | [CAP-07 C.2](#test-cap-07) | 旧候选 backend 已产出 note、sidecar 与非空 transcript，但 Home 对账失败；只在最终候选安装后重测 | 使用测试者有权访问的公开 Rednote 视频；不要记录访问查询值 |
+| 6 | HOLD / KEEP RESULT | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | 保留已经取得的逐项结果；未执行项仍按原计划 FIRST PASS，不由 B.2／C.2 修复自动改写 | 下方 `ps ... grep -E` 命令 |
 | 7 | RETEST / hosted | [AI-03](#test-ai-03)／[AI-04](#test-ai-04)／AI-05／AI-11 | 回到 `amber lighthouse checklist` 的 preview／Send／结果；保留 2026-09-25 的结构失败，不自动重发 | 固定单来源问题；Cloud 无凭证则记 `NOT RUN` |
 | 8 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | closed provider 可读性、DeepSeek Pro／Flash 完整输出、Keyword 默认动作；其余 provider 保留已有结论 | 固定 blue-key 问题 |
 | 9 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | `OMD CAL manual test – delete after PASS` |
 | 10 | FIRST PASS / Extended | AI-06／08／09／10 | 后台任务、benchmark、multilingual retrieval、reload 恢复 | `docs/benchmark-vault/`，不要提前导入 |
 | 11 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
+最终候选构建、自动门禁与 review 全部完成后，先结束上表正在进行的 Hosted／Answer／Calendar／
+Extended AI，再一次性安装并 reload。安装后只做下面三项 mandatory targeted retest；其余已通过或已
+记录的结果不重跑，最后再执行 REL-01：
+
+| 顺序 | 状态 | Case | 只验证 |
+| --- | --- | --- | --- |
+| F1 | TARGETED RETEST | [CAP-07 B.2](#test-cap-07) | 清空后 Clear 立即视觉隐藏；再次输入时恢复，两个 provider 与 Capture 内行一致 |
+| F2 | TARGETED RETEST | [CAP-07 C.2](#test-cap-07) | Rednote 最终 output 对账、Inbox／Recent、非空 transcript 与持久化隐私 |
+| F3 | TARGETED RETEST | [RC-P2-04](#test-rc-p2-04) | 新 AI tools 层级与 review-first Improve formatting 全矩阵 |
+| F4 | LAST | [REL-01](#test-rel-01) | clean vault、三项 bundle、reload、cold restart |
+
 已完成或不受本轮改动影响的结果保留在这里，不重新执行：
 
 | Case | 处理 |
 | --- | --- |
-| RC-P2-01／02／03 | KEEP PASS；2026-09-24 独立 QA vault 原生通过 |
+| RC-P2-01／02 | KEEP PASS；2026-09-24 独立 QA vault 原生通过 |
+| RC-P2-03 | KEEP PASS：时间、状态、tags、筛选、Pin／Unpin、长文件名与旧响应式证据保留；旧 AI tags／Summarize 动作布局已由 RC-P2-04 取代 |
 | CAP-01A | KEEP RESULT；只有 CAP-07 A 的普通本地文件 control 失败时才升级为整项回归 |
 | CAP-06 B／C／D | KEEP RESULT；不重新运行 114 秒 WAV，只补录已有 verdict |
 | AI-02 本地 Ollama | KEEP RESULT；social bridge 没有改变本地 Answer 请求合同 |
@@ -175,21 +188,23 @@ expired 与真实成功路径需要相应 fixture。没有合适凭证时按子�
 | CAP-07 A.3 零／非 HTTP／多 URL | PASS | 2026-10-01 | 人工反馈 | 都显示明确原因且没有启动任务 |
 | CAP-07 A.1／A.4 布局 |  |  |  | 用新 warning card、主窗口窄屏和 150% 重测 |
 | CAP-07 A.5 普通文件 control | RETEST | 2026-10-01 | 人工反馈 | 上次粘贴不存在的 `/docs/...`；改用完整绝对路径 |
-| CAP-07 B provider 隔离／preflight | RETEST | 2026-10-03 | 人工反馈 | 旧候选出现 XHS 路径写入后无 Clear、成功 preflight 不可见；新候选需重测动态 Clear 与成功 Notice |
+| CAP-07 B.2 动态 Clear | FAIL（旧候选） | 2026-10-04 | 人工反馈 | 点击后字段已清空，但 Clear 仍然可见；最终候选定向重测，不能把数据清空误记为视觉 PASS |
+| CAP-07 B provider 隔离／preflight 其余子项 | KEEP RESULT | 2026-10-03 | 人工反馈 | 保留已取得结果；未执行项仍按原计划记录，不由 B.2 修复代替 |
 | CAP-07 C.1 Douyin 成功 | RETEST | 2026-10-03 | 人工反馈＋隔离诊断 | 旧候选的 yt-dlp size 参数不兼容并被误报为 post fetch；修复后复用 `XHBDW3VW-6U` 样本 |
-| CAP-07 C.2 XHS 视频成功 | RETEST | 2026-10-03 | 人工反馈＋产物检查 | 正文／metadata 已写入但 EF4 视频流被漏掉，无 Transcript；新候选必须生成非空 Transcript |
+| CAP-07 C.2 Rednote 视频 | PARTIAL / HOME FAIL（旧候选） | 2026-10-04 21:20 | 人工反馈＋产物检查 | backend 已生成 note、sidecar 与非空 transcript；持久化来源按隐私规则省略 query／fragment 后，Home 仍与原请求做严格字符串比较，因而拒绝最终 output，Inbox 未更新 |
 | CAP-07 C.3／C.4 runtime failure／Retry |  |  |  | 两个子结果仍是 FIRST PASS，不能由真实平台失败代替 wrapper |
 | CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
+| RC-P2-04 AI tools／Improve formatting | TARGETED RETEST |  |  | 实现完成；最终候选安装后的原生 preview／Apply／Cancel／conflict／responsive 结果待填 |
 | AI-03 hosted 恢复测试 |  |  |  | 保留历史失败；只记录最新候选的新结果 |
 | ANSWER-02-R1 定向补测 |  |  |  |  |
 | CAL-00–03 |  |  |  |  |
 | Extended AI |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**下一步：** 第 1、2 行已完成，直接从第 3 行 CAP-07 A.1 开始，随后完成 A.4 与 A.5。第 3 行
-通过以后再进入第 4 行 cookies；如果暂时没有可用 cookies，B–D 对应
-子项记 `NOT RUN`，先返回第 7 行继续 AI-03。不要把平台拒绝、地区限制或私人帖子误记成插件已经
-通过，也不要为取得 PASS 尝试绕过平台访问控制。
+**下一步：** 不替换或 reload 当前 bundle，继续完成第 7–10 行中尚未完成的 Hosted AI、
+ANSWER-02-R1、Calendar 与 Extended AI。最终候选准备完成且这些活动测试停止后，再按 F1 → F2 → F3
+做三项定向复测，然后执行 REL-01。平台拒绝、地区限制或私人帖子属于访问结果，必须与“backend 已
+完成但 Home 无法对账最终 output”分开记录；不要为取得 PASS 尝试绕过平台访问控制。
 
 
 <a id="test-rc-p2-01"></a>
@@ -285,11 +300,103 @@ Reviewed，重新执行以上 copy 并等待 metadata 刷新，不要另做 Capt
 3. 每行最多显示两个 tag token 和 `+N`。点 widget header 的 filter，先选 `#review`，再选
    `#language`：多选使用 AND，父 tag 可匹配 `review/multilingual`、`language/中文` 等 nested tag；
    计数随筛选更新。Clear filters 恢复原列表，不修改 note Properties。
-4. 宽窗口能到达 Review、AI tags、Summarize、Pin／Unpin。**Summarize** 打开同一个 Review pane 的
-   proposal summary，不自动写正文或改变状态。缩窄 Obsidian 主窗口后，三个长文字动作折入 `…`
-   menu，Pin／Unpin 仍可操作；菜单名称和顺序保持一致。
+4. 2026-09-24 已通过的旧布局是 Review、AI tags、Summarize、Pin／Unpin；其中 AI tags 与 Summarize
+   实际触发同一个 summary／links／tags proposal，现已由 [RC-P2-04](#test-rc-p2-04) 的 **AI tools**
+   层级取代。本项不重测旧按钮名称，也不把旧布局继续当成发布合同；时间、状态、tags、筛选、
+   Pin／Unpin 与长文件名的既有 PASS 证据继续保留。
 5. 用深／浅主题、100%／150% 和多语言长文件名检查。title 保留主要宽度，path、time、status、tags
    自动换行或省略；不得横向滚动、重叠、仅靠 hover 才能操作或让 Pin／Unpin 列错位。
+
+<a id="test-rc-p2-04"></a>
+
+#### RC-P2-04：AI tools 与 review-first Improve formatting（UI-21）
+
+**状态：TARGETED RETEST。** 实现与确定性自动回归完成后才安装最终候选；原生宽／窄窗口、键盘、
+150% 字体、真实本地模型、取消、冲突与失败终态尚未取得 PASS，不得由源码或自动测试代替。
+
+**A. 准备可重置 fixture 与 baseline**
+
+1. 结束当前 Hosted／Answer／Calendar／Extended AI 操作后，安装最终候选并 reload。不要在这些测试
+   仍 active 时替换 bundle。然后在 Terminal 复制两份 fixture，并为第二份设置 Reviewed：
+
+   ```bash
+   mkdir -p "$TEST_VAULT/OMD Manual Tests"
+   cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Improve Formatting Transcript.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.md"
+   cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Improve Formatting Transcript.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting Reviewed.md"
+   perl -0pi -e 's/omd_home_status: inbox/omd_home_status: reviewed/' "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting Reviewed.md"
+   printf '%s\n' '{"fixture":"OMD-IMPROVE-SIDECAR-KEEP-826"}' > "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.omd.json"
+   shasum -a 256 "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.omd.json"
+   perl -0777 -ne 'print $1 if /\A(---\R.*?\R---\R)/s' "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.md" | shasum -a 256
+   ```
+
+2. 记录 note、sidecar 与 frontmatter 三个 hash。打开 Inbox 与 Recent：第一份应为 Inbox，第二份只在
+   Recent 显示 Reviewed。确认
+   fixture 含 `OMD-IMPROVE-KEEP-826`、`00:42`、完整
+   `https://example.com/reference?id=KEEP-826`、简体中文、English、العربية 和 fenced code block。
+
+**B. 动作层级、响应式与 suggestion 语义**
+
+1. 宽窗口下，每个 note row 只显示 **Review**／**Review again**、**AI tools**、**Pin**／**Unpin**。
+   不能再出现独立 **AI tags** 或 **Summarize**。打开 **AI tools**，菜单必须正好有两个诚实命名的项目，
+   顺序为 **Improve formatting**、**Generate suggestions · summary, links, tags**。
+2. 用 Tab 聚焦 AI tools，以 Enter／Space 打开，用方向键移动并以 Enter 选择；Escape 关闭菜单后焦点
+   回到 trigger。每个控件有可读 accessible name 与可见 focus，不能只靠 icon 或 hover 说明用途。
+3. 缩窄 Obsidian 主窗口并用 **View → Zoom in** 到约 150%，再以深／浅主题各看一次。三个行级动作可
+   换行或稳定收纳，但不得重叠、截断、产生横向滚动或挤乱长文件名、status、tags、time 与 Pin 列。
+   最后运行 **View → Actual Size**。
+4. 选择 **Generate suggestions · summary, links, tags**。它必须打开现有的 combined Review surface，
+   同时呈现 proposal summary、links 与 tags；生成、关闭或 Cancel 都不写 note，也不改变 Inbox／
+   Reviewed。只有用户在 Review 中明确选择并 Apply 才写入相应内容；Apply 仍不自动完成 Review。
+
+**C. Improve formatting：进度、preview、Cancel 与 Apply**
+
+1. 对 Inbox fixture 选择 **Improve formatting**。生成期间 modal 与 Current task 应持续显示明确的
+   **Improving formatting…**，提供可键盘操作的 **Cancel**，并阻止同一 note 的重复提交。立刻 Cancel；
+   等待 Current task 回到 **No task running**，重新运行上述完整 note、sidecar 与 frontmatter hash，
+   必须与 baseline 完全一致。
+2. 再次运行并等待 **Formatting preview**。Preview 必须显示完整候选 Markdown，可滚动并以键盘读取，
+   明确说明 Apply 前 note 未改变；关闭 modal／按 Escape 后 hash 仍不变，状态仍为 Inbox，也没有新
+   `.raw.md`。
+3. 第三次生成后点击 **Apply formatting**。正文应得到更清楚的段落／Markdown 结构，但以下内容各自
+   仍完整且拼写不变：`OMD-IMPROVE-KEEP-826`、`00:42`、完整 URL、简体中文、English、العربية 与
+   fenced code block。`omd_home_status: inbox`、`captured_at`、tags 与整个 frontmatter 必须逐字节保留；
+   重跑 frontmatter 与 sidecar 的 hash 必须不变；下面命令无输出，note 仍在 Inbox。Improve formatting
+   本身不能标记 Reviewed。
+
+   ```bash
+   find "$TEST_VAULT/OMD Manual Tests" -name 'RC P2 Improve Formatting*.raw.md' -print
+   ```
+4. 对 Reviewed fixture 重复一次成功 Apply；它必须继续显示 Reviewed，不能重新进入 Inbox，也不能
+   因格式改善暗中改变工作流状态。
+
+**D. Exact baseline conflict**
+
+1. 重新复制一份为 `RC P2 Improve Formatting Conflict.md`，生成 preview 后先不要 Apply。在 Terminal
+   对准确 fixture 路径追加一行：
+
+   ```bash
+   printf '\nMANUAL-FORMAT-CONFLICT-KEEP-826\n' >> "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting Conflict.md"
+   ```
+
+2. 回到旧 preview 点击 **Apply formatting**。应显示 note 在 preview 后已改变，拒绝覆盖；手工追加行、
+   原 marker／URL／多语言文字与 Inbox 状态全部保留。重新 Generate 才能基于新 baseline 应用。
+
+**E. Missing model、runtime error 与 no-op**
+
+1. 在 Settings 记录当前 Local writing model，选择 **Custom…** 并保存一个确认不存在的 model ID；对
+   fresh fixture 运行 Improve formatting。应显示具体 missing／unavailable 原因，不产生 preview 或写入，
+   hash 不变，Current task 回到 **No task running**。恢复原 model 并 **Check setup**。
+2. 若本轮能安全停止本地模型服务，用 fresh fixture 形成一次运行期连接错误；否则记
+   `NOT RUN — no safe runtime-error fixture`。错误必须可操作，note／status／sidecar 不变，Current task
+   回到 idle；恢复服务并 Check setup 后继续。若 OMD 以退出码 0 保留原文但同时报告 structured
+   skipped／failed warning，Home 仍必须按错误处理，不能显示成 **No formatting changes suggested**。
+3. no-op 只在模型返回与 baseline 完全相同的 Markdown 时成立；出现时应说明没有 formatting changes，
+   不打开可 Apply 的空 preview、不写 note，并回到 idle。真实模型未稳定产生 no-op 时记
+   `NOT EXERCISED — deterministic automatic regression only`，不能为了 PASS 修改生产 note 或模型输出。
+
+通过条件：行级只保留 Review／Review again、AI tools、Pin／Unpin；AI tools 只有两个准确动作；formatting
+始终先生成完整 preview，Cancel／关闭／失败／no-op／conflict 均零写入；Apply 只改变经确认的正文格式，
+不改变文字、frontmatter、sidecar 或 Review 状态，也不在 vault 留下 `.raw.md`。
 
 <a id="test-rc-ui-01"></a>
 
@@ -2665,7 +2772,9 @@ review 时显示 **No task running**。如果此前已经打开 proposal／revie
 2. 不关闭当前 Settings，先从空的 Xiaohongshu / Rednote 行粘贴或拖入有效路径；**Clear** 应立即出现，
    不能要求关闭并重开 Settings。点击后当前输入框应立即清空，Clear 隐藏，且不得重复渲染另一套
    控件或让键盘焦点跳到别处。Douyin 行重复一次。重新填写两条路径，再打开 Capture；Capture 内的
-   两行也应遵循相同的动态 Clear 行为。Cancel 不启动任务。
+   两行也应遵循相同的动态 Clear 行为。Cancel 不启动任务。2026-10-04 旧候选实测为 **FAIL**：值已
+   清空但 Clear 仍可见；最终候选必须在同一次 Settings／Capture 会话内完成显示 → 清空并隐藏 → 再
+   输入并恢复显示的视觉闭环，不能只检查保存值。
 3. 对 Douyin 分享文字点击 Capture。preflight 应在弹窗仍打开时完成，只检查 Douyin 路径；对 XHS
    重复时只检查 XHS 路径。两种路径同时存在也不得交叉使用或 fallback。检查期间弹窗显示
    **Checking site access…**；Douyin 或直接 XHS URL 通过后，弹窗关闭并出现
@@ -2703,11 +2812,15 @@ review 时显示 **No task running**。如果此前已经打开 proposal／revie
 2. 复用本轮已确认 `Type: video` 的 Rednote 帖子，完整 URL 从测试者自己的浏览器复制，不把
    `xsec_token` 查询值写进报告。Tags 使用 `cap-07-xhs-video-retest`。完成 note 必须同时含正确的
    metadata／正文与非空 **Transcript**；只有正文和图片而没有 Transcript 记 FAIL。旧的部分成功 note
-   可以保留作对照，但 Search `tag:#cap-07-xhs-video-retest` 必须恰好为 1。若下载、ffmpeg 或 Whisper
-   任一阶段失败，Needs attention 应分别说明失败阶段并提供 Retry，不能把缺少视频内容呈现为成功。
-   打开新 note 及其同名 `.omd.json` 时，保存的来源应保留帖子路径但不含 `xsec_token` 或其他访问
-   查询值；不要把这些值复制进测试记录。
-   若平台、地区或账户拒绝访问，保留明确错误并记 `NOT RUN` 或 FAIL，不宣称绕过限制。
+   可以保留作对照，但先删除或改掉其相同测试 tag；最终 Search
+   `tag:#cap-07-xhs-video-retest` 必须恰好为 1，且这份 note 同时出现在 Inbox 与 Recent。不得再次显示
+   **generated vault note could not be verified**。打开同名 `.omd.json`，确认其 `output` 精确指向最终
+   note，而不是 rename 前的 planned filename；note 与 sidecar 的来源保留帖子路径，但不含 query、
+   fragment、`xsec_token` 或其他访问值，非空 Transcript 仍存在。不要把这些值复制进测试记录。
+   若下载、ffmpeg 或 Whisper 任一阶段失败，Needs attention 应分别说明失败阶段并提供 Retry，不能把
+   缺少视频内容呈现为成功。平台、地区、账户、删除或私人状态造成的明确拒绝应按实际记 `NOT RUN`
+   或平台 FAIL；只有 backend 已经完成并写出可验证产物、Home 却拒绝最终 output，才属于 reconciliation
+   FAIL。这两类结果不能互相代替，也不宣称绕过限制。
 3. 用临时 wrapper 稳定制造一次 preflight 后才发生的运行错误。把脚本最后一行的占位路径换成
    Settings 显示的真实 OMD executable；wrapper 会把 `capabilities` 和 `inspect` 委托给真实 OMD，
    只让正式 `capture` 失败：

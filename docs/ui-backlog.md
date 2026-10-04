@@ -444,24 +444,22 @@ recent note，并以最新在前帮助用户在 conversion 与 review 同时运�
 
 ### UI-17：统一 note row 的时间、tags、筛选与 AI 操作层级
 
-**状态：已完成；RC-P2-03 原生视觉复测 PASS。优先级：P2。** 行内最多显示两个 tag，
-筛选支持 Unicode、nested parent tag 与多条件 AND；窄容器把 Review／AI tags／Summarize 收入 `…`
-菜单，Pin／Unpin 保持直接可用。Reviewed 项显示低优先级 **Review again**。
+**状态：metadata／filter／Pin 排版已完成并通过 RC-P2-03；旧 AI tags／Summarize 动作层级已由
+UI-21 取代。优先级：P2。** 行内最多显示两个 tag，筛选支持 Unicode、nested parent tag 与多条件
+AND；Reviewed 项显示低优先级 **Review again**。2026-09-24 的时间、状态、tags、filter、Pin／Unpin
+与长文件名证据继续有效，不要求重跑旧按钮名称。
 
 **排版方向：** 行的第一层只放 title 和一个上下文主操作；第二层按 `path · time · status` 呈现弱化
 metadata。Tags 最多显示两个紧凑 token 和 `+N`，不能把每个 tag、时间和三个文字按钮同时铺满一行。
-完整 tags 通过 hover / focus、展开或 note 打开后查看。宽窗口允许一个紧凑的 **AI tags / Summarize**
-操作组；窄窗口把这两个有文字 label 的动作折入同一个 `…` menu，顺序和名称保持一致，不能只留
-含义不明的图标。
+完整 tags 通过 hover / focus、展开或 note 打开后查看。最终发布动作层级以 UI-21 的单一
+**AI tools** menu 为准；宽／窄窗口都不再平铺含义重复的 **AI tags** 与 **Summarize**。
 
 **验收标准：**
 
-- Recent 与 Inbox 都能到达 **AI tags** 和 **Summarize**；Inbox 的上下文主操作仍是 **Review**，
-  Recent 的 note 主体仍是打开 note。鼠标 hover、键盘 focus 和触屏下动作均可发现，不靠 hover
-  才能访问。
-- **Summarize** 默认在同一个 Review surface 生成只读 preview，不自动写 note、不自动标记 reviewed。
-  若以后允许保存，必须有独立的 **Add summary to note**、写入范围说明和 conflict 防护，不能复用
-  当前 proposal summary 的误导语义。
+- Recent 与 Inbox 都能到达 UI-21 的 **AI tools**；Inbox 的上下文主操作仍是 **Review**，Recent 的
+  note 主体仍是打开 note。鼠标 hover、键盘 focus 和触屏下动作均可发现，不靠 hover 才能访问。
+- summary、links 与 tags 保持同一个可审阅 proposal；生成不自动写 note 或标记 reviewed。可选的
+  **Add summary to note**、写入范围和 conflict 防护仍沿用 UI-19。
 - Widget header 提供一个紧凑的 tag filter；来源使用 Obsidian metadata cache，选择和清除状态明确，
   结果数随筛选更新。定义 nested tags、多个 tags 的 AND / OR 规则；不把过滤状态写入 note 或在
   Capture 时改变 tags。
@@ -527,6 +525,50 @@ markers 和并发修改会安全停止。Apply 后仍为 Inbox。
 - 自动与原生测试覆盖：summary only、summary + links、summary + tags、全部选择、未选 summary、空
   summary、编辑后写入、已有 managed block、已有用户 Summary、并发修改、frontmatter 失败回滚、
   重复 Apply、长文件名、窄窗口和 150% 字体。
+
+### UI-21：用一个 AI tools 层级提供诚实的 suggestions 与 review-first formatting
+
+**状态：IMPLEMENTED；确定性自动回归完成，RC-P2-04 原生复测待执行。优先级：P1。** 最终候选未
+替换或 reload 正在运行 Hosted AI／Answer／Calendar／Extended AI 的 test-vault；只有完整候选安装后
+才执行定向原生矩阵，不能把实现完成写成 native PASS。
+
+**问题与决策：** 旧的 **AI tags** 和 **Summarize** 看似是两个不同工具，实际都生成同一份
+proposal summary、links 与 tags；再增加独立 Polish 按钮会让每行继续堆叠动作，并把“生成建议”、
+“改善正文格式”和“完成 Review”混在一起。最终 row 只显示 **Review**／**Review again**、
+**AI tools**、**Pin**／**Unpin**。**AI tools** 必须正好包含两个诚实名称的项目：
+**Improve formatting** 与 **Generate suggestions · summary, links, tags**。旧 AI tags／Summarize 入口
+已移除，不能以不同 label 重复同一个 proposal。
+
+**Improve formatting 合同：**
+
+- 读取精确 baseline 后，只把内容放进系统临时目录中的副本交给 OMD；生成期间显示可取消的明确进度，
+  原 vault note、frontmatter、sidecar 与工作流状态保持不变。取消、关闭、模型缺失、运行错误、空输出
+  和 no-op 都必须回到 idle 且零写入。
+- 模型结果先在 modal 中以完整、可滚动、键盘可读的 Markdown preview 呈现；Apply 之前 note 不变。
+  Preview 必须保留原 frontmatter；模型添加或改写的 YAML 不进入 vault。
+- Apply 使用 Obsidian 串行写入接口并在同一次 transform 中逐字节比较 baseline。只要用户、sync 或
+  其他插件在 preview 后改变 note，就显示 conflict 并拒绝旧结果，不能覆盖新内容。
+- 成功 Apply 只采用用户看过的正文格式，保留原文字、语言、URL、timecode 与 fenced code；不创建
+  `.raw.md`，不改 sidecar，也不自动把 Inbox 标为 Reviewed。Reviewed note 成功格式化后仍是 Reviewed。
+
+**Suggestions 与 Review 合同：**
+
+- **Generate suggestions · summary, links, tags** 打开现有 combined Review surface；生成本身不写
+  summary、links、tags 或 status，只有用户选择并 Apply 才写所选内容。Apply 仍不等于
+  **Done reviewing**。
+- **Review**／**Review again** 继续负责查看 note、选择建议和显式完成工作流；Improve formatting 是
+  正文排版工具，不替代 Review，也不评价事实正确性或模型质量。
+
+**视觉、响应式与可访问验收：**
+
+- 继续使用 Obsidian 字体、颜色、细边框、紧凑间距和 focus 样式；不新增大卡片、渐变、阴影或常驻
+  第四个文字按钮。宽／窄窗口使用同一套三个行级动作语义。
+- 深浅主题、约 390px、100%／150%、长文件名、多语言 title、长 tags 与滚动状态下不得重叠、截断、
+  横向滚动或让 Pin 列跳动。AI tools trigger 与两个 menu item 都有准确 accessible name、tooltip、
+  可见 focus；Tab、Enter／Space、方向键和 Escape 行为与视觉顺序一致。
+- RC-P2-04 使用受控 fixture 覆盖 Cancel、modal close、完整 preview、Apply、Reviewed 保持、exact
+  baseline conflict、missing model、runtime error、no-op、combined suggestions，以及 marker／URL／
+  timecode／code／简中／英文／阿拉伯文保真。原生结果完成前状态保持 **native retest pending**。
 
 ### TEST-01：Review 回归 fixture 不依赖已经离开 Inbox 的固定文件名
 

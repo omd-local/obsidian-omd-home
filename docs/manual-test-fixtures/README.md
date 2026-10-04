@@ -51,6 +51,9 @@ an OCR/limitation fixture, not the ordinary successful PDF/path fixture used by 
   tags, time, and responsive actions.
 - `vault-notes/OMD Review User Summary Collision.md` checks that a user-authored `## Summary` is
   never overwritten.
+- `vault-notes/OMD Improve Formatting Transcript.md` is an intentionally poorly paragraphed Inbox
+  note for the review-first **Improve formatting** flow. Its marker, timecode, URL, multilingual
+  wording, and fenced code block must survive unchanged.
 
 Copy these into the disposable test vault with a fresh name for each manual run. Do not complete a
 later run against an already Reviewed copy.
