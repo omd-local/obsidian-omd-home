@@ -689,6 +689,66 @@ CAPTURE-01 与 CAPTURE-02 的实现已完成，但发布前仍需取得 `manual-
 人工证据。CAPTURE-03 继续保留为 Deferred / P2；在它完成前，对外能力说明不得声明 OMD Home 支持
 Local batches。
 
+## Calendar UX
+
+### CALENDAR-01：Helper override 输入后缺少即时校验反馈
+
+**状态：候选已实现，等待 CAL-00 原生复测。优先级：P1。**
+
+**证据与背景：** 2026-10-05 CAL-00 原生测试中，在 **Advanced Calendar helper** 输入不存在的
+绝对路径后，页面仍保留之前的 helper 状态；只有点击 **Refresh calendars** 才显示 custom helper
+missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复；是否保留已保存 calendar 选择尚待
+单独确认。当前已确认的缺口是字段变更后的即时反馈。
+
+**验收标准：**
+
+- Helper override 改变并完成必要的短防抖后，状态和字段说明立即反映当前路径是否存在且可执行，
+  不要求用户先点击 Refresh。
+- 无效路径不得继续显示旧的 ready 状态；有效自定义 helper 应显示正在使用 custom path。
+- **Refresh calendars** 仍执行真实 helper 请求并显示准确运行错误；失败不得清空已保存 calendar 选择、
+  default calendar 或现有列表。
+- **Use bundled** 立即清空 override、恢复自动路径的可见状态；随后 Refresh 可以重新加载列表。
+- 覆盖快速连续输入、保存延迟、路径含空格、不可执行文件、键盘操作及窄 Settings 布局。
+- helper readiness 必须验证 protocol v2；仅“文件存在且可执行”不足以 ready。旧 v1 显示
+  **Update Calendar helper** 并在任何 events/upsert/delete 前 fail closed，避免旧 helper 绕过 CAS、
+  exact lookup 与 all-day date-only 契约。
+
+
+### CALENDAR-02：Event editor 的时区与范围错误不够明确
+
+**状态：候选已实现，等待 CAL-01 原生复测。优先级：P1。**
+
+- timed editor 在 Start／End 下方显示真实设备 IANA 时区；原生 `datetime-local` 只表达本地时间。
+- all-day 的 exclusive End 规则保持中性帮助文字；只有 Save 发现无效范围时才显示统一红色 inline error。
+- Start 错误聚焦 Start，End／顺序错误聚焦 End；修正后错误与 `aria-invalid` 一起清除。
+- conflict 比较中的 timed 时间同时显示设备时区；Title／Location 支持混合 LTR／RTL。
+
+### CALENDAR-03：来源 legend 常驻且 Home 中含义不易发现
+
+**状态：候选已实现，等待 CAL-02 原生复测。优先级：P1。**
+
+- Calendar 顶部把三个常驻 legend 合并成 **Sources · All / n of 3** disclosure；展开后保留真实筛选能力、
+  来源形状与简短说明。
+- 最后一个可见来源直接 disabled 并解释原因，避免“按钮可点但无响应”。
+- Upcoming／Today 只保留紧凑形状；行的 tooltip／accessible name 写明来源与 sync state，`…` 菜单按需
+  提供同一套 source key。颜色仍只是辅助，形状和文字承担主要语义。
+
+### CALENDAR-04：Sync 完成反馈与 conflict 版本完整性
+
+**状态：候选已实现，等待 CAL-03 原生复测。优先级：P0。**
+
+- 只有全部 clean 才能显示 **Calendar sync complete**；conflict、unavailable、error、pending 均返回数量
+  与下一步，Calendar 顶部 Sync 和命令使用同一结果文案。
+- classification 读取当前 Markdown frontmatter，不依赖可能延迟的 metadata cache；等待 EventKit 和用户在
+  conflict modal 做选择期间还要复核两侧版本，任何新修改都必须重新进入 review，不能覆盖。
+- conflict modal 并排比较 Note／Calendar 的 Title、Time、Location；两个选边操作权重相同，可 Cancel。
+- conflict 禁止普通 editor／drag；只有按 Apple item ID 确认外部 event 已删除时才开放 Recreate／Detach。
+  Calendar 未选择、抓取窗口未覆盖或 helper/read failure 必须给出对应恢复操作，不得把未知状态当成已删除。
+  两轮连续冲突、已删除 event 的两条恢复路径及取消选择的防重复边界都写入 `manual-test-plan.md` 的确定性例子。
+- EventKit exact ID 因跨 Calendar 移动／full sync 改变时，先按 stable external identity 在已选 calendars
+  恢复；唯一候选才重绑，多候选或 external ID 缺失都停在 review，不能误报 deleted 或开放 Recreate。
+- linked create 的 EventKit 写入失败时清理本次临时 pending note；同一 modal Retry 不得累计重复 note。
+
 ## Answer UX / 模型措辞方向
 
 此方向独立于 UI-01–03 的 Settings 视觉整理；关注 Ask vault 答案如何把证据与建议清楚、自然地
