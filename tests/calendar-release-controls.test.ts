@@ -18,18 +18,20 @@ const notices: string[] = [];
 class ModalStub {
   contentEl = new ContentStub();
   closed = false;
-  open() {}
-  close() { this.closed = true; }
+  opened = false;
+  open() { this.opened = true; }
+  close() { this.closed = true; this.onClose(); }
+  onClose() {}
 }
 
 const source = readFileSync(new URL("../src/calendar-view.ts", import.meta.url), "utf8");
-const compiled = transformSync(`${source}\nexport { EventEditorModal, EventConflictModal, SyncRequiredModal, RecreateCalendarConfirmationModal };`, {
+const compiled = transformSync(`${source}\nexport { EventEditorModal, EventConflictModal, SyncRequiredModal, RecreateCalendarConfirmationModal, DeleteEventNoteConfirmationModal, DeleteCalendarEventConfirmationModal };`, {
   loader: "ts", format: "cjs", target: "es2022",
 }).code;
 const module = { exports: {} };
 Function("require", "module", "exports", compiled)((id: string) => {
   if (id === "obsidian") return {
-    ItemView: class {}, Modal: ModalStub, Setting: class {},
+    ItemView: class { app = {}; }, Modal: ModalStub, Setting: class {},
     Notice: class { constructor(message: string) { notices.push(message); } },
   };
   if (id === "./calendar-sync") return calendarSync;
@@ -40,22 +42,29 @@ Function("require", "module", "exports", compiled)((id: string) => {
 
 interface EditorStub extends ModalStub {
   saveDraft(): Promise<void>;
-  runDetachAction(deleteExternal: boolean, missingMessage: string): Promise<void>;
+  runDetachAction(confirmation: string, missingMessage: string): Promise<void>;
   recreateCalendarCopy(): Promise<void>;
   retryCalendarSync(): Promise<void>;
 }
 interface ConflictStub extends ModalStub { resolve(choice: "vault" | "external"): Promise<void>; }
 interface RecreateConfirmationStub extends ModalStub { confirm(): Promise<void>; }
+interface DeleteConfirmationStub extends ModalStub { confirm(): Promise<void>; }
 interface CalendarViewStub {
   syncButton: { disabled: boolean; setText(value: string): void };
   syncEvents(): Promise<void>;
+  onOpen(): Promise<void>;
+  onClose(): Promise<void>;
+  openTrackedModal(modal: ModalStub): void;
   render(): void;
 }
 const classes = module.exports as {
   EventEditorModal: new (...args: unknown[]) => EditorStub;
   EventConflictModal: new (...args: unknown[]) => ConflictStub;
   RecreateCalendarConfirmationModal: new (...args: unknown[]) => RecreateConfirmationStub;
+  DeleteEventNoteConfirmationModal: new (...args: unknown[]) => DeleteConfirmationStub;
+  DeleteCalendarEventConfirmationModal: new (...args: unknown[]) => DeleteConfirmationStub;
   OmdCalendarView: new (...args: unknown[]) => CalendarViewStub;
+  setCalendarModalActionGuard(modal: ModalStub, guard: () => boolean): void;
 };
 const event = {
   id: "test-event", title: "A long English title / 中文会议 / اجتماع المراجعة", source: "vault",
@@ -115,7 +124,7 @@ test("saving prevents a competing detach from changing the same event", async ()
     detachCalendarEvent: async () => { detaches++; },
   });
   const first = modal.saveDraft();
-  await modal.runDetachAction(false, "Unavailable");
+  await modal.runDetachAction(calendarSync.CALENDAR_DETACH_CONFIRMATION, "Unavailable");
   release();
   await first;
   assert.equal(detaches, 0);
@@ -137,14 +146,80 @@ test("Recreate opens a separate confirmation and Cancel performs no write", asyn
   assert.equal(recreates, 0);
   assert.equal(unverified.closed, false);
 
-  const cancelled = new classes.RecreateCalendarConfirmationModal({}, async () => { recreates++; });
+  const cancelled = new classes.RecreateCalendarConfirmationModal({}, event, async () => { recreates++; });
   cancelled.close();
   assert.equal(recreates, 0);
 
-  const confirmed = new classes.RecreateCalendarConfirmationModal({}, async () => { recreates++; });
+  const confirmed = new classes.RecreateCalendarConfirmationModal({}, event, async () => { recreates++; });
   await confirmed.confirm();
   assert.equal(recreates, 1);
   assert.equal(confirmed.closed, true);
+});
+
+test("destructive Calendar actions require a separate confirmation and coalesce repeated clicks", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let noteDeletes = 0;
+  const cancelled = new classes.DeleteEventNoteConfirmationModal({}, event, false, async () => { noteDeletes++; });
+  cancelled.close();
+  assert.equal(noteDeletes, 0);
+
+  const confirmed = new classes.DeleteEventNoteConfirmationModal({}, event, true, async () => {
+    noteDeletes++;
+    await pending;
+  });
+  const first = confirmed.confirm();
+  const second = confirmed.confirm();
+  assert.equal(noteDeletes, 1);
+  assert.equal(confirmed.contentEl.controls[0].disabled, true);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(confirmed.closed, true);
+
+  let calendarDeletes = 0;
+  const calendar = new classes.DeleteCalendarEventConfirmationModal({}, event, true, async () => { calendarDeletes++; });
+  await calendar.confirm();
+  assert.equal(calendarDeletes, 1);
+  assert.equal(calendar.closed, true);
+});
+
+test("a tracked Calendar modal refuses a stale confirmation after its owner unloads", async () => {
+  let active = true;
+  let deletes = 0;
+  const modal = new classes.DeleteCalendarEventConfirmationModal({}, event, true, async () => { deletes++; });
+  classes.setCalendarModalActionGuard(modal, () => active);
+  active = false;
+  await modal.confirm();
+  assert.equal(deletes, 0);
+  assert.equal(modal.closed, true);
+});
+
+test("closing a Calendar view closes only its owned modals and blocks a late initial render", async () => {
+  let releaseRefresh!: () => void;
+  const refresh = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+  const track = <T extends ModalStub>(modal: T, onClose?: () => void, ownerIsActive: () => boolean = () => true): T | null => {
+    if (!ownerIsActive()) return null;
+    const original = modal.onClose.bind(modal);
+    modal.onClose = () => { onClose?.(); original(); };
+    classes.setCalendarModalActionGuard(modal, ownerIsActive);
+    return modal;
+  };
+  const plugin = { refreshCalendarEvents: async () => refresh, trackCalendarModal: track };
+  const first = new classes.OmdCalendarView({}, plugin);
+  const second = new classes.OmdCalendarView({}, plugin);
+  const firstModal = new ModalStub();
+  const secondModal = new ModalStub();
+  first.openTrackedModal(firstModal);
+  second.openTrackedModal(secondModal);
+  let renders = 0;
+  first.render = () => { renders++; };
+  const opening = first.onOpen();
+  await first.onClose();
+  releaseRefresh();
+  await opening;
+  assert.equal(firstModal.closed, true);
+  assert.equal(secondModal.closed, false);
+  assert.equal(renders, 0, "a refresh completing after tab close must not render the closed view");
 });
 
 test("unverified linked events can retry Sync from the recovery panel", async () => {

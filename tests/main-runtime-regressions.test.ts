@@ -30,13 +30,18 @@ import {
 import { LocalAiError, type LocalAiModelInfo, type LocalAiRuntimeState } from "../src/ollama-local-types.ts";
 import { socialCaptureProvider } from "../src/omnibox-utils.ts";
 import {
+  CALENDAR_DETACH_CONFIRMATION,
+  CALENDAR_EVENT_DELETE_CONFIRMATION,
+  CALENDAR_NOTE_DELETE_CONFIRMATION,
   CALENDAR_RECREATE_CONFIRMATION,
+  CalendarPartialActionError,
   calendarFetchWindow,
   calendarIdentityKeys,
   classifyLinkedAvailability,
   classifyLinkedChange,
   detachLinkedEvent,
   eventSyncHash,
+  isCalendarNoteErrorRecord,
   linkedEventSaveBlockReason,
   mergeExternalIntoLinked,
   resolveCalendarWriteOverride,
@@ -71,9 +76,14 @@ function loadMethods(file: string, names: string[], dependencies: Record<string,
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
   ).outputText;
   const resolvedDependencies = {
+    CALENDAR_DETACH_CONFIRMATION,
+    CALENDAR_EVENT_DELETE_CONFIRMATION,
+    CALENDAR_NOTE_DELETE_CONFIRMATION,
     CALENDAR_RECREATE_CONFIRMATION,
+    CalendarPartialActionError,
     eventKitMutationDefinitelyDidNotCommit,
     eventSyncHash,
+    isCalendarNoteErrorRecord,
     stableExternalCandidates,
     ...dependencies,
   };
@@ -137,6 +147,38 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
   plugin.syncHostedAiState("");
   return plugin;
 }
+
+test("Calendar refresh tracking follows every known type:event note, not only the managed folder", () => {
+  class TestFile {
+    readonly path: string;
+    readonly extension: string;
+    constructor(path: string) {
+      this.path = path;
+      this.extension = path.endsWith(".md") ? "md" : "";
+    }
+  }
+  const frontmatter = new Map<string, Record<string, unknown>>([
+    ["Projects/Launch.md", { type: "event" }],
+    ["Projects/Notes.md", { type: "note" }],
+  ]);
+  const files = new Map([...frontmatter.keys()].map((path) => [path, new TestFile(path)]));
+  const plugin = loadMethods("src/main.ts", ["isCalendarEventPath"], { TFile: TestFile });
+  Object.assign(plugin, {
+    calendarEvents: [{ notePath: "Archive/Known event.md" }],
+    app: {
+      vault: { getFileByPath: (path: string) => files.get(path) ?? null },
+      metadataCache: {
+        getFileCache: (file: TestFile) => ({ frontmatter: frontmatter.get(file.path) }),
+      },
+    },
+  });
+
+  assert.equal(plugin.isCalendarEventPath("Calendar/Events/New.md"), true);
+  assert.equal(plugin.isCalendarEventPath("Archive/Known event.md"), true);
+  assert.equal(plugin.isCalendarEventPath("Projects/Launch.md"), true);
+  assert.equal(plugin.isCalendarEventPath("Projects/Notes.md"), false);
+  assert.equal(plugin.isCalendarEventPath("Projects/image.png"), false);
+});
 
 function deferred<T>() {
   let resolveValue!: (value: T) => void;
@@ -321,6 +363,241 @@ test("calendar sync preserves the concrete EventKit failure instead of reporting
 
   await assert.rejects(plugin.performCalendarRefresh(true), /EventKit timed out/);
   assert.deepEqual(plugin.calendarEvents, []);
+});
+
+for (const failedRead of ["events", "lookup"] as const) {
+  test(`Calendar Sync clears a transient EventKit ${failedRead} failure and heals on retry`, async () => {
+    const linked: CalendarEventRecord = {
+      id: "evt_retry", title: "Retry fixture", start: "2026-10-08T10:00:00.000Z",
+      end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Activity",
+      source: "linked", notePath: "Calendar/Events/retry.md", appleCalendarId: "cal_1",
+      appleItemId: "item_1", appleExternalId: "external_1",
+    };
+    linked.syncHash = eventSyncHash(linked);
+    const outside: CalendarEventRecord = {
+      ...linked,
+      id: "apple:item_1",
+      source: "external",
+      notePath: undefined,
+      syncHash: undefined,
+    };
+    let eventReads = 0;
+    let lookupReads = 0;
+    let currentIssue = "";
+    const plugin = loadMethods("src/main.ts", [
+      "synchronizeCalendarEvents", "runCalendarRefresh", "performCalendarRefresh",
+    ], {
+      Platform: { isMacOS: true },
+      calendarFetchWindow,
+      calendarIdentityKeys,
+      stableExternalCandidates,
+      classifyLinkedChange,
+      mergeExternalIntoLinked,
+      summarizeCalendarSync,
+    });
+    Object.assign(plugin, {
+      app: {
+        vault: { getMarkdownFiles: () => [{ path: linked.notePath, stat: { mtime: 100 } }] },
+        metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+      },
+      readCalendarNoteSnapshot: async () => ({ event: linked, markdown: "exact" }),
+      settings: { selectedCalendarIds: ["cal_1"] },
+      hasEventKitHelper: () => true,
+      eventKitBridge: {
+        events: async () => {
+          eventReads += 1;
+          if (failedRead === "events" && eventReads === 1) throw new Error("EventKit transient read failure");
+          return failedRead === "events" ? [outside] : [];
+        },
+        lookup: async () => {
+          lookupReads += 1;
+          if (failedRead === "lookup" && lookupReads === 1) throw new Error("EventKit transient read failure");
+          return outside;
+        },
+      },
+      calendarWriteOverrides: new Map(),
+      calendarEvents: [],
+      calendarRefresh: null,
+      clearIssue() { currentIssue = ""; },
+      recordIssue(_context: string, error: Error) { currentIssue = error.message; },
+      refreshOpenViews() {},
+    });
+
+    await assert.rejects(plugin.synchronizeCalendarEvents(), /EventKit transient read failure/);
+    assert.equal(plugin.calendarRefresh, null, "a rejected refresh must release the shared refresh gate");
+    assert.equal(plugin.calendarEvents[0].syncState, "error");
+    assert.equal(plugin.calendarEvents[0].unavailableReason, "setup-or-read-failure");
+    assert.match(currentIssue, /EventKit transient read failure/);
+
+    const summary = await plugin.synchronizeCalendarEvents();
+    assert.deepEqual(summary, { conflicts: 0, unavailable: 0, errors: 0, pending: 0 });
+    assert.equal(plugin.calendarRefresh, null);
+    assert.equal(plugin.calendarEvents[0].syncState, "clean");
+    assert.equal(plugin.calendarEvents[0].unavailableReason, undefined);
+    assert.equal(currentIssue, "");
+    assert.equal(eventReads, 2);
+    assert.equal(lookupReads, failedRead === "lookup" ? 2 : 0);
+  });
+}
+
+test("Calendar refresh queues one later pass and preserves its reconcile intent", async () => {
+  const firstEntered = deferred<void>();
+  const releaseFirst = deferred<void>();
+  const passes: boolean[] = [];
+  const plugin = loadMethods("src/main.ts", [
+    "refreshCalendarEvents", "synchronizeCalendarEvents", "runCalendarRefresh",
+  ]);
+  Object.assign(plugin, {
+    calendarRefresh: null,
+    calendarRefreshQueued: null,
+    calendarRefreshQueuedReconcile: false,
+    performCalendarRefresh: async (reconcile: boolean) => {
+      passes.push(reconcile);
+      if (passes.length === 1) {
+        firstEntered.resolve();
+        await releaseFirst.promise;
+        plugin.calendarEvents = [{ id: "deleted-stale" }];
+      } else {
+        plugin.calendarEvents = [];
+      }
+      return { conflicts: 0, unavailable: 0, errors: 0, pending: 0 };
+    },
+    calendarEvents: [],
+  });
+
+  const first = plugin.refreshCalendarEvents();
+  await firstEntered.promise;
+  const afterDelete = plugin.refreshCalendarEvents();
+  const explicitSync = plugin.synchronizeCalendarEvents();
+  releaseFirst.resolve();
+  await Promise.all([first, afterDelete, explicitSync]);
+
+  assert.deepEqual(passes, [false, true], "overlapping requests coalesce into one later pass with Sync intent");
+  assert.deepEqual(plugin.calendarEvents, [], "the later pass must remove data restored by a stale in-flight snapshot");
+});
+
+test("a queued Calendar refresh still runs after the active pass rejects", async () => {
+  const firstEntered = deferred<void>();
+  const rejectFirst = deferred<void>();
+  let passes = 0;
+  const plugin = loadMethods("src/main.ts", ["refreshCalendarEvents", "runCalendarRefresh"]);
+  Object.assign(plugin, {
+    calendarRefresh: null,
+    calendarRefreshQueued: null,
+    calendarRefreshQueuedReconcile: false,
+    performCalendarRefresh: async () => {
+      passes += 1;
+      if (passes === 1) {
+        firstEntered.resolve();
+        await rejectFirst.promise;
+        throw new Error("stale pass failed");
+      }
+      plugin.calendarEvents = [];
+      return { conflicts: 0, unavailable: 0, errors: 0, pending: 0 };
+    },
+    calendarEvents: [{ id: "deleted-stale" }],
+  });
+
+  const first = plugin.refreshCalendarEvents();
+  const firstFailure = assert.rejects(first, /stale pass failed/);
+  await firstEntered.promise;
+  const queued = plugin.refreshCalendarEvents();
+  rejectFirst.resolve();
+  await firstFailure;
+  await queued;
+  assert.equal(passes, 2);
+  assert.deepEqual(plugin.calendarEvents, []);
+});
+
+test("zero selected calendars need no helper, clear stale issues, and mark links deselected", async () => {
+  const linked: CalendarEventRecord = {
+    id: "evt_deselected", title: "Deselected fixture", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Old",
+    source: "linked", notePath: "Calendar/Events/deselected.md", appleCalendarId: "cal_old",
+    appleItemId: "item_old", appleExternalId: "external_1",
+  };
+  let clearCalls = 0;
+  let bridgeCalls = 0;
+  const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+    Platform: { isMacOS: true },
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    stableExternalCandidates,
+    summarizeCalendarSync,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => [{ path: linked.notePath, stat: { mtime: 100 } }] },
+      metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+    },
+    readCalendarNoteSnapshot: async () => ({ event: linked, markdown: "exact" }),
+    settings: { selectedCalendarIds: [] },
+    hasEventKitHelper: () => false,
+    eventKitBridge: {
+      events: async () => { bridgeCalls++; return []; },
+      lookup: async () => { bridgeCalls++; return null; },
+    },
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    clearIssue() { clearCalls++; },
+    recordIssue() { assert.fail("zero selection must not report a helper failure"); },
+    refreshOpenViews() {},
+  });
+
+  const summary = await plugin.performCalendarRefresh(true);
+  assert.deepEqual(summary, { conflicts: 0, unavailable: 1, errors: 0, pending: 0 });
+  assert.equal(plugin.calendarEvents[0].unavailableReason, "calendar-deselected");
+  assert.equal(clearCalls, 1);
+  assert.equal(bridgeCalls, 0);
+});
+
+test("a stable match in a newly selected calendar rebinds even when the saved calendar is deselected", async () => {
+  const linked: CalendarEventRecord = {
+    id: "evt_moved", title: "Moved fixture", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Old",
+    source: "linked", notePath: "Calendar/Events/moved.md", appleCalendarId: "cal_old",
+    appleItemId: "item_old", appleExternalId: "stable_external",
+  };
+  linked.syncHash = eventSyncHash(linked);
+  const outside: CalendarEventRecord = {
+    ...linked,
+    id: "apple:item_new", source: "external", notePath: undefined, syncHash: undefined,
+    calendar: "New", appleCalendarId: "cal_new", appleItemId: "item_new",
+  };
+  let lookups = 0;
+  const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+    Platform: { isMacOS: true },
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    stableExternalCandidates,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+    summarizeCalendarSync,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => [{ path: linked.notePath, stat: { mtime: 100 } }] },
+      metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+    },
+    readCalendarNoteSnapshot: async () => ({ event: linked, markdown: "exact" }),
+    settings: { selectedCalendarIds: ["cal_new"] },
+    hasEventKitHelper: () => true,
+    eventKitBridge: {
+      events: async () => [outside],
+      lookup: async () => { lookups++; return null; },
+    },
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    clearIssue() {},
+    recordIssue() {},
+    refreshOpenViews() {},
+  });
+
+  await plugin.performCalendarRefresh(false);
+  assert.equal(plugin.calendarEvents[0].syncState, "pending");
+  assert.equal(plugin.calendarEvents[0].unavailableReason, undefined);
+  assert.equal(plugin.calendarEvents[0].conflictExternal.appleCalendarId, "cal_new");
+  assert.equal(lookups, 0);
 });
 
 test("calendar sync fails explicitly when selected calendars have no executable helper", async () => {
@@ -574,6 +851,97 @@ test("a deleted linked Calendar item becomes unavailable without an ordinary wri
   assert.equal(writes, 0, "an old EventKit identifier miss is not proof of deletion even without an external identifier");
 });
 
+test("one missing linked event does not block a later healthy event reconciliation write", async () => {
+  const healthy: CalendarEventRecord = {
+    id: "evt_healthy",
+    title: "Healthy event",
+    start: "2026-10-09T10:00:00.000Z",
+    end: "2026-10-09T11:00:00.000Z",
+    allDay: false,
+    calendar: "Activity",
+    source: "linked",
+    notePath: "Calendar/Events/Healthy.md",
+    appleCalendarId: "cal_1",
+    appleItemId: "healthy_item",
+    appleExternalId: "healthy_external",
+  };
+  healthy.syncHash = eventSyncHash(healthy);
+  const healthyExternal: CalendarEventRecord = {
+    ...healthy,
+    id: "apple:healthy",
+    title: "Healthy event updated in Calendar",
+    source: "external",
+    notePath: undefined,
+    syncHash: undefined,
+    externalModifiedAt: "2026-10-05T01:00:00.000Z",
+  };
+  const missing: CalendarEventRecord = {
+    id: "evt_missing",
+    title: "Missing event",
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Activity",
+    source: "linked",
+    notePath: "Calendar/Events/Missing.md",
+    appleCalendarId: "cal_1",
+    appleItemId: "missing_item",
+    appleExternalId: "missing_external",
+    syncHash: "v1:missing",
+  };
+  const files = [missing, healthy].map((event, index) => ({ path: event.notePath!, stat: { mtime: index + 1 } }));
+  const byPath = new Map([[missing.notePath, missing], [healthy.notePath, healthy]]);
+  let written: CalendarEventRecord | undefined;
+  let writeCount = 0;
+  const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+    Platform: { isMacOS: true },
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    stableExternalCandidates,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+    summarizeCalendarSync,
+    CalendarSnapshotChangedError,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => files },
+      metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+    },
+    readCalendarNoteSnapshot: async (file: { path: string }) => ({
+      event: byPath.get(file.path),
+      markdown: file.path,
+    }),
+    revalidateCalendarWrite: async (event: CalendarEventRecord, external: CalendarEventRecord) => ({
+      event, external, expectedMarkdown: event.notePath, blocked: false,
+    }),
+    writeCalendarNote: async (event: CalendarEventRecord) => {
+      writeCount += 1;
+      written = event;
+      return event;
+    },
+    settings: { selectedCalendarIds: ["cal_1"] },
+    hasEventKitHelper: () => true,
+    eventKitBridge: {
+      events: async () => [healthyExternal],
+      lookup: async () => null,
+    },
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    clearIssue() {},
+    recordIssue() {},
+    refreshOpenViews() {},
+  });
+
+  const summary = await plugin.performCalendarRefresh(true);
+  assert.deepEqual(summary, { conflicts: 0, unavailable: 1, errors: 0, pending: 0 });
+  assert.equal(plugin.calendarEvents.find((event: CalendarEventRecord) => event.id === missing.id)?.syncState, "unavailable");
+  assert.equal(plugin.calendarEvents.find((event: CalendarEventRecord) => event.id === healthy.id)?.syncState, "clean");
+  assert.equal(writeCount, 1, "the missing event must not prevent the later Calendar change from being persisted");
+  assert.equal(written?.id, healthy.id);
+  assert.equal(written?.title, healthyExternal.title);
+});
+
 test("an unavailable event cannot recreate without explicit confirmation and Detach remains safe", async () => {
   const event: CalendarEventRecord = {
     id: "evt_recovery", title: "CAL-03 recovery",
@@ -604,7 +972,7 @@ test("an unavailable event cannot recreate without explicit confirmation and Det
 
   await assert.rejects(plugin.recreateCalendarEvent(event), /explicit confirmation/);
 
-  await plugin.detachCalendarEvent(event, false);
+  await plugin.detachCalendarEvent(event, CALENDAR_DETACH_CONFIRMATION);
   assert.equal(detached?.source, "vault");
   assert.equal(detached?.appleCalendarId, undefined);
   assert.equal(detached?.appleItemId, undefined);
@@ -810,7 +1178,7 @@ test("stale Calendar editor saves and detaches stop before note or EventKit writ
   });
 
   await assert.rejects(plugin.saveCalendarEvent(shown), /changed after it was opened/);
-  await assert.rejects(plugin.detachCalendarEvent(shown, false), /changed after it was opened/);
+  await assert.rejects(plugin.detachCalendarEvent(shown, CALENDAR_DETACH_CONFIRMATION), /changed after it was opened/);
   assert.equal(noteWrites, 0);
   assert.equal(calendarWrites, 0);
 });
@@ -948,17 +1316,22 @@ test("two stale Calendar-only editors can create only one linked note", async ()
 test("Calendar deletion carries the exact external version to the helper", async () => {
   const { external } = conflictFixture();
   let removed: unknown[] | undefined;
+  const issues: Error[] = [];
   const plugin = loadMethods("src/main.ts", ["detachCalendarEvent"]);
   Object.assign(plugin, {
+    unloaded: false,
+    calendarEvents: [external],
     isSelectedWritableCalendar: () => true,
     eventKitBridge: {
       lookup: async () => external,
       remove: async (...args: unknown[]) => { removed = args; },
     },
-    refreshCalendarEvents: async () => {},
+    refreshOpenViews() {},
+    refreshCalendarEvents: async () => { throw new Error("refresh failed after committed delete"); },
+    recordIssue: (_context: string, error: Error) => { issues.push(error); },
   });
 
-  await plugin.detachCalendarEvent(external, true);
+  await plugin.detachCalendarEvent(external, CALENDAR_EVENT_DELETE_CONFIRMATION);
   assert.deepEqual(removed, [
     external.appleItemId,
     external.externalModifiedAt,
@@ -966,6 +1339,371 @@ test("Calendar deletion carries the exact external version to the helper", async
     external.occurrenceDate,
     external.start,
   ]);
+  assert.deepEqual(plugin.calendarEvents, []);
+  assert.match(issues[0]?.message ?? "", /refresh failed after committed delete/);
+});
+
+test("Calendar deletion requires the exact confirmation token before lookup or mutation", async () => {
+  const { external } = conflictFixture();
+  let lookups = 0;
+  let removals = 0;
+  const plugin = loadMethods("src/main.ts", ["detachCalendarEvent"]);
+  Object.assign(plugin, {
+    unloaded: false,
+    eventKitBridge: {
+      lookup: async () => { lookups += 1; return external; },
+      remove: async () => { removals += 1; },
+    },
+  });
+
+  await assert.rejects(
+    plugin.detachCalendarEvent(external, "delete"),
+    /explicit action confirmation/,
+  );
+  assert.equal(lookups, 0);
+  assert.equal(removals, 0);
+});
+
+test("disabling the plugin while Calendar deletion is checking freshness prevents the delete", async () => {
+  const { external } = conflictFixture();
+  const lookup = deferred<CalendarEventRecord>();
+  let removals = 0;
+  const plugin = loadMethods("src/main.ts", ["detachCalendarEvent"]);
+  Object.assign(plugin, {
+    unloaded: false,
+    isSelectedWritableCalendar: () => true,
+    eventKitBridge: {
+      lookup: async () => lookup.promise,
+      remove: async () => { removals += 1; },
+    },
+  });
+
+  const deletion = plugin.detachCalendarEvent(external, CALENDAR_EVENT_DELETE_CONFIRMATION);
+  plugin.unloaded = true;
+  lookup.resolve(external);
+  await assert.rejects(deletion, /disabled.*Nothing was deleted/);
+  assert.equal(removals, 0);
+});
+
+test("disabling the plugin during Calendar deletion never starts a post-delete refresh", async () => {
+  const { external } = conflictFixture();
+  const removalStarted = deferred<boolean>();
+  const removal = deferred<void>();
+  let refreshes = 0;
+  const plugin = loadMethods("src/main.ts", ["detachCalendarEvent"]);
+  Object.assign(plugin, {
+    unloaded: false,
+    calendarEvents: [external],
+    isSelectedWritableCalendar: () => true,
+    eventKitBridge: {
+      lookup: async () => external,
+      remove: async () => {
+        removalStarted.resolve(true);
+        return removal.promise;
+      },
+    },
+    refreshOpenViews() {},
+    refreshCalendarEvents: async () => { refreshes += 1; },
+  });
+
+  const deletion = plugin.detachCalendarEvent(external, CALENDAR_EVENT_DELETE_CONFIRMATION);
+  await removalStarted.promise;
+  plugin.unloaded = true;
+  removal.resolve(undefined);
+  await deletion;
+  assert.equal(refreshes, 0);
+  assert.deepEqual(plugin.calendarEvents, []);
+});
+
+test("an uncertain Calendar deletion closes the stale action path even when refresh also fails", async () => {
+  const { external } = conflictFixture();
+  let issues = 0;
+  const plugin = loadMethods("src/main.ts", ["detachCalendarEvent"]);
+  Object.assign(plugin, {
+    unloaded: false,
+    calendarEvents: [external],
+    isSelectedWritableCalendar: () => true,
+    eventKitBridge: {
+      lookup: async () => external,
+      remove: async () => { throw new EventKitMutationError("timeout", "unknown"); },
+    },
+    refreshOpenViews() {},
+    refreshCalendarEvents: async () => { throw new Error("refresh unavailable"); },
+    recordIssue: () => { issues += 1; },
+  });
+
+  await assert.rejects(
+    plugin.detachCalendarEvent(external, CALENDAR_EVENT_DELETE_CONFIRMATION),
+    (error: unknown) => error instanceof CalendarPartialActionError
+      && /could not be confirmed.*Check Calendar/i.test(error.message),
+  );
+  assert.deepEqual(plugin.calendarEvents, []);
+  assert.equal(issues, 1);
+});
+
+test("a linked Calendar-delete failure reports the committed detach as a partial result", async () => {
+  const { note, external } = conflictFixture();
+  let written: CalendarEventRecord | undefined;
+  const plugin = loadMethods("src/main.ts", ["detachCalendarEvent"], { detachLinkedEvent });
+  Object.assign(plugin, {
+    unloaded: false,
+    calendarEvents: [note],
+    calendarNoteSnapshotForAction: async () => ({ event: note, markdown: "exact" }),
+    readFreshExternalEvent: async () => external,
+    isSelectedWritableCalendar: () => true,
+    writeCalendarNote: async (event: CalendarEventRecord) => { written = event; return event; },
+    eventKitBridge: {
+      remove: async () => { throw new EventKitMutationError("Calendar denied deletion", "not-committed"); },
+    },
+    refreshOpenViews() {},
+    refreshCalendarEvents: async () => { throw new Error("refresh failed after detach"); },
+    recordIssue() {},
+  });
+
+  await assert.rejects(
+    plugin.detachCalendarEvent(note, CALENDAR_EVENT_DELETE_CONFIRMATION),
+    (error: unknown) => error instanceof CalendarPartialActionError
+      && /note is now Vault only.*event was not deleted/i.test(error.message),
+  );
+  assert.equal(written?.source, "vault");
+  assert.equal(written?.appleItemId, undefined);
+});
+
+test("deleting a Vault event note requires confirmation, uses Obsidian trash and evicts stale UI state", async () => {
+  class TestFile {
+    readonly path: string;
+    constructor(path: string) { this.path = path; }
+  }
+  const notePath = "Calendar/Events/Vault-only.md";
+  const event: CalendarEventRecord = {
+    id: "evt_vault_delete",
+    title: "Vault-only fixture",
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Vault",
+    source: "vault",
+    notePath,
+    syncState: "clean",
+    vaultModifiedAt: "2026-10-05T00:00:00.000Z",
+  };
+  const file = new TestFile(notePath);
+  const plugin = loadMethods("src/main.ts", ["deleteCalendarEventNote"], { TFile: TestFile });
+  let trashed: TestFile | undefined;
+  let renders = 0;
+  const issues: Error[] = [];
+  Object.assign(plugin, {
+    calendarNoteSnapshotForAction: async () => ({ event, markdown: "exact" }),
+    app: {
+      vault: {
+        getFileByPath: () => file,
+        read: async () => "exact",
+      },
+      fileManager: { trashFile: async (candidate: TestFile) => { trashed = candidate; } },
+    },
+    calendarWriteOverrides: new Map([[notePath, { event, modifiedAt: 1 }]]),
+    ambiguousCalendarCreateIds: new Set([event.id]),
+    calendarCreatedNotePaths: new Map([[event.id, notePath]]),
+    calendarEvents: [event, { ...event, id: "other", notePath: "Calendar/Events/Other.md" }],
+    refreshOpenViews: () => { renders += 1; },
+    refreshCalendarEvents: async () => { throw new Error("transient refresh failure"); },
+    recordIssue: (_context: string, error: Error) => { issues.push(error); },
+  });
+
+  await assert.rejects(
+    plugin.deleteCalendarEventNote(event, "missing-confirmation"),
+    /explicit confirmation/,
+  );
+  assert.equal(trashed, undefined);
+
+  await plugin.deleteCalendarEventNote(event, CALENDAR_NOTE_DELETE_CONFIRMATION);
+  assert.equal(trashed, file);
+  assert.deepEqual(plugin.calendarEvents.map((candidate: CalendarEventRecord) => candidate.id), ["other"]);
+  assert.equal(plugin.calendarWriteOverrides.has(notePath), false);
+  assert.equal(plugin.ambiguousCalendarCreateIds.has(event.id), false);
+  assert.equal(plugin.calendarCreatedNotePaths.has(event.id), false);
+  assert.equal(renders, 2, "the deleted row disappears immediately and stays gone if refresh fails");
+  assert.match(issues[0]?.message ?? "", /moved to trash, but Calendar could not refresh/);
+});
+
+test("an invalid Calendar event note can be trashed only while its exact file version is still open", async () => {
+  const mtime = Date.parse("2026-10-05T00:00:00.000Z");
+  class TestFile {
+    readonly path: string;
+    readonly stat = { mtime };
+    constructor(path: string) { this.path = path; }
+  }
+  const path = "Calendar/Events/Broken.md";
+  const file = new TestFile(path);
+  const event: CalendarEventRecord = {
+    id: `calendar-note-error:${path}`,
+    title: "Cannot sync Broken.md",
+    start: "2026-10-05T00:00:00.000Z",
+    end: "2026-10-05T01:00:00.000Z",
+    allDay: false,
+    calendar: "Sync error",
+    source: "linked",
+    notePath: path,
+    syncState: "error",
+    vaultModifiedAt: new Date(mtime).toISOString(),
+  };
+  const plugin = loadMethods("src/main.ts", ["deleteCalendarEventNote"], { TFile: TestFile });
+  let trashed = false;
+  Object.assign(plugin, {
+    app: {
+      vault: { getFileByPath: () => file },
+      fileManager: { trashFile: async () => { trashed = true; } },
+    },
+    calendarNoteSnapshotForAction: async () => assert.fail("invalid YAML must not require parsing before confirmed trash"),
+    calendarWriteOverrides: new Map(),
+    ambiguousCalendarCreateIds: new Set(),
+    calendarCreatedNotePaths: new Map(),
+    calendarEvents: [event],
+    refreshOpenViews() {},
+    refreshCalendarEvents: async () => {},
+    recordIssue() {},
+  });
+
+  await plugin.deleteCalendarEventNote(event, CALENDAR_NOTE_DELETE_CONFIRMATION);
+  assert.equal(trashed, true);
+
+  trashed = false;
+  file.stat.mtime += 1;
+  await assert.rejects(
+    plugin.deleteCalendarEventNote(event, CALENDAR_NOTE_DELETE_CONFIRMATION),
+    /changed after it was opened.*Nothing was deleted/,
+  );
+  assert.equal(trashed, false);
+});
+
+test("a user-authored calendar-note-error prefix still receives full byte revalidation", async () => {
+  class TestFile {
+    readonly path: string;
+    constructor(path: string) { this.path = path; }
+  }
+  const path = "Calendar/Events/Valid prefix.md";
+  const file = new TestFile(path);
+  const event: CalendarEventRecord = {
+    id: "calendar-note-error:user-authored-id",
+    title: "Valid prefix",
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Vault",
+    source: "vault",
+    notePath: path,
+    syncState: "error",
+  };
+  let snapshotReads = 0;
+  let trashed = false;
+  const plugin = loadMethods("src/main.ts", ["deleteCalendarEventNote"], { TFile: TestFile });
+  Object.assign(plugin, {
+    unloaded: false,
+    calendarNoteSnapshotForAction: async () => {
+      snapshotReads += 1;
+      return { event, markdown: "exact" };
+    },
+    app: {
+      vault: { getFileByPath: () => file, read: async () => "exact" },
+      fileManager: { trashFile: async () => { trashed = true; } },
+    },
+    calendarWriteOverrides: new Map(),
+    ambiguousCalendarCreateIds: new Set(),
+    calendarCreatedNotePaths: new Map(),
+    calendarEvents: [event],
+    refreshOpenViews() {},
+    refreshCalendarEvents: async () => {},
+    recordIssue() {},
+  });
+
+  await plugin.deleteCalendarEventNote(event, CALENDAR_NOTE_DELETE_CONFIRMATION);
+  assert.equal(snapshotReads, 1);
+  assert.equal(trashed, true);
+});
+
+test("deleting an event note rechecks its exact bytes immediately before trash", async () => {
+  class TestFile {
+    readonly path: string;
+    constructor(path: string) { this.path = path; }
+  }
+  const path = "Elsewhere/Edited event.md";
+  const file = new TestFile(path);
+  const event: CalendarEventRecord = {
+    id: "evt_changed_before_trash",
+    title: "Edited event",
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Vault",
+    source: "vault",
+    notePath: path,
+    syncState: "clean",
+  };
+  const plugin = loadMethods("src/main.ts", ["deleteCalendarEventNote"], { TFile: TestFile });
+  let trashed = false;
+  let refreshed = false;
+  Object.assign(plugin, {
+    calendarNoteSnapshotForAction: async () => ({ event, markdown: "before" }),
+    app: {
+      vault: {
+        getFileByPath: () => file,
+        read: async () => "changed after confirmation opened",
+      },
+      fileManager: { trashFile: async () => { trashed = true; } },
+    },
+    calendarWriteOverrides: new Map(),
+    ambiguousCalendarCreateIds: new Set(),
+    calendarCreatedNotePaths: new Map(),
+    calendarEvents: [event],
+    refreshOpenViews() {},
+    refreshCalendarEvents: async () => { refreshed = true; },
+    recordIssue() {},
+  });
+
+  await assert.rejects(
+    plugin.deleteCalendarEventNote(event, CALENDAR_NOTE_DELETE_CONFIRMATION),
+    /changed after it was opened.*Nothing was deleted/,
+  );
+  assert.equal(trashed, false);
+  assert.equal(refreshed, true);
+});
+
+test("disabling the plugin while an event note delete is revalidating prevents trash", async () => {
+  class TestFile {
+    readonly path: string;
+    constructor(path: string) { this.path = path; }
+  }
+  const path = "Calendar/Events/Disable race.md";
+  const file = new TestFile(path);
+  const event: CalendarEventRecord = {
+    id: "evt_disable_delete",
+    title: "Disable race",
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Vault",
+    source: "vault",
+    notePath: path,
+    syncState: "clean",
+  };
+  const read = deferred<string>();
+  let trashed = false;
+  const plugin = loadMethods("src/main.ts", ["deleteCalendarEventNote"], { TFile: TestFile });
+  Object.assign(plugin, {
+    unloaded: false,
+    calendarNoteSnapshotForAction: async () => ({ event, markdown: "exact" }),
+    app: {
+      vault: { getFileByPath: () => file, read: async () => read.promise },
+      fileManager: { trashFile: async () => { trashed = true; } },
+    },
+    refreshCalendarEvents: async () => {},
+  });
+
+  const deletion = plugin.deleteCalendarEventNote(event, CALENDAR_NOTE_DELETE_CONFIRMATION);
+  plugin.unloaded = true;
+  read.resolve("exact");
+  await assert.rejects(deletion, /disabled.*Nothing was deleted/);
+  assert.equal(trashed, false);
 });
 
 test("calendar sync revalidates a note after a deferred EventKit read and refuses the stale write", async () => {
@@ -3178,8 +3916,12 @@ test("unload closes cloud consent and blocks even an approval queued just before
   const opened = deferred<void>();
   let closed = 0;
   let formattingClosed = 0;
-  const plugin = mainHarness(["askOmd", "onunload"], {
+  let calendarClosed = 0;
+  let calendarCleanup = 0;
+  const calendarGuards = new WeakMap<object, () => boolean>();
+  const plugin = mainHarness(["askOmd", "trackCalendarModal", "onunload"], {
     cloudAnswerPermissionEnabled: () => true,
+    setCalendarModalActionGuard: (modal: object, guard: () => boolean) => calendarGuards.set(modal, guard),
     CloudAnswerConsentModal: class {
       openAndWait() { opened.resolve(); return decision.promise; }
       close() { closed += 1; decision.resolve(false); }
@@ -3188,6 +3930,7 @@ test("unload closes cloud consent and blocks even an approval queued just before
   Object.assign(plugin, {
     cloudAnswerConsentModals: new Set(),
     markdownFormattingModals: new Set([{ close() { formattingClosed += 1; } }]),
+    calendarModals: new Set(),
     calendarRefreshTimer: null,
     calendarWriteOverrides: new Map(),
     localAiSummaries: new Map(),
@@ -3205,6 +3948,20 @@ test("unload closes cloud consent and blocks even an approval queued just before
     executeCloudAnswer: async () => { assert.fail("No evidence may be sent after unload"); },
     assertCloudPreviewStillCurrent: () => {},
   });
+  const normallyClosed = {
+    onClose() { calendarCleanup += 1; },
+    close() { this.onClose(); },
+  };
+  plugin.trackCalendarModal(normallyClosed);
+  normallyClosed.close();
+  assert.equal(plugin.calendarModals.size, 0, "normal close unregisters without replacing subclass cleanup");
+  assert.equal(calendarCleanup, 1);
+  const unloadClosed = {
+    onClose() { calendarCleanup += 1; },
+    close() { calendarClosed += 1; this.onClose(); },
+  };
+  plugin.trackCalendarModal(unloadClosed);
+  assert.equal(plugin.calendarModals.size, 1);
   const output = { hidden: false, empty() {}, createDiv() {} };
   const answer = plugin.askOmd("Question", output);
   await opened.promise;
@@ -3214,6 +3971,10 @@ test("unload closes cloud consent and blocks even an approval queued just before
   await answer;
   assert.equal(closed, 1);
   assert.equal(formattingClosed, 1);
+  assert.equal(calendarClosed, 1);
+  assert.equal(calendarCleanup, 2);
+  assert.equal(calendarGuards.get(unloadClosed)?.(), false, "tracked actions remain blocked after unload");
+  assert.equal(plugin.calendarModals.size, 0);
   assert.equal(plugin.markdownFormattingModals.size, 0);
   assert.equal(plugin.cloudAnswerConsentModals.size, 0);
   assert.deepEqual(plugin.issues, []);

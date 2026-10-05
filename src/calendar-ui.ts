@@ -1,4 +1,5 @@
 import type { CalendarEventRecord, CalendarUnavailableReason, EventSource } from "./model";
+import { isCalendarNoteErrorRecord } from "./calendar-sync.ts";
 
 export const EVENT_SOURCE_ORDER = ["vault", "external", "linked"] as const satisfies readonly EventSource[];
 
@@ -146,17 +147,35 @@ const UNAVAILABLE_PRESENTATIONS: Record<CalendarUnavailableReason, CalendarRecov
 };
 
 export function calendarRecoveryPresentation(
-  event: Pick<CalendarEventRecord, "syncState" | "unavailableReason">,
+  event: Pick<CalendarEventRecord, "syncState" | "unavailableReason"> & {
+    id?: string;
+    notePath?: string;
+  },
 ): CalendarRecoveryPresentation | null {
   if (event.syncState === "error") {
-    return UNAVAILABLE_PRESENTATIONS["setup-or-read-failure"];
+    if (event.unavailableReason === "setup-or-read-failure") {
+      return UNAVAILABLE_PRESENTATIONS["setup-or-read-failure"];
+    }
+    const invalidNote = isCalendarNoteErrorRecord({
+      id: event.id ?? "",
+      notePath: event.notePath,
+      syncState: event.syncState,
+    });
+    return {
+      label: "Calendar link needs review",
+      description: invalidNote
+        ? "OMD Home could not read this event note. Fix the note and retry Sync, or delete the note."
+        : "OMD Home could not safely match this event note to Calendar. Review the note and retry Sync, or detach it.",
+      showRecreate: false,
+      showRetrySync: true,
+    };
   }
   if (event.syncState !== "unavailable") return null;
   return UNAVAILABLE_PRESENTATIONS[event.unavailableReason ?? "unknown"];
 }
 
 export interface CalendarConflictVersionField {
-  label: "Title" | "Time" | "Location";
+  label: "Title" | "Time" | "Calendar" | "Location";
   value: string;
 }
 
@@ -166,6 +185,7 @@ export function calendarConflictVersionFields(
     start: string;
     end: string;
     allDay: boolean;
+    calendar?: string;
     location?: string;
   },
   locale?: string,
@@ -173,6 +193,7 @@ export function calendarConflictVersionFields(
   return [
     { label: "Title", value: event.title },
     { label: "Time", value: formatConflictRange(event, locale) },
+    { label: "Calendar", value: event.calendar?.trim() || "Vault" },
     { label: "Location", value: event.location?.trim() || "No location" },
   ];
 }

@@ -17,6 +17,28 @@ export interface CalendarWriteOverride {
 
 export const CALENDAR_RECREATE_CONFIRMATION = "duplicate-risk-confirmed" as const;
 export type CalendarRecreateConfirmation = typeof CALENDAR_RECREATE_CONFIRMATION;
+export const CALENDAR_DETACH_CONFIRMATION = "calendar-detach-confirmed" as const;
+export const CALENDAR_EVENT_DELETE_CONFIRMATION = "calendar-event-delete-confirmed" as const;
+export type CalendarDetachConfirmation =
+  | typeof CALENDAR_DETACH_CONFIRMATION
+  | typeof CALENDAR_EVENT_DELETE_CONFIRMATION;
+export const CALENDAR_NOTE_DELETE_CONFIRMATION = "event-note-delete-confirmed" as const;
+export type CalendarNoteDeleteConfirmation = typeof CALENDAR_NOTE_DELETE_CONFIRMATION;
+
+export class CalendarPartialActionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CalendarPartialActionError";
+  }
+}
+
+export function isCalendarNoteErrorRecord(
+  event: Pick<CalendarEventRecord, "id" | "notePath" | "syncState">,
+): boolean {
+  return event.syncState === "error"
+    && Boolean(event.notePath)
+    && event.id === `calendar-note-error:${event.notePath}`;
+}
 
 const SYNC_FIELDS = ["title", "start", "end", "allDay", "location", "appleCalendarId"] as const;
 

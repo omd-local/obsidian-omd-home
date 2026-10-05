@@ -8,6 +8,7 @@ import {
   TFile,
   normalizePath,
   type App,
+  type Modal,
   type WorkspaceLeaf,
 } from "obsidian";
 import embeddedPythonBridge from "../bridge/omd_home_bridge.py";
@@ -28,7 +29,7 @@ import {
   scopedAiAnswerText,
 } from "./ai-answer";
 import { HOME_VIEW_TYPE, OmdHomeView } from "./home-view";
-import { CALENDAR_VIEW_TYPE, OmdCalendarView } from "./calendar-view";
+import { CALENDAR_VIEW_TYPE, OmdCalendarView, setCalendarModalActionGuard } from "./calendar-view";
 import { DEFAULT_LAYOUT, migrateLegacyLayout, normalizeLayout } from "./layout";
 import type { CalendarEventRecord, ExternalCalendarDescriptor, OmdProgressEvent, WidgetPlacement } from "./model";
 import {
@@ -154,19 +155,26 @@ import {
   type StoredAiProvider,
 } from "./ollama-local-types";
 import {
+  CALENDAR_DETACH_CONFIRMATION,
+  CALENDAR_EVENT_DELETE_CONFIRMATION,
+  CALENDAR_NOTE_DELETE_CONFIRMATION,
   CALENDAR_RECREATE_CONFIRMATION,
+  CalendarPartialActionError,
   calendarSyncResultMessage,
   calendarFetchWindow,
   calendarIdentityKeys,
   classifyLinkedChange,
   detachLinkedEvent,
   eventSyncHash,
+  isCalendarNoteErrorRecord,
   isSelectedWritableCalendar,
   linkedEventSaveBlockReason,
   mergeExternalIntoLinked,
   stableExternalCandidates,
   summarizeCalendarSync,
+  type CalendarDetachConfirmation,
   type CalendarSyncSummary,
+  type CalendarNoteDeleteConfirmation,
   type CalendarRecreateConfirmation,
   type CalendarWriteOverride,
 } from "./calendar-sync";
@@ -233,12 +241,15 @@ export default class OmdHomePlugin extends Plugin {
   private hostedCredentialHydrationActionToken: number | null = null;
   private readonly cloudAnswerConsentModals = new Set<CloudAnswerConsentModal>();
   private readonly markdownFormattingModals = new Set<MarkdownFormattingModal>();
+  private readonly calendarModals = new Set<Modal>();
   private readonly cloudAnswerControllers = new Set<AbortController>();
   private cloudAnswerConsentGeneration = 0;
   private hostedAiController: AbortController | null = null;
   private hostedCredentialMutation: symbol | null = null;
   private unloaded = false;
   private calendarRefresh: Promise<CalendarSyncSummary> | null = null;
+  private calendarRefreshQueued: Promise<CalendarSyncSummary> | null = null;
+  private calendarRefreshQueuedReconcile = false;
   calendarLoading = false;
   private calendarRefreshTimer: number | null = null;
   private readonly calendarWriteOverrides = new Map<string, CalendarWriteOverride>();
@@ -336,8 +347,26 @@ export default class OmdHomePlugin extends Plugin {
     this.addSettingTab(this.settingTab);
 
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
-      if (file.path.startsWith("Calendar/Events/")) this.scheduleCalendarRefresh();
+      if (this.isCalendarEventPath(file.path, file)) this.scheduleCalendarRefresh();
       if (file.extension === "md") this.refreshHomeViews();
+    }));
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (this.isCalendarEventPath(file.path, file instanceof TFile ? file : undefined)) {
+        this.scheduleCalendarRefresh();
+      }
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (this.isCalendarEventPath(file.path, file instanceof TFile ? file : undefined)) {
+        this.scheduleCalendarRefresh();
+      }
+    }));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      if (
+        this.isCalendarEventPath(file.path, file instanceof TFile ? file : undefined)
+        || this.isCalendarEventPath(oldPath)
+      ) {
+        this.scheduleCalendarRefresh();
+      }
     }));
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
       if (!(file instanceof TFile)) return;
@@ -387,6 +416,8 @@ export default class OmdHomePlugin extends Plugin {
     this.cancelHostedAiAction();
     for (const modal of this.markdownFormattingModals) modal.close();
     this.markdownFormattingModals.clear();
+    for (const modal of [...(this.calendarModals ?? [])]) modal.close();
+    this.calendarModals?.clear();
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
     this.calendarWriteOverrides.clear();
     for (const controller of this.localAiControllers) controller.abort();
@@ -412,6 +443,33 @@ export default class OmdHomePlugin extends Plugin {
     await this.saveData(this.settings);
     this.syncLocalAiState(this.localAiState.activeAction);
     this.syncHostedAiState(this.hostedAiState?.activeAction ?? "");
+  }
+
+  trackCalendarModal<T extends Modal>(
+    modal: T,
+    onClose?: () => void,
+    ownerIsActive: () => boolean = () => true,
+  ): T | null {
+    if (this.unloaded || !ownerIsActive()) return null;
+    if (this.calendarModals.has(modal)) return modal;
+    const originalOnClose = modal.onClose.bind(modal);
+    let registered = true;
+    modal.onClose = (): void => {
+      if (registered) {
+        registered = false;
+        this.calendarModals.delete(modal);
+        try {
+          onClose?.();
+        } finally {
+          originalOnClose();
+        }
+        return;
+      }
+      originalOnClose();
+    };
+    setCalendarModalActionGuard(modal, () => !this.unloaded && ownerIsActive());
+    this.calendarModals.add(modal);
+    return modal;
   }
 
   usesAutomaticOmdDiscovery(): boolean {
@@ -2143,15 +2201,33 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async synchronizeCalendarEvents(): Promise<CalendarSyncSummary> {
-    if (this.calendarRefresh) await this.calendarRefresh;
     return await this.runCalendarRefresh(true);
   }
 
   private async runCalendarRefresh(reconcile: boolean): Promise<CalendarSyncSummary> {
-    if (this.calendarRefresh) return await this.calendarRefresh;
-    this.calendarRefresh = this.performCalendarRefresh(reconcile);
-    try { return await this.calendarRefresh; }
-    finally { this.calendarRefresh = null; }
+    if (this.calendarRefresh) {
+      this.calendarRefreshQueuedReconcile ||= reconcile;
+      if (!this.calendarRefreshQueued) {
+        const current = this.calendarRefresh;
+        let queued!: Promise<CalendarSyncSummary>;
+        queued = current.catch(() => undefined).then(async () => {
+          if (this.calendarRefresh === current) this.calendarRefresh = null;
+          const queuedReconcile = this.calendarRefreshQueuedReconcile;
+          if (this.calendarRefreshQueued === queued) this.calendarRefreshQueued = null;
+          this.calendarRefreshQueuedReconcile = false;
+          return await this.runCalendarRefresh(queuedReconcile);
+        });
+        this.calendarRefreshQueued = queued;
+      }
+      return await this.calendarRefreshQueued;
+    }
+    const active = this.performCalendarRefresh(reconcile);
+    this.calendarRefresh = active;
+    try {
+      return await active;
+    } finally {
+      if (this.calendarRefresh === active) this.calendarRefresh = null;
+    }
   }
 
   private async readCalendarNoteSnapshot(file: TFile): Promise<CalendarNoteSnapshot> {
@@ -2434,18 +2510,22 @@ export default class OmdHomePlugin extends Plugin {
     let external: CalendarEventRecord[] = [];
     let externalFetchFailed = false;
     let externalFetchError: Error | null = null;
+    const selectedCalendarIds = this.settings?.selectedCalendarIds ?? [];
     const helperAvailable = !Platform.isMacOS || this.hasEventKitHelper();
-    if (Platform.isMacOS && reconcile && !helperAvailable) {
+    if (Platform.isMacOS && selectedCalendarIds.length === 0) {
+      this.clearIssue("calendar");
+    }
+    if (Platform.isMacOS && reconcile && selectedCalendarIds.length > 0 && !helperAvailable) {
       externalFetchFailed = true;
       externalFetchError = new Error("EventKit helper is unavailable. Build the helper or choose an executable absolute helper path in settings.");
       this.recordIssue("calendar", externalFetchError);
-    } else if (Platform.isMacOS && this.settings.selectedCalendarIds.length) {
+    } else if (Platform.isMacOS && selectedCalendarIds.length) {
       try {
         if (!helperAvailable) {
           throw new Error("EventKit helper is unavailable. Build the helper or choose an executable absolute helper path in settings.");
         }
         const { start, end } = calendarFetchWindow(vaultEvents);
-        external = await this.eventKitBridge.events(this.settings.selectedCalendarIds, start, end);
+        external = await this.eventKitBridge.events(selectedCalendarIds, start, end);
         this.clearIssue("calendar");
       }
       catch (error) {
@@ -2462,7 +2542,7 @@ export default class OmdHomePlugin extends Plugin {
         synchronized.push(vault);
         continue;
       }
-      if (vault.syncState === "error" && vault.id.startsWith("calendar-note-error:")) {
+      if (isCalendarNoteErrorRecord(vault)) {
         synchronized.push(vault);
         continue;
       }
@@ -2506,6 +2586,16 @@ export default class OmdHomePlugin extends Plugin {
       }
       let outside: CalendarEventRecord | undefined = stable[0] ?? exactCandidates[0];
       let exactLookupMissing = false;
+      const calendarSelected = selectedCalendarIds.includes(vault.appleCalendarId ?? "");
+      if (!outside && !calendarSelected) {
+        synchronized.push({
+          ...vault,
+          syncState: "unavailable",
+          unavailableReason: "calendar-deselected",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
       if (externalFetchFailed) {
         synchronized.push({
           ...vault,
@@ -2546,19 +2636,16 @@ export default class OmdHomePlugin extends Plugin {
         continue;
       }
       if (!outside) {
-        const calendarSelected = this.settings.selectedCalendarIds.includes(vault.appleCalendarId ?? "");
         synchronized.push({
           ...vault,
           syncState: "unavailable",
-          unavailableReason: !calendarSelected
-            ? "calendar-deselected"
-            : exactLookupMissing ? "unknown"
-              : identityKeyList.length ? "outside-window" : "unknown",
+          unavailableReason: exactLookupMissing ? "unknown"
+            : identityKeyList.length ? "outside-window" : "unknown",
           pendingDirection: undefined,
         });
         continue;
       }
-      if (!this.settings.selectedCalendarIds.includes(outside.appleCalendarId ?? "")) {
+      if (!selectedCalendarIds.includes(outside.appleCalendarId ?? "")) {
         synchronized.push({
           ...vault,
           syncState: "unavailable",
@@ -2841,20 +2928,58 @@ export default class OmdHomePlugin extends Plugin {
     await this.refreshCalendarEvents();
   }
 
-  async detachCalendarEvent(event: CalendarEventRecord, deleteExternal: boolean): Promise<void> {
+  async detachCalendarEvent(
+    event: CalendarEventRecord,
+    confirmation: CalendarDetachConfirmation,
+  ): Promise<void> {
+    if (this.unloaded) throw new Error("OMD Home was disabled. Reopen Calendar before trying this action again.");
+    if (
+      confirmation !== CALENDAR_DETACH_CONFIRMATION
+      && confirmation !== CALENDAR_EVENT_DELETE_CONFIRMATION
+    ) {
+      throw new Error("Updating a Calendar link requires an explicit action confirmation.");
+    }
+    const deleteExternal = confirmation === CALENDAR_EVENT_DELETE_CONFIRMATION;
     if (event.source === "external") {
-      if (deleteExternal && event.appleItemId) {
-        const fresh = await this.eventKitBridge.lookup(event.appleItemId, event.occurrenceDate, event.start);
-        if (!fresh) throw new Error("The Calendar event no longer exists. Run Sync to refresh Calendar.");
-        if (!fresh.appleCalendarId || !this.isSelectedWritableCalendar(fresh.appleCalendarId)) {
-          throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was deleted; update Calendar settings or run Sync.");
-        }
-        if (event.externalModifiedAt && fresh.externalModifiedAt !== event.externalModifiedAt) {
-          throw new Error("The Calendar event changed after it was opened. Nothing was deleted; run Sync and try again.");
-        }
-        await this.eventKitBridge.remove(event.appleItemId, fresh.externalModifiedAt, "this", fresh.occurrenceDate, fresh.start);
+      if (!deleteExternal) throw new Error("A Calendar-only event cannot be detached because it has no vault note.");
+      if (!event.appleItemId) throw new Error("This Calendar event no longer has a deletable Calendar identity. Run Sync.");
+      const fresh = await this.eventKitBridge.lookup(event.appleItemId, event.occurrenceDate, event.start);
+      if (!fresh) throw new Error("The Calendar event no longer exists. Run Sync to refresh Calendar.");
+      if (!fresh.appleCalendarId || !this.isSelectedWritableCalendar(fresh.appleCalendarId)) {
+        throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was deleted; update Calendar settings or run Sync.");
       }
-      await this.refreshCalendarEvents();
+      if (event.externalModifiedAt && fresh.externalModifiedAt !== event.externalModifiedAt) {
+        throw new Error("The Calendar event changed after it was opened. Nothing was deleted; run Sync and try again.");
+      }
+      if (this.unloaded) throw new Error("OMD Home was disabled. Nothing was deleted; reopen Calendar and try again.");
+      try {
+        await this.eventKitBridge.remove(event.appleItemId, fresh.externalModifiedAt, "this", fresh.occurrenceDate, fresh.start);
+      } catch (error) {
+        if (eventKitMutationDefinitelyDidNotCommit(error)) throw error;
+        this.calendarEvents = (this.calendarEvents ?? []).filter((candidate) => candidate.id !== event.id);
+        this.refreshOpenViews?.();
+        if (!this.unloaded) {
+          try {
+            await this.refreshCalendarEvents();
+          } catch (refreshError) {
+            this.recordIssue?.("calendar", refreshError);
+            this.refreshOpenViews?.();
+          }
+        }
+        throw new CalendarPartialActionError(
+          "Calendar deletion could not be confirmed. Check Calendar before trying another delete.",
+        );
+      }
+      this.calendarEvents = (this.calendarEvents ?? []).filter((candidate) => candidate.id !== event.id);
+      this.refreshOpenViews?.();
+      if (!this.unloaded) {
+        try {
+          await this.refreshCalendarEvents();
+        } catch (error) {
+          this.recordIssue?.("calendar", error);
+          this.refreshOpenViews?.();
+        }
+      }
       return;
     }
     const snapshot = await this.calendarNoteSnapshotForAction(event);
@@ -2875,9 +3000,18 @@ export default class OmdHomePlugin extends Plugin {
         throw new Error("The Calendar event changed after this action opened. Nothing was detached or deleted; run Sync and try again.");
       }
     }
-    const detached = detachLinkedEvent(snapshot.event);
-    await this.writeCalendarNote(detached, snapshot.markdown);
+    if (this.unloaded) throw new Error("OMD Home was disabled. Nothing was changed; reopen Calendar and try again.");
+    const detached = await this.writeCalendarNote(detachLinkedEvent(snapshot.event), snapshot.markdown);
+    this.calendarEvents = (this.calendarEvents ?? []).map((candidate) => (
+      candidate.id === event.id ? detached : candidate
+    ));
+    this.refreshOpenViews?.();
     if (deleteExternal && event.appleItemId) {
+      if (this.unloaded) {
+        throw new CalendarPartialActionError(
+          "The note is now Vault only. OMD Home was disabled before Calendar deletion started.",
+        );
+      }
       try {
         await this.eventKitBridge.remove(
           freshOutside!.appleItemId!,
@@ -2888,11 +3022,82 @@ export default class OmdHomePlugin extends Plugin {
         );
       }
       catch (error) {
-        await this.refreshCalendarEvents();
-        throw new Error(`The note was detached safely, but Calendar deletion failed: ${message(error)}`);
+        if (!this.unloaded) {
+          try {
+            await this.refreshCalendarEvents();
+          } catch (refreshError) {
+            this.recordIssue?.("calendar", refreshError);
+            this.refreshOpenViews?.();
+          }
+        }
+        const detail = eventKitMutationDefinitelyDidNotCommit(error)
+          ? "The note is now Vault only. The Calendar event was not deleted."
+          : "The note is now Vault only. Calendar deletion could not be confirmed; check Calendar before retrying.";
+        throw new CalendarPartialActionError(detail);
       }
     }
-    await this.refreshCalendarEvents();
+    if (!this.unloaded) {
+      try {
+        await this.refreshCalendarEvents();
+      } catch (error) {
+        this.recordIssue?.("calendar", error);
+        this.refreshOpenViews?.();
+      }
+    }
+  }
+
+  async deleteCalendarEventNote(
+    event: CalendarEventRecord,
+    confirmation: CalendarNoteDeleteConfirmation,
+  ): Promise<void> {
+    if (this.unloaded) throw new Error("OMD Home was disabled. Reopen Calendar before trying this action again.");
+    if (confirmation !== CALENDAR_NOTE_DELETE_CONFIRMATION) {
+      throw new Error("Deleting an event note requires explicit confirmation.");
+    }
+    if (event.source === "external" || !event.notePath) {
+      throw new Error("This Calendar-only event has no vault note to delete.");
+    }
+    const path = event.notePath;
+    const invalidNote = isCalendarNoteErrorRecord(event);
+    const expectedMarkdown = invalidNote
+      ? undefined
+      : (await this.calendarNoteSnapshotForAction(event)).markdown;
+    const file = this.app.vault.getFileByPath(path);
+    if (!(file instanceof TFile)) {
+      await this.refreshCalendarEvents();
+      throw new Error("The event note no longer exists. Calendar was refreshed.");
+    }
+    if (invalidNote) {
+      if (!event.vaultModifiedAt || new Date(file.stat.mtime).toISOString() !== event.vaultModifiedAt) {
+        await this.refreshCalendarEvents();
+        throw new Error("The event note changed after it was opened. Nothing was deleted; review the refreshed note and try again.");
+      }
+    } else {
+      const currentMarkdown = await this.app.vault.read(file);
+      if (currentMarkdown !== expectedMarkdown) {
+        await this.refreshCalendarEvents();
+        throw new Error("The event note changed after it was opened. Nothing was deleted; review the refreshed note and try again.");
+      }
+    }
+    if (this.unloaded) throw new Error("OMD Home was disabled. Nothing was deleted; reopen Calendar and try again.");
+    await this.app.fileManager.trashFile(file);
+    this.calendarWriteOverrides.delete(path);
+    this.ambiguousCalendarCreateIds.delete(event.id);
+    for (const [key, createdPath] of this.calendarCreatedNotePaths) {
+      if (createdPath === path) this.calendarCreatedNotePaths.delete(key);
+    }
+    this.calendarEvents = this.calendarEvents.filter((candidate) => candidate.notePath !== path);
+    if (!this.unloaded) {
+      this.refreshOpenViews();
+      try {
+        await this.refreshCalendarEvents();
+      } catch (error) {
+        this.recordIssue("calendar", new Error(
+          `The event note was moved to trash, but Calendar could not refresh: ${message(error)}`,
+        ));
+        this.refreshOpenViews();
+      }
+    }
   }
 
   async recreateCalendarEvent(
@@ -3420,6 +3625,14 @@ export default class OmdHomePlugin extends Plugin {
 
   private isSelectedWritableCalendar(id: string): boolean {
     return isSelectedWritableCalendar(id, this.settings.selectedCalendarIds, this.externalCalendars);
+  }
+
+  private isCalendarEventPath(path: string, file?: TFile): boolean {
+    if (path.startsWith("Calendar/Events/")) return true;
+    if (this.calendarEvents.some((event) => event.notePath === path)) return true;
+    const current = file ?? this.app.vault.getFileByPath(path);
+    if (!(current instanceof TFile) || current.extension !== "md") return false;
+    return this.app.metadataCache.getFileCache(current)?.frontmatter?.type === "event";
   }
 
   private scheduleCalendarRefresh(): void {

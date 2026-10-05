@@ -693,14 +693,15 @@ Local batches。
 
 ### CALENDAR-01：Helper override 输入后缺少即时校验反馈
 
-**状态：DONE；2026-10-05 CAL-00 定向原生 PASS。优先级：P1。**
+**状态：2026-10-05 override UX 原生 PASS；protocol v3 候选 RETEST。优先级：P1。**
 
 **证据与背景：** 2026-10-05 CAL-00 原生测试中，在 **Advanced Calendar helper** 输入不存在的
 绝对路径后，页面仍保留之前的 helper 状态；只有点击 **Refresh calendars** 才显示 custom helper
 missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复；是否保留已保存 calendar 选择当时尚待
 单独确认。最终候选原生复测已确认：输入后在 Refresh 前出现统一红色错误；9 个 Calendar 列表、已保存选择
 与 default 保留；Automatic 模式不显示 **Use bundled**，custom path 使按钮出现，点击后输入框清空且
-按钮立即隐藏；**Check helper** 恢复 bundled protocol v2。
+按钮立即隐藏；**Check helper** 当时恢复 bundled protocol v2。这份 v2 probe 是历史证据，已被
+2026-10-06 protocol v3 contract 取代，不能证明当前候选 ready。
 
 **验收标准：**
 
@@ -711,9 +712,11 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
   default calendar 或现有列表。
 - **Use bundled** 立即清空 override、恢复自动路径的可见状态；随后 Refresh 可以重新加载列表。
 - 覆盖快速连续输入、保存延迟、路径含空格、不可执行文件、键盘操作及窄 Settings 布局。
-- helper readiness 必须验证 protocol v2；仅“文件存在且可执行”不足以 ready。旧 v1 显示
-  **Update Calendar helper** 并在任何 events/upsert/delete 前 fail closed，避免旧 helper 绕过 CAS、
-  exact lookup 与 all-day date-only 契约。
+- helper readiness 必须验证 protocol v3；仅“文件存在且可执行”不足以 ready。v2 及更早版本显示
+  **Update Calendar helper** 与 **No Calendar data was read or changed**，提供 **Check again**，并在任何
+  events/lookup/upsert/delete 前 fail closed，避免旧 helper 绕过 absent lookup、CAS、exact occurrence
+  lookup 与 all-day date-only 契约。v3 的原生 Home reload／Settings probe 仍标 **RETEST**，不得沿用
+  2026-10-05 的 v2 PASS。
 
 
 ### CALENDAR-02：Event editor 的时区与范围错误不够明确
@@ -741,22 +744,52 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 
 ### CALENDAR-04：Sync 完成反馈与 conflict 版本完整性
 
-**状态：IMPLEMENTED；2026-10-05 native safety-shell PASS，完整 CAL-03 仍待原生矩阵。优先级：P0。**
+**状态：IMPLEMENTED CANDIDATE；2026-10-06 protocol v3 + missing/delete + unload-modal 待原生 RETEST，完整 CAL-03 仍待原生矩阵。优先级：P0。**
 
 - 只有全部 clean 才能显示 **Calendar sync complete**；conflict、unavailable、error、pending 均返回数量
   与下一步，Calendar 顶部 Sync 和命令使用同一结果文案。
 - classification 读取当前 Markdown frontmatter，不依赖可能延迟的 metadata cache；等待 EventKit 和用户在
   conflict modal 做选择期间还要复核两侧版本，任何新修改都必须重新进入 review，不能覆盖。
-- conflict modal 并排比较 Note／Calendar 的 Title、Time、Location；两个选边操作权重相同，可 Cancel。
+- conflict modal 并排比较 Note／Calendar 的 Title、Time、Calendar、Location；两个选边操作权重相同，可 Cancel。
 - conflict 禁止普通 editor／drag；只有按 Apple item ID 确认外部 event 已删除时才开放 Recreate／Detach。
   Calendar 未选择、抓取窗口未覆盖或 helper/read failure 必须给出对应恢复操作，不得把未知状态当成已删除。
   两轮连续冲突、已删除 event 的两条恢复路径及取消选择的防重复边界都写入 `manual-test-plan.md` 的确定性例子。
 - EventKit exact ID 因跨 Calendar 移动／full sync 改变时，先按 stable external identity 在已选 calendars
   恢复；唯一候选才重绑，多候选或 external ID 缺失都停在 review，不能误报 deleted 或开放 Recreate。
 - linked create 的 EventKit 写入失败时清理本次临时 pending note；同一 modal Retry 不得累计重复 note。
+- protocol v3 的 read-only lookup 把 `occurrenceNotLocated` 返回为 absent data；Update／Delete 仍 fail closed。一个已删除
+  occurrence 只进入本 event 的 unavailable recovery，不能把整轮或后续 Sync 锁在 read-failure loop。
+- Vault-only／linked Markdown event note 有单独的 **Delete event note…**，经范围明确的二次确认后只使用
+  Obsidian Trash；linked Apple event 保持不变。**Delete Calendar copy…** 使用另一份确认，只删除 Apple
+  event 并把 note 留为 Vault only。Calendar-only event 也使用明确的 Apple Calendar 删除确认；三者不共用
+  含糊的 Delete。Vault create／delete／rename 继续触发 Calendar cache refresh。
+- destructive confirmation 必须展示本次具体对象：note trash 显示 **Selected event** 的 Title／Time／
+  Note path，Calendar delete 显示 Title／Time／Calendar；同名、多日与相邻 occurrence 不能只靠 modal 标题
+  让用户猜要删除哪一项。
+- 每种 destructive action 都必须收到该动作专用的 exact confirmation；Calendar 删除在 commit 前重新读取
+  exact occurrence 与 `externalModifiedAt`，note trash 在 commit 前逐字节重读 Markdown。版本改变时拒绝并
+  refresh，不能删除用户刚修改的 event/note。
+- Calendar delete 或 note trash 一旦已提交，当前 stale row 立即移除；后续 refresh 失败只进入可操作的
+  Needs attention，不恢复旧格子、不重开旧 modal，也不重试 destructive mutation。commit 状态不确定时
+  关闭 stale action path，并要求用户先到 Calendar 核实。
+- refresh／Sync 进行中收到的新请求不能共享旧结果后直接结束；必须在旧 pass 成功或失败后排队完整重跑，
+  并把任一 queued reconcile 请求提升到后续 pass。已提交删除期间的旧 pass 迟到结果不得复活已删除 row；
+  queued pass 从当前 Vault／Calendar 状态重新分类真实剩余来源。
+- action pending 时控件 disabled、modal 标记 busy，避免双击重复 mutation。plugin unload 会终止 EventKit
+  helper child，并使 bridge 拒绝后续调用；lookup／note revalidation 后、commit 前发生 unload 时必须零删除。
+  commit 已完成才 unload 时不得再启动 refresh，UI 仍按已提交状态收敛。
+- Calendar editor／confirmation modal 现在统一登记，`onunload` 会关闭所有仍打开或 pending 的 Calendar
+  action modal；modal action guard 让迟到 callback 不能继续 destructive action。仍须补原生 disable/reload
+  smoke，确认无 stale button、Notice 或未处理 rejection；在此之前 unload/modal 子项保持 **RETEST**。
+- 2026-10-06 自动发布门禁已通过：Home 805 / 805、其中 Calendar／EventKit 定向 200 / 200、TypeScript、
+  零 warning ESLint、production build、protocol v3 helper release build 与 `git diff --check`。同一资产已安装
+  到 test-vault，四项安装 hash 与源码一致且 `data.json` 未改变；此证据不替代 CAL-00／03 原生 RETEST。
+- linked/read-only event 的字段与 Save 现在保持只读一致；仍可 Detach 或删除本地 note，不再先展示可编辑
+  UI、提交后才以 Calendar 不可写失败。
 - 原生 safety-shell 已确认 Week／Day 的 Pending sync 状态不溢出，点击待同步事件只提供 Cancel 与
-  Import Calendar change、没有普通 Save。两轮冲突、CAS、跨 Calendar 移动、Recreate／Detach 与失败清理
-  仍必须按 CAL-03 A–E 完整执行；本项在此前不能关闭。
+  Import Calendar change、没有普通 Save。v3/missing/delete 修复、两轮冲突、CAS、跨 Calendar 移动、
+  Recreate／Detach 与失败清理仍必须按 CAL-03 A–F 完整执行；G 的 race、refresh failure 与 unload 由
+  fault-injection 自动证据承担，原生未执行时明确写 NOT EXERCISED。本项在此前不能关闭。
 
 ## Answer UX / 模型措辞方向
 

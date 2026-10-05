@@ -1,7 +1,7 @@
 import type { CalendarEventRecord, ExternalCalendarDescriptor } from "./model.ts";
 import { eventKitErrorMessage, eventKitProcessErrorMessage } from "./eventkit-errors.ts";
 
-export const EXPECTED_EVENTKIT_HELPER_PROTOCOL_VERSION = 2;
+export const EXPECTED_EVENTKIT_HELPER_PROTOCOL_VERSION = 3;
 
 export class EventKitHelperCompatibilityError extends Error {
   readonly code = "eventkit_helper_incompatible";
@@ -96,12 +96,14 @@ function desktopFileSystem(): EventKitFileSystem | null {
 export class EventKitBridge {
   private readonly activeChildren = new Set<ReturnType<typeof import("node:child_process")["spawn"]>>();
   private readonly helperPath: () => string;
+  private disposed = false;
 
   constructor(helperPath: () => string) {
     this.helperPath = helperPath;
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const child of this.activeChildren) child.kill();
     this.activeChildren.clear();
   }
@@ -189,7 +191,13 @@ export class EventKitBridge {
     occurrenceDate?: string,
     startHint?: string,
   ): Promise<void> {
-    const helperPath = await this.compatibleHelperPath();
+    let helperPath: string;
+    try {
+      helperPath = await this.compatibleHelperPath();
+    } catch (error) {
+      if (error instanceof EventKitHelperCompatibilityError) throw error;
+      throw new EventKitMutationError(errorMessage(error), "not-committed", { cause: error });
+    }
     const args = ["delete", "--id", eventId, "--span", span];
     if (externalModifiedAt) args.push("--modified-at", externalModifiedAt);
     if (occurrenceDate) args.push("--occurrence-date", occurrenceDate);
@@ -198,6 +206,7 @@ export class EventKitBridge {
   }
 
   private async call(args: string[], stdin?: string, helperPath?: string): Promise<Record<string, unknown>> {
+    if (this.disposed) throw new Error("Calendar access stopped because OMD Home was disabled");
     if (process.platform !== "darwin") throw new Error("Live Calendar access is available on macOS only in v1");
     const command = helperPath ?? this.helperPath();
     if (!command) throw new Error("Configure the EventKit helper path in settings");

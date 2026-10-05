@@ -1,8 +1,56 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查跨度：2026-09-17–2026-10-05。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+检查跨度：2026-09-17–2026-10-06。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
 
-## Calendar safety / UX 候选原生复核（2026-10-05）
+## Calendar protocol v3 / missing-event / deletion 候选（2026-10-06）
+
+当前源码与 helper 候选使用 **EventKit protocol v3**。只读 exact lookup 遇到不存在的 recurring
+occurrence 时返回 absent data；Update 与 Delete 仍以 exact occurrence 和 modified time fail closed。
+一个 missing linked item 只进入该 event 的 unavailable recovery，不能暂停整轮 Sync，也不能阻止排在
+后面的 healthy event 更新。production Home bundle 与 helper 已安装到 test-vault，源码与安装资产的
+SHA-256 逐项一致，`data.json` 未改变；`dist/omd-eventkit` 与 test-vault helper 的直接 CLI probe 均返回 v3。
+Home 原生 reload、Settings **Check helper** 与完整 CAL-03 尚未执行，因此本节状态为 **RETEST**，不是
+native PASS。2026-10-05 的 v2 bundle/hash/probe 已被这一 contract 取代，只保留为历史证据。
+
+删除入口按数据范围分开：**Delete event note…** 只把 Vault-only／linked Markdown note 移到 Obsidian
+Trash，不修改 Apple Calendar；linked **Delete Calendar copy…** 只删除 Apple event，并把 note 留为
+Vault only；Calendar-only event 使用 **Delete from Calendar**。每条 destructive path 有单独确认 token，
+Calendar 删除在 commit 前重新 lookup 并核对 `externalModifiedAt`，note trash 在 commit 前逐字节核对
+Markdown。每个删除确认还显示 **Selected event**：note path 显示 Title／Time／Note path，Calendar 删除
+显示 Title／Time／Calendar，避免同名或相邻 occurrence 靠猜测确认。等待中的 modal 禁用控件并标记 busy，
+重复点击不会启动第二次 mutation。
+
+Calendar delete 或 note trash 已经提交后，即使 refresh 失败，当前 stale row 也先移除，旧 action modal
+关闭；Needs attention 只解释已完成的动作与 refresh 问题，不把 mutation 自动重试。Calendar mutation
+结果不确定时则关闭旧 action path，要求先到 Calendar 核实；linked note 已 detach、Calendar delete 明确
+失败时会准确报告 note 已是 Vault only 而外部 event 未删除。
+
+并发 refresh 现在采用 queued rerun：运行中的 pass 收到新 refresh／Sync 后，不把旧 Promise 当作新结果，
+而是在旧 pass 成功或失败后完整重跑；任一 queued Sync 的 reconcile 意图会保留给下一 pass。删除已经提交
+时，旧 pass 的迟到结果不得把 row 复活；queued pass 必须从当前 Vault／Calendar 状态重新读取，只显示
+真实剩余来源。该 race 属于自动 fault-injection 门禁，普通原生测试不要求人为制造 timing。
+
+自动 gate 已通过：Home **805 / 805** tests、TypeScript、零 warning ESLint、production build、EventKit
+release build 与 `git diff --check`；其中 **200 / 200** Calendar／EventKit 定向测试覆盖 protocol
+compatibility、absent lookup、per-event reconciliation、确认 token、Calendar/note CAS、queued refresh、
+refresh failure、partial result 与 unload race。安装资产 SHA-256 为：`main.js`
+`51a47fc4064c41f88e6463c3be7f75190b58f163e2d9a29928a376b3e4a49233`、`styles.css`
+`74eefbd3bb2873fde85f62958a24f64fae5f61f493f14414805b345ee49d1286`、`manifest.json`
+`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`、helper
+`88fdb4733f5cdc91b8b212061d14edb0e447f5779d49f0792c3438a56947e2fe`；`data.json` 安装前后均为
+`307c49913765543c3fbee1dde3c68ce253893db2f0a5c0bd3a595f2b08f44346`。真实 macOS Calendar 仍须按
+`manual-test-plan.md` 的 CAL-00 与 CAL-03 A–F 重测，不能由自动证据改写为 native PASS。
+
+unload 候选现在会 kill EventKit helper、永久阻止该 bridge 再启动 child，并统一登记 Calendar
+editor／confirmation modal；`onunload` 主动关闭这些 modal，pending callback 还会在 lookup／note
+revalidation 后重新检查 lifecycle。该实现仍须补原生 disable/reload smoke，确认 modal 立即关闭、无 stale
+button、未处理 rejection 或错误成功提示；在此之前 unload/modal 子项保持 **RETEST**。
+
+## Calendar safety / UX 候选原生复核（2026-10-05；历史 protocol v2）
+
+**本节只记录当时已安装的 v2 候选，已被上方 2026-10-06 v3 contract 取代。** 其中原生 UI 观察与
+777 / 777 计数仍是该历史 bundle 的真实证据，但不能证明当前 helper compatibility、missing-event 或
+删除路径已经通过。
 
 最终 Calendar bundle 已在 test-vault 通过 Community plugins 停用／启用完成原生 reload，`data.json`
 哈希保持不变，Home Current task 为 **No task running**。Calendar 顶部现在只常驻 compact

@@ -914,6 +914,7 @@
 .omd-conflict-version dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; margin: 0; }
 .omd-conflict-version dt { color: var(--omd-muted); font-size: var(--omd-font-small); }
 .omd-conflict-version dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--omd-ink); font-size: var(--omd-font-ui); }
+.omd-calendar-confirmation-identity { margin: 12px 0; }
 .omd-calendar-host { min-width: 0; min-height: 0; }
 .omd-calendar-host > * { min-width: 0; }
 .omd-calendar-host [role="columnheader"] [aria-hidden="true"],

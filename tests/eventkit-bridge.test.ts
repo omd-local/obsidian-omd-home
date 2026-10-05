@@ -4,6 +4,7 @@ import { eventKitErrorMessage, eventKitProcessErrorMessage } from "../src/eventk
 import {
   EventKitBridge,
   EventKitHelperCompatibilityError,
+  EventKitMutationError,
   EXPECTED_EVENTKIT_HELPER_PROTOCOL_VERSION,
   eventKitBridgeErrorMessage,
   eventKitMutationCommitState,
@@ -158,7 +159,7 @@ test("bridge forwards the exact recurrence occurrence to lookup and version-guar
   Object.assign(bridge, {
     call: async (args: string[], stdin?: string) => {
       calls.push({ args, stdin });
-      if (args[0] === "version") return { ok: true, version: 2 };
+      if (args[0] === "version") return { ok: true, version: 3 };
       if (args[0] === "lookup") {
         return {
           ok: true,
@@ -240,7 +241,7 @@ test("bridge keeps distinct recurring occurrence ids and sends create request ma
   Object.assign(bridge, {
     call: async (args: string[], stdin?: string) => {
       calls.push({ args, stdin });
-      if (args[0] === "version") return { ok: true, version: 2 };
+      if (args[0] === "version") return { ok: true, version: 3 };
       if (args[0] === "upsert") return { ok: true, event: first };
       throw new Error(`unexpected command ${args[0]}`);
     },
@@ -282,7 +283,7 @@ test("bridge sends the pre-edit start hint when updating a moved recurrence", as
   Object.assign(bridge, {
     call: async (args: string[], stdin?: string) => {
       calls.push({ args, stdin });
-      if (args[0] === "version") return { ok: true, version: 2 };
+      if (args[0] === "version") return { ok: true, version: 3 };
       if (args[0] === "upsert") return { ok: true, event: edited };
       throw new Error(`unexpected command ${args[0]}`);
     },
@@ -296,13 +297,32 @@ test("bridge sends the pre-edit start hint when updating a moved recurrence", as
   ]);
 });
 
-test("an executable protocol-v1 helper is rejected before any Calendar read", async () => {
+test("delete classifies a compatibility-probe failure as definitely not committed", async () => {
   const bridge = new EventKitBridge(() => "/plugin/omd-eventkit");
   const calls: string[][] = [];
   Object.assign(bridge, {
     call: async (args: string[]) => {
       calls.push(args);
-      if (args[0] === "version") return { ok: true, version: 1 };
+      throw new Error("version probe failed");
+    },
+  });
+
+  await assert.rejects(
+    bridge.remove("item_1", "2026-10-06T07:59:00.000Z"),
+    (error: unknown) => error instanceof EventKitMutationError
+      && error.commitState === "not-committed"
+      && /version probe failed/.test(error.message),
+  );
+  assert.deepEqual(calls, [["version"]]);
+});
+
+test("an executable pre-v3 helper is rejected before any Calendar read", async () => {
+  const bridge = new EventKitBridge(() => "/plugin/omd-eventkit");
+  const calls: string[][] = [];
+  Object.assign(bridge, {
+    call: async (args: string[]) => {
+      calls.push(args);
+      if (args[0] === "version") return { ok: true, version: 2 };
       throw new Error("an incompatible helper must not receive Calendar commands");
     },
   });
@@ -311,8 +331,8 @@ test("an executable protocol-v1 helper is rejected before any Calendar read", as
     bridge.calendars(),
     (error: unknown) => error instanceof EventKitHelperCompatibilityError
       && error.code === "eventkit_helper_incompatible"
-      && error.expectedVersion === 2
-      && error.actualVersion === 1
+      && error.expectedVersion === 3
+      && error.actualVersion === 2
       && !error.message.includes("/plugin/omd-eventkit"),
   );
   assert.deepEqual(calls, [["version"]]);
@@ -340,13 +360,13 @@ test("an executable protocol-v1 helper is rejected before any Calendar read", as
   }
 });
 
-test("a protocol-v2 helper proceeds from compatibility probe to Calendar access", async () => {
+test("a protocol-v3 helper proceeds from compatibility probe to Calendar access", async () => {
   const bridge = new EventKitBridge(() => "/plugin/omd-eventkit");
   const calls: string[][] = [];
   Object.assign(bridge, {
     call: async (args: string[]) => {
       calls.push(args);
-      if (args[0] === "version") return { ok: true, version: 2 };
+      if (args[0] === "version") return { ok: true, version: 3 };
       if (args[0] === "calendars") return { ok: true, calendars: [] };
       throw new Error(`unexpected command ${args[0]}`);
     },
@@ -357,14 +377,23 @@ test("a protocol-v2 helper proceeds from compatibility probe to Calendar access"
 });
 
 test("helper protocol parsing accepts only the exact supported integer contract", () => {
-  assert.equal(EXPECTED_EVENTKIT_HELPER_PROTOCOL_VERSION, 2);
-  assert.equal(parseEventKitHelperProtocolVersion(2), 2);
-  assert.equal(requireCompatibleEventKitHelperProtocol(2), 2);
-  for (const invalid of [undefined, null, "2", 0, 2.5]) {
+  assert.equal(EXPECTED_EVENTKIT_HELPER_PROTOCOL_VERSION, 3);
+  assert.equal(parseEventKitHelperProtocolVersion(3), 3);
+  assert.equal(requireCompatibleEventKitHelperProtocol(3), 3);
+  for (const invalid of [undefined, null, "3", 0, 3.5]) {
     assert.throws(() => parseEventKitHelperProtocolVersion(invalid), EventKitHelperCompatibilityError);
   }
   assert.throws(
-    () => requireCompatibleEventKitHelperProtocol(1),
-    (error: unknown) => error instanceof EventKitHelperCompatibilityError && error.actualVersion === 1,
+    () => requireCompatibleEventKitHelperProtocol(2),
+    (error: unknown) => error instanceof EventKitHelperCompatibilityError && error.actualVersion === 2,
+  );
+});
+
+test("disposing the bridge is sticky and prevents later helper launches", async () => {
+  const bridge = new EventKitBridge(() => "/plugin/omd-eventkit");
+  bridge.dispose();
+  await assert.rejects(
+    bridge.protocolVersion(),
+    /Calendar access stopped because OMD Home was disabled/,
   );
 });

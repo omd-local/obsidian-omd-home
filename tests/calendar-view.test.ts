@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { calendarRecoveryPresentation } from "../src/calendar-ui.ts";
+import { calendarConflictVersionFields, calendarRecoveryPresentation } from "../src/calendar-ui.ts";
+import { isCalendarNoteErrorRecord } from "../src/calendar-sync.ts";
 
 const source = readFileSync(resolve("src/calendar-view.ts"), "utf8");
 const styles = readFileSync(resolve("src/styles.css"), "utf8");
@@ -82,6 +83,29 @@ test("event editor names the device timezone and compares both conflict versions
   assert.match(source, /content\.setAttribute\("aria-label", accessibleLabel\)/u);
 });
 
+test("destructive Calendar confirmations identify the selected event and destination", () => {
+  const selected = {
+    title: "Quarterly review / 季度复盘",
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Work",
+    notePath: "Calendar/Events/Quarterly review.md",
+  };
+  const time = calendarConflictVersionFields(selected)[1].value;
+  assert.deepEqual(
+    helpers.calendarConfirmationIdentityFields(selected, { notePath: true }).map((field) => [field.label, field.value]),
+    [["Title", selected.title], ["Time", time], ["Note path", selected.notePath]],
+  );
+  assert.deepEqual(
+    helpers.calendarConfirmationIdentityFields(selected, { calendar: true }).map((field) => [field.label, field.value]),
+    [["Title", selected.title], ["Time", time], ["Calendar", "Work"]],
+  );
+  assert.match(source, /renderCalendarConfirmationIdentity\(this\.contentEl, this\.event, \{ notePath: true \}\)/u);
+  assert.match(source, /renderCalendarConfirmationIdentity\(this\.contentEl, this\.event, \{ calendar: true \}\)/u);
+  assert.match(source, /attr: \{ dir: field\.dir \}/u);
+});
+
 test("switching All day restores keyboard focus after the editor redraw", () => {
   assert.match(source, /this\.allDayToggleEl = toggle\.toggleEl/u);
   assert.match(source, /this\.contentEl\.empty\(\);[\s\S]*this\.onOpen\(\);[\s\S]*this\.allDayToggleEl\?\.focus\(\)/u);
@@ -119,11 +143,15 @@ function loadCalendarViewHelpers(fileSource: string): {
   calendarStatusLabel: (syncState?: string) => string | null;
   calendarEventEditable: (event: { source: string; syncState?: string; readOnly?: boolean }) => boolean;
   requiresSyncBeforeEdit: (event: { syncState?: string; pendingDirection?: string }) => boolean;
-  calendarEditorCapabilities: (event: { source: string; syncState?: string; unavailableReason?: string; readOnly?: boolean; appleItemId?: string }) => {
+  calendarEditorCapabilities: (event: { id?: string; source: string; syncState?: string; unavailableReason?: string; readOnly?: boolean; appleItemId?: string; notePath?: string }) => {
     showSave: boolean; showDelete: boolean; showDestination: boolean; showCreateLinkedNote: boolean;
-    showRecreate: boolean; showRetrySync: boolean;
+    showDeleteNote: boolean; showDetach: boolean; showRecreate: boolean; showRetrySync: boolean;
   };
-  calendarEditorSaveBlockReason: (event: { source: string; syncState?: string; unavailableReason?: string; readOnly?: boolean }) => string | undefined;
+  calendarEditorSaveBlockReason: (event: { id?: string; source: string; syncState?: string; unavailableReason?: string; readOnly?: boolean; notePath?: string }) => string | undefined;
+  calendarConfirmationIdentityFields: (
+    event: { title: string; start: string; end: string; allDay: boolean; calendar?: string; notePath?: string },
+    details: { notePath?: boolean; calendar?: boolean },
+  ) => Array<{ label: string; value: string; dir: string }>;
 } {
   const destinationOptionsBody = extractFunctionBody(fileSource, "export function destinationOptions");
   const validateRangeBody = extractFunctionBody(fileSource, "export function validateCalendarEventRange");
@@ -133,7 +161,8 @@ function loadCalendarViewHelpers(fileSource: string): {
   const requiresSyncBody = extractFunctionBody(fileSource, "export function requiresSyncBeforeEdit");
   const capabilitiesBody = extractFunctionBody(fileSource, "export function calendarEditorCapabilities");
   const saveBlockBody = extractFunctionBody(fileSource, "export function calendarEditorSaveBlockReason");
-  return Function("calendarRecoveryPresentation", `
+  const confirmationIdentityBody = extractFunctionBody(fileSource, "export function calendarConfirmationIdentityFields");
+  return Function("calendarRecoveryPresentation", "isCalendarNoteErrorRecord", "calendarConflictVersionFields", `
     function destinationOptions(source, defaultCalendarTitle) ${destinationOptionsBody}
     function validateCalendarEventRange(start, end) ${validateRangeBody}
     function parseIsoBoundary(value) ${parseIsoBoundaryBody}
@@ -142,8 +171,9 @@ function loadCalendarViewHelpers(fileSource: string): {
     function requiresSyncBeforeEdit(event) ${requiresSyncBody}
     function calendarEditorCapabilities(event) ${capabilitiesBody}
     function calendarEditorSaveBlockReason(event) ${saveBlockBody}
-    return { destinationOptions, validateCalendarEventRange, calendarStatusLabel, calendarEventEditable, requiresSyncBeforeEdit, calendarEditorCapabilities, calendarEditorSaveBlockReason };
-  `)(calendarRecoveryPresentation) as ReturnType<typeof loadCalendarViewHelpers>;
+    function calendarConfirmationIdentityFields(event, details) ${confirmationIdentityBody}
+    return { destinationOptions, validateCalendarEventRange, calendarStatusLabel, calendarEventEditable, requiresSyncBeforeEdit, calendarEditorCapabilities, calendarEditorSaveBlockReason, calendarConfirmationIdentityFields };
+  `)(calendarRecoveryPresentation, isCalendarNoteErrorRecord, calendarConflictVersionFields) as ReturnType<typeof loadCalendarViewHelpers>;
 }
 
 test("linked events with unresolved sync states cannot be dragged over another version", () => {
@@ -153,10 +183,10 @@ test("linked events with unresolved sync states cannot be dragged over another v
   assert.equal(helpers.calendarEventEditable({ source: "external", syncState: "clean", readOnly: true }), false);
 });
 
-test("Calendar-origin pending changes and fetch errors require sync before editing", () => {
+test("Calendar-origin pending changes require sync while read failures open local recovery actions", () => {
   assert.equal(helpers.requiresSyncBeforeEdit({ syncState: "pending", pendingDirection: "external" }), true);
   assert.equal(helpers.requiresSyncBeforeEdit({ syncState: "pending", pendingDirection: "vault" }), false);
-  assert.equal(helpers.requiresSyncBeforeEdit({ syncState: "error" }), true);
+  assert.equal(helpers.requiresSyncBeforeEdit({ syncState: "error" }), false);
 });
 
 test("unavailable linked events expose only recovery actions", () => {
@@ -165,6 +195,7 @@ test("unavailable linked events expose only recovery actions", () => {
   });
   assert.equal(unverified.showSave, false);
   assert.equal(unverified.showDelete, false);
+  assert.equal(unverified.showDeleteNote, false);
   assert.equal(unverified.showDestination, false);
   assert.equal(unverified.showRecreate, true);
   assert.equal(unverified.showRetrySync, true);
@@ -180,6 +211,60 @@ test("unavailable linked events expose only recovery actions", () => {
   }) ?? "", /Recreate or Detach/);
 });
 
+test("vault notes and paused linked notes retain explicit local cleanup actions", () => {
+  const vault = helpers.calendarEditorCapabilities({
+    source: "vault", syncState: "clean", notePath: "Calendar/Events/Vault.md",
+  });
+  assert.equal(vault.showDeleteNote, true);
+  assert.equal(vault.showDetach, false);
+
+  const paused = helpers.calendarEditorCapabilities({
+    source: "linked",
+    syncState: "error",
+    unavailableReason: "setup-or-read-failure",
+    appleItemId: "stale",
+    notePath: "Calendar/Events/Linked.md",
+  });
+  assert.equal(paused.showSave, false);
+  assert.equal(paused.showDestination, false);
+  assert.equal(paused.showDelete, false);
+  assert.equal(paused.showDeleteNote, true);
+  assert.equal(paused.showDetach, true);
+  assert.equal(paused.showRetrySync, true);
+  assert.match(helpers.calendarEditorSaveBlockReason({
+    source: "linked", syncState: "error", unavailableReason: "setup-or-read-failure",
+  }) ?? "", /Retry Sync.*Detach/);
+});
+
+test("an invalid event note can be removed without offering a detach action that cannot parse it", () => {
+  const capabilities = helpers.calendarEditorCapabilities({
+    id: "calendar-note-error:Calendar/Events/Broken.md",
+    source: "linked",
+    syncState: "error",
+    notePath: "Calendar/Events/Broken.md",
+  });
+  assert.equal(capabilities.showSave, false);
+  assert.equal(capabilities.showDeleteNote, true);
+  assert.equal(capabilities.showDetach, false);
+  assert.equal(capabilities.showRetrySync, true);
+  const guidance = helpers.calendarEditorSaveBlockReason({
+    id: "calendar-note-error:Calendar/Events/Broken.md",
+    source: "linked",
+    syncState: "error",
+    notePath: "Calendar/Events/Broken.md",
+  }) ?? "";
+  assert.match(guidance, /Fix the event note.*Delete event note/);
+  assert.doesNotMatch(guidance, /Detach/);
+
+  const prefixCollision = helpers.calendarEditorCapabilities({
+    id: "calendar-note-error:user-authored-id",
+    source: "linked",
+    syncState: "error",
+    notePath: "Calendar/Events/Valid.md",
+  });
+  assert.equal(prefixCollision.showDetach, true, "a user-authored ID prefix is not the internal error sentinel");
+});
+
 test("read-only Calendar events can create a linked note without exposing writes", () => {
   const capabilities = helpers.calendarEditorCapabilities({
     source: "external", syncState: "clean", readOnly: true, appleItemId: "readonly",
@@ -189,6 +274,21 @@ test("read-only Calendar events can create a linked note without exposing writes
   assert.equal(capabilities.showDestination, false);
   assert.equal(capabilities.showCreateLinkedNote, true);
   assert.match(helpers.calendarEditorSaveBlockReason({ source: "external", readOnly: true }) ?? "", /read-only/);
+});
+
+test("read-only linked events can detach or remove their note without offering an impossible Save", () => {
+  const capabilities = helpers.calendarEditorCapabilities({
+    source: "linked",
+    syncState: "clean",
+    readOnly: true,
+    appleItemId: "readonly-linked",
+    notePath: "Calendar/Events/Read-only linked.md",
+  });
+  assert.equal(capabilities.showSave, false);
+  assert.equal(capabilities.showDelete, false);
+  assert.equal(capabilities.showDestination, false);
+  assert.equal(capabilities.showCreateLinkedNote, false);
+  assert.equal(capabilities.showDeleteNote, true);
 });
 
 function extractFunctionBody(fileSource: string, signature: string): string {

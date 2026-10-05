@@ -7,7 +7,7 @@ struct EventsResponse: Encodable { let ok = true; let events: [EventRecord] }
 struct EventResponse: Encodable { let ok = true; let event: EventRecord }
 struct EventLookupResponse: Encodable { let ok = true; let event: EventRecord? }
 struct OkResponse: Encodable { let ok = true }
-struct VersionResponse: Encodable { let ok = true; let version = 2 }
+struct VersionResponse: Encodable { let ok = true; let version = 3 }
 
 struct CalendarDescriptor: Codable {
     let id: String
@@ -126,12 +126,17 @@ struct OmdEventKit {
         let identifier = try value(after: "--id", in: arguments)
         let occurrenceDate = try optionalValue(after: "--occurrence-date", in: arguments)
         let startHint = try optionalValue(after: "--start-hint", in: arguments)
-        try emit(EventLookupResponse(event: try resolveEvent(
-            store,
-            identifier: identifier,
-            occurrenceDate: occurrenceDate,
-            startHint: startHint
-        ).map(eventRecord)))
+        do {
+            let event = try resolveEvent(
+                store,
+                identifier: identifier,
+                occurrenceDate: occurrenceDate,
+                startHint: startHint
+            )
+            try emit(EventLookupResponse(event: event.map(eventRecord)))
+        } catch HelperError.occurrenceNotLocated {
+            try emit(EventLookupResponse(event: nil))
+        }
     }
 
     static func upsertEvent(_ store: EKEventStore, arguments: [String]) throws {

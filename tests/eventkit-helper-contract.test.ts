@@ -16,10 +16,11 @@ function sourceBetween(start: string, end: string): string {
 }
 
 const upsertSource = sourceBetween("static func upsertEvent", "static func deleteEvent");
+const lookupSource = sourceBetween("static func outputEvent", "static func upsertEvent");
 const resolveSource = sourceBetween("func resolveEvent", "func clientRequestMarker");
 
-test("EventKit helper advertises safety protocol v2", () => {
-  assert.match(helperSource, /struct VersionResponse: Encodable \{ let ok = true; let version = 2 \}/u);
+test("EventKit helper advertises safety protocol v3", () => {
+  assert.match(helperSource, /struct VersionResponse: Encodable \{ let ok = true; let version = 3 \}/u);
 });
 
 test("identified updates resolve the exact occurrence and never recreate a missing item", () => {
@@ -117,6 +118,15 @@ test("lookup, update, and delete resolve a requested recurrence occurrence from 
     helperSource,
     /func eventStartHint[\s\S]*\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$[\s\S]*dateOnly\(value, timeZone: Calendar\.current\.timeZone\)[\s\S]*isoDateTime\(value\)/u,
   );
+});
+
+test("read-only lookup reports an absent occurrence as data while mutations still fail closed", () => {
+  assert.match(
+    lookupSource,
+    /do \{[\s\S]*resolveEvent\([\s\S]*\} catch HelperError\.occurrenceNotLocated \{[\s\S]*EventLookupResponse\(event: nil\)/u,
+  );
+  assert.match(upsertSource, /throw HelperError\.eventNotFound/u);
+  assert.match(helperSource, /static func deleteEvent[\s\S]*throw HelperError\.eventNotFound/u);
 });
 
 test("recurring occurrences have distinct UI ids while retaining the raw Apple identifier", () => {

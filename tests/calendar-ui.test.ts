@@ -114,6 +114,24 @@ test("Calendar recovery keeps Recreate behind an explicit duplicate-risk confirm
   });
   assert.equal(readFailure?.label, "Calendar sync paused");
   assert.match(readFailure?.description ?? "", /Check Calendar setup/);
+  const linkReview = calendarRecoveryPresentation({ syncState: "error", unavailableReason: "unknown" });
+  assert.equal(linkReview?.label, "Calendar link needs review");
+  assert.doesNotMatch(linkReview?.description ?? "", /Calendar setup/);
+  const invalidNote = calendarRecoveryPresentation({
+    id: "calendar-note-error:Calendar/Events/Broken.md",
+    notePath: "Calendar/Events/Broken.md",
+    syncState: "error",
+    unavailableReason: "unknown",
+  });
+  assert.match(invalidNote?.description ?? "", /Fix the note.*delete the note/);
+  assert.doesNotMatch(invalidNote?.description ?? "", /detach/i);
+  const prefixCollision = calendarRecoveryPresentation({
+    id: "calendar-note-error:user-authored-id",
+    notePath: "Calendar/Events/Valid.md",
+    syncState: "error",
+    unavailableReason: "unknown",
+  });
+  assert.match(prefixCollision?.description ?? "", /detach it/);
   assert.equal(calendarRecoveryPresentation({ syncState: "unavailable" })?.showRecreate, true);
   assert.equal(calendarRecoveryPresentation({ syncState: "clean" }), null);
 });
@@ -124,10 +142,12 @@ test("calendar conflict comparison exposes the values needed for a safe choice",
     start: "2026-10-08",
     end: "2026-10-09",
     allDay: true,
+    calendar: "Activity",
     location: "Vault room",
   }), [
     { label: "Title", value: "CAL-03 – Note 1" },
     { label: "Time", value: "2026-10-08 to 2026-10-09 · end date excluded" },
+    { label: "Calendar", value: "Activity" },
     { label: "Location", value: "Vault room" },
   ]);
   const timed = calendarConflictVersionFields({
