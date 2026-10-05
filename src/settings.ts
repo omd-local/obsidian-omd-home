@@ -339,6 +339,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setDisabled(this.plugin.calendarLoading || checking);
       helperSetting.setDesc(presentation.overrideDescription);
       useBundledButton.buttonEl.hidden = !presentation.custom;
+      useBundledButton.buttonEl.style.display = presentation.custom ? "" : "none";
       helperFeedback.empty();
       helperFeedback.removeClass("is-success", "is-error", "is-neutral");
       helperFeedback.hidden = presentation.feedback === null;

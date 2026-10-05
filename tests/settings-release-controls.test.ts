@@ -108,7 +108,12 @@ function createHarness(methods: string[] = []) {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText;
   const dependencies = { ...providerHelpers, ...readinessHelpers, ...captureHelpers, ...discoveryHelpers, ...omniboxHelpers, Setting,
-    Platform: { isMacOS: true }, Notice: class { constructor(message: string) { notices.push(message); } } };
+    Platform: { isMacOS: true },
+    window: {
+      setTimeout: (callback: () => void, delay: number) => globalThis.setTimeout(callback, delay),
+      clearTimeout: (timer: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(timer),
+    },
+    Notice: class { constructor(message: string) { notices.push(message); } } };
   const tab = new Function(...Object.keys(dependencies), `${code}\nreturn new Harness();`)(...Object.values(dependencies)) as Harness;
   let saveCalls = 0;
   tab.plugin = {
@@ -117,6 +122,7 @@ function createHarness(methods: string[] = []) {
       localWritingModel: "qwen3:4b-instruct", omdExecutable: "omd", pythonExecutable: "", pythonBridgePath: "",
       captureOcrLanguage: "", captureAsrLanguage: "inherit-adapter-default",
       douyinCookiesPath: "", xhsCookiesPath: "",
+      eventKitHelperPath: "", selectedCalendarIds: [], defaultExternalCalendarId: "",
     },
     enrichmentCapability: { status: "ready", message: "OMD ready" },
     hostedAiState: null,
@@ -130,6 +136,15 @@ function createHarness(methods: string[] = []) {
     checkHostedAiConnection: async () => false,
     saveSettings: async () => { saveCalls += 1; },
     usesAutomaticOmdDiscovery: () => true,
+    externalCalendars: [],
+    calendarFeedback: null,
+    calendarLoading: false,
+    calendarHelperProtocolStatus: "compatible",
+    resolvedEventKitHelperPath: () => tab.plugin.settings.eventKitHelperPath || "/vault/.obsidian/plugins/omd-home/omd-eventkit",
+    hasEventKitHelper: () => true,
+    resetEventKitHelperCompatibility: () => {},
+    refreshExternalCalendars: async () => {},
+    refreshCalendarEvents: async () => {},
     captureLanguageAvailability: () => ({ status: "supported", message: "Ready", ocrPresets: [{ value: "eng", label: "English" }], customOcr: true, ocrBackendAvailable: true, ocrInstalledPacks: ["eng", "deu"], asrAutoDetect: true, asrExplicit: true }),
   };
   tab.display = () => {};
@@ -403,6 +418,29 @@ test("social cookie Clear appears before a slow save finishes and remains usable
   h.tab.plugin.saveSettings = async () => { throw new Error("disk unavailable"); };
   await assert.rejects(input.change("/Users/test/new-xhs-cookies.txt"), /disk unavailable/u);
   assert.equal(clear.buttonEl.hidden, false);
+});
+
+test("Calendar helper Use bundled visibility follows the override without a rerender", async () => {
+  const h = createHarness(["renderCalendarSection"]);
+  h.tab.renderCalendarSection(h.container);
+  const row = h.row("Helper override");
+  const input = row.texts[0]!;
+  const useBundled = row.buttons.find((button) => button.label === "Use bundled")!;
+
+  assert.equal(useBundled.buttonEl.hidden, true, "automatic mode hides the recovery action semantically");
+  assert.equal(useBundled.buttonEl.style.display, "none", "automatic mode remains hidden when a host theme overrides [hidden]");
+
+  await input.change("/tmp/custom-omd-eventkit");
+  assert.equal(useBundled.buttonEl.hidden, false, "a custom override reveals its recovery action immediately");
+  assert.equal(useBundled.buttonEl.style.display, "");
+
+  await useBundled.click();
+  assert.equal(h.tab.plugin.settings.eventKitHelperPath, "");
+  assert.equal(input.value, "");
+  assert.equal(useBundled.buttonEl.hidden, true, "restoring automatic mode hides the recovery action immediately");
+  assert.equal(useBundled.buttonEl.style.display, "none", "restored automatic mode is visually hidden under Obsidian themes");
+  assert.equal(input.inputEl.focused, true, "focus returns to the helper path after restoring automatic mode");
+  assert.equal(h.saveCalls(), 1);
 });
 
 test("social cookie settings accept one dropped local file and reject ambiguous drops", async () => {
