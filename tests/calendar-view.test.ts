@@ -102,6 +102,15 @@ test("event cards repeat the source key glyph and expose their visible time to a
     styles,
     /\.omd-calendar-event-source\s*\{[^}]*flex:\s*0 0 auto;[^}]*width:\s*1ch;[^}]*font:[^}]*var\(--font-monospace\);/su,
   );
+  assert.match(
+    source,
+    /cls: "omd-calendar-event-status",[\s\S]*"aria-hidden": "true"[\s\S]*cls: "omd-calendar-event-status-label", text: statusLabel/u,
+  );
+  assert.doesNotMatch(source, /cls: "omd-calendar-event-status", text:/u);
+  assert.match(
+    styles,
+    /\.omd-calendar-event-status-label\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/su,
+  );
 });
 
 function loadCalendarViewHelpers(fileSource: string): {

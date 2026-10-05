@@ -131,7 +131,11 @@ export class OmdCalendarView extends ItemView {
           }
           content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title, attr: { dir: "auto" } });
           if (!monthView && statusLabel) {
-            content.createSpan({ cls: "omd-calendar-event-status", text: ` • ${statusLabel}` });
+            content.createSpan({
+              cls: "omd-calendar-event-status",
+              attr: { "aria-hidden": "true" },
+            });
+            content.createSpan({ cls: "omd-calendar-event-status-label", text: statusLabel });
           }
           return { domNodes: [content] };
         },

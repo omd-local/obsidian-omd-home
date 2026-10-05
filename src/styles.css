@@ -994,6 +994,14 @@
   height: 7px;
   border: 1px solid currentColor;
 }
+.omd-calendar-event-status-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--omd-muted);
+  font: 600 var(--omd-font-small)/1.35 var(--font-monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .omd-fc-pending .omd-calendar-event-status { background: currentColor; }
 .omd-fc-conflict .omd-calendar-event-status { background: linear-gradient(135deg, currentColor 0 50%, transparent 50%); }
 .omd-fc-unavailable .omd-calendar-event-status { background: transparent; opacity: .7; }
