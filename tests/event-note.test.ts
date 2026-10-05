@@ -40,10 +40,12 @@ test("pending linked writes survive an Obsidian reload for recovery", () => {
     syncState: "pending",
     pendingDirection: "vault",
     readOnly: true,
+    externalModifiedAt: "2026-07-22T21:31:00.000Z",
   });
   assert.match(markdown, /sync-state: pending/);
   assert.match(markdown, /pending-direction: vault/);
   assert.match(markdown, /calendar-read-only: true/);
+  assert.match(markdown, /calendar-modified-at: "2026-07-22T21:31:00.000Z"/);
   const frontmatter = Object.fromEntries(
     markdown.split("\n").slice(1, markdown.split("\n").indexOf("---", 1)).map((line) => {
       const split = line.indexOf(":");
@@ -58,6 +60,7 @@ test("pending linked writes survive an Obsidian reload for recovery", () => {
   assert.equal(parsed?.syncState, "pending");
   assert.equal(parsed?.pendingDirection, "vault");
   assert.equal(parsed?.readOnly, true);
+  assert.equal(parsed?.externalModifiedAt, "2026-07-22T21:31:00.000Z");
 });
 
 test("frontmatter parser fails closed for non-events", () => {

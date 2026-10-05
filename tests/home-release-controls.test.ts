@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { transformSync } from "esbuild";
+import * as calendarUi from "../src/calendar-ui.ts";
 import * as inbox from "../src/inbox.ts";
 import * as homeNoteList from "../src/home-note-list.ts";
 import * as layout from "../src/layout.ts";
@@ -74,6 +75,7 @@ Function("require", "module", "exports", compiled)((id: string) => {
     }, Notice: class {}, setIcon() {},
   };
   if (id === "./layout") return layout;
+  if (id === "./calendar-ui") return calendarUi;
   if (id === "./inbox.ts") return inbox;
   if (id === "./home-note-list.ts") return homeNoteList;
   if (id === "./ollama-app") return { canOpenOllamaDesktopApp: () => false };
@@ -226,6 +228,32 @@ test("Home clock refreshes date-relative events across midnight and stops when c
   } finally {
     Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
   }
+});
+
+test("Upcoming rows explain source and sync state while keeping the shape marker decorative", () => {
+  const start = new Date(Date.now() + 60_000).toISOString();
+  const end = new Date(Date.now() + 3_600_000).toISOString();
+  const home = new Home({ app: { workspace: { openLinkText() {} } } }, {
+    calendarEvents: [{
+      id: "linked-conflict",
+      title: "CAL-03 conflict fixture",
+      source: "linked",
+      start,
+      end,
+      allDay: false,
+      syncState: "conflict",
+      notePath: "Calendar/CAL-03.md",
+    }],
+  });
+  const body = new ElementStub();
+  home.renderWidgetBody("upcoming", body);
+  const row = body.descendants().find((element) => element.className === "omd-event-row");
+  assert.ok(row);
+  assert.match(row.attributes["aria-label"], /Source: Linked\. Note synced with Calendar\./u);
+  assert.match(row.attributes["aria-label"], /Status: Conflict\./u);
+  assert.equal(row.attributes.title, row.attributes["aria-label"]);
+  const marker = row.descendants().find((element) => element.className.includes("omd-source-mark"));
+  assert.equal(marker?.attributes["aria-hidden"], "true");
 });
 
 test("pointer cancellation restores the widget layout without persisting the preview", async () => {

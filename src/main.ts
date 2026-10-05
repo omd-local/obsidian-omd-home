@@ -1,6 +1,8 @@
 import {
   FileSystemAdapter,
+  getFrontMatterInfo,
   Notice,
+  parseYaml,
   Platform,
   Plugin,
   TFile,
@@ -57,6 +59,8 @@ import {
 } from "./capture-request.ts";
 import {
   EventKitBridge,
+  EventKitHelperCompatibilityError,
+  eventKitMutationDefinitelyDidNotCommit,
   isEventKitHelperAvailable,
   normalizeEventKitEvent,
   resolveEventKitHelperPath,
@@ -150,18 +154,36 @@ import {
   type StoredAiProvider,
 } from "./ollama-local-types";
 import {
+  CALENDAR_RECREATE_CONFIRMATION,
+  calendarSyncResultMessage,
   calendarFetchWindow,
   calendarIdentityKeys,
-  classifyLinkedAvailability,
   classifyLinkedChange,
   detachLinkedEvent,
   eventSyncHash,
   isSelectedWritableCalendar,
   linkedEventSaveBlockReason,
   mergeExternalIntoLinked,
-  resolveCalendarWriteOverride,
+  stableExternalCandidates,
+  summarizeCalendarSync,
+  type CalendarSyncSummary,
+  type CalendarRecreateConfirmation,
   type CalendarWriteOverride,
 } from "./calendar-sync";
+import { CalendarSnapshotChangedError, calendarEventVersion } from "./calendar-safety";
+
+interface CalendarNoteSnapshot {
+  event: CalendarEventRecord | null;
+  markdown: string;
+  error?: string;
+}
+
+interface CalendarWriteRevalidation {
+  event: CalendarEventRecord;
+  external?: CalendarEventRecord;
+  expectedMarkdown?: string;
+  blocked: boolean;
+}
 
 export default class OmdHomePlugin extends Plugin {
   settings: OmdHomeSettings = { ...DEFAULT_SETTINGS };
@@ -191,6 +213,8 @@ export default class OmdHomePlugin extends Plugin {
   hostedAiState: HostedAiRuntimeState | null = null;
   localAiFeedback: LocalAiActionFeedback | null = null;
   calendarFeedback: LocalAiActionFeedback | null = null;
+  calendarHelperProtocolStatus: "unchecked" | "compatible" | "incompatible" = "unchecked";
+  calendarHelperProtocolVersion: number | null = null;
   lastError = "";
   lastErrorAt = 0;
   lastErrorContext: "" | "capture" | "calendar" | "ai" | "inbox" = "";
@@ -214,10 +238,13 @@ export default class OmdHomePlugin extends Plugin {
   private hostedAiController: AbortController | null = null;
   private hostedCredentialMutation: symbol | null = null;
   private unloaded = false;
-  private calendarRefresh: Promise<void> | null = null;
+  private calendarRefresh: Promise<CalendarSyncSummary> | null = null;
   calendarLoading = false;
   private calendarRefreshTimer: number | null = null;
   private readonly calendarWriteOverrides = new Map<string, CalendarWriteOverride>();
+  private readonly ambiguousCalendarCreateIds = new Set<string>();
+  private readonly calendarNoteCreateInFlight = new Set<string>();
+  private readonly calendarCreatedNotePaths = new Map<string, string>();
   private readonly localAiControllers = new Set<AbortController>();
   private captureController: AbortController | null = null;
   private localAiActionToken = 0;
@@ -253,7 +280,7 @@ export default class OmdHomePlugin extends Plugin {
       id: "sync-calendar",
       name: "Sync linked calendar events",
       callback: () => void this.synchronizeCalendarEvents()
-        .then(() => new Notice("Calendar sync complete"))
+        .then((summary) => new Notice(calendarSyncResultMessage(summary)))
         .catch((error) => new Notice(message(error))),
     });
     this.addCommand({ id: "capture-with-omd", name: "Capture URL or file", callback: () => this.openCaptureModal() });
@@ -336,7 +363,10 @@ export default class OmdHomePlugin extends Plugin {
     }));
 
     this.app.workspace.onLayoutReady(() => {
-      void this.refreshCalendarEvents();
+      void this.refreshCalendarEvents().catch((error) => {
+        this.recordIssue("calendar", error);
+        this.refreshOpenViews();
+      });
       void this.checkEnrichmentCapability();
       if (this.settings.aiProvider === "ollama" || this.settings.aiProvider === "ollama-cloud") {
         void this.ensureLocalAiCatalog();
@@ -2075,6 +2105,8 @@ export default class OmdHomePlugin extends Plugin {
       if (!this.hasEventKitHelper()) {
         throw new Error("EventKit helper is unavailable. Build the helper or choose an absolute helper path in settings.");
       }
+      this.calendarHelperProtocolVersion = await this.eventKitBridge.requireCompatibleProtocol();
+      this.calendarHelperProtocolStatus = "compatible";
       this.externalCalendars = await this.eventKitBridge.calendars();
       const reconciled = reconcileCalendarSelection(this.settings, this.externalCalendars);
       if (
@@ -2093,6 +2125,10 @@ export default class OmdHomePlugin extends Plugin {
       this.setCalendarFeedback(count ? "success" : "neutral", feedback);
       if (notify) new Notice(feedback);
     } catch (error) {
+      if (error instanceof EventKitHelperCompatibilityError) {
+        this.calendarHelperProtocolStatus = "incompatible";
+        this.calendarHelperProtocolVersion = error.actualVersion ?? null;
+      }
       this.recordIssue("calendar", error);
       this.setCalendarFeedback("error", `Calendar refresh failed. ${this.lastError}`);
       if (notify) new Notice(this.lastError);
@@ -2106,185 +2142,751 @@ export default class OmdHomePlugin extends Plugin {
     await this.runCalendarRefresh(false);
   }
 
-  async synchronizeCalendarEvents(): Promise<void> {
+  async synchronizeCalendarEvents(): Promise<CalendarSyncSummary> {
     if (this.calendarRefresh) await this.calendarRefresh;
-    await this.runCalendarRefresh(true);
+    return await this.runCalendarRefresh(true);
   }
 
-  private async runCalendarRefresh(reconcile: boolean): Promise<void> {
+  private async runCalendarRefresh(reconcile: boolean): Promise<CalendarSyncSummary> {
     if (this.calendarRefresh) return await this.calendarRefresh;
     this.calendarRefresh = this.performCalendarRefresh(reconcile);
-    try { await this.calendarRefresh; }
+    try { return await this.calendarRefresh; }
     finally { this.calendarRefresh = null; }
   }
 
-  private async performCalendarRefresh(reconcile: boolean): Promise<void> {
-    const vaultEvents: CalendarEventRecord[] = this.app.vault.getMarkdownFiles()
-      .flatMap((file): CalendarEventRecord[] => {
-        const cached = recordFromFrontmatter(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter ?? {});
-        const override = this.calendarWriteOverrides.get(file.path);
-        const resolved = resolveCalendarWriteOverride(file.path, file.stat.mtime, cached, override);
-        if (override && !resolved.retainOverride) this.calendarWriteOverrides.delete(file.path);
-        const record = resolved.event;
-        return record ? [{ ...record, vaultModifiedAt: new Date(file.stat.mtime).toISOString() }] : [];
-      });
+  private async readCalendarNoteSnapshot(file: TFile): Promise<CalendarNoteSnapshot> {
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (error) {
+      return { event: null, markdown, error: `Could not read the note: ${message(error)}` };
+    }
+    const info = getFrontMatterInfo(markdown);
+    if (!info.exists) return { event: null, markdown, error: "YAML frontmatter is missing" };
+    let parsed: unknown;
+    try {
+      parsed = parseYaml(info.frontmatter) as unknown;
+    } catch {
+      return { event: null, markdown, error: "YAML frontmatter is invalid" };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { event: null, markdown, error: "YAML frontmatter must be a mapping" };
+    }
+    const frontmatter = parsed as Record<string, unknown>;
+    if (frontmatter.type !== "event") {
+      return { event: null, markdown, error: "Frontmatter must include type: event" };
+    }
+    const event = recordFromFrontmatter(file.path, frontmatter);
+    if (!event) {
+      return {
+        event: null,
+        markdown,
+        error: "Frontmatter is missing required event fields or has an invalid source or date range",
+      };
+    }
+    return {
+      event: { ...event, vaultModifiedAt: new Date(file.stat.mtime).toISOString() },
+      markdown,
+    };
+  }
+
+  private async readCalendarNoteSnapshotByPath(path: string): Promise<CalendarNoteSnapshot> {
+    const abstract = this.app.vault.getFileByPath(path);
+    if (!(abstract instanceof TFile)) {
+      return { event: null, markdown: "", error: "The event note no longer exists" };
+    }
+    return await this.readCalendarNoteSnapshot(abstract);
+  }
+
+  private async calendarNoteSnapshotForAction(
+    event: CalendarEventRecord,
+  ): Promise<CalendarNoteSnapshot & { event: CalendarEventRecord }> {
+    if (!event.notePath) throw new Error("The event note is unavailable. Refresh Calendar and try again.");
+    const snapshot = await this.readCalendarNoteSnapshotByPath(event.notePath);
+    if (!snapshot.event || snapshot.error) {
+      throw new Error(`The event note changed or is invalid. Nothing was written: ${snapshot.error ?? "Refresh Calendar and try again."}`);
+    }
+    const current = snapshot.event;
+    const creatingLink = current.source === "vault"
+      && event.source === "linked"
+      && !current.appleItemId
+      && !event.appleItemId;
+    const stale = !event.vaultModifiedAt
+      || current.vaultModifiedAt !== event.vaultModifiedAt
+      || (current.source !== event.source && !creatingLink)
+      || current.notePath !== event.notePath
+      || current.appleCalendarId !== event.appleCalendarId
+      || current.appleItemId !== event.appleItemId
+      || current.appleExternalId !== event.appleExternalId
+      || current.occurrenceDate !== event.occurrenceDate
+      || current.externalModifiedAt !== event.externalModifiedAt
+      || current.syncHash !== event.syncHash;
+    if (stale) {
+      throw new CalendarSnapshotChangedError("The event note changed after it was opened. Nothing was written; refresh Calendar and try again.");
+    }
+    return { ...snapshot, event: current };
+  }
+
+  private calendarNoteErrorRecord(path: string, modifiedAt: number, detail: string): CalendarEventRecord {
+    const start = new Date(Number.isFinite(modifiedAt) ? modifiedAt : Date.now());
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    const name = path.split("/").at(-1) ?? path;
+    return {
+      id: `calendar-note-error:${path}`,
+      title: `Cannot sync ${name}: ${detail}`,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      allDay: false,
+      calendar: "Sync error",
+      source: "linked",
+      notePath: path,
+      location: detail,
+      vaultModifiedAt: start.toISOString(),
+      syncState: "error",
+    };
+  }
+
+  private async readFreshExternalEvent(
+    vault: CalendarEventRecord,
+    expected: CalendarEventRecord,
+    includeUnselectedCalendars = false,
+  ): Promise<CalendarEventRecord | undefined> {
+    const selectedCalendarIds = this.settings.selectedCalendarIds ?? [];
+    const itemId = expected.appleItemId ?? vault.appleItemId;
+    let exactLookup: CalendarEventRecord | undefined;
+    if (itemId) {
+      const exact = await this.eventKitBridge.lookup(
+        itemId,
+        expected.occurrenceDate ?? vault.occurrenceDate,
+        expected.externalStartHint ?? vault.externalStartHint ?? (expected.start || vault.start),
+      ) ?? undefined;
+      if (exact) exactLookup = exact;
+    }
+    const { start, end } = calendarFetchWindow([vault, expected]);
+    const currentCalendars = includeUnselectedCalendars
+      ? await this.eventKitBridge.calendars()
+      : [];
+    const calendarIds = includeUnselectedCalendars
+      ? [...new Set([
+        ...selectedCalendarIds,
+        ...currentCalendars.map((calendar) => calendar.id),
+      ])]
+      : selectedCalendarIds;
+    const events = await this.eventKitBridge.events(calendarIds, start, end);
+    const expectedItemKeys = new Set([vault, expected]
+      .filter((candidate) => Boolean(candidate.appleItemId))
+      .map((candidate) => `item:${candidate.appleItemId}:${candidate.occurrenceDate ?? ""}`));
+    const exactCandidates = events.filter((candidate) => (
+      candidate.appleItemId
+      && expectedItemKeys.has(`item:${candidate.appleItemId}:${candidate.occurrenceDate ?? ""}`)
+    ));
+    if (exactCandidates.length > 1) {
+      throw new Error("Calendar returned multiple occurrences for the saved event identity. Sync is paused so OMD cannot bind the note to the wrong occurrence.");
+    }
+    const stable = [
+      ...stableExternalCandidates(expected, events),
+      ...stableExternalCandidates(vault, events),
+    ].filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
+    if (stable.length > 1) {
+      throw new Error("Calendar returned multiple events with the same stable identifier. Sync is paused so OMD cannot bind the note to the wrong event.");
+    }
+    const exact = exactLookup ?? exactCandidates[0];
+    if (exact && stable[0] && (
+      exact.appleItemId !== stable[0].appleItemId
+      || exact.occurrenceDate !== stable[0].occurrenceDate
+    )) {
+      throw new Error("Calendar identities point to different events. Sync is paused so OMD cannot bind the note to the wrong event.");
+    }
+    if (
+      exact
+      && (expected.clientRequestId || vault.clientRequestId)
+      && exact.clientRequestId
+      && exact.clientRequestId !== (expected.clientRequestId ?? vault.clientRequestId)
+    ) {
+      throw new Error("The saved Calendar request identity no longer matches this event. Sync is paused so OMD cannot overwrite another event.");
+    }
+    if (
+      exact
+      && (expected.appleExternalId || vault.appleExternalId)
+      && exact.appleExternalId
+      && exact.appleExternalId !== (expected.appleExternalId ?? vault.appleExternalId)
+    ) {
+      throw new Error("The saved Calendar external identity no longer matches this event. Sync is paused so OMD cannot overwrite another event.");
+    }
+    return stable[0] ?? exact;
+  }
+
+  private async revalidateCalendarWrite(
+    vault: CalendarEventRecord,
+    outside: CalendarEventRecord,
+    expectedMarkdown: string | undefined,
+  ): Promise<CalendarWriteRevalidation> {
+    if (!vault.notePath || expectedMarkdown === undefined) {
+      return {
+        event: this.calendarNoteErrorRecord(vault.notePath ?? vault.id, Date.now(), "The event note snapshot is unavailable"),
+        blocked: true,
+      };
+    }
+    const snapshot = await this.readCalendarNoteSnapshotByPath(vault.notePath);
+    if (!snapshot.event || snapshot.error) {
+      return {
+        event: this.calendarNoteErrorRecord(
+          vault.notePath,
+          Date.parse(vault.vaultModifiedAt ?? "") || Date.now(),
+          snapshot.error ?? "The event note is invalid",
+        ),
+        blocked: true,
+      };
+    }
+    if (snapshot.event.source !== "linked") return { event: snapshot.event, blocked: true };
+    let freshOutside: CalendarEventRecord | undefined;
+    try {
+      freshOutside = await this.readFreshExternalEvent(snapshot.event, outside);
+    } catch (error) {
+      this.recordIssue("calendar", error);
+      return {
+        event: {
+          ...snapshot.event,
+          syncState: "error",
+          unavailableReason: "setup-or-read-failure",
+          pendingDirection: undefined,
+        },
+        blocked: true,
+      };
+    }
+    if (!freshOutside) {
+      return {
+        event: {
+          ...snapshot.event,
+          syncState: "unavailable",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        },
+        blocked: true,
+      };
+    }
+    if (snapshot.markdown !== expectedMarkdown || calendarEventVersion(freshOutside) !== calendarEventVersion(outside)) {
+      return {
+        event: {
+          ...snapshot.event,
+          syncState: "conflict",
+          unavailableReason: undefined,
+          pendingDirection: undefined,
+          conflictExternal: freshOutside,
+        },
+        external: freshOutside,
+        blocked: true,
+      };
+    }
+    return { event: snapshot.event, external: freshOutside, expectedMarkdown: snapshot.markdown, blocked: false };
+  }
+
+  private async calendarWriteRaceEvent(
+    vault: CalendarEventRecord,
+    outside: CalendarEventRecord,
+  ): Promise<CalendarEventRecord> {
+    if (!vault.notePath) return { ...vault, syncState: "error", pendingDirection: undefined };
+    const snapshot = await this.readCalendarNoteSnapshotByPath(vault.notePath);
+    if (!snapshot.event || snapshot.error) {
+      return this.calendarNoteErrorRecord(
+        vault.notePath,
+        Date.parse(vault.vaultModifiedAt ?? "") || Date.now(),
+        snapshot.error ?? "The event note is invalid",
+      );
+    }
+    return {
+      ...snapshot.event,
+      syncState: "conflict",
+      unavailableReason: undefined,
+      pendingDirection: undefined,
+      conflictExternal: outside,
+    };
+  }
+
+  private async performCalendarRefresh(reconcile: boolean): Promise<CalendarSyncSummary> {
+    const vaultEvents: CalendarEventRecord[] = [];
+    const vaultMarkdown = new Map<string, string>();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const cachedFrontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const override = this.calendarWriteOverrides.get(file.path);
+      const isCandidate = cachedFrontmatter?.type === "event"
+        || file.path.startsWith("Calendar/Events/")
+        || Boolean(override);
+      if (!isCandidate) continue;
+      const snapshot = await this.readCalendarNoteSnapshot(file);
+      if (!snapshot.event || snapshot.error) {
+        if (override) this.calendarWriteOverrides.delete(file.path);
+        vaultEvents.push(this.calendarNoteErrorRecord(
+          file.path,
+          file.stat.mtime,
+          snapshot.error ?? "The event note is invalid",
+        ));
+        continue;
+      }
+      // The raw Markdown snapshot is authoritative. Overrides only bridge
+      // metadata-cache lag; replacing parsed Markdown here could erase a
+      // same-tick manual edit before the compare-and-swap guard sees it.
+      if (override) this.calendarWriteOverrides.delete(file.path);
+      const event = { ...snapshot.event, vaultModifiedAt: new Date(file.stat.mtime).toISOString() };
+      vaultEvents.push(event);
+      if (event.notePath) vaultMarkdown.set(event.notePath, snapshot.markdown);
+    }
     let external: CalendarEventRecord[] = [];
     let externalFetchFailed = false;
-    if (Platform.isMacOS && this.hasEventKitHelper() && this.settings.selectedCalendarIds.length) {
-      const { start, end } = calendarFetchWindow(vaultEvents);
+    let externalFetchError: Error | null = null;
+    const helperAvailable = !Platform.isMacOS || this.hasEventKitHelper();
+    if (Platform.isMacOS && reconcile && !helperAvailable) {
+      externalFetchFailed = true;
+      externalFetchError = new Error("EventKit helper is unavailable. Build the helper or choose an executable absolute helper path in settings.");
+      this.recordIssue("calendar", externalFetchError);
+    } else if (Platform.isMacOS && this.settings.selectedCalendarIds.length) {
       try {
+        if (!helperAvailable) {
+          throw new Error("EventKit helper is unavailable. Build the helper or choose an executable absolute helper path in settings.");
+        }
+        const { start, end } = calendarFetchWindow(vaultEvents);
         external = await this.eventKitBridge.events(this.settings.selectedCalendarIds, start, end);
         this.clearIssue("calendar");
       }
       catch (error) {
         externalFetchFailed = true;
+        externalFetchError = error instanceof Error ? error : new Error(message(error));
         this.recordIssue("calendar", error);
       }
     }
-    const externalByKey = new Map<string, CalendarEventRecord>();
-    for (const event of external) for (const key of calendarIdentityKeys(event)) externalByKey.set(key, event);
     const usedExternal = new Set<CalendarEventRecord>();
+    const usedExternalOccurrences = new Set<string>();
     const synchronized: CalendarEventRecord[] = [];
     for (const vault of vaultEvents) {
       if (vault.source !== "linked") {
         synchronized.push(vault);
         continue;
       }
-      const identityKeys = calendarIdentityKeys(vault);
-      if (!identityKeys.length) {
-        synchronized.push({ ...vault, syncState: "unavailable" });
+      if (vault.syncState === "error" && vault.id.startsWith("calendar-note-error:")) {
+        synchronized.push(vault);
         continue;
       }
-      const outside = identityKeys.map((key) => externalByKey.get(key)).find(Boolean);
-      const calendarId = outside?.appleCalendarId ?? vault.appleCalendarId ?? "";
-      const availability = classifyLinkedAvailability(
-        this.settings.selectedCalendarIds.includes(calendarId),
-        externalFetchFailed,
-        Boolean(outside),
-      );
-      if (availability !== "available") {
-        synchronized.push({ ...vault, syncState: availability, pendingDirection: undefined });
+      const identityKeyList = calendarIdentityKeys(vault);
+      if (!identityKeyList.length) {
+        synchronized.push({ ...vault, syncState: "unavailable", unavailableReason: "unknown" });
+        continue;
+      }
+      const itemKey = vault.appleItemId
+        ? `item:${vault.appleItemId}:${vault.occurrenceDate ?? ""}`
+        : undefined;
+      const exactCandidates = itemKey
+        ? external.filter((candidate) => calendarIdentityKeys(candidate).includes(itemKey))
+        : [];
+      const stable = stableExternalCandidates(vault, external);
+      if (exactCandidates.length > 1 || stable.length > 1) {
+        const count = Math.max(exactCandidates.length, stable.length);
+        const error = new Error(`Calendar returned ${count} events matching the saved identity for ${vault.title}. Sync is paused so OMD cannot bind the note to the wrong event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      if (exactCandidates[0] && stable[0] && (
+        exactCandidates[0].appleItemId !== stable[0].appleItemId
+        || exactCandidates[0].occurrenceDate !== stable[0].occurrenceDate
+      )) {
+        const error = new Error(`Calendar identities point to different events for ${vault.title}. Sync is paused so OMD cannot overwrite another event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      let outside: CalendarEventRecord | undefined = stable[0] ?? exactCandidates[0];
+      let exactLookupMissing = false;
+      if (externalFetchFailed) {
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "setup-or-read-failure",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      if (!outside && vault.appleItemId) {
+        try {
+          outside = await this.eventKitBridge.lookup(vault.appleItemId, vault.occurrenceDate, vault.start) ?? undefined;
+        } catch (error) {
+          externalFetchError = error instanceof Error ? error : new Error(message(error));
+          this.recordIssue("calendar", error);
+          synchronized.push({
+            ...vault,
+            syncState: "error",
+            unavailableReason: "setup-or-read-failure",
+            pendingDirection: undefined,
+          });
+          continue;
+        }
+        exactLookupMissing = !outside;
+      }
+      if (outside && (
+        (vault.clientRequestId && outside.clientRequestId && outside.clientRequestId !== vault.clientRequestId)
+        || (vault.appleExternalId && outside.appleExternalId && outside.appleExternalId !== vault.appleExternalId)
+      )) {
+        const error = new Error(`Calendar identities no longer agree for ${vault.title}. Sync is paused so OMD cannot overwrite another event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
         continue;
       }
       if (!outside) {
-        synchronized.push({ ...vault, syncState: "unavailable", pendingDirection: undefined });
+        const calendarSelected = this.settings.selectedCalendarIds.includes(vault.appleCalendarId ?? "");
+        synchronized.push({
+          ...vault,
+          syncState: "unavailable",
+          unavailableReason: !calendarSelected
+            ? "calendar-deselected"
+            : exactLookupMissing ? "unknown"
+              : identityKeyList.length ? "outside-window" : "unknown",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      if (!this.settings.selectedCalendarIds.includes(outside.appleCalendarId ?? "")) {
+        synchronized.push({
+          ...vault,
+          syncState: "unavailable",
+          unavailableReason: "calendar-deselected",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      const outsideOccurrenceKey = outside.appleItemId
+        ? `item:${outside.appleItemId}:${outside.occurrenceDate ?? ""}`
+        : outside.clientRequestId
+          ? `request:${outside.clientRequestId}`
+          : outside.appleExternalId
+            ? `external:${outside.appleExternalId}:${outside.occurrenceDate ?? ""}:${outside.appleCalendarId ?? ""}`
+            : outside.id;
+      if (usedExternal.has(outside) || usedExternalOccurrences.has(outsideOccurrenceKey)) {
+        const error = new Error(`More than one linked note matches ${outside.title}. Sync is paused so OMD cannot bind two notes to the same Calendar event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
         continue;
       }
       usedExternal.add(outside);
-      const change = classifyLinkedChange(vault, outside);
+      usedExternalOccurrences.add(outsideOccurrenceKey);
+      let currentVault: CalendarEventRecord = { ...vault, unavailableReason: undefined };
+      let currentOutside = outside;
+      let change = classifyLinkedChange(currentVault, currentOutside);
+      let needsPersistence = change === "clean" && (
+        !currentVault.syncHash
+        || currentVault.syncState === "pending"
+        || currentVault.appleCalendarId !== currentOutside.appleCalendarId
+        || currentVault.appleItemId !== currentOutside.appleItemId
+        || currentVault.appleExternalId !== currentOutside.appleExternalId
+        || currentVault.occurrenceDate !== currentOutside.occurrenceDate
+        || currentVault.externalModifiedAt !== currentOutside.externalModifiedAt
+        || currentVault.readOnly !== currentOutside.readOnly
+      );
+      const needsWrite = reconcile && change !== "conflict" && (change !== "clean" || needsPersistence);
+      let expectedMarkdown = currentVault.notePath ? vaultMarkdown.get(currentVault.notePath) : undefined;
+      if (needsWrite) {
+        const guarded = await this.revalidateCalendarWrite(currentVault, currentOutside, expectedMarkdown);
+        if (guarded.blocked || !guarded.external) {
+          synchronized.push(guarded.event);
+          continue;
+        }
+        currentVault = guarded.event;
+        currentOutside = guarded.external;
+        expectedMarkdown = guarded.expectedMarkdown;
+        change = classifyLinkedChange(currentVault, currentOutside);
+        needsPersistence = change === "clean" && (
+          !currentVault.syncHash
+          || currentVault.syncState === "pending"
+          || currentVault.appleCalendarId !== currentOutside.appleCalendarId
+          || currentVault.appleItemId !== currentOutside.appleItemId
+          || currentVault.appleExternalId !== currentOutside.appleExternalId
+          || currentVault.occurrenceDate !== currentOutside.occurrenceDate
+          || currentVault.externalModifiedAt !== currentOutside.externalModifiedAt
+          || currentVault.readOnly !== currentOutside.readOnly
+        );
+      }
       if (change === "conflict") {
-        synchronized.push({ ...vault, syncState: "conflict", conflictExternal: outside });
+        synchronized.push({ ...currentVault, syncState: "conflict", unavailableReason: undefined, conflictExternal: currentOutside });
       } else if (change === "external") {
         if (reconcile) {
-          const merged = mergeExternalIntoLinked(vault, outside);
-          await this.writeCalendarNote(merged);
-          synchronized.push(merged);
-        } else synchronized.push({ ...vault, syncState: "pending", pendingDirection: "external", conflictExternal: outside });
+          const merged = { ...mergeExternalIntoLinked(currentVault, currentOutside), unavailableReason: undefined };
+          try {
+            synchronized.push(await this.writeCalendarNote(merged, expectedMarkdown));
+          } catch (error) {
+            if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+            synchronized.push(await this.calendarWriteRaceEvent(currentVault, currentOutside));
+          }
+        } else synchronized.push({ ...currentVault, syncState: "pending", pendingDirection: "external", conflictExternal: currentOutside });
       } else if (change === "vault") {
         if (reconcile) {
-          if (outside.readOnly) {
-            synchronized.push({ ...vault, syncState: "conflict", conflictExternal: outside });
+          if (currentOutside.readOnly) {
+            synchronized.push({ ...currentVault, syncState: "conflict", unavailableReason: undefined, conflictExternal: currentOutside });
             continue;
           }
           const merged = await this.pushLinkedEventToCalendar({
-            ...vault,
-            appleCalendarId: outside.appleCalendarId,
-            appleItemId: outside.appleItemId,
-            appleExternalId: outside.appleExternalId,
-            occurrenceDate: outside.occurrenceDate,
-          });
+            ...currentVault,
+            appleCalendarId: currentOutside.appleCalendarId,
+            appleItemId: currentOutside.appleItemId,
+            appleExternalId: currentOutside.appleExternalId,
+            occurrenceDate: currentOutside.occurrenceDate,
+          }, expectedMarkdown, currentOutside);
           synchronized.push(merged);
-        } else synchronized.push({ ...vault, syncState: "pending", pendingDirection: "vault", conflictExternal: outside });
+        } else synchronized.push({ ...currentVault, syncState: "pending", pendingDirection: "vault", conflictExternal: currentOutside });
       } else {
-        const healed = mergeExternalIntoLinked(vault, outside, vault.lastSyncedAt ?? new Date().toISOString());
-        const needsPersistence = !vault.syncHash
-          || vault.syncState === "pending"
-          || vault.appleItemId !== outside.appleItemId
-          || vault.appleExternalId !== outside.appleExternalId
-          || vault.occurrenceDate !== outside.occurrenceDate
-          || vault.readOnly !== outside.readOnly;
+        const healed = {
+          ...mergeExternalIntoLinked(
+            currentVault,
+            currentOutside,
+            currentVault.lastSyncedAt ?? new Date().toISOString(),
+          ),
+          unavailableReason: undefined,
+        };
         if (reconcile && needsPersistence) {
-          const persisted = await this.writeCalendarNote(healed);
-          synchronized.push(persisted);
-        } else if (!reconcile && vault.syncState === "pending") {
-          synchronized.push({ ...healed, syncState: "pending", pendingDirection: vault.pendingDirection });
+          try {
+            synchronized.push(await this.writeCalendarNote(healed, expectedMarkdown));
+          } catch (error) {
+            if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+            synchronized.push(await this.calendarWriteRaceEvent(currentVault, currentOutside));
+          }
+        } else if (!reconcile && needsPersistence) {
+          synchronized.push({
+            ...healed,
+            syncState: "pending",
+            pendingDirection: currentVault.pendingDirection ?? "external",
+          });
         } else synchronized.push(healed);
       }
     }
     this.calendarEvents = [...synchronized, ...external.filter((event) => !usedExternal.has(event))];
     this.refreshOpenViews();
-    if (reconcile && externalFetchFailed) throw new Error(this.lastError || "Calendar could not be read safely");
+    if (reconcile && externalFetchError) throw externalFetchError;
+    return summarizeCalendarSync(this.calendarEvents);
   }
 
   async resolveCalendarConflict(event: CalendarEventRecord, choice: "vault" | "external"): Promise<void> {
     if (!event.conflictExternal) throw new Error("The Calendar version is no longer available. Refresh and try again.");
-    if (choice === "vault" && !this.isSelectedWritableCalendar(event.conflictExternal.appleCalendarId ?? "")) {
+    if (!event.notePath) throw new Error("The linked event note is no longer available. Refresh and try again.");
+    const snapshot = await this.readCalendarNoteSnapshotByPath(event.notePath);
+    if (!snapshot.event || snapshot.error) {
+      await this.refreshCalendarEvents();
+      throw new Error(`The note changed after this comparison opened. ${snapshot.error ?? "Review the refreshed event and try again."}`);
+    }
+    let freshOutside: CalendarEventRecord | undefined;
+    try {
+      freshOutside = await this.readFreshExternalEvent(snapshot.event, event.conflictExternal);
+    } catch (error) {
+      this.recordIssue("calendar", error);
+      throw new Error(`Calendar could not be rechecked safely. Nothing was written: ${message(error)}`);
+    }
+    if (
+      !freshOutside
+      || calendarEventVersion(snapshot.event) !== calendarEventVersion(event)
+      || calendarEventVersion(freshOutside) !== calendarEventVersion(event.conflictExternal)
+    ) {
+      await this.refreshCalendarEvents();
+      throw new Error("This conflict changed after the comparison opened. Nothing was written. Review the refreshed versions and choose again.");
+    }
+    if (choice === "vault" && !this.isSelectedWritableCalendar(freshOutside.appleCalendarId ?? "")) {
       throw new Error("The linked Calendar is no longer selected and writable");
     }
     if (choice === "external") {
-      await this.writeCalendarNote(mergeExternalIntoLinked(event, event.conflictExternal));
+      try {
+        await this.writeCalendarNote(mergeExternalIntoLinked(snapshot.event, freshOutside), snapshot.markdown);
+      } catch (error) {
+        if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+        await this.refreshCalendarEvents();
+        throw new Error("The note changed while the conflict was being resolved. Nothing was overwritten. Review the refreshed versions and choose again.");
+      }
     } else {
-      await this.pushLinkedEventToCalendar({
-        ...event,
-        appleCalendarId: event.conflictExternal.appleCalendarId,
-        appleItemId: event.conflictExternal.appleItemId,
-        appleExternalId: event.conflictExternal.appleExternalId,
-        occurrenceDate: event.conflictExternal.occurrenceDate,
+      const resolved = await this.pushLinkedEventToCalendar({
+        ...snapshot.event,
+        appleCalendarId: freshOutside.appleCalendarId,
+        appleItemId: freshOutside.appleItemId,
+        appleExternalId: freshOutside.appleExternalId,
+        occurrenceDate: freshOutside.occurrenceDate,
         conflictExternal: undefined,
-      });
+      }, snapshot.markdown, freshOutside);
+      if (resolved.syncState !== "clean") {
+        await this.refreshCalendarEvents();
+        throw new Error("The Calendar event changed while the conflict was being resolved. Nothing was overwritten. Review the refreshed versions and choose again.");
+      }
     }
     await this.refreshCalendarEvents();
   }
 
   async saveCalendarEvent(event: CalendarEventRecord): Promise<void> {
+    if (
+      event.source !== "vault"
+      && !event.appleItemId
+      && this.ambiguousCalendarCreateIds?.has(event.id)
+    ) {
+      throw new Error("Calendar may already contain this event. Ordinary Save is blocked until you review the pending note and run Sync.");
+    }
     let saved = { ...event };
+    const noteSnapshot = event.notePath
+      ? await this.calendarNoteSnapshotForAction(event)
+      : undefined;
     if (event.source === "linked") {
-      const blockReason = linkedEventSaveBlockReason(event);
-      if (blockReason) throw new Error(blockReason);
-      const linkingReadOnlyExternal = !event.notePath && Boolean(event.appleItemId) && Boolean(event.readOnly);
-      if (linkingReadOnlyExternal) {
-        saved = await this.writeCalendarNote({
-          ...event,
+      const createKey = event.notePath ? undefined : (event.clientRequestId ?? event.id);
+      if (createKey && (
+        this.calendarNoteCreateInFlight?.has(createKey)
+        || this.calendarCreatedNotePaths?.has(createKey)
+      )) {
+        throw new Error("A linked note has already been created for this event. Close this stale editor and open the existing note from Calendar.");
+      }
+      if (createKey) this.calendarNoteCreateInFlight?.add(createKey);
+      try {
+        const blockReason = linkedEventSaveBlockReason(event);
+        if (blockReason) throw new Error(blockReason);
+        const linkingReadOnlyExternal = !event.notePath && Boolean(event.appleItemId) && Boolean(event.readOnly);
+        if (linkingReadOnlyExternal) {
+          saved = await this.writeCalendarNote({
+            ...event,
+            clientRequestId: event.clientRequestId ?? event.id,
+            source: "linked",
+            syncState: "clean",
+            pendingDirection: undefined,
+            lastSyncedAt: new Date().toISOString(),
+            syncHash: eventSyncHash(event),
+          });
+          if (createKey && saved.notePath) this.calendarCreatedNotePaths?.set(createKey, saved.notePath);
+          await this.refreshCalendarEvents();
+          return;
+        }
+        const targetId = saved.appleCalendarId || this.settings.defaultExternalCalendarId;
+        if (!targetId || !this.isSelectedWritableCalendar(targetId)) {
+          throw new Error("Choose an explicitly selected writable Calendar in OMD Home settings");
+        }
+        saved.appleCalendarId = targetId;
+        const linked = await this.pushLinkedEventToCalendar(saved, noteSnapshot?.markdown);
+        if (createKey && linked.notePath) this.calendarCreatedNotePaths?.set(createKey, linked.notePath);
+        await this.refreshCalendarEvents();
+        return;
+      } finally {
+        if (createKey) this.calendarNoteCreateInFlight?.delete(createKey);
+      }
+    } else if (event.source === "external") {
+      if (event.readOnly) throw new Error("This Calendar is read-only. Create a linked vault note instead");
+      const creatingExternal = !saved.appleItemId;
+      if (creatingExternal) saved.clientRequestId ??= saved.id;
+      try {
+        if (saved.appleItemId) {
+          const fresh = await this.eventKitBridge.lookup(
+            saved.appleItemId,
+            saved.occurrenceDate,
+            saved.externalStartHint ?? saved.start,
+          );
+          if (!fresh) {
+            throw new Error("The Calendar event could not be located safely. Nothing was overwritten; run Sync and try again.");
+          }
+          if (!fresh.appleCalendarId || !this.isSelectedWritableCalendar(fresh.appleCalendarId)) {
+            throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was overwritten; update Calendar settings or run Sync.");
+          }
+          if (saved.externalModifiedAt && fresh.externalModifiedAt !== saved.externalModifiedAt) {
+            throw new Error("The Calendar event changed after it was opened. Nothing was overwritten; run Sync and try again.");
+          }
+          saved = await this.eventKitBridge.upsert({
+            ...saved,
+            appleCalendarId: fresh.appleCalendarId,
+            appleItemId: fresh.appleItemId,
+            appleExternalId: fresh.appleExternalId,
+            occurrenceDate: fresh.occurrenceDate,
+            externalModifiedAt: fresh.externalModifiedAt,
+          }, "this", fresh.start);
+        } else {
+          saved = await this.eventKitBridge.upsert(saved);
+        }
+      } catch (error) {
+        if (!creatingExternal || eventKitMutationDefinitelyDidNotCommit(error)) throw error;
+        this.ambiguousCalendarCreateIds?.add(saved.id);
+        const recovery = await this.preserveAmbiguousCalendarMutation({
+          ...saved,
+          syncHash: saved.syncHash ?? eventSyncHash(saved),
           source: "linked",
-          syncState: "clean",
+          syncState: "unavailable",
+          unavailableReason: "unknown",
           pendingDirection: undefined,
-          lastSyncedAt: new Date().toISOString(),
-          syncHash: eventSyncHash(event),
-        });
+        }, undefined, error);
+        if (!recovery.notePath) {
+          throw new Error(`Calendar may have created the event, but OMD Home could not save a recovery note. Do not retry Save; check Calendar first. ${message(error)}`);
+        }
         await this.refreshCalendarEvents();
         return;
       }
-      const targetId = saved.appleCalendarId || this.settings.defaultExternalCalendarId;
-      if (!targetId || !this.isSelectedWritableCalendar(targetId)) {
-        throw new Error("Choose an explicitly selected writable Calendar in OMD Home settings");
-      }
-      saved.appleCalendarId = targetId;
-      await this.pushLinkedEventToCalendar(saved);
-      await this.refreshCalendarEvents();
-      return;
-    } else if (event.source === "external") {
-      if (event.readOnly) throw new Error("This Calendar is read-only. Create a linked vault note instead");
-      saved = await this.eventKitBridge.upsert(saved);
     } else if (event.appleItemId) {
       throw new Error("Choose whether to detach the note or also delete its Calendar event");
     }
     if (saved.source !== "external") {
       await this.ensureFolder("Calendar/Events");
-      await this.writeCalendarNote(saved);
+      await this.writeCalendarNote(saved, noteSnapshot?.markdown);
     }
     await this.refreshCalendarEvents();
   }
 
   async detachCalendarEvent(event: CalendarEventRecord, deleteExternal: boolean): Promise<void> {
     if (event.source === "external") {
-      if (deleteExternal && event.appleItemId) await this.eventKitBridge.remove(event.appleItemId);
+      if (deleteExternal && event.appleItemId) {
+        const fresh = await this.eventKitBridge.lookup(event.appleItemId, event.occurrenceDate, event.start);
+        if (!fresh) throw new Error("The Calendar event no longer exists. Run Sync to refresh Calendar.");
+        if (!fresh.appleCalendarId || !this.isSelectedWritableCalendar(fresh.appleCalendarId)) {
+          throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was deleted; update Calendar settings or run Sync.");
+        }
+        if (event.externalModifiedAt && fresh.externalModifiedAt !== event.externalModifiedAt) {
+          throw new Error("The Calendar event changed after it was opened. Nothing was deleted; run Sync and try again.");
+        }
+        await this.eventKitBridge.remove(event.appleItemId, fresh.externalModifiedAt, "this", fresh.occurrenceDate, fresh.start);
+      }
       await this.refreshCalendarEvents();
       return;
     }
-    const detached = detachLinkedEvent(event);
-    await this.writeCalendarNote(detached);
+    const snapshot = await this.calendarNoteSnapshotForAction(event);
+    let freshOutside: CalendarEventRecord | undefined;
     if (deleteExternal && event.appleItemId) {
-      try { await this.eventKitBridge.remove(event.appleItemId); }
+      freshOutside = await this.readFreshExternalEvent(snapshot.event, event);
+      if (!freshOutside) {
+        throw new Error("Calendar could not safely locate the linked event. Nothing was detached or deleted; run Sync and review the event.");
+      }
+      if (!freshOutside.appleCalendarId || !this.isSelectedWritableCalendar(freshOutside.appleCalendarId)) {
+        throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was deleted; update Calendar settings or detach without deleting Calendar data.");
+      }
+      if (
+        freshOutside
+        && event.externalModifiedAt
+        && freshOutside.externalModifiedAt !== event.externalModifiedAt
+      ) {
+        throw new Error("The Calendar event changed after this action opened. Nothing was detached or deleted; run Sync and try again.");
+      }
+    }
+    const detached = detachLinkedEvent(snapshot.event);
+    await this.writeCalendarNote(detached, snapshot.markdown);
+    if (deleteExternal && event.appleItemId) {
+      try {
+        await this.eventKitBridge.remove(
+          freshOutside!.appleItemId!,
+          freshOutside!.externalModifiedAt,
+          "this",
+          freshOutside!.occurrenceDate,
+          freshOutside!.start,
+        );
+      }
       catch (error) {
         await this.refreshCalendarEvents();
         throw new Error(`The note was detached safely, but Calendar deletion failed: ${message(error)}`);
@@ -2293,69 +2895,333 @@ export default class OmdHomePlugin extends Plugin {
     await this.refreshCalendarEvents();
   }
 
-  async recreateCalendarEvent(event: CalendarEventRecord): Promise<void> {
-    await this.saveCalendarEvent({
-      ...event,
-      source: "linked",
-      appleCalendarId: this.settings.defaultExternalCalendarId,
+  async recreateCalendarEvent(
+    event: CalendarEventRecord,
+    confirmation: CalendarRecreateConfirmation,
+  ): Promise<void> {
+    if (confirmation !== CALENDAR_RECREATE_CONFIRMATION) {
+      throw new Error("Recreate requires explicit confirmation of the duplicate-event risk.");
+    }
+    if (event.source !== "linked" || event.syncState !== "unavailable" || !event.notePath) {
+      throw new Error("Recreate is available only for an unavailable linked note. Run Sync first.");
+    }
+    if (event.unavailableReason === "calendar-deselected" || event.unavailableReason === "setup-or-read-failure") {
+      throw new Error("Calendar cannot be checked safely yet. Restore Calendar access and Retry Sync, or Detach the note.");
+    }
+    const snapshot = await this.calendarNoteSnapshotForAction(event);
+    if (snapshot.event.syncState !== "unavailable") {
+      await this.refreshCalendarEvents();
+      throw new Error("This event state changed after Recreate opened. Nothing was written; review the refreshed event.");
+    }
+    if (
+      snapshot.event.clientRequestId
+      && snapshot.event.syncHash
+      && eventSyncHash(snapshot.event) !== snapshot.event.syncHash
+    ) {
+      throw new Error("The pending event payload changed after its Calendar request. Nothing was recreated; restore the original fields or Detach the note.");
+    }
+    const targetId = this.settings.defaultExternalCalendarId;
+    if (!targetId || !this.isSelectedWritableCalendar(targetId)) {
+      throw new Error("Choose an explicitly selected writable default Calendar before recreating this event");
+    }
+    let recovered: CalendarEventRecord | undefined;
+    try {
+      recovered = await this.readFreshExternalEvent(snapshot.event, event, true);
+    } catch (error) {
+      this.recordIssue("calendar", error);
+      throw new Error(`Calendar could not be checked safely. Nothing was recreated: ${message(error)}`);
+    }
+    if (recovered) {
+      await this.refreshCalendarEvents();
+      throw new Error("The original Calendar event is available again. Nothing was recreated; review the refreshed event.");
+    }
+    const recreated = await this.pushLinkedEventToCalendar({
+      ...snapshot.event,
+      calendar: this.externalCalendars?.find((calendar) => calendar.id === targetId)?.title ?? snapshot.event.calendar,
+      appleCalendarId: targetId,
       appleItemId: undefined,
       appleExternalId: undefined,
       occurrenceDate: undefined,
-      syncHash: undefined,
-      syncState: "pending",
-      pendingDirection: "vault",
+      externalModifiedAt: undefined,
+      clientRequestId: snapshot.event.clientRequestId ?? event.id,
+      syncState: "unavailable",
+      unavailableReason: undefined,
+      pendingDirection: undefined,
       conflictExternal: undefined,
-    });
+      readOnly: undefined,
+    }, snapshot.markdown);
+    if (recreated.syncState === "clean") this.ambiguousCalendarCreateIds?.delete(event.id);
+    await this.refreshCalendarEvents();
   }
 
-  private async pushLinkedEventToCalendar(event: CalendarEventRecord): Promise<CalendarEventRecord> {
+  private async pushLinkedEventToCalendar(
+    event: CalendarEventRecord,
+    expectedMarkdown?: string,
+    expectedExternal?: CalendarEventRecord,
+  ): Promise<CalendarEventRecord> {
     const hadExternalIdentity = Boolean(event.appleItemId);
-    const staged = await this.writeCalendarNote({
+    const createdNewNote = !event.notePath;
+    if (event.notePath && expectedMarkdown === undefined) {
+      throw new CalendarSnapshotChangedError("The event note must be refreshed before Calendar can be updated");
+    }
+    const pending = normalizeEventKitEvent({
       ...event,
+      clientRequestId: hadExternalIdentity ? event.clientRequestId : (event.clientRequestId ?? event.id),
+      syncHash: hadExternalIdentity ? event.syncHash : eventSyncHash(event),
       source: "linked",
       syncState: "pending",
+      unavailableReason: undefined,
       pendingDirection: "vault",
       conflictExternal: undefined,
     });
-    const savedOutside = await this.eventKitBridge.upsert(staged);
-    const merged = mergeExternalIntoLinked(staged, savedOutside);
-    try {
-      return await this.writeCalendarNote(merged);
-    } catch (firstError) {
+    const staged = await this.writeCalendarNote(pending, expectedMarkdown);
+    const createKey = createdNewNote ? (staged.clientRequestId ?? event.id) : undefined;
+    if (createKey && staged.notePath) this.calendarCreatedNotePaths?.set(createKey, staged.notePath);
+    const expectedStagedMarkdown = expectedMarkdown === undefined
+      ? serializeEventNote(staged)
+      : updateEventNote(expectedMarkdown, pending);
+    const stagedSnapshot = staged.notePath
+      ? await this.readCalendarNoteSnapshotByPath(staged.notePath)
+      : { event: null, markdown: "", error: "The staged event note is unavailable" };
+    if (!stagedSnapshot.event || stagedSnapshot.error) {
+      throw new Error(stagedSnapshot.error ?? "The staged event note could not be verified");
+    }
+    if (stagedSnapshot.markdown !== expectedStagedMarkdown) {
+      throw new CalendarSnapshotChangedError("The event note changed while Calendar was being prepared. Nothing was sent to Calendar.");
+    }
+    let writeCandidate = staged;
+    let currentExternalStartHint: string | undefined;
+    if (hadExternalIdentity) {
+      let freshOutside: CalendarEventRecord | undefined;
       try {
-        return await this.writeCalendarNote(merged);
-      } catch {
-        if (!hadExternalIdentity && savedOutside.appleItemId) {
-          let rollbackError: unknown;
-          try { await this.eventKitBridge.remove(savedOutside.appleItemId); }
-          catch (error) { rollbackError = error; }
-          if (!rollbackError) {
-            throw new Error(`Calendar creation was rolled back because the note could not be finalized. The pending note was preserved: ${message(firstError)}`);
-          }
-          throw new Error(`The pending note was preserved, but its new Calendar copy could not be rolled back. Delete Calendar item ${savedOutside.appleItemId} manually, then use Recreate: ${message(rollbackError)}`);
-        }
-        throw new Error(`Calendar was updated, while the note remains safely marked pending. Run Sync to finalize it: ${message(firstError)}`);
+        freshOutside = await this.readFreshExternalEvent(stagedSnapshot.event, expectedExternal ?? event);
+      } catch (error) {
+        this.recordIssue("calendar", error);
+        return await this.writeCalendarNote({
+          ...event,
+          syncState: "error",
+          unavailableReason: "setup-or-read-failure",
+          pendingDirection: undefined,
+          conflictExternal: undefined,
+        }, stagedSnapshot.markdown);
       }
+      if (!freshOutside) {
+        return await this.writeCalendarNote({
+          ...event,
+          syncState: "unavailable",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+          conflictExternal: undefined,
+        }, stagedSnapshot.markdown);
+      }
+      if (!freshOutside.appleCalendarId || !this.isSelectedWritableCalendar(freshOutside.appleCalendarId)) {
+        return await this.writeCalendarNote({
+          ...event,
+          appleCalendarId: freshOutside.appleCalendarId,
+          appleItemId: freshOutside.appleItemId,
+          appleExternalId: freshOutside.appleExternalId,
+          occurrenceDate: freshOutside.occurrenceDate,
+          externalModifiedAt: freshOutside.externalModifiedAt,
+          syncState: "unavailable",
+          unavailableReason: "calendar-deselected",
+          pendingDirection: undefined,
+          conflictExternal: undefined,
+        }, stagedSnapshot.markdown);
+      }
+      const externalChanged = expectedExternal
+        ? calendarEventVersion(freshOutside) !== calendarEventVersion(expectedExternal)
+        : (
+          Boolean(stagedSnapshot.event.externalModifiedAt)
+          && freshOutside.externalModifiedAt !== stagedSnapshot.event.externalModifiedAt
+        ) || !["clean", "vault"].includes(classifyLinkedChange(stagedSnapshot.event, freshOutside));
+      if (externalChanged) {
+        return await this.writeCalendarNote({
+          ...event,
+          syncState: "conflict",
+          unavailableReason: undefined,
+          pendingDirection: undefined,
+          conflictExternal: freshOutside,
+        }, stagedSnapshot.markdown);
+      }
+      writeCandidate = {
+        ...staged,
+        appleCalendarId: freshOutside.appleCalendarId,
+        appleItemId: freshOutside.appleItemId,
+        appleExternalId: freshOutside.appleExternalId,
+        occurrenceDate: freshOutside.occurrenceDate,
+        externalModifiedAt: freshOutside.externalModifiedAt,
+      };
+      currentExternalStartHint = freshOutside.start;
+    }
+    let savedOutside: CalendarEventRecord;
+    try {
+      savedOutside = await this.eventKitBridge.upsert(writeCandidate, "this", currentExternalStartHint);
+    } catch (error) {
+      if (eventKitMutationDefinitelyDidNotCommit(error)) {
+        if (createdNewNote && staged.notePath) {
+          let discarded = false;
+          try {
+            discarded = await this.discardCreatedPendingCalendarNote(staged, stagedSnapshot.markdown);
+          } catch {
+            // Fall through to a visible recovery note; retry is unsafe unless
+            // the exact temporary note was removed successfully.
+          }
+          if (discarded) {
+            if (createKey) this.calendarCreatedNotePaths?.delete(createKey);
+            throw new Error(`Calendar rejected the event before saving it. The temporary note was removed safely and your draft remains open; retry Save. ${message(error)}`);
+          }
+        } else if (staged.notePath && expectedMarkdown !== undefined) {
+          const restored = await this.restoreCalendarNoteMarkdown(
+            staged.notePath,
+            stagedSnapshot.markdown,
+            expectedMarkdown,
+          );
+          if (restored) {
+            throw new Error(`Calendar rejected the event before saving it. The note was restored exactly; retry Save after fixing Calendar setup. ${message(error)}`);
+          }
+        }
+      }
+      this.ambiguousCalendarCreateIds?.add(event.id);
+      return await this.preserveAmbiguousCalendarMutation(staged, stagedSnapshot.markdown, error);
+    }
+    this.ambiguousCalendarCreateIds?.delete(event.id);
+    const merged = {
+      ...mergeExternalIntoLinked(writeCandidate, savedOutside),
+      unavailableReason: undefined,
+    };
+    try {
+      return await this.writeCalendarNote(merged, stagedSnapshot.markdown);
+    } catch (firstError) {
+      if (firstError instanceof CalendarSnapshotChangedError) {
+        if (!hadExternalIdentity && savedOutside.appleItemId) {
+          try {
+            await this.eventKitBridge.remove(
+              savedOutside.appleItemId,
+              savedOutside.externalModifiedAt,
+              "this",
+              savedOutside.occurrenceDate,
+              savedOutside.start,
+            );
+          }
+          catch (rollbackError) {
+            throw new Error(`The note changed while Calendar was updating, and its new Calendar copy could not be rolled back. Delete Calendar item ${savedOutside.appleItemId} manually, then review the note: ${message(rollbackError)}`);
+          }
+          throw new Error("Calendar creation was rolled back because the note changed during synchronization. The note was preserved; run Sync to review it.");
+        }
+        throw new Error("Calendar was updated, but the note changed before finalization. The note was preserved; run Sync to review the conflict.");
+      }
+      if (!hadExternalIdentity && savedOutside.appleItemId) {
+        let rollbackError: unknown;
+        try {
+          await this.eventKitBridge.remove(
+            savedOutside.appleItemId,
+            savedOutside.externalModifiedAt,
+            "this",
+            savedOutside.occurrenceDate,
+            savedOutside.start,
+          );
+        }
+        catch (error) { rollbackError = error; }
+        if (!rollbackError) {
+          throw new Error(`Calendar creation was rolled back because the note could not be finalized. The pending note was preserved: ${message(firstError)}`);
+        }
+        throw new Error(`The pending note was preserved, but its new Calendar copy could not be rolled back. Delete Calendar item ${savedOutside.appleItemId} manually, then use Recreate: ${message(rollbackError)}`);
+      }
+      throw new Error(`Calendar was updated, while the note remains safely marked pending. Run Sync to finalize it: ${message(firstError)}`);
     }
   }
 
-  private async writeCalendarNote(event: CalendarEventRecord): Promise<CalendarEventRecord> {
+  private async discardCreatedPendingCalendarNote(
+    staged: CalendarEventRecord,
+    expectedMarkdown: string,
+  ): Promise<boolean> {
+    if (!staged.notePath) return false;
+    const file = this.app.vault.getFileByPath(staged.notePath);
+    if (!(file instanceof TFile)) return false;
+    const current = await this.app.vault.read(file);
+    if (current !== expectedMarkdown) return false;
+    await this.app.fileManager.trashFile(file);
+    this.calendarWriteOverrides.delete(staged.notePath);
+    return true;
+  }
+
+  private async restoreCalendarNoteMarkdown(
+    path: string,
+    expectedCurrent: string,
+    original: string,
+  ): Promise<boolean> {
+    const file = this.app.vault.getFileByPath(path);
+    if (!(file instanceof TFile)) return false;
+    try {
+      await this.app.vault.process(file, (current) => {
+        if (current !== expectedCurrent) throw new CalendarSnapshotChangedError();
+        return original;
+      });
+    } catch (error) {
+      if (error instanceof CalendarSnapshotChangedError) return false;
+      throw error;
+    }
+    this.calendarWriteOverrides.delete(path);
+    return true;
+  }
+
+  private async preserveAmbiguousCalendarMutation(
+    staged: CalendarEventRecord,
+    expectedMarkdown: string | undefined,
+    cause: unknown,
+  ): Promise<CalendarEventRecord> {
+    const warning = new Error(
+      `Calendar did not confirm whether this write completed. The note remains available for Sync and review; do not use ordinary Save again. ${message(cause)}`,
+    );
+    this.recordIssue("calendar", warning, staged.notePath ?? staged.title);
+    const recovery = {
+      ...staged,
+      source: "linked" as const,
+      syncState: "unavailable" as const,
+      unavailableReason: "unknown" as const,
+      pendingDirection: undefined,
+      conflictExternal: undefined,
+    };
+    try {
+      return await this.writeCalendarNote(recovery, expectedMarkdown);
+    } catch (error) {
+      if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+      return recovery;
+    }
+  }
+
+  private async writeCalendarNote(event: CalendarEventRecord, expectedMarkdown?: string): Promise<CalendarEventRecord> {
     const normalized = normalizeEventKitEvent(event);
     await this.ensureFolder("Calendar/Events");
     const existing = normalized.notePath ? this.app.vault.getFileByPath(normalized.notePath) : null;
     if (existing) {
-      await this.app.vault.process(existing, (current) => updateEventNote(current, normalized));
-      const saved = { ...normalized, notePath: existing.path };
+      await this.app.vault.process(existing, (current) => {
+        if (expectedMarkdown !== undefined && current !== expectedMarkdown) {
+          throw new CalendarSnapshotChangedError();
+        }
+        return updateEventNote(current, normalized);
+      });
       const currentFile = this.app.vault.getFileByPath(existing.path);
+      const modifiedAt = currentFile?.stat.mtime ?? existing.stat.mtime;
+      const saved = {
+        ...normalized,
+        notePath: existing.path,
+        vaultModifiedAt: new Date(modifiedAt).toISOString(),
+      };
       this.calendarWriteOverrides.set(existing.path, {
         event: saved,
-        modifiedAt: currentFile?.stat.mtime ?? existing.stat.mtime,
+        modifiedAt,
       });
       return saved;
     } else {
+      if (expectedMarkdown !== undefined) throw new CalendarSnapshotChangedError("The event note no longer exists");
       const path = await this.uniquePath(eventNotePath(normalized));
       const file = await this.app.vault.create(path, serializeEventNote({ ...normalized, notePath: path }));
-      const saved = { ...normalized, notePath: file.path };
+      const saved = {
+        ...normalized,
+        notePath: file.path,
+        vaultModifiedAt: new Date(file.stat.mtime).toISOString(),
+      };
       this.calendarWriteOverrides.set(file.path, { event: saved, modifiedAt: file.stat.mtime });
       return saved;
     }
@@ -2560,7 +3426,10 @@ export default class OmdHomePlugin extends Plugin {
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
     this.calendarRefreshTimer = window.setTimeout(() => {
       this.calendarRefreshTimer = null;
-      void this.refreshCalendarEvents();
+      void this.refreshCalendarEvents().catch((error) => {
+        this.recordIssue("calendar", error);
+        this.refreshOpenViews();
+      });
     }, 250);
   }
 
@@ -2582,6 +3451,11 @@ export default class OmdHomePlugin extends Plugin {
 
   hasEventKitHelper(): boolean {
     return isEventKitHelperAvailable(this.resolvedEventKitHelperPath());
+  }
+
+  resetEventKitHelperCompatibility(): void {
+    this.calendarHelperProtocolStatus = "unchecked";
+    this.calendarHelperProtocolVersion = null;
   }
 
   private recordIssue(context: "capture" | "calendar" | "ai" | "inbox", error: unknown, source = ""): number {

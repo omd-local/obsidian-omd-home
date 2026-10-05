@@ -14,6 +14,7 @@ import {
   type HomeNoteRow,
 } from "./home-note-list.ts";
 import { canOpenOllamaDesktopApp } from "./ollama-app";
+import { EVENT_SOURCE_ORDER, eventSourcePresentation } from "./calendar-ui";
 import type OmdHomePlugin from "./main";
 import type { CalendarEventRecord, WidgetId, WidgetPlacement } from "./model";
 import { DEFAULT_LAYOUT, GRID_COLUMNS, movePlacement } from "./layout";
@@ -259,8 +260,21 @@ export class OmdHomeView extends ItemView {
         return emptyAction(body, "No events in this range", "+ Create event", () => void this.plugin.createCalendarEvent());
       }
       for (const event of events) {
-        const row = body.createEl("button", { cls: "omd-event-row", type: "button" });
-        row.createSpan({ cls: `omd-source-mark is-${event.source}`, attr: { "aria-label": event.source } });
+        const source = eventSourcePresentation(event.source);
+        const timing = event.allDay ? "All day" : shortTime(event.start);
+        const status = homeCalendarStatusLabel(event.syncState);
+        const accessibleLabel = [
+          event.title,
+          timing,
+          `Source: ${source.label}. ${source.description}.`,
+          status ? `Status: ${status}.` : null,
+        ].filter(Boolean).join(" ");
+        const row = body.createEl("button", {
+          cls: "omd-event-row",
+          type: "button",
+          attr: { "aria-label": accessibleLabel, title: accessibleLabel },
+        });
+        row.createSpan({ cls: `omd-source-mark is-${event.source}`, attr: { "aria-hidden": "true" } });
         row.createSpan({ cls: "omd-event-time", text: event.allDay ? "ALL" : shortTime(event.start) });
         row.createSpan({ cls: "omd-event-title", text: event.title, attr: { dir: "auto", title: event.title } });
         if (event.syncState === "conflict") row.addClass("has-conflict");
@@ -730,6 +744,16 @@ export class OmdHomeView extends ItemView {
       }));
       this.render();
     }));
+    if (id === "today" || id === "upcoming") {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle("Event source key").setIcon("info").setIsLabel(true));
+      for (const source of EVENT_SOURCE_ORDER) {
+        const presentation = eventSourcePresentation(source);
+        menu.addItem((item) => item
+          .setTitle(`${presentation.glyph} ${presentation.label} · ${presentation.description}`)
+          .setIsLabel(true));
+      }
+    }
     const hidden = this.plugin.deviceLayout.filter((placement) => placement.hidden);
     if (hidden.length) {
       menu.addSeparator();
@@ -1072,6 +1096,11 @@ function attentionLabel(state: CalendarEventRecord["syncState"]): string {
   if (state === "pending") return "Pending sync";
   if (state === "error") return "Sync paused";
   return "Unavailable";
+}
+
+function homeCalendarStatusLabel(state: CalendarEventRecord["syncState"]): string | null {
+  if (!state || state === "clean") return null;
+  return attentionLabel(state);
 }
 
 function sameGeometry(a: WidgetPlacement, b: WidgetPlacement): boolean {

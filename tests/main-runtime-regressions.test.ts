@@ -29,6 +29,28 @@ import {
 } from "../src/local-ai-readiness.ts";
 import { LocalAiError, type LocalAiModelInfo, type LocalAiRuntimeState } from "../src/ollama-local-types.ts";
 import { socialCaptureProvider } from "../src/omnibox-utils.ts";
+import {
+  CALENDAR_RECREATE_CONFIRMATION,
+  calendarFetchWindow,
+  calendarIdentityKeys,
+  classifyLinkedAvailability,
+  classifyLinkedChange,
+  detachLinkedEvent,
+  eventSyncHash,
+  linkedEventSaveBlockReason,
+  mergeExternalIntoLinked,
+  resolveCalendarWriteOverride,
+  stableExternalCandidates,
+  summarizeCalendarSync,
+} from "../src/calendar-sync.ts";
+import { recordFromFrontmatter, serializeEventNote, updateEventNote } from "../src/event-note.ts";
+import {
+  EventKitMutationError,
+  eventKitMutationDefinitelyDidNotCommit,
+  normalizeEventKitEvent,
+} from "../src/eventkit-bridge.ts";
+import { CalendarSnapshotChangedError, calendarEventVersion } from "../src/calendar-safety.ts";
+import type { CalendarEventRecord } from "../src/model.ts";
 
 // Execute the production methods with injected Obsidian/bridge boundaries. This
 // keeps async race regressions runnable without loading the desktop application.
@@ -48,7 +70,14 @@ function loadMethods(file: string, names: string[], dependencies: Record<string,
     `${helpers.map((node) => node.getText(source)).join("\n")}\nclass Harness { ${methods.join("\n")} }`,
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
   ).outputText;
-  return new Function(...Object.keys(dependencies), `${compiled}\nreturn new Harness();`)(...Object.values(dependencies)) as Harness;
+  const resolvedDependencies = {
+    CALENDAR_RECREATE_CONFIRMATION,
+    eventKitMutationDefinitelyDidNotCommit,
+    eventSyncHash,
+    stableExternalCandidates,
+    ...dependencies,
+  };
+  return new Function(...Object.keys(resolvedDependencies), `${compiled}\nreturn new Harness();`)(...Object.values(resolvedDependencies)) as Harness;
 }
 
 function readMethod(file: string, name: string): string {
@@ -115,6 +144,1140 @@ function deferred<T>() {
   const promise = new Promise<T>((resolve, rejectPromise) => { resolveValue = resolve; reject = rejectPromise; });
   return { promise, resolve: resolveValue, reject };
 }
+
+test("calendar sync reads current event frontmatter before classifying simultaneous edits", async () => {
+  const baseline = {
+    id: "evt_conflict",
+    title: "CAL-03 baseline",
+    start: "2026-10-06T08:00:00.000Z",
+    end: "2026-10-06T09:00:00.000Z",
+    allDay: false,
+    calendar: "Activity",
+    source: "linked" as const,
+    notePath: "Calendar/Events/CAL-03.md",
+    appleCalendarId: "cal_1",
+    appleItemId: "item_1",
+    appleExternalId: "external_1",
+  };
+  const syncHash = eventSyncHash(baseline);
+  const staleFrontmatter = {
+    type: "event", "event-id": baseline.id, title: baseline.title,
+    start: baseline.start, end: baseline.end, "all-day": false,
+    calendar: baseline.calendar, "event-source": "linked",
+    "apple-calendar-id": baseline.appleCalendarId,
+    "apple-item-id": baseline.appleItemId,
+    "apple-external-id": baseline.appleExternalId,
+    "sync-hash": syncHash,
+  };
+  const currentFrontmatter = { ...staleFrontmatter, title: "CAL-03 – Note 1" };
+  const external = {
+    ...baseline,
+    title: "CAL-03 – Calendar 1",
+    source: "external" as const,
+    syncHash: undefined,
+  };
+  const plugin = loadMethods("src/main.ts", [
+    "readCalendarNoteSnapshot", "calendarNoteErrorRecord", "performCalendarRefresh",
+  ], {
+    Platform: { isMacOS: true },
+    getFrontMatterInfo: () => ({ exists: true, frontmatter: "current" }),
+    parseYaml: () => currentFrontmatter,
+    recordFromFrontmatter,
+    resolveCalendarWriteOverride,
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    stableExternalCandidates,
+    classifyLinkedAvailability,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+    summarizeCalendarSync,
+  });
+  let noteWrites = 0;
+  let calendarWrites = 0;
+  Object.assign(plugin, {
+    app: {
+      vault: {
+        getMarkdownFiles: () => [{ path: baseline.notePath, stat: { mtime: 123 } }],
+        read: async () => "---\ntitle: current\n---\n",
+      },
+      metadataCache: { getFileCache: () => ({ frontmatter: staleFrontmatter }) },
+    },
+    settings: { selectedCalendarIds: ["cal_1"] },
+    eventKitBridge: { events: async () => [external] },
+    hasEventKitHelper: () => true,
+    calendarWriteOverrides: new Map([[baseline.notePath, {
+      event: { ...baseline, title: "Stale override must not replace raw Markdown" },
+      modifiedAt: 123,
+    }]]),
+    calendarEvents: [],
+    writeCalendarNote: async () => { noteWrites += 1; },
+    pushLinkedEventToCalendar: async () => { calendarWrites += 1; },
+    clearIssue() {},
+    recordIssue() {},
+    refreshOpenViews() {},
+  });
+
+  const summary = await plugin.performCalendarRefresh(true);
+
+  assert.deepEqual(summary, { conflicts: 1, unavailable: 0, errors: 0, pending: 0 });
+  assert.equal(plugin.calendarEvents[0].title, "CAL-03 – Note 1");
+  assert.equal(plugin.calendarEvents[0].conflictExternal.title, "CAL-03 – Calendar 1");
+  assert.equal(plugin.calendarEvents[0].syncState, "conflict");
+  assert.equal(plugin.calendarWriteOverrides.size, 0, "a parsed raw snapshot retires its metadata-lag override");
+  assert.equal(noteWrites, 0);
+  assert.equal(calendarWrites, 0);
+});
+
+test("calendar sync surfaces invalid YAML as a per-note error without starting Calendar writes", async () => {
+  let eventKitReads = 0;
+  const plugin = loadMethods("src/main.ts", [
+    "readCalendarNoteSnapshot", "calendarNoteErrorRecord", "performCalendarRefresh",
+  ], {
+    Platform: { isMacOS: false },
+    getFrontMatterInfo: () => ({ exists: true, frontmatter: "title: [" }),
+    parseYaml: () => { throw new Error("bad yaml"); },
+    summarizeCalendarSync,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: {
+        getMarkdownFiles: () => [{ path: "Calendar/Events/broken.md", stat: { mtime: 123 } }],
+        read: async () => "---\ntitle: [\n---\n",
+      },
+      metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+    },
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    eventKitBridge: { events: async () => { eventKitReads += 1; return []; } },
+    refreshOpenViews() {},
+  });
+
+  const summary = await plugin.performCalendarRefresh(true);
+  assert.deepEqual(summary, { conflicts: 0, unavailable: 0, errors: 1, pending: 0 });
+  assert.match(plugin.calendarEvents[0].title, /Cannot sync broken\.md: YAML frontmatter is invalid/);
+  assert.equal(plugin.calendarEvents[0].syncState, "error");
+  assert.equal(eventKitReads, 0, "no Calendar read or write may start from an invalid note snapshot");
+});
+
+test("calendar sync keeps path-managed notes with missing or invalid event schema visible as errors", async () => {
+  const files = [
+    { path: "Calendar/Events/no-frontmatter.md", stat: { mtime: 100 } },
+    { path: "Calendar/Events/bad-schema.md", stat: { mtime: 200 } },
+  ];
+  const markdown = new Map([
+    [files[0].path, "# No frontmatter"],
+    [files[1].path, "---\ntype: event\ntitle: Missing dates\n---\n"],
+  ]);
+  const plugin = loadMethods("src/main.ts", [
+    "readCalendarNoteSnapshot", "calendarNoteErrorRecord", "performCalendarRefresh",
+  ], {
+    Platform: { isMacOS: false },
+    getFrontMatterInfo: (value: string) => value.startsWith("---")
+      ? { exists: true, frontmatter: "schema" }
+      : { exists: false, frontmatter: "" },
+    parseYaml: () => ({ type: "event", title: "Missing dates" }),
+    recordFromFrontmatter,
+    resolveCalendarWriteOverride,
+    summarizeCalendarSync,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => files, read: async (file: { path: string }) => markdown.get(file.path) },
+      metadataCache: { getFileCache: () => null },
+    },
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    settings: { selectedCalendarIds: [] },
+    refreshOpenViews() {},
+  });
+
+  const summary = await plugin.performCalendarRefresh(false);
+  assert.deepEqual(summary, { conflicts: 0, unavailable: 0, errors: 2, pending: 0 });
+  assert.match(plugin.calendarEvents[0].title, /YAML frontmatter is missing/);
+  assert.match(plugin.calendarEvents[1].title, /missing required event fields/);
+});
+
+test("calendar sync preserves the concrete EventKit failure instead of reporting completion", async () => {
+  const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+    Platform: { isMacOS: true },
+    calendarFetchWindow,
+    summarizeCalendarSync,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => [] },
+      metadataCache: { getFileCache: () => null },
+    },
+    settings: { selectedCalendarIds: ["cal_1"] },
+    eventKitBridge: { events: async () => { throw new Error("EventKit timed out"); } },
+    hasEventKitHelper: () => true,
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    lastError: "",
+    clearIssue() {},
+    recordIssue(_context: string, error: Error) { plugin.lastError = error.message; },
+    refreshOpenViews() {},
+  });
+
+  await assert.rejects(plugin.performCalendarRefresh(true), /EventKit timed out/);
+  assert.deepEqual(plugin.calendarEvents, []);
+});
+
+test("calendar sync fails explicitly when selected calendars have no executable helper", async () => {
+  let issue = "";
+  const linked: CalendarEventRecord = {
+    id: "evt_helper", title: "Helper fixture", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Activity",
+    source: "linked", notePath: "Calendar/Events/helper.md", appleCalendarId: "cal_1",
+    appleItemId: "item_1", appleExternalId: "external_1",
+  };
+  const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+    Platform: { isMacOS: true },
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    summarizeCalendarSync,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => [{ path: linked.notePath, stat: { mtime: 100 } }] },
+      metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+    },
+    readCalendarNoteSnapshot: async () => ({ event: linked, markdown: "exact" }),
+    settings: { selectedCalendarIds: ["cal_1"] },
+    hasEventKitHelper: () => false,
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    recordIssue(_context: string, error: Error) { issue = error.message; },
+    refreshOpenViews() {},
+  });
+
+  await assert.rejects(plugin.performCalendarRefresh(true), /EventKit helper is unavailable/);
+  assert.match(issue, /EventKit helper is unavailable/);
+  assert.equal(plugin.calendarEvents[0].syncState, "error");
+  assert.equal(plugin.calendarEvents[0].unavailableReason, "setup-or-read-failure");
+});
+
+test("calendar sync persists a refreshed external version token even when visible fields are clean", async () => {
+  const linked: CalendarEventRecord = {
+    id: "evt_token", title: "Token fixture", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Activity",
+    source: "linked", notePath: "Calendar/Events/token.md", appleCalendarId: "cal_1",
+    appleItemId: "item_1", appleExternalId: "external_1",
+  };
+  linked.syncHash = eventSyncHash(linked);
+  const outside: CalendarEventRecord = {
+    ...linked,
+    id: "apple:item_1", source: "external", notePath: undefined, syncHash: undefined,
+    externalModifiedAt: "2026-10-05T00:12:00.000Z",
+  };
+  let written: CalendarEventRecord | undefined;
+  let writeCount = 0;
+  const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+    Platform: { isMacOS: true },
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+    summarizeCalendarSync,
+    CalendarSnapshotChangedError,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => [{ path: linked.notePath, stat: { mtime: 100 } }] },
+      metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+    },
+    readCalendarNoteSnapshot: async () => ({
+      event: { ...linked, vaultModifiedAt: new Date(100).toISOString() },
+      markdown: "exact",
+    }),
+    revalidateCalendarWrite: async (event: CalendarEventRecord, external: CalendarEventRecord) => ({
+      event, external, expectedMarkdown: "exact", blocked: false,
+    }),
+    writeCalendarNote: async (next: CalendarEventRecord) => {
+      writeCount += 1;
+      written = next;
+      return next;
+    },
+    settings: { selectedCalendarIds: ["cal_1"] },
+    hasEventKitHelper: () => true,
+    eventKitBridge: { events: async () => [outside] },
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    clearIssue() {},
+    recordIssue() {},
+    refreshOpenViews() {},
+  });
+
+  const preview = await plugin.performCalendarRefresh(false);
+  assert.deepEqual(preview, { conflicts: 0, unavailable: 0, errors: 0, pending: 1 });
+  assert.equal(plugin.calendarEvents[0].pendingDirection, "external");
+  assert.equal(writeCount, 0, "background refresh must wait for explicit Sync before persisting metadata");
+
+  const summary = await plugin.performCalendarRefresh(true);
+  assert.deepEqual(summary, { conflicts: 0, unavailable: 0, errors: 0, pending: 0 });
+  assert.equal(writeCount, 1);
+  assert.equal(written?.externalModifiedAt, outside.externalModifiedAt);
+});
+
+for (const fixture of [
+  { name: "EventKit identifier churn", nextCalendarId: "cal_old" },
+  { name: "a cross-Calendar move", nextCalendarId: "cal_new" },
+]) {
+  test(`calendar sync safely rebinds ${fixture.name} by a unique stable identifier`, async () => {
+    const linked: CalendarEventRecord = {
+      id: "evt_rebind", title: "Stable fixture", start: "2026-10-08T10:00:00.000Z",
+      end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Old",
+      source: "linked", notePath: "Calendar/Events/stable.md", appleCalendarId: "cal_old",
+      appleItemId: "old_item", appleExternalId: "stable_external",
+      occurrenceDate: "2026-10-08T10:00:00.000Z",
+    };
+    linked.syncHash = eventSyncHash(linked);
+    const outside: CalendarEventRecord = {
+      ...linked,
+      id: "apple:new_item", source: "external", notePath: undefined, syncHash: undefined,
+      calendar: fixture.nextCalendarId === "cal_old" ? "Old" : "New",
+      appleCalendarId: fixture.nextCalendarId, appleItemId: "new_item",
+      externalModifiedAt: "2026-10-05T00:12:00.000Z",
+    };
+    let written: CalendarEventRecord | undefined;
+    const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+      Platform: { isMacOS: true },
+      calendarFetchWindow,
+      calendarIdentityKeys,
+      stableExternalCandidates,
+      classifyLinkedChange,
+      mergeExternalIntoLinked,
+      summarizeCalendarSync,
+      CalendarSnapshotChangedError,
+    });
+    Object.assign(plugin, {
+      app: {
+        vault: { getMarkdownFiles: () => [{ path: linked.notePath, stat: { mtime: 100 } }] },
+        metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+      },
+      readCalendarNoteSnapshot: async () => ({ event: linked, markdown: "exact" }),
+      revalidateCalendarWrite: async (event: CalendarEventRecord, external: CalendarEventRecord) => ({
+        event, external, expectedMarkdown: "exact", blocked: false,
+      }),
+      writeCalendarNote: async (next: CalendarEventRecord) => { written = next; return next; },
+      settings: { selectedCalendarIds: ["cal_old", "cal_new"] },
+      hasEventKitHelper: () => true,
+      eventKitBridge: { events: async () => [outside], lookup: async () => null },
+      calendarWriteOverrides: new Map(),
+      calendarEvents: [],
+      clearIssue() {},
+      recordIssue() {},
+      refreshOpenViews() {},
+    });
+
+    const summary = await plugin.performCalendarRefresh(true);
+    assert.deepEqual(summary, { conflicts: 0, unavailable: 0, errors: 0, pending: 0 });
+    assert.equal(written?.appleItemId, "new_item");
+    assert.equal(written?.appleCalendarId, fixture.nextCalendarId);
+    assert.equal(written?.appleExternalId, "stable_external");
+  });
+}
+
+test("calendar sync stops when identifier churn has multiple stable candidates", async () => {
+  const linked: CalendarEventRecord = {
+    id: "evt_ambiguous", title: "Ambiguous fixture", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Old",
+    source: "linked", notePath: "Calendar/Events/ambiguous.md", appleCalendarId: "cal_old",
+    appleItemId: "old_item", appleExternalId: "stable_external",
+    occurrenceDate: "2026-10-08T10:00:00.000Z",
+  };
+  const candidates = ["cal_new_1", "cal_new_2"].map((calendarId, index): CalendarEventRecord => ({
+    ...linked,
+    id: `apple:new_${index}`, source: "external", notePath: undefined,
+    appleCalendarId: calendarId, appleItemId: `new_${index}`,
+  }));
+  let issue = "";
+  const plugin = loadMethods("src/main.ts", ["performCalendarRefresh"], {
+    Platform: { isMacOS: true }, calendarFetchWindow, calendarIdentityKeys,
+    stableExternalCandidates, classifyLinkedChange, mergeExternalIntoLinked, summarizeCalendarSync,
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: { getMarkdownFiles: () => [{ path: linked.notePath, stat: { mtime: 100 } }] },
+      metadataCache: { getFileCache: () => ({ frontmatter: { type: "event" } }) },
+    },
+    readCalendarNoteSnapshot: async () => ({ event: linked, markdown: "exact" }),
+    settings: { selectedCalendarIds: ["cal_old", "cal_new_1", "cal_new_2"] },
+    hasEventKitHelper: () => true,
+    eventKitBridge: { events: async () => candidates, lookup: async () => null },
+    calendarWriteOverrides: new Map(), calendarEvents: [],
+    clearIssue() {},
+    recordIssue(_context: string, error: Error) { issue = error.message; },
+    refreshOpenViews() {},
+  });
+
+  const summary = await plugin.performCalendarRefresh(true);
+  assert.deepEqual(summary, { conflicts: 0, unavailable: 0, errors: 1, pending: 0 });
+  assert.equal(plugin.calendarEvents[0].syncState, "error");
+  assert.notEqual(plugin.calendarEvents[0].unavailableReason, "confirmed-missing");
+  assert.match(issue, /multiple|2 events/i);
+});
+
+test("a deleted linked Calendar item becomes unavailable without an ordinary write", async () => {
+  const frontmatter = {
+    type: "event", "event-id": "evt_unavailable", title: "CAL-03 unavailable",
+    start: "2026-10-08T10:00:00.000Z", end: "2026-10-08T11:00:00.000Z", "all-day": false,
+    calendar: "Activity", "event-source": "linked", "apple-calendar-id": "cal_1",
+    "apple-item-id": "missing_item", "apple-external-id": "missing_external", "sync-hash": "v1:baseline",
+  };
+  const plugin = loadMethods("src/main.ts", [
+    "readCalendarNoteSnapshot", "calendarNoteErrorRecord", "performCalendarRefresh",
+  ], {
+    Platform: { isMacOS: true },
+    getFrontMatterInfo: () => ({ exists: true, frontmatter: "event" }),
+    parseYaml: () => frontmatter,
+    recordFromFrontmatter,
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    stableExternalCandidates,
+    classifyLinkedAvailability,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+    summarizeCalendarSync,
+  });
+  let writes = 0;
+  Object.assign(plugin, {
+    app: {
+      vault: {
+        getMarkdownFiles: () => [{ path: "Calendar/Events/CAL-03.md", stat: { mtime: 123 } }],
+        read: async () => "---\ntype: event\n---\n",
+      },
+      metadataCache: { getFileCache: () => ({ frontmatter }) },
+    },
+    settings: { selectedCalendarIds: ["cal_1"] },
+    eventKitBridge: { events: async () => [], lookup: async () => null },
+    hasEventKitHelper: () => true,
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    writeCalendarNote: async () => { writes += 1; },
+    pushLinkedEventToCalendar: async () => { writes += 1; },
+    clearIssue() {},
+    recordIssue() {},
+    refreshOpenViews() {},
+  });
+
+  const summary = await plugin.performCalendarRefresh(true);
+  assert.deepEqual(summary, { conflicts: 0, unavailable: 1, errors: 0, pending: 0 });
+  assert.equal(plugin.calendarEvents[0].syncState, "unavailable");
+  assert.equal(plugin.calendarEvents[0].unavailableReason, "unknown");
+  assert.equal(writes, 0, "a window/list miss cannot authorize Recreate for a stable event");
+
+  delete (frontmatter as Record<string, unknown>)["apple-external-id"];
+  const noStableIdentity = await plugin.performCalendarRefresh(true);
+  assert.deepEqual(noStableIdentity, { conflicts: 0, unavailable: 1, errors: 0, pending: 0 });
+  assert.equal(plugin.calendarEvents[0].unavailableReason, "unknown");
+  assert.equal(writes, 0, "an old EventKit identifier miss is not proof of deletion even without an external identifier");
+});
+
+test("an unavailable event cannot recreate without explicit confirmation and Detach remains safe", async () => {
+  const event: CalendarEventRecord = {
+    id: "evt_recovery", title: "CAL-03 recovery",
+    start: "2026-10-08T10:00:00.000Z", end: "2026-10-08T11:00:00.000Z", allDay: false,
+    calendar: "Activity", source: "linked", notePath: "Calendar/Events/CAL-03.md",
+    appleCalendarId: "old_calendar", appleItemId: "missing_item",
+    syncHash: "v1:old", syncState: "unavailable",
+    unavailableReason: "unknown" as const,
+    vaultModifiedAt: "2026-10-05T00:00:00.000Z",
+  };
+  const plugin = loadMethods("src/main.ts", ["recreateCalendarEvent", "detachCalendarEvent"], {
+    detachLinkedEvent,
+  });
+  let detached: CalendarEventRecord | undefined;
+  let refreshes = 0;
+  const snapshot = { event, markdown: "exact markdown" };
+  Object.assign(plugin, {
+    settings: { defaultExternalCalendarId: "cal_new", selectedCalendarIds: ["cal_new"] },
+    calendarNoteSnapshotForAction: async () => snapshot,
+    isSelectedWritableCalendar: () => true,
+    writeCalendarNote: async (next: CalendarEventRecord) => { detached = next; return next; },
+    refreshCalendarEvents: async () => { refreshes += 1; },
+    eventKitBridge: {
+      lookup: async () => null,
+      remove: async () => assert.fail("Detach without delete must not remove Calendar data"),
+    },
+  });
+
+  await assert.rejects(plugin.recreateCalendarEvent(event), /explicit confirmation/);
+
+  await plugin.detachCalendarEvent(event, false);
+  assert.equal(detached?.source, "vault");
+  assert.equal(detached?.appleCalendarId, undefined);
+  assert.equal(detached?.appleItemId, undefined);
+  assert.equal(detached?.syncHash, undefined);
+  assert.equal(refreshes, 1);
+});
+
+test("pending note staging is verified byte-for-byte before EventKit receives an update", async () => {
+  const original = "---\ntype: event\n---\n\n# Before\n";
+  const event: CalendarEventRecord = {
+    id: "evt_stage", title: "After", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Activity",
+    source: "linked", notePath: "Calendar/Events/stage.md", appleCalendarId: "cal_1",
+    appleItemId: "item_1", appleExternalId: "external_1", syncHash: "v1:baseline",
+    externalModifiedAt: "2026-10-05T00:00:00.000Z",
+  };
+  const plugin = loadMethods("src/main.ts", ["pushLinkedEventToCalendar"], {
+    normalizeEventKitEvent,
+    serializeEventNote,
+    updateEventNote,
+    CalendarSnapshotChangedError,
+    calendarEventVersion,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+  });
+  let staged: CalendarEventRecord | undefined;
+  let upserts = 0;
+  Object.assign(plugin, {
+    writeCalendarNote: async (next: CalendarEventRecord) => {
+      staged = next;
+      return next;
+    },
+    readCalendarNoteSnapshotByPath: async () => ({
+      event: staged,
+      markdown: `${updateEventNote(original, staged!)}\nmanual edit`,
+    }),
+    eventKitBridge: { upsert: async () => { upserts += 1; return event; } },
+  });
+
+  await assert.rejects(
+    plugin.pushLinkedEventToCalendar(event, original),
+    (error: unknown) => error instanceof CalendarSnapshotChangedError,
+  );
+  assert.equal(upserts, 0, "an edited pending note must stop before EventKit");
+});
+
+test("a failed linked create removes only its temporary note so retry leaves one recoverable note", async () => {
+  class TestFile {
+    stat = { mtime: 100 };
+    path: string;
+    constructor(path: string) { this.path = path; }
+  }
+  const notes = new Map<string, { file: TestFile; event: CalendarEventRecord; markdown: string }>();
+  let created = 0;
+  let upserts = 0;
+  const draft: CalendarEventRecord = {
+    id: "evt_create_retry", title: "Retry fixture", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Activity",
+    source: "linked", appleCalendarId: "cal_1", syncState: "clean",
+  };
+  const plugin = loadMethods("src/main.ts", [
+    "saveCalendarEvent", "pushLinkedEventToCalendar", "discardCreatedPendingCalendarNote",
+  ], {
+    linkedEventSaveBlockReason,
+    normalizeEventKitEvent,
+    serializeEventNote,
+    updateEventNote,
+    CalendarSnapshotChangedError,
+    calendarEventVersion,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+    detachLinkedEvent,
+    TFile: TestFile,
+  });
+  Object.assign(plugin, {
+    settings: { defaultExternalCalendarId: "cal_1" },
+    isSelectedWritableCalendar: () => true,
+    writeCalendarNote: async (next: CalendarEventRecord, expectedMarkdown?: string) => {
+      const path = next.notePath ?? `Calendar/Events/retry-${++created}.md`;
+      const previous = notes.get(path);
+      if (expectedMarkdown !== undefined && previous?.markdown !== expectedMarkdown) {
+        throw new CalendarSnapshotChangedError();
+      }
+      const event = { ...next, notePath: path, vaultModifiedAt: "2026-10-05T00:00:00.000Z" };
+      const markdown = previous ? updateEventNote(previous.markdown, event) : serializeEventNote(event);
+      notes.set(path, { file: previous?.file ?? new TestFile(path), event, markdown });
+      return event;
+    },
+    readCalendarNoteSnapshotByPath: async (path: string) => {
+      const note = notes.get(path);
+      return note ? { event: note.event, markdown: note.markdown } : { event: null, markdown: "", error: "missing" };
+    },
+    app: {
+      vault: {
+        getFileByPath: (path: string) => notes.get(path)?.file ?? null,
+        read: async (file: TestFile) => notes.get(file.path)?.markdown ?? "",
+      },
+      fileManager: {
+        trashFile: async (file: TestFile) => { notes.delete(file.path); },
+      },
+    },
+    calendarWriteOverrides: new Map(),
+    calendarNoteCreateInFlight: new Set(),
+    calendarCreatedNotePaths: new Map(),
+    eventKitBridge: {
+      upsert: async (event: CalendarEventRecord) => {
+        upserts += 1;
+        if (upserts === 1) throw new EventKitMutationError("helper rejected create", "not-committed");
+        return {
+          ...event,
+          id: "apple:item_created",
+          source: "external" as const,
+          notePath: undefined,
+          appleItemId: "item_created",
+          appleExternalId: "external_created",
+          externalModifiedAt: "2026-10-05T00:01:00.000Z",
+        };
+      },
+    },
+    refreshCalendarEvents: async () => {},
+  });
+
+  await assert.rejects(plugin.saveCalendarEvent(draft), /temporary note was removed safely.*retry Save/i);
+  assert.equal(notes.size, 0, "the failed helper call must not strand an unreachable pending note");
+  assert.equal(draft.title, "Retry fixture", "the modal draft remains available for retry");
+
+  await plugin.saveCalendarEvent(draft);
+  assert.equal(notes.size, 1, "retry must leave exactly one note");
+  const saved = [...notes.values()][0].event;
+  assert.equal(saved.syncState, "clean");
+  assert.equal(saved.appleItemId, "item_created");
+});
+
+test("linked writes pass the freshly re-read EventKit version into the helper upsert", async () => {
+  const original = "---\ntype: event\n---\n\n# Before\n";
+  const external: CalendarEventRecord = {
+    id: "apple:item_1", title: "Before", start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z", allDay: false, calendar: "Activity",
+    source: "external", appleCalendarId: "cal_1", appleItemId: "item_1",
+    appleExternalId: "external_1", externalModifiedAt: "2026-10-05T00:04:00.000Z",
+  };
+  const event: CalendarEventRecord = {
+    ...external,
+    id: "evt_version", title: "Edited note", source: "linked",
+    notePath: "Calendar/Events/version.md", syncHash: eventSyncHash(external),
+  };
+  const plugin = loadMethods("src/main.ts", ["pushLinkedEventToCalendar"], {
+    normalizeEventKitEvent,
+    serializeEventNote,
+    updateEventNote,
+    CalendarSnapshotChangedError,
+    calendarEventVersion,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+  });
+  let staged: CalendarEventRecord | undefined;
+  let sent: CalendarEventRecord | undefined;
+  Object.assign(plugin, {
+    writeCalendarNote: async (next: CalendarEventRecord) => {
+      staged = next;
+      return next;
+    },
+    readCalendarNoteSnapshotByPath: async () => ({
+      event: staged,
+      markdown: updateEventNote(original, staged!),
+    }),
+    readFreshExternalEvent: async () => external,
+    isSelectedWritableCalendar: () => true,
+    eventKitBridge: {
+      upsert: async (next: CalendarEventRecord) => {
+        sent = next;
+        return { ...external, title: next.title, externalModifiedAt: "2026-10-05T00:05:00.000Z" };
+      },
+    },
+  });
+
+  const result = await plugin.pushLinkedEventToCalendar(event, original, external);
+  assert.equal(sent?.externalModifiedAt, external.externalModifiedAt);
+  assert.equal(sent?.appleItemId, external.appleItemId);
+  assert.equal(result.syncState, "clean");
+  assert.equal(result.externalModifiedAt, "2026-10-05T00:05:00.000Z");
+});
+
+test("stale Calendar editor saves and detaches stop before note or EventKit writes", async () => {
+  const { note } = conflictFixture();
+  const shown = { ...note, syncState: "clean" as const, conflictExternal: undefined };
+  const current = { ...shown, vaultModifiedAt: "2026-10-05T00:09:00.000Z" };
+  const plugin = loadMethods("src/main.ts", [
+    "calendarNoteSnapshotForAction", "saveCalendarEvent", "detachCalendarEvent",
+  ], {
+    CalendarSnapshotChangedError,
+    linkedEventSaveBlockReason: () => undefined,
+    detachLinkedEvent,
+  });
+  let noteWrites = 0;
+  let calendarWrites = 0;
+  Object.assign(plugin, {
+    readCalendarNoteSnapshotByPath: async () => ({ event: current, markdown: "newer" }),
+    writeCalendarNote: async () => { noteWrites += 1; },
+    pushLinkedEventToCalendar: async () => { calendarWrites += 1; },
+    settings: { defaultExternalCalendarId: "cal_1" },
+    isSelectedWritableCalendar: () => true,
+  });
+
+  await assert.rejects(plugin.saveCalendarEvent(shown), /changed after it was opened/);
+  await assert.rejects(plugin.detachCalendarEvent(shown, false), /changed after it was opened/);
+  assert.equal(noteWrites, 0);
+  assert.equal(calendarWrites, 0);
+});
+
+test("Recreate refuses a stale missing result when exact lookup finds the original item", async () => {
+  const { note, external } = conflictFixture();
+  const shown = {
+    ...note,
+    appleExternalId: undefined,
+    syncState: "unavailable" as const,
+    unavailableReason: "confirmed-missing" as const,
+  };
+  const plugin = loadMethods("src/main.ts", ["recreateCalendarEvent"]);
+  let creates = 0;
+  let refreshes = 0;
+  Object.assign(plugin, {
+    calendarNoteSnapshotForAction: async () => ({ event: shown, markdown: "current" }),
+    settings: { defaultExternalCalendarId: "cal_1", selectedCalendarIds: ["cal_1"] },
+    isSelectedWritableCalendar: () => true,
+    readFreshExternalEvent: async () => external,
+    pushLinkedEventToCalendar: async () => { creates += 1; },
+    refreshCalendarEvents: async () => { refreshes += 1; },
+  });
+
+  await assert.rejects(
+    plugin.recreateCalendarEvent(shown, CALENDAR_RECREATE_CONFIRMATION),
+    /original Calendar event is available again/,
+  );
+  assert.equal(creates, 0);
+  assert.equal(refreshes, 1);
+});
+
+test("Recreate targets the current writable default calendar after validating the original note", async () => {
+  const { note } = conflictFixture();
+  const shown: CalendarEventRecord = {
+    ...note,
+    appleCalendarId: "cal_old",
+    syncState: "unavailable",
+    unavailableReason: "unknown",
+    conflictExternal: undefined,
+  };
+  const plugin = loadMethods("src/main.ts", ["recreateCalendarEvent"]);
+  let sent: CalendarEventRecord | undefined;
+  Object.assign(plugin, {
+    calendarNoteSnapshotForAction: async () => ({ event: shown, markdown: "current" }),
+    settings: { defaultExternalCalendarId: "cal_default", selectedCalendarIds: ["cal_default"] },
+    externalCalendars: [{ id: "cal_default", title: "Default test calendar", writable: true }],
+    isSelectedWritableCalendar: (id: string) => id === "cal_default",
+    readFreshExternalEvent: async () => undefined,
+    pushLinkedEventToCalendar: async (event: CalendarEventRecord) => {
+      sent = event;
+      return { ...event, syncState: "clean" as const };
+    },
+    refreshCalendarEvents: async () => {},
+    ambiguousCalendarCreateIds: new Set(),
+    recordIssue() {},
+  });
+
+  await plugin.recreateCalendarEvent(shown, CALENDAR_RECREATE_CONFIRMATION);
+  assert.equal(sent?.appleCalendarId, "cal_default");
+  assert.equal(sent?.calendar, "Default test calendar");
+  assert.equal(sent?.appleItemId, undefined);
+});
+
+test("fresh Calendar lookup rejects a reused item id with a different stable external identity", async () => {
+  const { note, external } = conflictFixture();
+  const plugin = loadMethods("src/main.ts", ["readFreshExternalEvent"], {
+    calendarFetchWindow,
+    stableExternalCandidates,
+  });
+  Object.assign(plugin, {
+    settings: { selectedCalendarIds: ["cal_1"] },
+    eventKitBridge: {
+      lookup: async () => ({ ...external, appleExternalId: "external_reused" }),
+      events: async () => [],
+    },
+  });
+
+  await assert.rejects(
+    plugin.readFreshExternalEvent(note, note),
+    /external identity no longer matches/,
+  );
+});
+
+test("two stale Calendar-only editors can create only one linked note", async () => {
+  const hold = deferred<void>();
+  let writes = 0;
+  const plugin = loadMethods("src/main.ts", ["saveCalendarEvent"], {
+    linkedEventSaveBlockReason,
+    eventSyncHash,
+  });
+  const shown: CalendarEventRecord = {
+    id: "apple:item_external",
+    title: "Calendar-only fixture",
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Test calendar",
+    source: "linked",
+    syncState: "clean",
+    readOnly: true,
+    appleCalendarId: "cal_1",
+    appleItemId: "item_external",
+    appleExternalId: "external_1",
+    clientRequestId: "link-item_external",
+  };
+  Object.assign(plugin, {
+    calendarNoteCreateInFlight: new Set(),
+    calendarCreatedNotePaths: new Map(),
+    ambiguousCalendarCreateIds: new Set(),
+    writeCalendarNote: async (event: CalendarEventRecord) => {
+      writes += 1;
+      await hold.promise;
+      return { ...event, notePath: "Calendar/Events/Calendar-only fixture.md" };
+    },
+    refreshCalendarEvents: async () => {},
+  });
+
+  const first = plugin.saveCalendarEvent({ ...shown });
+  await Promise.resolve();
+  await assert.rejects(
+    plugin.saveCalendarEvent({ ...shown }),
+    /already been created/,
+  );
+  hold.resolve();
+  await first;
+
+  await assert.rejects(
+    plugin.saveCalendarEvent({ ...shown }),
+    /already been created/,
+  );
+  assert.equal(writes, 1);
+});
+
+test("Calendar deletion carries the exact external version to the helper", async () => {
+  const { external } = conflictFixture();
+  let removed: unknown[] | undefined;
+  const plugin = loadMethods("src/main.ts", ["detachCalendarEvent"]);
+  Object.assign(plugin, {
+    isSelectedWritableCalendar: () => true,
+    eventKitBridge: {
+      lookup: async () => external,
+      remove: async (...args: unknown[]) => { removed = args; },
+    },
+    refreshCalendarEvents: async () => {},
+  });
+
+  await plugin.detachCalendarEvent(external, true);
+  assert.deepEqual(removed, [
+    external.appleItemId,
+    external.externalModifiedAt,
+    "this",
+    external.occurrenceDate,
+    external.start,
+  ]);
+});
+
+test("calendar sync revalidates a note after a deferred EventKit read and refuses the stale write", async () => {
+  const baseline = {
+    id: "evt_deferred",
+    title: "Baseline",
+    start: "2026-10-06T08:00:00.000Z",
+    end: "2026-10-06T09:00:00.000Z",
+    allDay: false,
+    calendar: "Activity",
+    source: "linked" as const,
+    notePath: "Calendar/Events/deferred.md",
+    appleCalendarId: "cal_1",
+    appleItemId: "item_1",
+    appleExternalId: "external_1",
+  };
+  const syncHash = eventSyncHash(baseline);
+  const before = {
+    type: "event", "event-id": baseline.id, title: baseline.title,
+    start: baseline.start, end: baseline.end, "all-day": false,
+    calendar: baseline.calendar, "event-source": "linked",
+    "apple-calendar-id": baseline.appleCalendarId, "apple-item-id": baseline.appleItemId,
+    "apple-external-id": baseline.appleExternalId, "sync-hash": syncHash,
+  };
+  const after = { ...before, title: "Edited while Calendar was loading" };
+  const outside = { ...baseline, title: "Changed in Calendar", source: "external" as const };
+  const initialEventKitRead = deferred<CalendarEventRecord[]>();
+  let currentMarkdown = "before";
+  const file = { path: baseline.notePath, stat: { mtime: 100 } };
+  let eventKitReads = 0;
+  let noteWrites = 0;
+  let calendarWrites = 0;
+  const plugin = loadMethods("src/main.ts", [
+    "readCalendarNoteSnapshot", "readCalendarNoteSnapshotByPath", "calendarNoteErrorRecord",
+    "readFreshExternalEvent", "revalidateCalendarWrite", "calendarWriteRaceEvent", "performCalendarRefresh",
+  ], {
+    Platform: { isMacOS: true },
+    getFrontMatterInfo: (markdown: string) => ({ exists: true, frontmatter: markdown }),
+    parseYaml: (marker: string) => marker === "before" ? before : after,
+    recordFromFrontmatter,
+    resolveCalendarWriteOverride,
+    calendarFetchWindow,
+    calendarIdentityKeys,
+    classifyLinkedAvailability,
+    classifyLinkedChange,
+    mergeExternalIntoLinked,
+    summarizeCalendarSync,
+    calendarEventVersion,
+    CalendarSnapshotChangedError,
+    TFile: class { static [Symbol.hasInstance]() { return true; } },
+  });
+  Object.assign(plugin, {
+    app: {
+      vault: {
+        getMarkdownFiles: () => [file],
+        getFileByPath: () => file,
+        read: async () => currentMarkdown,
+      },
+      metadataCache: { getFileCache: () => ({ frontmatter: before }) },
+    },
+    settings: { selectedCalendarIds: ["cal_1"] },
+    eventKitBridge: {
+      events: async () => {
+        eventKitReads += 1;
+        return await initialEventKitRead.promise;
+      },
+      lookup: async () => outside,
+    },
+    hasEventKitHelper: () => true,
+    calendarWriteOverrides: new Map(),
+    calendarEvents: [],
+    writeCalendarNote: async () => { noteWrites += 1; },
+    pushLinkedEventToCalendar: async () => { calendarWrites += 1; },
+    clearIssue() {},
+    recordIssue() {},
+    refreshOpenViews() {},
+  });
+
+  const syncing = plugin.performCalendarRefresh(true);
+  await Promise.resolve();
+  currentMarkdown = "after";
+  file.stat.mtime = 200;
+  initialEventKitRead.resolve([outside]);
+  const summary = await syncing;
+
+  assert.deepEqual(summary, { conflicts: 1, unavailable: 0, errors: 0, pending: 0 });
+  assert.equal(plugin.calendarEvents[0].title, "Edited while Calendar was loading");
+  assert.equal(plugin.calendarEvents[0].conflictExternal.title, "Changed in Calendar");
+  assert.equal(noteWrites, 0);
+  assert.equal(calendarWrites, 0);
+  assert.equal(eventKitReads, 2, "revalidation re-reads the window so duplicate stable identities cannot be hidden by an exact lookup");
+});
+
+function conflictFixture() {
+  const note: CalendarEventRecord = {
+    id: "evt_modal",
+    title: "Note version",
+    start: "2026-10-06T08:00:00.000Z",
+    end: "2026-10-06T09:00:00.000Z",
+    allDay: false,
+    calendar: "Activity",
+    source: "linked" as const,
+    notePath: "Calendar/Events/modal.md",
+    appleCalendarId: "cal_1",
+    appleItemId: "item_1",
+    appleExternalId: "external_1",
+    syncHash: "v1:baseline",
+    vaultModifiedAt: "2026-10-05T00:00:00.000Z",
+    syncState: "conflict" as const,
+  };
+  const external: CalendarEventRecord = {
+    ...note,
+    title: "Calendar version",
+    source: "external" as const,
+    notePath: undefined,
+    syncHash: undefined,
+    vaultModifiedAt: undefined,
+    externalModifiedAt: "2026-10-05T00:01:00.000Z",
+    syncState: "clean" as const,
+  };
+  return { note: { ...note, conflictExternal: external }, external };
+}
+
+function conflictResolverHarness(event: CalendarEventRecord, outside: CalendarEventRecord) {
+  const plugin = loadMethods("src/main.ts", ["resolveCalendarConflict"], {
+    calendarEventVersion,
+    CalendarSnapshotChangedError,
+    mergeExternalIntoLinked,
+  });
+  let current: CalendarEventRecord = { ...event, conflictExternal: undefined };
+  let currentMarkdown = "current";
+  let freshOutside = outside;
+  let writes = 0;
+  let refreshes = 0;
+  Object.assign(plugin, {
+    readCalendarNoteSnapshotByPath: async () => ({ event: current, markdown: currentMarkdown }),
+    readFreshExternalEvent: async () => freshOutside,
+    isSelectedWritableCalendar: () => true,
+    writeCalendarNote: async (next: CalendarEventRecord) => {
+      writes += 1;
+      current = { ...next, conflictExternal: undefined };
+      currentMarkdown = `written-${writes}`;
+      return next;
+    },
+    pushLinkedEventToCalendar: async (next: CalendarEventRecord) => ({ ...next, syncState: "clean" }),
+    refreshCalendarEvents: async () => { refreshes += 1; },
+    recordIssue() {},
+  });
+  return {
+    plugin,
+    get writes() { return writes; },
+    get refreshes() { return refreshes; },
+    setCurrent(next: CalendarEventRecord) { current = next; },
+    setExternal(next: CalendarEventRecord) { freshOutside = next; },
+  };
+}
+
+test("a conflict choice is rejected when the note changed after the modal opened", async () => {
+  const { note, external } = conflictFixture();
+  const harness = conflictResolverHarness(note, external);
+  harness.setCurrent({ ...note, title: "Newer note edit", conflictExternal: undefined });
+  await assert.rejects(
+    harness.plugin.resolveCalendarConflict(note, "external"),
+    /conflict changed after the comparison opened/,
+  );
+  assert.equal(harness.writes, 0);
+  assert.equal(harness.refreshes, 1);
+});
+
+test("a conflict choice is rejected when the Calendar item changed after the modal opened", async () => {
+  const { note, external } = conflictFixture();
+  const harness = conflictResolverHarness(note, external);
+  harness.setExternal({ ...external, title: "Newer Calendar edit", externalModifiedAt: "2026-10-05T00:02:00.000Z" });
+  await assert.rejects(
+    harness.plugin.resolveCalendarConflict(note, "external"),
+    /conflict changed after the comparison opened/,
+  );
+  assert.equal(harness.writes, 0);
+  assert.equal(harness.refreshes, 1);
+});
+
+test("only the first of two independently opened conflict modals can resolve the shown versions", async () => {
+  const { note, external } = conflictFixture();
+  const harness = conflictResolverHarness(note, external);
+  await harness.plugin.resolveCalendarConflict(note, "external");
+  await assert.rejects(
+    harness.plugin.resolveCalendarConflict(note, "external"),
+    /conflict changed after the comparison opened/,
+  );
+  assert.equal(harness.writes, 1);
+  assert.equal(harness.refreshes, 2);
+});
+
+test("a later conflict with freshly shown versions can be resolved after an earlier conflict", async () => {
+  const { note, external } = conflictFixture();
+  const harness = conflictResolverHarness(note, external);
+  await harness.plugin.resolveCalendarConflict(note, "external");
+  const nextExternal = {
+    ...external,
+    title: "Calendar version 2",
+    externalModifiedAt: "2026-10-05T00:03:00.000Z",
+  };
+  const nextNote = {
+    ...note,
+    title: "Note version 2",
+    syncHash: eventSyncHash(external),
+    conflictExternal: nextExternal,
+  };
+  harness.setCurrent({ ...nextNote, conflictExternal: undefined });
+  harness.setExternal(nextExternal);
+  await harness.plugin.resolveCalendarConflict(nextNote, "external");
+  assert.equal(harness.writes, 2);
+});
+
+test("calendar note writes use the exact markdown snapshot as a compare-and-swap guard", async () => {
+  const plugin = loadMethods("src/main.ts", ["writeCalendarNote"], {
+    normalizeEventKitEvent: (event: CalendarEventRecord) => event,
+    updateEventNote: () => { throw new Error("must not update stale markdown"); },
+    CalendarSnapshotChangedError,
+  });
+  const file = { path: "Calendar/Events/cas.md", stat: { mtime: 100 } };
+  const { note } = conflictFixture();
+  Object.assign(plugin, {
+    ensureFolder: async () => {},
+    app: {
+      vault: {
+        getFileByPath: () => file,
+        process: async (_file: unknown, transform: (current: string) => string) => transform("newer markdown"),
+      },
+    },
+    calendarWriteOverrides: new Map(),
+  });
+
+  await assert.rejects(
+    plugin.writeCalendarNote(note, "shown markdown"),
+    (error: unknown) => error instanceof CalendarSnapshotChangedError,
+  );
+  assert.equal(plugin.calendarWriteOverrides.size, 0);
+});
+
+test("an updated Calendar note returns its write-after mtime so the next action is not falsely stale", async () => {
+  const plugin = loadMethods("src/main.ts", ["writeCalendarNote", "calendarNoteSnapshotForAction"], {
+    normalizeEventKitEvent: (event: CalendarEventRecord) => event,
+    updateEventNote: () => "saved markdown",
+    CalendarSnapshotChangedError,
+  });
+  const file = { path: "Calendar/Events/immediate-action.md", stat: { mtime: 100 } };
+  const { note } = conflictFixture();
+  const current = {
+    ...note,
+    notePath: file.path,
+    conflictExternal: undefined,
+    syncState: "clean" as const,
+  };
+  Object.assign(plugin, {
+    ensureFolder: async () => {},
+    app: {
+      vault: {
+        getFileByPath: () => file,
+        process: async (_file: unknown, transform: (markdown: string) => string) => {
+          assert.equal(transform("shown markdown"), "saved markdown");
+          file.stat.mtime = 250;
+        },
+      },
+    },
+    calendarWriteOverrides: new Map(),
+  });
+
+  const saved = await plugin.writeCalendarNote(current, "shown markdown");
+  assert.equal(saved.vaultModifiedAt, new Date(250).toISOString());
+  plugin.readCalendarNoteSnapshotByPath = async () => ({ event: { ...saved }, markdown: "saved markdown" });
+  const immediateSnapshot = await plugin.calendarNoteSnapshotForAction(saved);
+  assert.equal(immediateSnapshot.event.vaultModifiedAt, saved.vaultModifiedAt);
+  assert.equal(plugin.calendarWriteOverrides.get(file.path).event.vaultModifiedAt, saved.vaultModifiedAt);
+});
+
+test("a newly created Calendar note returns the created file mtime", async () => {
+  const plugin = loadMethods("src/main.ts", ["writeCalendarNote", "calendarNoteSnapshotForAction"], {
+    normalizeEventKitEvent: (event: CalendarEventRecord) => event,
+    serializeEventNote: () => "created markdown",
+    eventNotePath: () => "Calendar/Events/created.md",
+    CalendarSnapshotChangedError,
+  });
+  const file = { path: "Calendar/Events/created.md", stat: { mtime: 400 } };
+  const { note } = conflictFixture();
+  const creating = {
+    ...note,
+    notePath: undefined,
+    appleCalendarId: undefined,
+    appleItemId: undefined,
+    appleExternalId: undefined,
+    conflictExternal: undefined,
+    syncState: "clean" as const,
+  };
+  Object.assign(plugin, {
+    ensureFolder: async () => {},
+    uniquePath: async () => file.path,
+    app: {
+      vault: {
+        getFileByPath: () => null,
+        create: async () => file,
+      },
+    },
+    calendarWriteOverrides: new Map(),
+  });
+
+  const saved = await plugin.writeCalendarNote(creating);
+  assert.equal(saved.vaultModifiedAt, new Date(400).toISOString());
+  plugin.readCalendarNoteSnapshotByPath = async () => ({ event: { ...saved }, markdown: "created markdown" });
+  await assert.doesNotReject(plugin.calendarNoteSnapshotForAction(saved));
+  assert.equal(plugin.calendarWriteOverrides.get(file.path).event.vaultModifiedAt, saved.vaultModifiedAt);
+});
 
 test("dismissing the current issue clears its matching capture retry and preserves exact-ID semantics", () => {
   const plugin = loadMethods("src/main.ts", [

@@ -1,4 +1,4 @@
-import { App, Notice, Platform, PluginSettingTab, Setting, TextComponent } from "obsidian";
+import { App, ButtonComponent, Notice, Platform, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import {
   AI_PROVIDER_VALUES,
   DEFAULT_AI_MODELS,
@@ -46,6 +46,7 @@ import { localFilePathFromDataTransfer, normalizeLocalAccessPath } from "./omnib
 
 const CUSTOM_OCR_DEFAULT_DESCRIPTION = "Advanced: enter up to eight installed Tesseract language pack ids joined with +. Script packs such as script/HanS are supported.";
 const INVALID_CUSTOM_OCR_NOTICE = "Custom OCR must use up to eight safe Tesseract language pack ids joined with +.";
+const CALENDAR_HELPER_INPUT_DEBOUNCE_MS = 300;
 
 function disableUnavailableLocalModelOptions(selectEl: HTMLSelectElement, models: LocalAiModelEntry[]): void {
   const unavailableNames = new Set(
@@ -172,27 +173,35 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       return;
     }
 
-    const resolvedHelperPath = this.plugin.resolvedEventKitHelperPath();
-    const helperAvailable = this.plugin.hasEventKitHelper();
+    const initialHelper = calendarHelperPresentation(
+      this.plugin.settings.eventKitHelperPath,
+      this.plugin.resolvedEventKitHelperPath(),
+      this.plugin.hasEventKitHelper(),
+      false,
+      this.plugin.calendarHelperProtocolStatus,
+    );
+    let refreshButton!: ButtonComponent;
     const connection = new Setting(container)
-      .setName(helperAvailable ? "Calendar connection" : "Calendar helper unavailable")
-      .setDesc(helperAvailable
-        ? "Load Apple Calendar plus Google and Outlook accounts already added to macOS Calendar. You choose which calendars OMD Home can use."
-        : "Apple Calendar needs the optional EventKit helper, which is not included in the standard Marketplace files. Open Calendar setup or Advanced Calendar helper below.")
-      .addButton((button) => button
-        .setButtonText(this.plugin.calendarLoading ? "Loading…" : helperAvailable ? "Refresh calendars" : "Try again")
-        .setDisabled(this.plugin.calendarLoading)
-        .onClick(async () => {
-          button.setDisabled(true).setButtonText("Loading…");
-          await this.plugin.refreshExternalCalendars();
-          if (container.isConnected) this.renderCalendarSection(container);
-        }));
-    connection.settingEl.addClass("omd-settings-calendar-status", helperAvailable ? "is-ready" : "is-unavailable");
+      .setName(initialHelper.connectionName)
+      .setDesc(initialHelper.connectionDescription)
+      .addButton((button) => {
+        refreshButton = button;
+        button
+          .setButtonText(this.plugin.calendarLoading ? "Loading…" : initialHelper.buttonText)
+          .setDisabled(this.plugin.calendarLoading)
+          .onClick(async () => {
+            button.setDisabled(true).setButtonText("Loading…");
+            await this.plugin.refreshExternalCalendars();
+            if (container.isConnected) this.renderCalendarSection(container);
+          });
+      });
+    connection.settingEl.addClass("omd-settings-calendar-status", initialHelper.statusClass);
 
+    let calendarRefreshFeedback: HTMLElement | null = null;
     if (this.plugin.calendarFeedback) {
-      const feedback = container.createDiv({ cls: `omd-settings-feedback is-${this.plugin.calendarFeedback.tone}` });
-      feedback.createEl("strong", { text: this.plugin.calendarFeedback.message });
-      feedback.createSpan({ text: new Date(this.plugin.calendarFeedback.at).toLocaleTimeString() });
+      calendarRefreshFeedback = container.createDiv({ cls: `omd-settings-feedback is-${this.plugin.calendarFeedback.tone}` });
+      calendarRefreshFeedback.createEl("strong", { text: this.plugin.calendarFeedback.message });
+      calendarRefreshFeedback.createSpan({ text: new Date(this.plugin.calendarFeedback.at).toLocaleTimeString() });
     }
 
     const calendars = this.plugin.externalCalendars;
@@ -255,28 +264,95 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       "Advanced Calendar helper",
       "Leave this blank to use an optional helper installed beside the plugin. Set an absolute path only for development or recovery.",
     );
-    advanced.toggleAttribute("open", !helperAvailable || Boolean(this.plugin.settings.eventKitHelperPath));
+    advanced.toggleAttribute("open", !this.plugin.hasEventKitHelper() || Boolean(this.plugin.settings.eventKitHelperPath));
+    let helperInput!: TextComponent;
+    let useBundledButton!: ButtonComponent;
+    let helperSaveTimer: number | null = null;
+    let helperRevision = 0;
     const helperSetting = new Setting(advanced)
       .setName("Helper override")
-      .setDesc(this.plugin.settings.eventKitHelperPath
-        ? helperAvailable ? "Using the custom helper path." : "The custom helper was not found or is not executable."
-        : `Automatic path: ${resolvedHelperPath || "not resolved"}`)
-      .addText((text) => text
-        .setPlaceholder("Automatic bundled helper")
-        .setValue(this.plugin.settings.eventKitHelperPath)
-        .onChange(async (value) => {
-          this.plugin.settings.eventKitHelperPath = value.trim();
-          await this.saveSettingsInOrder();
-        }));
-    if (this.plugin.settings.eventKitHelperPath) {
-      helperSetting.addButton((button) => button
-        .setButtonText("Use bundled")
-        .onClick(async () => {
-          this.plugin.settings.eventKitHelperPath = "";
-          await this.saveSettingsInOrder();
-          if (container.isConnected) this.renderCalendarSection(container);
-        }));
-    }
+      .setDesc(initialHelper.overrideDescription)
+      .addText((text) => {
+        helperInput = text;
+        text
+          .setPlaceholder("Automatic bundled helper")
+          .setValue(this.plugin.settings.eventKitHelperPath)
+          .onChange((value) => {
+            const nextPath = value.trim();
+            if (nextPath === this.plugin.settings.eventKitHelperPath) return;
+            this.plugin.settings.eventKitHelperPath = nextPath;
+            this.plugin.resetEventKitHelperCompatibility();
+            this.plugin.calendarFeedback = null;
+            calendarRefreshFeedback?.remove();
+            calendarRefreshFeedback = null;
+            const revision = ++helperRevision;
+            if (helperSaveTimer !== null) window.clearTimeout(helperSaveTimer);
+            updateHelperDisplay(Boolean(nextPath));
+            helperSaveTimer = window.setTimeout(() => {
+              helperSaveTimer = null;
+              if (revision === helperRevision && container.isConnected) updateHelperDisplay(false);
+              const finish = (): void => {
+                if (revision === helperRevision && container.isConnected) updateHelperDisplay(false);
+              };
+              void this.saveSettingsInOrder().then(finish, finish);
+            }, CALENDAR_HELPER_INPUT_DEBOUNCE_MS);
+          });
+      })
+      .addButton((button) => {
+        useBundledButton = button;
+        button
+          .setButtonText("Use bundled")
+          .onClick(async () => {
+            if (helperSaveTimer !== null) window.clearTimeout(helperSaveTimer);
+            helperSaveTimer = null;
+            helperRevision += 1;
+            this.plugin.settings.eventKitHelperPath = "";
+            this.plugin.resetEventKitHelperCompatibility();
+            this.plugin.calendarFeedback = null;
+            calendarRefreshFeedback?.remove();
+            calendarRefreshFeedback = null;
+            helperInput.setValue("");
+            helperInput.inputEl.focus();
+            updateHelperDisplay(false);
+            await this.saveSettingsInOrder();
+            if (container.isConnected) updateHelperDisplay(false);
+          });
+      });
+    const helperFeedback = advanced.createDiv({ cls: "omd-settings-feedback" });
+    helperFeedback.id = "omd-settings-calendar-helper-feedback";
+    helperFeedback.setAttribute("aria-live", "polite");
+    helperInput.inputEl.setAttribute("aria-describedby", helperFeedback.id);
+
+    const updateHelperDisplay = (checking: boolean): void => {
+      const presentation = calendarHelperPresentation(
+        this.plugin.settings.eventKitHelperPath,
+        this.plugin.resolvedEventKitHelperPath(),
+        this.plugin.hasEventKitHelper(),
+        checking,
+        this.plugin.calendarHelperProtocolStatus,
+      );
+      connection.setName(presentation.connectionName).setDesc(presentation.connectionDescription);
+      connection.settingEl.removeClass("is-ready", "is-unavailable");
+      if (presentation.statusClass) connection.settingEl.addClass(presentation.statusClass);
+      refreshButton
+        .setButtonText(this.plugin.calendarLoading ? "Loading…" : presentation.buttonText)
+        .setDisabled(this.plugin.calendarLoading || checking);
+      helperSetting.setDesc(presentation.overrideDescription);
+      useBundledButton.buttonEl.hidden = !presentation.custom;
+      helperFeedback.empty();
+      helperFeedback.removeClass("is-success", "is-error", "is-neutral");
+      helperFeedback.hidden = presentation.feedback === null;
+      helperInput.inputEl.removeAttribute("aria-invalid");
+      if (presentation.feedback) {
+        helperFeedback.addClass(`is-${presentation.feedback.tone}`);
+        helperFeedback.setAttribute("role", presentation.feedback.tone === "error" ? "alert" : "status");
+        helperFeedback.createEl("strong", { text: presentation.feedback.message });
+        if (presentation.feedback.tone === "error") helperInput.inputEl.setAttribute("aria-invalid", "true");
+      } else {
+        helperFeedback.removeAttribute("role");
+      }
+    };
+    updateHelperDisplay(false);
   }
 
   private renderLocalAiSection(container: HTMLElement): void {
@@ -1371,6 +1447,105 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     );
     setting.settingEl.addClass("omd-settings-embedding-model");
   }
+}
+
+interface CalendarHelperPresentation {
+  custom: boolean;
+  connectionName: string;
+  connectionDescription: string;
+  overrideDescription: string;
+  statusClass: "" | "is-ready" | "is-unavailable";
+  buttonText: string;
+  feedback: { tone: "success" | "error" | "neutral"; message: string } | null;
+}
+
+export function calendarHelperPresentation(
+  configuredPath: string,
+  resolvedPath: string,
+  available: boolean,
+  checking = false,
+  protocolStatus: "unchecked" | "compatible" | "incompatible" = "compatible",
+): CalendarHelperPresentation {
+  const custom = Boolean(configuredPath.trim());
+  const automaticPath = resolvedPath.trim() || "not resolved";
+  if (custom && checking) {
+    return {
+      custom,
+      connectionName: "Checking Calendar helper",
+      connectionDescription: "Saving and checking the custom helper path…",
+      overrideDescription: "Saving and checking the custom helper path…",
+      statusClass: "",
+      buttonText: "Checking…",
+      feedback: { tone: "neutral", message: "Checking the custom helper path…" },
+    };
+  }
+  if (custom && !available) {
+    return {
+      custom,
+      connectionName: "Custom Calendar helper unavailable",
+      connectionDescription: "The custom helper is missing or not executable. Check the absolute path and file permissions.",
+      overrideDescription: "Custom helper missing or not executable.",
+      statusClass: "is-unavailable",
+      buttonText: "Try again",
+      feedback: {
+        tone: "error",
+        message: "Custom helper missing or not executable. Check the absolute path and file permissions.",
+      },
+    };
+  }
+  if (available && protocolStatus === "incompatible") {
+    return {
+      custom,
+      connectionName: "Update Calendar helper",
+      connectionDescription: "This Calendar helper is executable but uses an incompatible protocol. Update or reinstall OMD Home, then check the helper again.",
+      overrideDescription: "Calendar helper protocol is incompatible. Update the helper, then check again.",
+      statusClass: "is-unavailable",
+      buttonText: "Check again",
+      feedback: { tone: "error", message: "Calendar helper update required. No Calendar data was read or changed." },
+    };
+  }
+  if (available && protocolStatus === "unchecked") {
+    return {
+      custom,
+      connectionName: "Calendar helper not checked",
+      connectionDescription: "An executable helper was found. Check its protocol before OMD Home reads or changes Calendar data.",
+      overrideDescription: custom ? "Custom helper found; protocol not checked." : `Automatic helper found; protocol not checked: ${automaticPath}`,
+      statusClass: "",
+      buttonText: "Check helper",
+      feedback: { tone: "neutral", message: "Check the Calendar helper before using Calendar sync." },
+    };
+  }
+  if (custom) {
+    return {
+      custom,
+      connectionName: "Calendar connection",
+      connectionDescription: "The custom Calendar helper is ready. Refresh calendars to load accounts through it.",
+      overrideDescription: "Custom helper ready.",
+      statusClass: "is-ready",
+      buttonText: "Refresh calendars",
+      feedback: { tone: "success", message: "Custom Calendar helper ready." },
+    };
+  }
+  if (available) {
+    return {
+      custom,
+      connectionName: "Calendar connection",
+      connectionDescription: "Load Apple Calendar plus Google and Outlook accounts already added to macOS Calendar. You choose which calendars OMD Home can use.",
+      overrideDescription: `Automatic helper ready: ${automaticPath}`,
+      statusClass: "is-ready",
+      buttonText: "Refresh calendars",
+      feedback: null,
+    };
+  }
+  return {
+    custom,
+    connectionName: "Calendar helper unavailable",
+    connectionDescription: "Apple Calendar needs the optional EventKit helper, which is not included in the standard Marketplace files. Open Calendar setup or Advanced Calendar helper below.",
+    overrideDescription: `Automatic helper not found: ${automaticPath}`,
+    statusClass: "is-unavailable",
+    buttonText: "Try again",
+    feedback: null,
+  };
 }
 
 function omdStatusTitle(

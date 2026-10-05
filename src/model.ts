@@ -22,6 +22,13 @@ export interface WidgetPlacement {
 
 export type EventSource = "vault" | "external" | "linked";
 
+export type CalendarUnavailableReason =
+  | "confirmed-missing"
+  | "calendar-deselected"
+  | "setup-or-read-failure"
+  | "outside-window"
+  | "unknown";
+
 export interface CalendarEventRecord {
   id: string;
   title: string;
@@ -36,11 +43,15 @@ export interface CalendarEventRecord {
   appleItemId?: string;
   appleExternalId?: string;
   occurrenceDate?: string;
+  clientRequestId?: string;
+  /** Runtime-only start used to locate a recurring occurrence before an edit moves it. */
+  externalStartHint?: string;
   lastSyncedAt?: string;
   syncHash?: string;
   vaultModifiedAt?: string;
   externalModifiedAt?: string;
   syncState?: "clean" | "conflict" | "pending" | "unavailable" | "error";
+  unavailableReason?: CalendarUnavailableReason;
   pendingDirection?: "vault" | "external";
   readOnly?: boolean;
   conflictExternal?: CalendarEventRecord;

@@ -175,6 +175,16 @@ test("Home note surfaces and vault search results expose the shared pin action",
   assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
 });
 
+test("event source meaning stays available from the calendar widget menu without a permanent legend", () => {
+  assert.match(homeSource, /row\.createSpan\(\{ cls: `omd-source-mark is-\$\{event\.source\}`, attr: \{ "aria-hidden": "true" \} \}\)/u);
+  assert.match(homeSource, /`Source: \$\{source\.label\}\. \$\{source\.description\}\.`/u);
+  const widgetMenu = extractMethodBody(homeSource, "private openWidgetMenu(");
+  assert.match(widgetMenu, /id === "today" \|\| id === "upcoming"/u);
+  assert.match(widgetMenu, /setTitle\("Event source key"\)[\s\S]*setIsLabel\(true\)/u);
+  assert.match(widgetMenu, /EVENT_SOURCE_ORDER[\s\S]*presentation\.glyph[\s\S]*presentation\.description[\s\S]*setIsLabel\(true\)/u);
+  assert.doesNotMatch(widgetMenu, /presentation\.description[\s\S]*setDisabled\(true\)/u);
+});
+
 test("Inbox and Recent share one cached metadata snapshot and responsive note renderer", () => {
   assert.match(homeSource, /this\.noteSnapshot = buildHomeNoteSnapshot\(/u);
   assert.match(homeSource, /tags: cache \? getAllTags\(cache\) \?\? \[\] : \[\]/u);

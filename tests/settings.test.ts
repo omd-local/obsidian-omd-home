@@ -669,6 +669,52 @@ test("Calendar settings keep the helper override advanced and expose one primary
   assert.match(source, /allow Calendar access if macOS asks/u);
 });
 
+test("Calendar helper override reports readiness without waiting for a manual refresh", () => {
+  const present = loadCalendarHelperPresentation(source);
+  const missing = present("/missing/omd-eventkit", "/missing/omd-eventkit", false);
+  assert.equal(missing.connectionName, "Custom Calendar helper unavailable");
+  assert.equal(missing.statusClass, "is-unavailable");
+  assert.equal(missing.feedback?.tone, "error");
+  assert.match(missing.feedback?.message ?? "", /missing or not executable/u);
+
+  const checking = present("/custom/omd-eventkit", "/custom/omd-eventkit", false, true);
+  assert.equal(checking.statusClass, "");
+  assert.equal(checking.buttonText, "Checking…");
+  assert.equal(checking.feedback?.tone, "neutral");
+
+  const customReady = present("/custom/omd-eventkit", "/custom/omd-eventkit", true);
+  assert.equal(customReady.statusClass, "is-ready");
+  assert.equal(customReady.feedback?.tone, "success");
+
+  const automaticReady = present("", "/vault/.obsidian/plugins/omd-home/omd-eventkit", true);
+  assert.equal(automaticReady.custom, false);
+  assert.equal(automaticReady.statusClass, "is-ready");
+  assert.equal(automaticReady.feedback, null);
+  assert.match(automaticReady.overrideDescription, /Automatic helper ready/u);
+
+  const unchecked = present("", "/vault/.obsidian/plugins/omd-home/omd-eventkit", true, false, "unchecked");
+  assert.equal(unchecked.connectionName, "Calendar helper not checked");
+  assert.equal(unchecked.statusClass, "");
+  assert.equal(unchecked.buttonText, "Check helper");
+
+  const incompatible = present("", "/vault/.obsidian/plugins/omd-home/omd-eventkit", true, false, "incompatible");
+  assert.equal(incompatible.connectionName, "Update Calendar helper");
+  assert.equal(incompatible.statusClass, "is-unavailable");
+  assert.equal(incompatible.buttonText, "Check again");
+  assert.match(incompatible.feedback?.message ?? "", /No Calendar data was read or changed/u);
+
+  const calendarBlock = extractFunctionBody(source, "private renderCalendarSection");
+  const helperStart = calendarBlock.indexOf("const helperSetting");
+  const helperEnd = calendarBlock.indexOf("const helperFeedback", helperStart);
+  const helperControls = calendarBlock.slice(helperStart, helperEnd);
+  assert.match(helperControls, /CALENDAR_HELPER_INPUT_DEBOUNCE_MS/u);
+  assert.match(helperControls, /this\.plugin\.calendarFeedback = null/u);
+  assert.match(helperControls, /updateHelperDisplay\(Boolean\(nextPath\)\)/u);
+  assert.match(helperControls, /updateHelperDisplay\(false\);[\s\S]*this\.saveSettingsInOrder\(\)/u);
+  assert.match(helperControls, /helperInput\.setValue\(""\)[\s\S]*updateHelperDisplay\(false\)[\s\S]*await this\.saveSettingsInOrder\(\)/u);
+  assert.doesNotMatch(helperControls, /selectedCalendarIds|defaultExternalCalendarId/u);
+});
+
 test("Python bridge settings prefer the bundled bridge while retaining an explicit override", () => {
   assert.match(source, /Using the bridge bundled inside OMD Home automatically/u);
   assert.match(source, /Leave blank for automatic detection from the OMD environment/u);
@@ -759,6 +805,31 @@ function loadSettingsHelpers(fileSource: string): {
     function normalizeSavedAccessPath(value) ${normalizeSavedAccessPathBody}
     return { DEFAULT_SETTINGS, normalizeOmdHomeSettings, reconcileCalendarSelection, normalizeDefaultExternalCalendarId };
   `)(normalizeLocalAccessPath) as ReturnType<typeof loadSettingsHelpers>;
+}
+
+function loadCalendarHelperPresentation(fileSource: string): (
+  configuredPath: string,
+  resolvedPath: string,
+  available: boolean,
+  checking?: boolean,
+  protocolStatus?: "unchecked" | "compatible" | "incompatible",
+) => {
+  custom: boolean;
+  connectionName: string;
+  statusClass: string;
+  buttonText: string;
+  overrideDescription: string;
+  feedback: { tone: string; message: string } | null;
+} {
+  const body = extractFunctionBody(fileSource, "export function calendarHelperPresentation");
+  return Function(
+    "configuredPath",
+    "resolvedPath",
+    "available",
+    "checking",
+    "protocolStatus",
+    body.slice(1, -1),
+  ) as ReturnType<typeof loadCalendarHelperPresentation>;
 }
 
 function extractConstObject(fileSource: string, signature: string): string {
