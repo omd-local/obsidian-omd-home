@@ -1202,6 +1202,9 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   if (detail.code === "model_unavailable" || detail.code === "model_check_invalid") {
     return `${provider} could not use the selected answer model. Check setup and choose an available model, then try again.`;
   }
+  if (detail.code === "answer_schema_unsupported") {
+    return "The installed OMD version cannot enforce citation-safe answers. No vault evidence was sent. Update OMD, then run Check setup again.";
+  }
   if (detail.code === "timeout") {
     return `${provider} did not respond before the request timed out. Try again.`;
   }

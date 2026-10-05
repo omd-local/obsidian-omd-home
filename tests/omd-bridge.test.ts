@@ -196,7 +196,9 @@ class AITextTask:
     pass
 
 class AIOutputSchema:
-    pass
+    def __init__(self, *, name, schema):
+        self.name = name
+        self.schema = schema
 
 def create_text_task_consent(*args, **kwargs):
     raise RuntimeError("not used by provider setup tests")
@@ -1085,6 +1087,7 @@ test("maps hosted provider failures to safe actionable messages", () => {
     [{ provider: "openai", code: "consent_expired" }, /approval is no longer current/u],
     [{ provider: "openai", code: "disclosure_unavailable" }, /could not prepare the exact evidence disclosure.+Nothing was sent/u],
     [{ provider: "openai", code: "provider_mismatch" }, /no longer matches the approved request.+Nothing was sent/u],
+    [{ provider: "openai", code: "answer_schema_unsupported" }, /cannot enforce citation-safe answers.+No vault evidence was sent.+Update OMD/u],
     [{ provider: "openai", code: "malformed_structured_output" }, /required Source states \/ Model inference structure.+No unverified answer was shown/u],
     [{ provider: "openai", code: "cancelled" }, /AI request was cancelled/u],
     [{ provider: "openai", code: "http_error", status_code: 400, action: "discover_provider_models" }, /OpenAI rejected the provider setup request/u],
@@ -2273,6 +2276,9 @@ test("Ollama Cloud uses a prompt-carried schema, sends body excerpts, and restor
       "    return {'model': request['model'], 'message': {'content': 'Cloud wrapper\\n```json\\n' + json.dumps({'source_states': [{'claim': 'The cobalt milestone is Friday.', 'citations': ['S1']}], 'model_inference': []}) + '\\n```'} }",
       "bridge._ollama_request = fake_request",
       "result = bridge._execute_ollama_cloud(request, hits, source, retrieval_mode, retrieval_model, warnings)",
+      "sent_schema = json.loads(sent['system'].rsplit('\\n', 1)[1])",
+      "second_hit = bridge.SearchHit(path='Second.md', title='Second', score=0.5, evidence='Second evidence.')",
+      "hashes_differ = bridge._ollama_cloud_task_sha256(request, hits) != bridge._ollama_cloud_task_sha256(request, [*hits, second_hit])",
       "heading_request = {**request, 'query': 'Secret Acquisition Codename'}",
       "heading_hits, heading_source, heading_mode, heading_model, heading_warnings = bridge._answer_material(heading_request)",
       "heading_request['consent_grant'] = bridge._issue_ollama_cloud_consent(heading_request, heading_source, heading_hits)",
@@ -2283,7 +2289,7 @@ test("Ollama Cloud uses a prompt-carried schema, sends body excerpts, and restor
       "    heading_error = ''",
       "except ValueError as exc:",
       "    heading_error = str(exc)",
-      "print(json.dumps({'source': sent['source'], 'system': sent['system'], 'has_format': sent['has_format'], 'preview_evidence': preview['evidence'][0]['evidence'], 'text': result['text'], 'warnings': result['warnings'], 'heading_count': len(heading_hits), 'heading_source': heading_source, 'heading_error': heading_error, 'cloud_calls': len(cloud_calls)}))",
+      "print(json.dumps({'source': sent['source'], 'system': sent['system'], 'schema': sent_schema, 'hashes_differ': hashes_differ, 'has_format': sent['has_format'], 'preview_evidence': preview['evidence'][0]['evidence'], 'text': result['text'], 'warnings': result['warnings'], 'heading_count': len(heading_hits), 'heading_source': heading_source, 'heading_error': heading_error, 'cloud_calls': len(cloud_calls)}))",
     ].join("\n");
     const result = spawnPython(["-c", code], {
       encoding: "utf8",
@@ -2293,6 +2299,8 @@ test("Ollama Cloud uses a prompt-carried schema, sends body excerpts, and restor
     const value = JSON.parse(result.stdout) as {
       source: string;
       system: string;
+      schema: Record<string, any>;
+      hashes_differ: boolean;
       has_format: boolean;
       preview_evidence: string;
       text: string;
@@ -2314,6 +2322,15 @@ test("Ollama Cloud uses a prompt-carried schema, sends body excerpts, and restor
     assert.equal(value.has_format, false);
     assert.match(value.system, /Exact response JSON Schema/u);
     assert.match(value.system, /source_states.+model_inference/u);
+    const sourceStates = value.schema.properties.source_states as Record<string, any>;
+    const sourceCitations = sourceStates.items.properties.citations as Record<string, any>;
+    const inferenceCitations = value.schema.properties.model_inference.items.properties.citations as Record<string, any>;
+    assert.equal(sourceStates.minItems, 1);
+    assert.equal(sourceCitations.minItems, 1);
+    assert.deepEqual(sourceCitations.items.enum, ["S1"]);
+    assert.equal(inferenceCitations.minItems, 1);
+    assert.deepEqual(inferenceCitations.items.enum, ["S1"]);
+    assert.equal(value.hashes_differ, true);
     assert.doesNotMatch(value.text, /Cloud wrapper|```json/u);
     assert.match(value.text, /\[\[Private Project\.md\]\]/u);
     assert.deepEqual(value.warnings, []);
@@ -2886,9 +2903,10 @@ test("vault answer preserves an accepted long CJK question with zero or bounded 
     "from types import SimpleNamespace",
     "import json",
     "import bridge.omd_home_bridge as bridge",
-    "query = '问' * 2240 + '结束'",
+    "query = '问' * 2180 + '结束'",
     "hit = bridge.SearchHit(path='first.md', title='First', score=9.0, evidence='EVIDENCE ' * 3000 + 'OMITTED-TAIL')",
     "block = SimpleNamespace(path='first.md', title='First', heading='Details', kind='detail', score=9.0, text='EVIDENCE ' * 3000 + 'OMITTED-TAIL')",
+    "bridge._validate_answer_query_budget(query, opaque_sources=False)",
     "results = {}",
     "for name, hits in (('zero_hit', []), ('hit', [hit])):",
     "    selected, source = bridge._bounded_hit_context(query, hits)",
@@ -3163,8 +3181,9 @@ test("vault evidence is framed as untrusted quoted data against prompt injection
 test("Ask AI scopes exhaustive questions and keeps evidence categories separate", () => {
   const source = readFileSync(bridgeScript, "utf8");
   assert.match(source, /Return JSON with source_states and model_inference arrays/u);
-  assert.match(source, /Each item has one\s+claim and citations: an array of source IDs/u);
-  assert.match(source, /Cite every\s+factual claim; use only IDs supplied with the evidence/u);
+  assert.match(source, /Each item has one\s+claim and citations: a non-empty array containing only exact source IDs allowed/u);
+  assert.match(source, /Cite every\s+factual claim; use only those IDs/u);
+  assert.match(source, /Never emit\s+placeholder-removal commentary/u);
   assert.match(source, /Put directly supported\s+claims in source_states, including cited paraphrases or combinations/u);
   assert.match(source, /Never\s+repeat\/rephrase them in model_inference/u);
   assert.match(source, /When the question explicitly asks for an\s+inference and the evidence warrants it, include the requested inference/iu);
@@ -3191,7 +3210,8 @@ test("AI tasks request a bounded structured answer with two claim sections", () 
     "import bridge.omd_home_bridge as bridge",
     "bridge.AITextTask = lambda **kwargs: SimpleNamespace(**kwargs)",
     "bridge.AIOutputSchema = lambda **kwargs: SimpleNamespace(**kwargs)",
-    "task = bridge._task({'provider': 'openai', 'model': 'gpt-test', 'endpoint': 'http://localhost:11434'})",
+    "hits = [bridge.SearchHit(path='A.md', title='A', score=1.0, evidence='First.'), bridge.SearchHit(path='B.md', title='B', score=0.9, evidence='Second.')]",
+    "task = bridge._task({'provider': 'openai', 'model': 'gpt-test', 'endpoint': 'http://localhost:11434'}, hits)",
     "print(json.dumps(task.output_schema.schema))",
   ].join("\n");
   const result = spawnPython(["-c", code], { encoding: "utf8" });
@@ -3199,6 +3219,8 @@ test("AI tasks request a bounded structured answer with two claim sections", () 
   const schema = JSON.parse(result.stdout) as Record<string, any>;
   assert.equal(schema.type, "object");
   assert.deepEqual(schema.required, ["source_states", "model_inference"]);
+  assert.equal(schema.properties.source_states.minItems, 1);
+  assert.equal(schema.properties.model_inference.minItems, undefined);
   for (const key of schema.required as string[]) {
     const section = schema.properties[key] as Record<string, any>;
     assert.equal(section.type, "array");
@@ -3207,9 +3229,11 @@ test("AI tasks request a bounded structured answer with two claim sections", () 
     assert.equal(section.items.properties.claim.type, "string");
     assert.equal(section.items.properties.citations.type, "array");
     assert.equal(section.items.properties.citations.items.type, "string");
+    assert.equal(section.items.properties.citations.minItems, 1);
+    assert.deepEqual(section.items.properties.citations.items.enum, ["S1", "S2"]);
   }
   assert.doesNotMatch(JSON.stringify(schema), /"description"/u, "the frozen OMD schema validator rejects description keywords");
-  const allowedKeywords = new Set(["type", "properties", "required", "additionalProperties", "items", "enum"]);
+  const allowedKeywords = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "minItems"]);
   const checkKeywords = (value: unknown): void => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return;
     const node = value as Record<string, unknown>;
@@ -3224,6 +3248,46 @@ test("AI tasks request a bounded structured answer with two claim sections", () 
   };
   checkKeywords(schema);
 });
+
+test("older OMD builds fail setup and preview before evidence can be sent", () => {
+  const code = [
+    "import json",
+    "from types import SimpleNamespace",
+    "import bridge.omd_home_bridge as bridge",
+    "class LegacySchema:",
+    "    def __init__(self, *, name, schema):",
+    "        if 'minItems' in json.dumps(schema):",
+    "            raise ValueError('unsupported schema keyword minItems')",
+    "bridge.HAS_OMD_AI_SERVICE = True",
+    "bridge.AITextTask = lambda **kwargs: SimpleNamespace(**kwargs)",
+    "bridge.AIOutputSchema = LegacySchema",
+    "bridge.AIConsentGrant = object",
+    "bridge.create_text_task_consent = lambda *args, **kwargs: None",
+    "provider_calls = []",
+    "bridge.prepare_text_task = lambda *args, **kwargs: provider_calls.append('prepare')",
+    "bridge.execute_text_task = lambda *args, **kwargs: provider_calls.append('execute')",
+    "hit = bridge.SearchHit(path='A.md', title='A', score=1.0, evidence='Orchid station uses a blue key on Tuesday.')",
+    "source = bridge._context('Which station uses the blue key?', [hit])",
+    "try:",
+    "    bridge._execute_ai({'provider': 'anthropic', 'model': 'claude-opus-5-5', 'endpoint': 'http://localhost:11434'}, [hit], source, 'sparse', None, [], 'anthropic')",
+    "    task_error = None",
+    "except Exception as exc:",
+    "    task_error = bridge._error_payload(exc, 'preview_ai')",
+    "availability = SimpleNamespace(selected_model='claude-opus-5-5', answer_compatibility='supported', answer_compatibility_reason='Supported.', answer_contract='anthropic-json-schema-v1')",
+    "status, reason, contract = bridge._provider_answer_compatibility(availability)",
+    "print(json.dumps({'task_error': task_error, 'status': status, 'reason': reason, 'contract': contract, 'provider_calls': provider_calls}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as Record<string, any>;
+  assert.equal(value.task_error.code, "answer_schema_unsupported");
+  assert.equal(value.task_error.action, "preview_ai");
+  assert.equal(value.status, "unsupported");
+  assert.match(value.reason, /cannot enforce citation-safe answers.+Update OMD/u);
+  assert.equal(value.contract, null);
+  assert.deepEqual(value.provider_calls, []);
+});
+
 
 test("structured AI answers render fixed sections and reject unverified citations", () => {
   const code = [
@@ -3439,8 +3503,9 @@ test("hosted OpenAI and Anthropic tasks omit temperature while local and DeepSee
     "import bridge.omd_home_bridge as bridge",
     "bridge.AITextTask = lambda **kwargs: SimpleNamespace(**kwargs)",
     "bridge.AIOutputSchema = lambda **kwargs: SimpleNamespace(**kwargs)",
+    "hit = bridge.SearchHit(path='A.md', title='A', score=1.0, evidence='Evidence.')",
     "def value(provider):",
-    "    task = bridge._task({'provider': provider, 'model': 'test-model', 'endpoint': 'http://localhost:11434'})",
+    "    task = bridge._task({'provider': provider, 'model': 'test-model', 'endpoint': 'http://localhost:11434'}, [hit])",
     "    return task.temperature",
     "print(json.dumps({provider: value(provider) for provider in ('openai', 'anthropic', 'deepseek', 'ollama')}))",
   ].join("\n");
@@ -3461,8 +3526,9 @@ test("current Claude 5 tasks reserve thinking budget while older Claude models k
     "import bridge.omd_home_bridge as bridge",
     "bridge.AITextTask = lambda **kwargs: SimpleNamespace(**kwargs)",
     "bridge.AIOutputSchema = lambda **kwargs: SimpleNamespace(**kwargs)",
+    "hit = bridge.SearchHit(path='A.md', title='A', score=1.0, evidence='Evidence.')",
     "def budget(model):",
-    "    return bridge._task({'provider': 'anthropic', 'model': model, 'endpoint': 'http://localhost:11434'}).max_output_tokens",
+    "    return bridge._task({'provider': 'anthropic', 'model': model, 'endpoint': 'http://localhost:11434'}, [hit]).max_output_tokens",
     "print(json.dumps({'opus55': budget('claude-opus-5-5'), 'sonnet5': budget('claude-sonnet-5'), 'fable51': budget('claude-fable-5-1'), 'mythosPreview': budget('claude-mythos-preview'), 'legacy': budget('claude-opus-4-5-20251101')}))",
   ].join("\n");
   const result = spawnPython(["-c", code], { encoding: "utf8" });
@@ -3503,7 +3569,8 @@ test("OpenAI answer tasks preserve the selected model and required output schema
     "import bridge.omd_home_bridge as bridge",
     "bridge.AITextTask = lambda **kwargs: SimpleNamespace(**kwargs)",
     "bridge.AIOutputSchema = lambda **kwargs: SimpleNamespace(**kwargs)",
-    "task = bridge._task({'provider': 'openai', 'model': 'gpt-4o-mini', 'endpoint': 'http://localhost:11434'})",
+    "hit = bridge.SearchHit(path='A.md', title='A', score=1.0, evidence='Evidence.')",
+    "task = bridge._task({'provider': 'openai', 'model': 'gpt-4o-mini', 'endpoint': 'http://localhost:11434'}, [hit])",
     "print(json.dumps({'model': task.model, 'schema_name': task.output_schema.name, 'schema': task.output_schema.schema}))",
   ].join("\n");
   const result = spawnPython(["-c", code], { encoding: "utf8" });

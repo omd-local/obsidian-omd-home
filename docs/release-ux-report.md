@@ -1,6 +1,26 @@
 # OMD Home 发布 UI / UX 验收记录
 
-检查跨度：2026-09-17–2026-10-04。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+检查跨度：2026-09-17–2026-10-05。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
+
+## Anthropic citation contract 候选（2026-10-05）
+
+ANSWER-02-R1 使用官方 `claude-opus-5-5` 的真实原生请求返回 **did not cite every claim**。插件没有
+显示未经验证的正文，也没有自动重发，因此 fail-closed safety 通过，但该 answer 功能结果为 FAIL。
+受控复现确认 Anthropic 接受了旧 schema，并返回一个空 `citations` 数组；Home 随后的引用检查才拒绝
+答案。旧 schema 只声明 citation 是字符串数组，没有要求非空，也没有把值限制为本次检索的 source ID。
+
+候选现在按每次检索动态生成 schema：`source_states` 至少一项，每条 claim 至少一个 citation，citation
+只能取本次请求的 `S1…Sn`；`model_inference` 仍可为空，但出现推论时同样必须引用。OMD 的受限 schema
+验证器和 provider 返回解析同时执行 `minItems`，Anthropic transport 保留 exact enum。旧 OMD 不认识
+该关键词时，Settings 与 preview 会在发送 vault evidence 前显示 **Update OMD**，不会把它误报为一般
+bridge failure。Ollama Cloud 的 prompt-carried schema 与 consent task hash 也同步包含动态 ID 合同。
+
+同一真实 Opus model 的受控修复后请求已返回合法 citation；这只证明 provider/schema 路径，最终原生
+PASS 仍须人工核对 Orchid station／Tuesday、**Model inference · None**、note links 以及没有 placeholder
+元说明。自动验证：Home **707 / 707** tests、TypeScript、ESLint、production build 与 `git diff --check`
+通过；OMD **1795 / 1795** tests、Ruff 与 `git diff --check` 通过。test-vault 已安装新 bundle、原生 reload，
+`data.json` 哈希未变；Anthropic **Check setup** 已重新显示 `claude-opus-5-5` ready，尚未代替测试者批准
+新的逐题 evidence preview。
 
 ## Note AI tools 与 Rednote 输出对账候选（2026-10-04）
 
