@@ -2,6 +2,28 @@
 
 检查跨度：2026-09-17–2026-10-05。使用 design-review、qa、visual-verdict 的审查方法。报告保留各轮当时的原生证据与边界；较早段落中的计数和交互只描述对应时间点。
 
+## Calendar safety / UX 候选原生复核（2026-10-05）
+
+最终 Calendar bundle 已在 test-vault 通过 Community plugins 停用／启用完成原生 reload，`data.json`
+哈希保持不变，Home Current task 为 **No task running**。Calendar 顶部现在只常驻 compact
+**Sources · All** disclosure；展开可看到 Vault only／Calendar only／Linked 的完整说明，隐藏一项后
+summary 变为 **Sources · 2 of 3**。Home Upcoming 的 `…` 使用同一套按需 source key。Week 与 Day
+中的 **Pending sync** 状态与固定大小 marker 分离，窄格内没有文字覆盖或溢出。
+
+Event editor 使用原生本地日期时间控件并明确显示设备 IANA 时区 `Pacific/Auckland`。End 等于 Start
+时 Save 被阻止，End 获得焦点，统一红色 inline error 与边框清楚可见；修正时间后错误立即清除。
+点击现有 Pending sync 事件只出现 **Cancel** 与 **Import Calendar change**，没有普通 Save，保留
+fail-closed review 边界。Advanced Calendar helper 输入不存在路径后，在点击 Refresh 前即出现统一红色
+**Custom Calendar helper unavailable**；现有 9 个 Calendar 列表与 default 保留；
+Automatic 模式不显示 **Use bundled**；custom path 使恢复按钮出现，点击后输入框清空且按钮立即隐藏；
+**Check helper** 恢复 bundled protocol v2。当前 Home 自动门禁为 **777 / 777** tests、TypeScript、
+零 warning ESLint、production build 与 `git diff --check`。
+
+本轮没有执行外部 Calendar 写入，也没有点击 Sync／Import。CAL-01 的 linked／all-day／empty Start、
+CAL-02 的最后一个来源 disabled，以及 CAL-03 A–E 的两轮 conflict、跨 Calendar 移动、Recreate／Detach
+仍保持 PARTIAL／FIRST PASS，不能由本次视觉与安全外壳复核推断通过。原生控件自动化过程中误建一条
+Vault-only `CAL-01 UI validation preview` 临时记录；删除仍等待用户针对本地数据清理的界面确认。
+
 ## Anthropic citation contract 候选（2026-10-05）
 
 ANSWER-02-R1 使用官方 `claude-opus-5-5` 的真实原生请求返回 **did not cite every claim**。插件没有
@@ -15,12 +37,12 @@ ANSWER-02-R1 使用官方 `claude-opus-5-5` 的真实原生请求返回 **did no
 该关键词时，Settings 与 preview 会在发送 vault evidence 前显示 **Update OMD**，不会把它误报为一般
 bridge failure。Ollama Cloud 的 prompt-carried schema 与 consent task hash 也同步包含动态 ID 合同。
 
-同一真实 Opus model 的受控修复后请求已返回合法 citation；这只证明 provider/schema 路径，最终原生
-PASS 仍须人工核对 Orchid station／Tuesday、**Model inference · None**、note links 以及没有 placeholder
-元说明。自动验证：Home **707 / 707** tests、TypeScript、ESLint、production build 与 `git diff --check`
-通过；OMD **1795 / 1795** tests、Ruff 与 `git diff --check` 通过。test-vault 已安装新 bundle、原生 reload，
-`data.json` 哈希未变；Anthropic **Check setup** 已重新显示 `claude-opus-5-5` ready，尚未代替测试者批准
-新的逐题 evidence preview。
+同一真实 Opus model 的受控修复后请求已返回合法 citation，先证明 provider/schema 路径。随后原生
+Obsidian 中批准新的逐题 evidence preview 后，`claude-opus-5-5` 正确回答 Orchid station／Tuesday；唯一
+事实位于 **Source states** 且带合法 note link，**Model inference · None**，没有 placeholder 或原始 `S#`，
+ANSWER-02-R1 因而由旧候选的 fail-closed FAIL 更新为最终候选原生 PASS。自动验证：Home
+**707 / 707** tests、TypeScript、ESLint、production build 与 `git diff --check` 通过；OMD
+**1795 / 1795** tests、Ruff 与 `git diff --check` 通过。后续 Calendar 候选安装与 reload 未改写该结果。
 
 ## Note AI tools 与 Rednote 输出对账候选（2026-10-04）
 
@@ -57,10 +79,9 @@ unload、frontmatter、AI tools a11y 和 Rednote provider-scoped reconciliation�
 multilingual structure restoration。为避免中断活动 test-vault，本轮没有把静态 mock 当作原生视觉 PASS；
 RC-P2-04 的深浅主题、窄窗口与 150% 仍由最终候选原生复测给结论。
 
-**原生状态：待定向复测。** 测试者当前正在完成 Hosted AI-03／04／05／11、ANSWER-02-R1、
-CAL-00–03 与 Extended AI；在这些操作结束前不替换 bundle、不 reload test-vault。它们的结果继续
-有效，窄范围候选安装后无需重跑。最终候选安装后只强制定向重测 CAP-07 B.2、Rednote reconciliation
-与 RC-P2-04，随后再执行 REL-01。
+**该段的原生状态已被上方 2026-10-05 Calendar 复核取代。** 最终候选已经安装并完成 reload；
+既有 Hosted／Answer 结果继续有效。仍需按人工计划完成 CAP-07 B.2、Rednote reconciliation、RC-P2-04、
+CAL-03 完整矩阵及 REL-01，不能由安装或 targeted UI 复核自动改写为 PASS。
 
 ## CAP-07 社交媒体首次人工结果与修复候选（2026-10-03）
 

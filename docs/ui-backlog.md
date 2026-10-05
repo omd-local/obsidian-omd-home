@@ -528,9 +528,9 @@ markers 和并发修改会安全停止。Apply 后仍为 Inbox。
 
 ### UI-21：用一个 AI tools 层级提供诚实的 suggestions 与 review-first formatting
 
-**状态：IMPLEMENTED；确定性自动回归完成，RC-P2-04 原生复测待执行。优先级：P1。** 最终候选未
-替换或 reload 正在运行 Hosted AI／Answer／Calendar／Extended AI 的 test-vault；只有完整候选安装后
-才执行定向原生矩阵，不能把实现完成写成 native PASS。
+**状态：IMPLEMENTED；确定性自动回归完成，RC-P2-04 原生复测待执行。优先级：P1。** 最终候选
+已安装并完成原生 reload；RC-P2-04 的 preview／Apply／Cancel／conflict／responsive 矩阵仍须定向执行，
+不能把实现完成或 Calendar 的 targeted review 写成该项 native PASS。
 
 **问题与决策：** 旧的 **AI tags** 和 **Summarize** 看似是两个不同工具，实际都生成同一份
 proposal summary、links 与 tags；再增加独立 Polish 按钮会让每行继续堆叠动作，并把“生成建议”、
@@ -693,12 +693,14 @@ Local batches。
 
 ### CALENDAR-01：Helper override 输入后缺少即时校验反馈
 
-**状态：候选已实现，等待 CAL-00 原生复测。优先级：P1。**
+**状态：DONE；2026-10-05 CAL-00 定向原生 PASS。优先级：P1。**
 
 **证据与背景：** 2026-10-05 CAL-00 原生测试中，在 **Advanced Calendar helper** 输入不存在的
 绝对路径后，页面仍保留之前的 helper 状态；只有点击 **Refresh calendars** 才显示 custom helper
-missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复；是否保留已保存 calendar 选择尚待
-单独确认。当前已确认的缺口是字段变更后的即时反馈。
+missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复；是否保留已保存 calendar 选择当时尚待
+单独确认。最终候选原生复测已确认：输入后在 Refresh 前出现统一红色错误；9 个 Calendar 列表、已保存选择
+与 default 保留；Automatic 模式不显示 **Use bundled**，custom path 使按钮出现，点击后输入框清空且
+按钮立即隐藏；**Check helper** 恢复 bundled protocol v2。
 
 **验收标准：**
 
@@ -716,26 +718,30 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 
 ### CALENDAR-02：Event editor 的时区与范围错误不够明确
 
-**状态：候选已实现，等待 CAL-01 原生复测。优先级：P1。**
+**状态：IMPLEMENTED；2026-10-05 targeted native PASS，完整 CAL-01 仍为 PARTIAL。优先级：P1。**
 
 - timed editor 在 Start／End 下方显示真实设备 IANA 时区；原生 `datetime-local` 只表达本地时间。
 - all-day 的 exclusive End 规则保持中性帮助文字；只有 Save 发现无效范围时才显示统一红色 inline error。
 - Start 错误聚焦 Start，End／顺序错误聚焦 End；修正后错误与 `aria-invalid` 一起清除。
 - conflict 比较中的 timed 时间同时显示设备时区；Title／Location 支持混合 LTR／RTL。
+- 原生已通过设备时区说明、无效 End 的红色 card、正确聚焦和修正即清除；empty Start、all-day、
+  linked Calendar 对照及 conflict LTR／RTL 仍按 CAL-01 完整测试执行。
 
 ### CALENDAR-03：来源 legend 常驻且 Home 中含义不易发现
 
-**状态：候选已实现，等待 CAL-02 原生复测。优先级：P1。**
+**状态：IMPLEMENTED；2026-10-05 targeted native PASS，完整 CAL-02 仍为 PARTIAL。优先级：P1。**
 
 - Calendar 顶部把三个常驻 legend 合并成 **Sources · All / n of 3** disclosure；展开后保留真实筛选能力、
   来源形状与简短说明。
 - 最后一个可见来源直接 disabled 并解释原因，避免“按钮可点但无响应”。
 - Upcoming／Today 只保留紧凑形状；行的 tooltip／accessible name 写明来源与 sync state，`…` 菜单按需
   提供同一套 source key。颜色仍只是辅助，形状和文字承担主要语义。
+- 原生已通过 compact disclosure、三项说明、筛选后的 **2 of 3** 与 Home source key；最后一个来源
+  disabled 及完整三类 fixture 对账仍待 CAL-02 人工完成。
 
 ### CALENDAR-04：Sync 完成反馈与 conflict 版本完整性
 
-**状态：候选已实现，等待 CAL-03 原生复测。优先级：P0。**
+**状态：IMPLEMENTED；2026-10-05 native safety-shell PASS，完整 CAL-03 仍待原生矩阵。优先级：P0。**
 
 - 只有全部 clean 才能显示 **Calendar sync complete**；conflict、unavailable、error、pending 均返回数量
   与下一步，Calendar 顶部 Sync 和命令使用同一结果文案。
@@ -748,6 +754,9 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 - EventKit exact ID 因跨 Calendar 移动／full sync 改变时，先按 stable external identity 在已选 calendars
   恢复；唯一候选才重绑，多候选或 external ID 缺失都停在 review，不能误报 deleted 或开放 Recreate。
 - linked create 的 EventKit 写入失败时清理本次临时 pending note；同一 modal Retry 不得累计重复 note。
+- 原生 safety-shell 已确认 Week／Day 的 Pending sync 状态不溢出，点击待同步事件只提供 Cancel 与
+  Import Calendar change、没有普通 Save。两轮冲突、CAS、跨 Calendar 移动、Recreate／Detach 与失败清理
+  仍必须按 CAL-03 A–E 完整执行；本项在此前不能关闭。
 
 ## Answer UX / 模型措辞方向
 
