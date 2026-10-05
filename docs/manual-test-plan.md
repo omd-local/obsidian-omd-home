@@ -111,10 +111,10 @@ protocol v2 helper；当前 macOS 锁屏阻止了自动原生 reload。解锁后
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 源码候选 | branch `agent/omd-home-baseline`；当前 test-vault UI/runtime code `45b75e3`；Calendar safety/UX 源提交 `9cd441c` |
+| Home 源码候选 | branch `agent/omd-home-baseline`；当前 test-vault UI/runtime code `1835d1d`；Calendar safety/UX 基线 `45b75e3`，状态排版修复 `1835d1d` |
 | OMD 后端候选 | branch `agent/release-ux-compat`；当前 hosted contract code `5c99f10`；cookie/social 基线保留 |
 | 测试 vault | `$TEST_VAULT`；只保留现有笔记与 `data.json`，不要清空 |
-| 当前已安装候选 bundle | 从 `45b75e3` production build：`main.js` `80cea63f042e596f7854edd3991345ba224748103f93301ecdc7e05009e9156f`；`styles.css` `910ec9a848dc77aafe5431f25eee9a1e7f030d000f6f853e5468d8e4c2157331`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`；`omd-eventkit` `46f21ce8400830b5dcfd796b56f6428be163e40941b3268becf78733e9a02ca1`，protocol v2 |
+| 当前已安装候选 bundle | 从 `1835d1d` production build：`main.js` `e4d4a93c6d47451c83560e9ff000566e8518524dedfcb6860860967591aa3441`；`styles.css` `a75d04acc159f961ecddeadc1ea12cf5ade2c57064fc0c0824025068e651a4d9`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`；`omd-eventkit` `46f21ce8400830b5dcfd796b56f6428be163e40941b3268becf78733e9a02ca1`，protocol v2 |
 | OMD executable | 必须解析到当前 `5c99f10` checkout 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
 | AI 设置 | 安装未改写 `data.json`；解锁并 reload 后再核对当前 provider、Local writing model 与 retrieval mode |
 | 自动门禁 | Home 776 / 776、TypeScript、零 warning ESLint、production build；EventKit release build 与 protocol v2 probe；`git diff --check`；独立最终 review APPROVE |
@@ -144,7 +144,7 @@ Current task 与 Needs attention 的当前状态后再开始 CAL-00。此前已�
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | DONE / INSTALL; RELOAD REQUIRED | [候选构建与安装](#guide-plugin-assets) | Home `45b75e3` 的资产与源码逐字节一致，helper 为 protocol v2，`data.json` 哈希未变；解锁后还需原生停用／启用与 Check setup | 上表四项 SHA-256 |
+| 1 | DONE / INSTALL; RELOAD REQUIRED | [候选构建与安装](#guide-plugin-assets) | Home `1835d1d` 的资产与源码逐字节一致，helper 为 protocol v2，`data.json` 哈希未变；解锁后还需原生停用／启用与 Check setup | 上表四项 SHA-256 |
 | 2 | DONE / NATIVE | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 2026-10-03 原生 Check setup 后 Needs attention 为 healthy、Settings／System 为 OMD ready、Local AI ready；Current task 基线为 No task running | exact contract 仍沿用已通过的 Terminal 证据 |
 | 3 | HOLD / FINAL CANDIDATE | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 旧候选结果保留；这些路径不受本轮窄修复影响，除非已记录 FAIL，否则不新增重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
 | 4 | HOLD / TARGETED | [CAP-07 B.2](#test-cap-07) | 2026-10-04 旧候选 FAIL：字段已清空，但 Clear 仍可见；只在最终候选安装后重测 B.2 | 两个 provider 各做输入 → Clear → 再输入 |
