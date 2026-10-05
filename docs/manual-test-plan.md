@@ -111,14 +111,15 @@ Home 的 compact Settings、统一 Site access 状态和 cookie 文件拖放，�
 
 | 字段 | 本轮准确值 |
 | --- | --- |
-| Home 源码候选 | branch `agent/omd-home-baseline`；当前 test-vault UI/runtime code `1d54299`；social bridge 主实现 `6854542` |
-| OMD 后端候选 | branch `agent/release-ux-compat`；cookie export compatibility `ba5f9a1`；social bridge 主实现 `0db129f` |
+| Home 源码候选 | branch `agent/omd-home-baseline`；当前 test-vault UI/runtime code `f6b7eb9`；此前 review/UI 主提交 `aec7e16` |
+| OMD 后端候选 | branch `agent/release-ux-compat`；当前 hosted contract code `5c99f10`；cookie/social 基线保留 |
 | 测试 vault | `$TEST_VAULT`；只保留现有笔记与 `data.json`，不要清空 |
-| 当前已安装候选 bundle | 从 `1d54299` production build：`main.js` `1804066eae16e1e451cf9a9b559d6d9d575e8ea148cd97bded947400dc101136`；`styles.css` `9aad85c32f0d84e677f9144f5bd6bc3edf2100700bc687817d7a17818f460428`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
-| OMD executable | 必须解析到包含 `ba5f9a1` 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
-| AI 设置 | 安装前记录当前 Answer provider、Local writing model、retrieval mode；本轮 social 测试不主动改模型 |
-| 自动门禁 | Home 669 / 669、TypeScript、ESLint、production build；OMD 1762 / 1762、Ruff、py_compile；两边 `git diff --check` 通过 |
-| 尚未覆盖 | 真实平台登录态、地区／账户限制、真实下载、原生 Retry、嵌套进程取消；这些只能由 CAP-07 人工确认 |
+| 当前已安装候选 bundle | 从 `f6b7eb9` production build：`main.js` `ebe5a45748925055312f995efbb6bff7c6cda67597e904dc18b471524ddad818`；`styles.css` `0c0fa799ff1f24f678a3fcaf41b2f1b7100127cf853e9961d9eb2aa65bac697c`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| OMD executable | 必须解析到当前 `5c99f10` checkout 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
+| AI 设置 | 原生复测后已恢复 `DeepSeek API / deepseek-flash`；Local writing model 与 retrieval mode 保持原值 |
+| 自动门禁 | Home 706 / 706、TypeScript、ESLint、production build；OMD 1786 / 1786、Ruff；两边 `git diff --check` 通过；独立最终 review APPROVE |
+| 原生安装门禁 | 2026-10-05 只替换发布资产并停用／启用插件；`data.json` SHA-256 前后均为 `9657a12a83c3a4826a6dbc017fd8ad551fc5b40f1a1a7f1db1ef8f6241e83d11` |
+| 尚未覆盖 | 真实 `claude-opus-5-5` answer、修复后 DeepSeek provenance、Calendar 写入、AI-06 三项原生差额及最终 REL-01 |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css`；不要删除 `data.json`、笔记、Pin、历史结果或
 cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup**。旧 bundle 上已完成的 AI-03
@@ -134,22 +135,22 @@ cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup*
 - **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前执行队列（2026-10-05；保持现有 bundle）
+#### 当前执行队列（2026-10-05；最终候选已安装）
 
-**不要在进行 Hosted AI-03／04／05／11、ANSWER-02-R1、CAL-00–03 或 Extended AI 时替换插件资产、
-reload 插件或重开 Obsidian。** 继续用当前已安装 bundle 完成这些活动项；结果仍然有效。后续窄范围
-候选只改 Clear 显隐、Rednote 输出对账与 note 行 AI tools，因此安装该候选后无需重跑这些 Hosted、
-Answer、Calendar 或 Extended AI 结果。CAP-07 的旧候选结果先按下表保留，不要在半成品 bundle 上重测。
+最终候选已经安装并原生 reload；继续测试时不要再次替换插件资产。此前已取得的结果仍然有效，只补
+下表明确标记的首次测试或定向差额。设置已恢复为 **DeepSeek API / deepseek-flash**；最后一次
+**Check setup** 后 Local AI ready、Answer setup ready、Current task 为 **No task running**、Needs
+attention 为 **Nothing needs attention**。
 
 | 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
-| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 当前运行的是 Home `1d54299` 的三项插件资产；`data.json` 保持原值且已完成该候选的原生 Force Reload。本轮修复尚未覆盖到 test-vault | 上表三项 SHA-256 |
+| 1 | DONE / PREP | [候选构建与安装](#guide-plugin-assets) | 当前运行 Home `f6b7eb9` 的最终候选；资产与源码逐字节一致，`data.json` 哈希未变，已完成原生停用／启用与 Check setup | 上表三项 SHA-256 |
 | 2 | DONE / NATIVE | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 2026-10-03 原生 Check setup 后 Needs attention 为 healthy、Settings／System 为 OMD ready、Local AI ready；Current task 基线为 No task running | exact contract 仍沿用已通过的 Terminal 证据 |
 | 3 | HOLD / FINAL CANDIDATE | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 旧候选结果保留；这些路径不受本轮窄修复影响，除非已记录 FAIL，否则不新增重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
 | 4 | HOLD / TARGETED | [CAP-07 B.2](#test-cap-07) | 2026-10-04 旧候选 FAIL：字段已清空，但 Clear 仍可见；只在最终候选安装后重测 B.2 | 两个 provider 各做输入 → Clear → 再输入 |
 | 5 | HOLD / TARGETED | [CAP-07 C.2](#test-cap-07) | 旧候选 backend 已产出 note、sidecar 与非空 transcript，但 Home 对账失败；只在最终候选安装后重测 | 使用测试者有权访问的公开 Rednote 视频；不要记录访问查询值 |
 | 6 | HOLD / KEEP RESULT | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | 保留已经取得的逐项结果；未执行项仍按原计划 FIRST PASS，不由 B.2／C.2 修复自动改写 | 下方 `ps ... grep -E` 命令 |
-| 7 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | Anthropic 官方 `claude-opus-5-5`（仅当 catalog 返回）、切换 provider 后自动 setup、DeepSeek Pro／Flash 的事实／推论分离；保留 OpenAI 与 Claude Opus 4.5 已通过结论 | 固定 blue-key station 问题 |
+| 7 | TARGETED RETEST | [ANSWER-02-R1](#test-answer-02-r1) | provider 自动 setup 与目录加载已原生 PASS；Anthropic catalog 已返回官方 `claude-opus-5-5`，只补它的真实 answer 与 DeepSeek Pro／Flash 的事实／推论分离；保留 OpenAI 与 Claude Opus 4.5 已通过结论 | 固定 blue-key station 问题 |
 | 8 | FIRST PASS | CAL-00–03 | 权限、Save、Linked sync、双向 conflict 的真实 Calendar 写入 | `OMD CAL manual test – delete after PASS` |
 | 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补重复点击、tuple 失效、disable/reload 与 Console，不要在 Smoke 上等待 Home 的 Current task／Cancel | synthetic smoke prompts |
 | 10 | PREP + RERUN | [AI-08](#test-ai-08) | **先完成 ANSWER-02-R1**，再导入三篇 Phase 2 fixtures 并通过 hard preflight；2026-10-05 的缺 fixture 运行无产品结论 | `docs/benchmark-vault/` |
@@ -157,9 +158,8 @@ Answer、Calendar 或 Extended AI 结果。CAP-07 的旧候选结果先按下表
 | 12 | TARGETED NATIVE DELTA | [AI-11](#test-ai-11) | 自动回归已覆盖 unload 与 Recognition defaults 核心边界；只补原生 disable/quit、Console 和下一次 Capture 使用新默认值 | 固定本地 fixture 问题 |
 | 13 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
-最终候选构建、自动门禁与 review 全部完成后，先结束上表正在进行的 Hosted／Answer／Calendar／
-Extended AI，再一次性安装并 reload。安装后只做下面三项 mandatory targeted retest；其余已通过或已
-记录的结果不重跑，最后再执行 REL-01：
+最终候选构建、安装、reload 与 setup baseline 已完成。现在可直接执行下面的 targeted retest；其余
+已通过或已记录的结果不重跑，最后再执行 REL-01：
 
 | 顺序 | 状态 | Case | 只验证 |
 | --- | --- | --- | --- |
@@ -183,7 +183,9 @@ Extended AI，再一次性安装并 reload。安装后只做下面三项 mandato
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
-| 2026-10-03 最新 bundle 重装 | PASS | 2026-10-03 | 原生 Obsidian | 三项 hash 与上表一致；`data.json` SHA-256 前后不变；Force Reload 完成 |
+| 2026-10-05 最终 bundle 重装 | PASS | 2026-10-05 | 原生 Obsidian | 三项 hash 与上表一致；`data.json` SHA-256 前后不变；原生停用／启用完成 |
+| Settings Answer setup 窄窗布局 | PASS | 2026-10-05 | 原生 Obsidian | 说明完整换行；Check setup 独立占一行，不覆盖文字且无横向滚动 |
+| hosted provider 自动 setup | PASS | 2026-10-05 | 原生 Obsidian | DeepSeek → Anthropic 自动验证并加载完整目录；canonical `claude-opus-5-5` 可见；切回 DeepSeek 自动恢复 `deepseek-flash` ready |
 | OMD exact capability contract | PASS | 2026-10-01 | Terminal | 实际 executable 的两个布尔值与两个 flag 精确匹配 |
 | OMD native setup baseline | PASS | 2026-10-03 | 原生 Obsidian | Check setup 后 healthy；OMD ready、Local AI ready、Current task 为 No task running |
 | repeated Force Reload stability | RETEST IN REL-01 | 2026-10-03 | 原生 Obsidian | 首次 reload 正常；第二次连续 Force Reload 曾空白超过 16 秒，完整退出重开后恢复且 `data.json` 未变；在 REL-01 重复 reload／cold restart 后再定结论 |
@@ -201,7 +203,7 @@ Extended AI，再一次性安装并 reload。安装后只做下面三项 mandato
 | AI-03 zero-evidence safety | PASS；文案缺陷已在源码修复 | 2026-10-05 | 人工反馈＋自动回归 | `@zzqvnoevidence7391` 未打开 preview、未发送 model request；语义降级说明与零证据可同时出现，但旧文案误称 “this answer”，源码已改为 “This evidence check used keyword search only.” |
 | DeepSeek keyword fallback 子分支 | PASS；完整 grounded answer PARTIAL | 2026-10-05 | 截图 2／3 | model missing 与 daemon unreachable 被分别说明，恢复动作正确；Pro／Flash 均完整渲染实际 model、sources、mode、time、Copy 与 citations，但把来源中的 Orchid station／Tuesday 直接事实重复写入 Model inference，provenance 语义未通过 |
 | AI-05 local workflow isolation | PASS；AI-05 overall PARTIAL | 2026-10-05 | 人工反馈 | Claude hosted key 按计划不可用时，Generate AI tags 仍通过本地 writing model；尚缺三 provider model memory、reload persistence 与 `data.json` secret 检查 |
-| ANSWER-02-R1 定向补测 | PARTIAL；OpenAI 与 Claude Opus 4.5 contract PASS；Anthropic 官方 `claude-opus-5-5`（如 catalog 有）、DeepSeek provenance RETEST | 2026-10-05 | 人工反馈＋截图 1／2／3 | observed `claude-opus-5.5` 被正确 fail-closed，不得改写为官方 `claude-opus-5-5`；`claude-sonnet-5` setup ready；retired old Sonnet 与 `deepseek-chat` 缺席 catalog 均为 NOT RUN。DeepSeek Pro／Flash transport/schema/citations PASS，但事实／推论分离 FAIL；OpenAI 本轮 exact model ID 尚待补录 |
+| ANSWER-02-R1 定向补测 | PARTIAL；OpenAI 与 Claude Opus 4.5 contract PASS；provider 自动 setup PASS；Anthropic `claude-opus-5-5` answer 与 DeepSeek provenance RETEST | 2026-10-05 | 人工反馈＋截图 1／2／3＋最终候选原生设置 | observed `claude-opus-5.5` 被正确 fail-closed；官方 `claude-opus-5-5` 已确认存在于目录但尚未发送 answer。retired old Sonnet 与 `deepseek-chat` 缺席均为 NOT RUN。DeepSeek Pro／Flash transport/schema/citations PASS，但事实／推论分离 FAIL；OpenAI 本轮 exact model ID 尚待补录 |
 | CAL-00–03 |  |  |  |  |
 | AI-06 | PARTIAL；native baseline PASS | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running，符合修订后的职责；重复点击、tuple 失效及 disable/reload 原生差额仍待测 |
 | AI-08 Phase 2 benchmark | INVALID SETUP / NOT RUN；format-only PASS | 2026-10-05 | test-vault 文件核对＋截图 5＋人工答案 | 三篇 Phase 2 fixtures 均未导入；截图 5 的 Based on／Source states／Model inference／source chips 格式正确，但 P01–P05 命中无关笔记，只能保留为无效环境证据；ANSWER-02-R1 后导入并重跑 P01–P06 |
@@ -210,9 +212,9 @@ Extended AI，再一次性安装并 reload。安装后只做下面三项 mandato
 | AI-09／10 |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**下一步：** 不替换或 reload 当前 bundle，依次完成 ANSWER-02-R1、CAL-00–03、AI-06 的原生差额；
-随后才导入 Phase 2 fixtures 并重跑 AI-08，再完成 AI-09／10 和 AI-11 的原生差额。最终候选准备完成
-且这些活动测试停止后，再按 F1 → F2 → F3 做三项定向复测，然后执行 REL-01。平台拒绝、地区限制或私人帖子属于访问结果，必须与“backend 已
+**下一步：** 不再替换或 reload 当前 bundle。先完成 ANSWER-02-R1 的 canonical Opus 5.5 与
+DeepSeek provenance，再按 CAL-00–03 → AI-06 三项原生差额 → AI-08 → AI-09／10 → AI-11 原生差额
+执行；F1 → F2 → F3 可在不影响这些 active answer run 时穿插，最后执行 REL-01。平台拒绝、地区限制或私人帖子属于访问结果，必须与“backend 已
 完成但 Home 无法对账最终 output”分开记录；不要为取得 PASS 尝试绕过平台访问控制。
 
 
@@ -534,8 +536,11 @@ E. **Settings 统一排版（UI-01／02）**
 **2026-10-05 已取得证据：** OpenAI run PASS，但 exact model ID 仍待补录；`claude-sonnet-5` 为
 setup ready／answer NOT RUN；截图实际 ID `claude-opus-4-5-20251101` 的完整回答通过 output contract，
 用户口头所说 “Opus 4.4” 不作为 model ID。实际报错中的 `claude-opus-5.5` 与 Anthropic 官方
-`claude-opus-5-5` 是两个不同 ID；前者保持 unverified 并被正确 fail-closed，不得静默正规化。仅当
-provider catalog 返回官方连字符 ID 时才重测它。`claude-sonnet-4-20250514` 与 `deepseek-chat` 均为 retired／catalog absent，
+`claude-opus-5-5` 是两个不同 ID；前者保持 unverified 并被正确 fail-closed，不得静默正规化。
+最终候选原生切换 provider 后已自动完成 setup，目录确认包含官方连字符 ID；下一步直接选择
+`claude-opus-5-5`，重新确认 setup ready，再用第 5 步固定问题完成真实 answer。该系列使用
+low effort 与 4096 token 上限，为 adaptive thinking 和最终 JSON 留出空间。`claude-sonnet-4-20250514`
+与 `deepseek-chat` 均为 retired／catalog absent，
 记录 NOT RUN，不要求出现在 dropdown。DeepSeek Pro／Flash 均通过 transport/schema/citation，但旧
 prompt 下把直接事实写入 Model inference，记录 PARTIAL／RETEST。
 
@@ -1675,12 +1680,12 @@ HTTP 400；换成同一 provider 的 `gpt-4o-mini` 后可收到有来源引用�
    OpenAI / `o3-mini` 结果，不得因发送不受支持的 temperature 参数而返回 HTTP 400，也不得退化成
    **OMD Home bridge failed**。人工测试不要求查看 raw HTTP request：确认结果元数据确实为
    **OpenAI API / `o3-mini`**，且请求成功返回、没有 HTTP 400，即通过真实网络回归。还可在 repo 根目录
-   运行以下定向自动测试，直接验证 OpenAI task 的 `temperature` 为 `null`（序列化时省略），其他
-   provider 仍为 `0`：
+   运行以下定向自动测试，直接验证 OpenAI 与 Anthropic task 的 `temperature` 为 `null`
+   （序列化时省略），DeepSeek 与本地 Ollama 仍为 `0`：
 
    ```bash
    node --test --experimental-strip-types \
-     --test-name-pattern='hosted OpenAI tasks omit temperature' \
+     --test-name-pattern='hosted OpenAI and Anthropic tasks omit temperature' \
      tests/omd-bridge.test.ts
    ```
 
