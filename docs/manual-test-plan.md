@@ -157,15 +157,15 @@ protocol v2 helper；2026-10-05 已在 Community plugins 中停用／启用 OMD 
 - **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 历史安装基线与当前剩余队列（2026-10-06）
+#### 当前详细状态索引（2026-10-07；查证用，不按此表排序）
 
 2026-10-05 候选已经安装并通过 Community plugins 停用／启用完成原生 reload；这份 v2 结果只作为历史
 基线。当前 v3 Home bundle 与 helper 已安装到 test-vault，但 native reload 信息尚未补录；完成 reload
 与 Settings **Check helper** 前不要执行 CAL-00／03 并写 PASS。Local AI／Answer
-setup 仍按各自未完成的 case 单独检查；此前已取得的结果继续有效。下表用于记录状态，不表示执行顺序；
-唯一剩余顺序列在表后。
+setup 仍按各自未完成的 case 单独检查；此前已取得的结果继续有效。下表只用于查证各 case 的当前状态，
+实际执行以紧随其后的 **Q0–Q11 最短人工队列** 为唯一顺序。
 
-| 顺序 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
+| 索引 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
 | --- | --- | --- | --- | --- |
 | 1 | RETEST / NATIVE RELOAD V3 CANDIDATE | [候选构建与安装](#guide-plugin-assets) + [CAL-00](#test-cal-00) | build/install 与 helper v3 CLI probe 已完成；现在只须原生 reload，并在 Settings 确认 v3 ready。旧 `04d7d13`／v2 hash 只作历史证据 | `"$PLUGIN_DIR/omd-eventkit" version` |
 | 2 | DONE / NATIVE | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 2026-10-03 原生 Check setup 后 Needs attention 为 healthy、Settings／System 为 OMD ready、Local AI ready；Current task 基线为 No task running | exact contract 仍沿用已通过的 Terminal 证据 |
@@ -181,26 +181,40 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 | 12 | TARGETED NATIVE DELTA | [AI-11](#test-ai-11) | 自动回归已覆盖 unload 与 Recognition defaults 核心边界；只补原生 disable/quit、Console 和下一次 Capture 使用新默认值 | 固定本地 fixture 问题 |
 | 13 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
-上一 v2 候选的构建、安装与原生 reload 已完成；当前 v3 候选已安装，仍须先完成第 1 行的原生 reload。
-下表是唯一权威的
-剩余执行顺序。已通过且未受 v3 影响的子项不重跑，每一行只补当前结果表仍为空、RETEST、PARTIAL 或
-FIRST PASS 的差额：
+### 1.3C 现在从这里继续：最短人工队列（2026-10-07）
 
-| 顺序 | Case | 只验证 |
-| --- | --- | --- |
-| R0 | `CAL-01 UI validation preview` 清理 | 等用户确认后删除误建的 Vault-only event 与 note；不触及其他 fixture |
-| R1 | [CAL-01](#test-cal-01) 剩余 | linked Calendar 时间对照、all-day、empty Start 与混合 LTR／RTL |
-| R2 | [CAL-02](#test-cal-02) 剩余 | 最后一个来源 disabled 与 Vault／Calendar／Linked 三类 fixture 对账 |
-| R3 | [CAL-00](#test-cal-00) v3 + [CAL-03](#test-cal-03) A–F | protocol v3、外部写入、两轮冲突、跨 Calendar 移动、Recreate／Detach、per-event missing 与 Vault／Calendar 分离删除；G 的 fault injection 由自动证据承担 |
-| R4 | [CAP-07 A.1／A.4／A.5](#test-cap-07) | 仍未结论的 warning card、viewport 与普通本地文件 control |
-| R5 | [CAP-07 B.2](#test-cap-07) | Clear 动态显隐、焦点与 provider 隔离 |
-| R6 | [CAP-07 C.1／C.2／C.3／C.4／D](#test-cap-07) | 只补仍标 RETEST／空白的真实平台、reconciliation、wrapper failure、Retry、Cancel／unload／隐私 |
-| R7 | [RC-P2-04](#test-rc-p2-04) | 新 AI tools 层级与 review-first Improve formatting 全矩阵 |
-| R8 | [AI-06](#test-ai-06) 原生差额 | 重复点击、tuple 失效、disable／reload 与 Console |
-| R9 | [AI-08](#test-ai-08) | 导入三篇 Phase 2 fixtures，通过 hard preflight 后重跑 P01–P06 |
-| R10 | AI-09／10 | multilingual retrieval、semantic rerank 与 reload 恢复 |
-| R11 | [AI-11](#test-ai-11) 原生差额 | disable／quit、Console 与下一次 Capture 使用新默认值 |
-| R12 | [REL-01](#test-rel-01) | 最后执行 clean vault、三项 bundle、reload 与 cold restart |
+当前 v3 bundle 已安装，自动门禁已经完成。人工测试不要重跑 fault injection，也不要重复已经通过的
+长音频、Answer model catalog 或旧 v2 helper。按下表从上到下执行；每完成一行就在本节后面的结果表
+写一行结论。Q0–Q2 是当前 Calendar 修复的发布必测，建议先连续完成；后面的组可以分次执行。
+
+| 顺序 | 类型 | 预计人工时间 | Case | 只做这些步骤 | 可直接使用的例子／完成条件 |
+| --- | --- | ---: | --- | --- | --- |
+| Q0 | **当前候选准备／RETEST** | 5 分钟 | [CAL-00](#test-cal-00) v3 | 在 Community plugins 停用／启用 OMD Home；Settings → Calendar 点 **Check helper**；打开 OMD Calendar 点一次 **Sync** | helper 显示 ready 且 protocol v3；Sync 不再永久停在 **Calendar sync paused**；Console 无加载异常 |
+| Q1 | **本轮 critical fix／RETEST** | 20–30 分钟 | [CAL-03 F.17–21](#test-cal-03) | 依次验证 Vault-only 删除 note、linked 删除 note、linked 只删除 Calendar copy，以及一个 missing event 不阻塞 healthy event | 使用 `CAL-03 Vault Delete Fixture`、`CAL-03 Linked Delete Note`、`CAL-03 Linked Delete Calendar Copy`、`CAL-03 Missing Does Not Block`、`CAL-03 Healthy Control`；每个确认框显示准确 Title／Time／Note path 或 Calendar |
+| Q2 | **安全 smoke／RETEST** | 10 分钟 | [CAL-03 G](#test-cal-03) 的可人工部分 | 打开删除确认后先 Cancel；做一次 Calendar delete CAS；打开确认框后 disable／enable plugin | Cancel 零写入；外部版本变化时拒绝旧删除；reload 后 modal 关闭、无 stale button、orphan helper 或 Console rejection。queued refresh、错误 pass、token 与 note byte-CAS 已由 200 / 200 自动测试覆盖，不人工制造 |
+| Q3 | **Calendar FIRST PASS / PARTIAL 补齐** | 30–45 分钟 | [CAL-01](#test-cal-01)、[CAL-02](#test-cal-02)、[CAL-03 A–E](#test-cal-03) | 只补 linked 时间对照、all-day、empty Start、混合 LTR／RTL、最后一个来源不能关闭、三种来源对账、外部写入、两轮冲突、跨 Calendar 移动、Recreate／Detach | 不重测已通过的 datetime-local、范围错误、source disclosure 和 Pending sync 排版 |
+| Q4 | **UI／Capture TARGETED RETEST** | 30–45 分钟 | [RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | 检查 AI tools／Improve formatting；warning card 与窄窗；完整绝对本地文件；Douyin／XHS Clear 显隐与焦点 | 本地文件必须使用 `$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html` 的实际绝对路径；不要粘贴字面量 `$REPO_ROOT` |
+| Q5 | **真实平台 RETEST / FIRST PASS** | 依素材长度 | [CAP-07 C／D](#test-cap-07) | Douyin 成功路径；Rednote output 对账与非空 transcript；wrapper failure／Retry；Cancel／unload／隐私 | Douyin tag `cap-07-douyin-retest`；Rednote tag `cap-07-xhs-video-retest`；没有可安全使用的公开素材或过期 cookies fixture 就记 NOT RUN，不伪造 PASS |
+| Q6 | **Hosted AI TARGETED RETEST** | 15–25 分钟 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05) | AI-03 只重测 `amber lighthouse checklist` grounded answer 与修正后的 zero-evidence 文案；AI-04 只补固定题 D2／尚未记录的 preview、Copy 与 provider 边界；AI-05 只做三个 provider 的 model memory、reload persistence 与 `data.json` 无 secret | 不重复 ANSWER-02-R1 已通过的模型 catalog 和 blue-key 答案；如果 provider 再次违反引用合同，保留 FAIL 与 fail-closed PASS，不反复发送 |
+| Q7 | **Local AI PARTIAL 补齐** | 10–15 分钟 | [AI-06](#test-ai-06) | 只做 Step 4 重复点击、Step 5 tuple 失效、Step 6 disable／reload＋Console | 不重复 Refresh models、三项 smoke 与 embedding 459ms 基线 |
+| Q8 | **正确 fixture 后 FIRST PASS** | 20–30 分钟 | [AI-08](#test-ai-08) | 复制三篇 Phase 2 fixtures；hard preflight 必须三行 READY；再执行 P01–P06 | 旧的缺 fixture 结果继续记 INVALID SETUP / NOT RUN，不能当产品 FAIL |
+| Q9 | **Extended FIRST PASS** | 30–45 分钟 | [AI-09](#test-ai-09)、[AI-10](#test-ai-10) | 导入四篇 tomato legacy fixtures；验证 semantic retrieval／rerank；再验证 stale model 与恢复路径 | `bge-m3` 只有明确点击 **Install model** 或手工 `ollama pull bge-m3` 才可下载；不要两种方式同时运行 |
+| Q10 | **Lifecycle TARGETED RETEST** | 10–15 分钟 | [AI-11](#test-ai-11) | 只补 pending consent 的 disable／完全退出 Obsidian、Console／orphan smoke，以及改变 OCR／ASR 后下一次真实 Capture 使用新默认值 | unload 和 Recognition isolation 的 core 已自动通过，不重做内部 race |
+| Q11 | **最终发布 FIRST PASS** | 10–15 分钟 | [REL-01](#test-rel-01) | 在 disposable clean vault 只安装三项 Marketplace 资产，完成 enable、disable／enable、cold restart 与无依赖状态 | 必须最后执行；不要把当前有历史数据的 test-vault 当 clean-vault 证据 |
+
+`CAL-01 UI validation preview` 是早期自动操作留下的临时 Vault-only fixture，不属于测试前置。等 Q1 的
+删除路径通过后，可在界面中单独确认并清理；不要为了清理它阻塞当前测试，也不要触及其他 fixture。
+
+#### 已经测过，本轮不要重复
+
+| Case | 保留的结论 |
+| --- | --- |
+| OMD-01、CAP-07 A.2 exact capability | KEEP PASS；当前 OMD ready 与 share-text／cookies contract 已有证据 |
+| RC-P2-01／02、RC-P2-03 的时间／状态／tags／filter／Pin／Unpin／长文件名 | KEEP PASS；只由 Q4 验证新的 AI tools 与 formatting 入口 |
+| CAP-01A、CAP-06 B／C／D、114 秒 WAV | KEEP RESULT；普通本地文件 control 失败时才把 CAP-01A 升级为 RETEST |
+| AI-02 local Ollama、AI-06 Refresh／Check／三项 smoke／embedding | KEEP PASS；只执行 Q7 的三个差额 |
+| ANSWER-02-R1、provider 自动 setup、OpenAI／Claude／DeepSeek blue-key 答案 | KEEP PASS；Q6 只处理仍失败或未记录完整的 hosted 子项 |
+| 805 / 805 自动套件、200 / 200 Calendar／EventKit 定向矩阵 | AUTOMATED PASS；不要人工制造 queued-refresh failure、错误 confirmation token、helper crash 或 note byte-CAS race |
 
 已完成或不受本轮改动影响的结果保留在这里，不重新执行：
 
@@ -243,7 +257,7 @@ FIRST PASS 的差额：
 | CAL-01 targeted UI | PASS；完整 case PARTIAL | 2026-10-05 | 原生 Obsidian | 原生 datetime-local、Pacific/Auckland 说明、无效 End 的红色 inline error／焦点／修正即清除已通过；linked time 对照、all-day 与 empty Start 仍待人工 |
 | CAL-02 source UX | PASS；完整 case PARTIAL | 2026-10-05 | 原生 Obsidian | Sources · All、三项说明、筛选后的 2 of 3、Home Event source key 已通过；最后一个来源 disabled 与完整三类 fixture 仍待人工 |
 | CAL-03 safety shell | PARTIAL / FIRST PASS | 2026-10-05 | 原生 Obsidian | Week／Day 的 Pending sync 标识不溢出；待同步弹窗仅有 Cancel 与 Import Calendar change，无普通 Save。A–E 写入、两轮冲突、跨 Calendar 移动、Recreate／Detach 均未执行 |
-| CAL-01 UI validation preview 清理 | PENDING USER CONFIRMATION | 2026-10-05 | 原生 Obsidian | 原生控件自动化试验误建一条 Vault-only 临时记录；这不是产品缺陷，必须在用户确认后由界面删除，清理前不得写 fixtures fully cleaned |
+| CAL-01 UI validation preview 清理 | OPTIONAL CLEANUP | 2026-10-05 | 原生 Obsidian | 原生控件自动化试验误建一条 Vault-only 临时记录；这不是产品缺陷，不阻塞 Q0–Q11。Q1 删除路径通过后可由界面单独清理，不要触及其他 fixture |
 | AI-06 | PARTIAL；native baseline PASS | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running，符合修订后的职责；重复点击、tuple 失效及 disable/reload 原生差额仍待测 |
 | AI-08 Phase 2 benchmark | INVALID SETUP / NOT RUN；format-only PASS | 2026-10-05 | test-vault 文件核对＋截图 5＋人工答案 | 三篇 Phase 2 fixtures 均未导入；截图 5 的 Based on／Source states／Model inference／source chips 格式正确，但 P01–P05 命中无关笔记，只能保留为无效环境证据；ANSWER-02-R1 后导入并重跑 P01–P06 |
 | AI-11.8 pending consent unload | automated core PASS；native delta NOT RUN | 2026-10-05 | `tests/main-runtime-regressions.test.ts` | 自动回归确认 unload 关闭 consent、排队中的批准也不能发送；仍需原生 disable/reload 与完全退出 Obsidian smoke，确认无 Console orphan/rejection |
@@ -251,8 +265,9 @@ FIRST PASS 的差额：
 | AI-09／10 |  |  |  |  |
 | REL-01 |  |  |  |  |
 
-**下一步：** 只按上方 R0–R12 执行。ANSWER-02-R1 与 CAL-00 已完成，不重复；REL-01 始终最后执行。
-每完成一项，立即写 PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
+**下一步：** 只按上方 Q0–Q11 执行。ANSWER-02-R1 不重复；CAL-00 的旧 v2 结果仅为历史证据，Q0 必须
+用当前 protocol v3 重新确认。REL-01 始终最后执行。每完成一项，立即写
+PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
 
 
 <a id="test-rc-p2-01"></a>
