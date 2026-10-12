@@ -231,6 +231,7 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
+| CAL-03 F.18–21 原生进度 | PARTIAL；F.19 note-side PASS，F.20 healthy lane PASS，F.21 target-removal PASS；F.18 UX RETEST | 2026-10-12 | 截图 1–4＋vault frontmatter＋EventKit 定向 read-only lookup | Calendar copy 删除后 note 已为 `event-source: vault` / `sync-state: clean` 且无 Apple linkage；healthy note 已写入 `Healthy lane B` 并保持 clean；`Missing Does Not Block` note 已消失。后续 `1 unavailable event` 来自旧 `CAL-03 Conflict Fixture – calendar`，不是目标 note 复活。刚创建 linked note 即出现 `Calendar has newer changes` 与无指名的 recovery Notice 转 CALENDAR-05 |
 | 2026-10-06 Calendar delete/missing candidate | RETEST；automated PASS | 2026-10-06 | 805 / 805 tests；200 / 200 Calendar／EventKit targeted；TypeScript／ESLint／production build／helper build；asset hashes＋CLI probe | test-vault 已安装，helper 返回 v3 且 `data.json` 未变；Home native reload、CAL-00／03 待补，旧 v2 evidence 不得复用为 PASS |
 | 2026-10-05 最终 bundle 重装 | PASS | 2026-10-05 | 原生 Obsidian | 三项 hash 与上表一致；`data.json` SHA-256 前后不变；原生停用／启用完成，新 Calendar UI 可见，Current task 为 No task running |
 | Settings Answer setup 窄窗布局 | PASS | 2026-10-05 | 原生 Obsidian | 说明完整换行；Check setup 独立占一行，不覆盖文字且无横向滚动 |
@@ -2648,12 +2649,15 @@ native PASS。
     **Delete event note**，说明为移动到 Obsidian Trash；不能出现会误删 Apple Calendar 的文案。点
     **Delete note…** 后，确认框的 **Selected event** 必须显示 Title、Time 与准确 Note path，避免同名事件
     误删。先 Cancel，event 与 note 都应保留；再次确认 **Move to trash**，editor 必须关闭，Calendar 格子
-    立即消失，Obsidian Trash 中只有这份测试 note。
+    立即消失，Obsidian Trash 中只有这份测试 note。实际位置由 Obsidian **Settings → Files and links →
+    Deleted files** 决定：本地 trash 是 vault 根目录的隐藏 `.trash/`，system trash 则在 macOS Trash。
 18. 新建 linked `CAL-03 Linked Delete Note`。打开后选 **Delete event note…**：确认框必须明确写
     **OMD Home will not delete or modify Apple Calendar**，并在 **Selected event** 显示 Title、Time、Note path。
     先 Cancel；再次执行并点 **Move to trash**。
     Markdown note 应进入 Obsidian Trash，Apple Calendar 的 event 仍存在；refresh 后它可以作为
     Calendar-only event 再出现，不能被误报为 linked note 仍存在。
+    如果刚创建、未人工修改 Calendar 就先出现 **Calendar has newer changes**，可点
+    **Import Calendar change** 继续本步，但将这个多余的阻塞记为 UX RETEST，不把它解释为用户内容冲突。
 19. 新建另一条 linked `CAL-03 Linked Delete Calendar Copy`。选 **Delete Calendar copy…**：确认框必须写
     Apple event 会删除、Markdown note 会保留为 Vault only；**Selected event** 显示 Title、Time 与目标
     Calendar。先 Cancel；再次执行并点 **Delete event**。
@@ -2666,7 +2670,8 @@ native PASS。
 21. 打开 unavailable 的 `CAL-03 Missing Does Not Block`：普通字段与 Save 必须禁用；
     **Retry full sync** 明确说明会同步其他 linked events；还应能 Detach，或用
     **Delete event note…** 只把 Markdown note 移到 Trash。确认删除 note 后 editor 关闭、linked 格子消失；
-    再次 Sync 必须可运行且不再重新创建该 note。
+    再次 Sync 必须可运行且不再重新创建该 note。如果 Sync 仍报其他 linked event 需要 recovery，
+    必须打开被高亮的具体项核对 title；只有删除的 `CAL-03 Missing Does Not Block` 自身重现才算本步 FAIL。
 22. PASS 后删除本节其余 event 与测试 note；整个 CAL 组结束后再删除两个测试 calendar。
 
 #### G. 精确确认、CAS、refresh failure 与 unload 安全门禁

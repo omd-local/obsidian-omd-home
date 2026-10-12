@@ -791,6 +791,22 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
   Recreate／Detach 与失败清理仍必须按 CAL-03 A–F 完整执行；G 的 race、refresh failure 与 unload 由
   fault-injection 自动证据承担，原生未执行时明确写 NOT EXERCISED。本项在此前不能关闭。
 
+### CALENDAR-05：Recovery 提示没有说明具体是哪条 linked note
+
+**状态：BACKLOG。优先级：P1。**
+
+- 2026-10-12 原生 CAL-03 中，`CAL-03 Missing Does Not Block` 已 Detach 并移入 Trash，note 不再存在；
+  再次 Sync 仍显示 `1 unavailable event`。Vault 与 EventKit 定向核对证明真正需要 recovery 的是更早的
+  `CAL-03 Conflict Fixture – calendar`，不是刚删除的项。当项目在当前视图范围外时，临时 Notice 加 hover
+  不足以让用户找到它。
+- 用户文案不再使用容易被理解成“有事件还没同步下来”的 **unavailable event**；改为类似
+  **1 linked note needs Calendar recovery**，并说明 Calendar copy 可能被删除、移动或所属 Calendar 未选中。
+- Sync 后在 Calendar view 内保留紧凑的 review summary，至少显示问题项的 title 并提供 **Review event**；
+  不要只依赖会消失的 toast 或必须 hover 才看到的 tooltip。未解决项在当前月／周范围外也必须可导航。
+- 刚创建 linked event、用户没有修改 Calendar 时，只有 EventKit 的 `externalModifiedAt` 等链接 metadata
+  变化不应被说成 **Calendar has newer changes**。安全门禁仍保留，但需区分真实内容改动与仅 metadata
+  稳定化；后者应在创建流程中收敛，或使用不暗示内容冲突的准确说明。
+
 ## Answer UX / 模型措辞方向
 
 此方向独立于 UI-01–03 的 Settings 视觉整理；关注 Ask vault 答案如何把证据与建议清楚、自然地
