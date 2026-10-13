@@ -2701,6 +2701,36 @@ native PASS。
   unload 后 refresh。当前候选已统一登记 Calendar editor／confirmation modal，并在 `onunload` 主动关闭；
   原生 disable/reload 仍须确认 modal 立即关闭、没有 stale button、Notice 或 Console rejection，才能写 PASS。
 
+Q2 的 10 分钟原生 smoke 按下面顺序执行；三个子项使用不同 fixture，避免前一步改变后一步的目标：
+
+1. **Cancel 零写入：** 新建 linked `CAL-03 Q2 Cancel`，打开 **Delete Calendar copy…**，核对 Title、
+   Time、Note path 与 Calendar 后点 **Cancel**。确认 Markdown note 和 macOS Calendar event 都仍存在，
+   linkage／`sync-state` 没有变化，也没有成功删除 Notice。
+2. **Calendar delete CAS：** 新建 linked `CAL-03 Calendar Delete CAS`，打开 **Delete Calendar copy…**
+   确认框但先不要确认；切到 macOS Calendar，把同一 event 的标题改为
+   `CAL-03 Calendar Delete CAS – changed after open`。回到原确认框点 **Delete event**。插件必须拒绝
+   这次旧版本删除并说明 event 已在确认框打开后改变；Calendar 中的新标题 event 与 Markdown note 都必须
+   保留。随后点一次 **Sync**，重新打开目标后才能基于当前版本操作。
+3. **确认框打开时 unload：** 先用 **View → Toggle Developer Tools**（macOS 可按
+   `Command-Option-I`）打开 Console。新建 linked `CAL-03 Q2 Unload`，打开
+   **Delete Calendar copy…** 并保持确认框不操作；在 Console 运行：
+
+   ```js
+   await app.plugins.disablePlugin("omd-home")
+   ```
+
+   确认 modal 立即关闭，note 与 Calendar event 都未删除，Console 没有 unhandled rejection。再运行：
+
+   ```js
+   await app.plugins.enablePlugin("omd-home")
+   ```
+
+   从 ribbon 重新打开 OMD Calendar 并点 **Sync**；两份对象仍存在，不能残留旧 modal、可再次点击的旧
+   Delete 按钮或 orphan helper。完成后删除三个 Q2 fixtures。
+
+Q2 只要求以上三个原生 smoke。queued refresh、helper error pass、action token、note byte-CAS 与 mutation
+中途 unload 已由自动测试覆盖，不需要在正式 test-vault 中手工注入故障。
+
 通过条件：Sync 反馈与真实状态一致；两轮独立冲突都不静默选边；比较框展示用户正在选择的两份版本；
 冲突时普通 edit／drag 被阻止；跨 Calendar 移动只恢复 linkage、不制造副本；Recreate 需要用户明确确认
 重复风险并在写入前再次查找；取消选择或读取失败不能误建副本；note 与 Calendar copy 的删除范围清楚、
