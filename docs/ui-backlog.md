@@ -220,7 +220,7 @@ Bookmarks 或粘贴进 Graph Groups。
 
 ### UI-12：在 Home 直接显示 Inbox／Reviewed 工作流状态
 
-**状态：已实现。优先级：P0；待原生 Capture / Apply 视觉复测。** Recent 直接读取当前
+**状态：DONE / CLOSED。优先级：P0。** 自动状态回归与当前 test-vault 原生 Home 复核均已通过；Recent 直接读取当前
 Properties 并只显示精确的 Inbox／Reviewed；成功终态显示 **Status · Reviewed**，普通笔记及失败终态
 不显示工作流状态。
 
@@ -311,6 +311,8 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
   Capture modal 不需要可拖动 resize handle，但必须自动限制在 viewport 内。内容可以纵向滚动，底部
   Cancel / Capture 始终可达；不得裁切、重叠或产生横向滚动，所有字段仍能通过 Tab 顺序访问。
   Reset zoom 后点击 Cancel，不产生 note，也不改变已记住的 Capture 选项。
+
+<a id="backlog-ui-14"></a>
 
 ### UI-14：Needs attention 可关闭单条已过期错误
 
@@ -693,15 +695,19 @@ Local batches。
 
 ### CALENDAR-01：Helper override 输入后缺少即时校验反馈
 
-**状态：2026-10-05 override UX 原生 PASS；protocol v3 候选 RETEST。优先级：P1。**
+**状态：DONE / CLOSED。优先级：P1。** 2026-10-21 当前 protocol v3 候选已完成原生 invalid override、
+**Use bundled**、**Check helper** 与 selection/default 保留复核；边界由自动回归覆盖。
 
 **证据与背景：** 2026-10-05 CAL-00 原生测试中，在 **Advanced Calendar helper** 输入不存在的
 绝对路径后，页面仍保留之前的 helper 状态；只有点击 **Refresh calendars** 才显示 custom helper
 missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复；是否保留已保存 calendar 选择当时尚待
 单独确认。最终候选原生复测已确认：输入后在 Refresh 前出现统一红色错误；9 个 Calendar 列表、已保存选择
 与 default 保留；Automatic 模式不显示 **Use bundled**，custom path 使按钮出现，点击后输入框清空且
-按钮立即隐藏；**Check helper** 当时恢复 bundled protocol v2。这份 v2 probe 是历史证据，已被
-2026-10-06 protocol v3 contract 取代，不能证明当前候选 ready。
+按钮立即隐藏；**Check helper** 当时恢复 bundled protocol v2。这份 v2 probe 是历史证据。2026-10-21
+当前安装中再次输入 `/tmp/omd-home-missing-eventkit-v3`，错误在手动 Refresh 前立即替换旧 ready；
+**Use bundled** 清空 override，**Check helper** 恢复 Automatic helper ready 与 10 个 Calendar，default
+仍为 `iCloud / Activity`，`data.json` hash 前后仍为 `97a63791…6206`。独立 helper CLI probe 返回 v3，
+v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此本项不再要求原生重跑。
 
 **验收标准：**
 
@@ -715,8 +721,8 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 - helper readiness 必须验证 protocol v3；仅“文件存在且可执行”不足以 ready。v2 及更早版本显示
   **Update Calendar helper** 与 **No Calendar data was read or changed**，提供 **Check again**，并在任何
   events/lookup/upsert/delete 前 fail closed，避免旧 helper 绕过 absent lookup、CAS、exact occurrence
-  lookup 与 all-day date-only 契约。v3 的原生 Home reload／Settings probe 仍标 **RETEST**，不得沿用
-  2026-10-05 的 v2 PASS。
+  lookup 与 all-day date-only 契约。当前 v3 的原生 reload／Settings probe 已通过，旧 v2 PASS 只保留为
+  历史证据。
 
 
 ### CALENDAR-02：Event editor 的时区与范围错误不够明确
@@ -744,7 +750,7 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 
 ### CALENDAR-04：Sync 完成反馈与 conflict 版本完整性
 
-**状态：IMPLEMENTED CANDIDATE；2026-10-06 protocol v3 + missing/delete + unload-modal 待原生 RETEST，完整 CAL-03 仍待原生矩阵。优先级：P0。**
+**状态：IMPLEMENTED CANDIDATE；自动门禁 PASS，原生只剩 CAL-00 final Sync、CAL-03 F.17／F.18 与 Q2。优先级：P0。**
 
 - 只有全部 clean 才能显示 **Calendar sync complete**；conflict、unavailable、error、pending 均返回数量
   与下一步，Calendar 顶部 Sync 和命令使用同一结果文案。
@@ -781,19 +787,22 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 - Calendar editor／confirmation modal 现在统一登记，`onunload` 会关闭所有仍打开或 pending 的 Calendar
   action modal；modal action guard 让迟到 callback 不能继续 destructive action。仍须补原生 disable/reload
   smoke，确认无 stale button、Notice 或未处理 rejection；在此之前 unload/modal 子项保持 **RETEST**。
-- 2026-10-06 自动发布门禁已通过：Home 805 / 805、其中 Calendar／EventKit 定向 200 / 200、TypeScript、
+- 当前自动发布门禁已通过：Home 829 / 829、其中 Calendar／Home／runtime 定向 255 / 255、TypeScript、
   零 warning ESLint、production build、protocol v3 helper release build 与 `git diff --check`。同一资产已安装
   到 test-vault，四项安装 hash 与源码一致且 `data.json` 未改变；此证据不替代 CAL-00／03 原生 RETEST。
 - linked/read-only event 的字段与 Save 现在保持只读一致；仍可 Detach 或删除本地 note，不再先展示可编辑
   UI、提交后才以 Calendar 不可写失败。
-- 原生 safety-shell 已确认 Week／Day 的 Pending sync 状态不溢出，点击待同步事件只提供 Cancel 与
-  Import Calendar change、没有普通 Save。v3/missing/delete 修复、两轮冲突、CAS、跨 Calendar 移动、
-  Recreate／Detach 与失败清理仍必须按 CAL-03 A–F 完整执行；G 的 race、refresh failure 与 unload 由
-  fault-injection 自动证据承担，原生未执行时明确写 NOT EXERCISED。本项在此前不能关闭。
+- 原生已经通过 E.14 Recreate、E.15 Detach、E.16 Calendar 取消选择／恢复、Destination 显示、跨 Calendar
+  移动以及 F.19–21；Week／Day 的 Pending sync 也不溢出。当前只剩一次真实 Sync、F.17 Vault-only note
+  删除、F.18 linked note 删除，以及 Q2 的 Calendar CAS／modal unload smoke。其余 race、refresh failure、
+  token 与 note byte-CAS 由 255 / 255 自动证据承担，不再要求人工故障注入。
+
+<a id="backlog-calendar-05"></a>
 
 ### CALENDAR-05：Recovery 提示没有说明具体是哪条 linked note
 
-**状态：PARTIALLY IMPLEMENTED CANDIDATE；原生复测待执行。优先级：P1。**
+**状态：OPEN / PARTIALLY IMPLEMENTED；建议首发前完成。优先级：P1。** 临时 Notice 已改善文案并列出
+最多 3 个 title，但 Calendar view 内仍没有持久、可点击的 recovery summary／**Review event**。
 
 - 2026-10-12 原生 CAL-03 中，`CAL-03 Missing Does Not Block` 已 Detach 并移入 Trash，note 不再存在；
   再次 Sync 仍显示 `1 unavailable event`。Vault 与 EventKit 定向核对证明真正需要 recovery 的是更早的
@@ -816,9 +825,11 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
   可能被删除、移动或所属 Calendar 未选中；临时 Notice 会列出最多 3 个具体 title。仍缺少 Calendar view 内
   持久、可点击的 summary 与 **Review event** 导航，因此本项保留为非阻塞 P1，不以临时 toast 关闭 backlog。
 
+<a id="backlog-calendar-06"></a>
+
 ### CALENDAR-06：Upcoming 的来源说明不可读，跨日列表缺少日期
 
-**状态：IMPLEMENTED CANDIDATE；原生视觉／键盘复测待执行。优先级：P1。**
+**状态：IMPLEMENTED CANDIDATE；source-key 原生键盘 smoke PASS，剩余视觉复测待执行。优先级：P1。**
 
 - 2026-10-17 CAL-02 原生复测中，Upcoming 的 `…` 菜单虽然包含 **Event source key** 和三条来源说明，
   但它们被当作 disabled menu item 渲染成极低对比度灰字；用户实际判断为没有 source key。说明性内容
@@ -828,11 +839,15 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
   属于今天、明天还是之后的某一天。保持紧凑布局，但至少用分组标题或简短日期标签表达日期，例如
   **Today · 15:00**、**Tomorrow · 09:00**、**Tue 20 Oct · 13:00**；all-day 与 multi-day 事件也要有
   明确且不误导的日期范围。
+- 2026-10-21 原生 Home 已显示 **Tomorrow** 与更晚的具体日期；**Event source key…** modal 的 Vault only、
+  Calendar only、Linked 三项普通文字可读，Escape 关闭后焦点回到 Upcoming 的 Options。仍只需补 timed
+  跨日、all-day 多日、窄栏、150% 与深浅主题视觉对账。
 - 来源 marker 继续保持轻量，不恢复常驻三项 legend；按需说明必须真正可读，日期信息不能只存在于 hover。
   验收覆盖 Today／Tomorrow／更晚日期、all-day、跨日 event、窄 Home widget、深浅主题、键盘与屏幕阅读器。
 - 2026-10-18 候选把 **Event source key…** 改为可聚焦 action，打开可读说明 modal；Upcoming 行显示
   Today／Tomorrow／具体日期与全天范围，并按本地 civil date 处理全天 exclusive end。窄于 360px 时日期与
-  标题分行。自动回归覆盖 Auckland／Los Angeles 边界、非法日期与窄栏；深浅主题和原生键盘流程仍待人工复测。
+  标题分行。自动回归覆盖 Auckland／Los Angeles 边界、非法日期与窄栏；原生键盘 smoke 已通过，只剩
+  timed 跨日、all-day 多日、窄栏／150%、深浅主题与屏幕阅读器说明的实景对账。
 
 ### CALENDAR-07：Recreate 在没有用户改动时立即报告 state changed
 
@@ -954,8 +969,8 @@ select 为 189px，当前 **Ollama on this computer** 完整可读，页面没�
 
 ### ANSWER-04：DeepSeek Pro 结构化答案不能把输出预算耗尽在 thinking
 
-**状态：后端已修复并通过自动回归；真实 DeepSeek key 的 `deepseek-v4-pro`／`deepseek-flash`
-对照仍需 ANSWER-02-R1 原生实网复测。优先级：P0。** 用户观察到 `deepseek-v4-pro` 返回
+**状态：DONE / CLOSED。优先级：P0。** 后端自动回归与真实 `deepseek-v4-pro`／`deepseek-flash`
+原生实网对照均已通过；两次结果都保留实际 model ID、完整结构与引用，没有静默 fallback。用户此前观察到 `deepseek-v4-pro` 返回
 **stopped before completing**，而 `deepseek-flash` 成功。该安全错误表示流在完整结构化答案前结束；
 结合 DeepSeek 当前默认开启高强度 thinking，以及 OMD grounded answer 的 1200-token 有界输出，
 最可能的原因是 Pro 的 reasoning 消耗了可用输出预算。由于错误路径有意不保存 provider 原始正文，
@@ -964,5 +979,5 @@ select 为 189px，当前 **Ollama on this computer** 完整可读，页面没�
 OMD 现在只对带 `output_schema` 的 DeepSeek 请求同时发送 JSON mode 与显式
 `thinking: {type: disabled}`，把预算留给最终 JSON；普通非结构化请求不受影响。没有通过提高 token
 上限掩盖问题，也没有自动改用 Flash。后端 1685 tests、Ruff 和过滤 AppleDouble 文件后的
-`py_compile` 通过。人工回归必须分别显示两个真实 model ID、完整引用答案与各自耗时；没有 key、
-catalog 无型号或账号无权限时记为 `NOT RUN`，不能把 Flash 成功代替 Pro 通过。
+`py_compile` 通过。最终原生回归已分别显示两个真实 model ID 与完整引用答案；历史的 Pro 失败仍保留为
+修复前证据，不再把本项列为发布前待测。
