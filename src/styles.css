@@ -11,6 +11,7 @@
 .omd-event-modal,
 .omd-event-conflict-modal,
 .omd-sync-required-modal,
+.omd-source-key-modal,
 .omd-enrichment-view {
   --omd-grid: 4px;
   --omd-font-small: max(12px, var(--font-ui-smaller));
@@ -478,10 +479,51 @@
   .omd-note-tools > :first-child { border-left: 0; }
   .omd-note-metadata { align-items: flex-start; }
 }
+.omd-widget-today,
+.omd-widget-upcoming { container: omd-calendar-widget / inline-size; }
 .omd-event-row { grid-template-columns: 10px max-content minmax(0, 1fr); align-items: center; gap: 6px; }
 .omd-event-row.has-conflict { color: var(--omd-danger); }
-.omd-event-time { color: var(--omd-muted); font: 600 var(--omd-font-small)/1.35 var(--font-monospace); }
+.omd-event-time {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--omd-muted);
+  font: 600 var(--omd-font-small)/1.35 var(--font-monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .omd-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container omd-calendar-widget (max-width: 360px) {
+  .omd-event-row { grid-template-columns: 10px minmax(0, 1fr); gap: 1px 6px; }
+  .omd-event-row .omd-source-mark { grid-row: 1 / span 2; align-self: center; }
+  .omd-event-time,
+  .omd-event-title { grid-column: 2; }
+}
+
+.omd-source-key-modal { width: min(440px, calc(100vw - 24px)); }
+.omd-source-key-modal h2 { margin-bottom: 6px; }
+.omd-source-key-intro { margin: 0 0 14px; color: var(--omd-muted); line-height: 1.5; }
+.omd-source-key-list { display: grid; gap: 8px; }
+.omd-source-key-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--omd-line);
+  border-radius: 3px;
+  background: var(--omd-panel-alt);
+}
+.omd-source-key-glyph {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: var(--omd-ink);
+  font: 700 17px/1 var(--font-monospace);
+}
+.omd-source-key-copy { min-width: 0; }
+.omd-source-key-copy strong { display: block; color: var(--omd-ink); font-weight: 600; }
+.omd-source-key-description { color: var(--omd-muted); font-size: var(--omd-font-small); line-height: 1.4; }
 
 .omd-source-mark { display: inline-block; width: 7px; height: 7px; border: 1px solid currentColor; color: var(--omd-muted); }
 .omd-source-mark.is-external { background: currentColor; }

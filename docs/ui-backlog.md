@@ -793,7 +793,7 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 
 ### CALENDAR-05：Recovery 提示没有说明具体是哪条 linked note
 
-**状态：BACKLOG。优先级：P1。**
+**状态：PARTIALLY IMPLEMENTED CANDIDATE；原生复测待执行。优先级：P1。**
 
 - 2026-10-12 原生 CAL-03 中，`CAL-03 Missing Does Not Block` 已 Detach 并移入 Trash，note 不再存在；
   再次 Sync 仍显示 `1 unavailable event`。Vault 与 EventKit 定向核对证明真正需要 recovery 的是更早的
@@ -806,6 +806,69 @@ missing/not executable。Refresh 的错误准确，**Use bundled** 也能恢复�
 - 刚创建 linked event、用户没有修改 Calendar 时，只有 EventKit 的 `externalModifiedAt` 等链接 metadata
   变化不应被说成 **Calendar has newer changes**。安全门禁仍保留，但需区分真实内容改动与仅 metadata
   稳定化；后者应在创建流程中收敛，或使用不暗示内容冲突的准确说明。
+- 2026-10-17 CAL-03 D 原生复测中，`CAL-03 Move Fixture` 在跨 Calendar 移动后准确更新为目标 Calendar，
+  `event-source: linked`、`sync-state: clean`，OMD 与 macOS Calendar 均只有一条且没有红色 `!` 或
+  **Recreate**；再次移动到 `Activity` 后仍满足这些条件，但每次 Sync 都继续报告
+  **1 unavailable event**。Vault 搜索 `[sync-state:unavailable]` 与原始文字均无结果。需要核对 recovery
+  分类的来源与生命周期：已恢复／clean 的移动项不得保留过期 unavailable 计数；若计数来自另一条 note，
+  summary 必须显示具体 title 并能导航，不能让用户误以为刚移动的 clean event 仍然失败。
+- 2026-10-18 候选已把用户可见文案改为 **linked note needs Calendar recovery**，说明 Calendar copy
+  可能被删除、移动或所属 Calendar 未选中；临时 Notice 会列出最多 3 个具体 title。仍缺少 Calendar view 内
+  持久、可点击的 summary 与 **Review event** 导航，因此本项保留为非阻塞 P1，不以临时 toast 关闭 backlog。
+
+### CALENDAR-06：Upcoming 的来源说明不可读，跨日列表缺少日期
+
+**状态：IMPLEMENTED CANDIDATE；原生视觉／键盘复测待执行。优先级：P1。**
+
+- 2026-10-17 CAL-02 原生复测中，Upcoming 的 `…` 菜单虽然包含 **Event source key** 和三条来源说明，
+  但它们被当作 disabled menu item 渲染成极低对比度灰字；用户实际判断为没有 source key。说明性内容
+  不应借用 disabled action 的视觉语义，必须在深浅主题下保持普通可读对比度，并让键盘／辅助技术能够
+  读出 Vault only、Calendar only、Linked 的含义。
+- Upcoming 跨多个日期列出事件时，行内目前只显示 `ALL` 或时间，没有日期；用户无法仅凭列表判断事件
+  属于今天、明天还是之后的某一天。保持紧凑布局，但至少用分组标题或简短日期标签表达日期，例如
+  **Today · 15:00**、**Tomorrow · 09:00**、**Tue 20 Oct · 13:00**；all-day 与 multi-day 事件也要有
+  明确且不误导的日期范围。
+- 来源 marker 继续保持轻量，不恢复常驻三项 legend；按需说明必须真正可读，日期信息不能只存在于 hover。
+  验收覆盖 Today／Tomorrow／更晚日期、all-day、跨日 event、窄 Home widget、深浅主题、键盘与屏幕阅读器。
+- 2026-10-18 候选把 **Event source key…** 改为可聚焦 action，打开可读说明 modal；Upcoming 行显示
+  Today／Tomorrow／具体日期与全天范围，并按本地 civil date 处理全天 exclusive end。窄于 360px 时日期与
+  标题分行。自动回归覆盖 Auckland／Los Angeles 边界、非法日期与窄栏；深浅主题和原生键盘流程仍待人工复测。
+
+### CALENDAR-07：Recreate 在没有用户改动时立即报告 state changed
+
+**状态：IMPLEMENTED / NATIVE PASS；CAL-03 E.14 已通过。优先级：P0（完成）。**
+
+- 2026-10-17 CAL-03 E 原生复测中，用户已在 macOS Calendar 确认删除独立的
+  `CAL-03 Recovery Fixture`；Sync 后目标准确显示 **CALENDAR EVENT NOT VERIFIED**，提示只有在确认
+  Calendar 中确实不存在后才能使用 **Recreate…**。用户没有再修改 note、Calendar 或 Settings，但点击
+  Recreate 后立即得到 **This event state changed after Recreate opened. Nothing was written; review the
+  refreshed event.**，安全恢复流程因此无法进入预期的 Cancel／Confirm 验证。
+- 保留真正的 compare-and-swap 门禁：确认框打开后若 note 内容、EventKit 候选、Calendar selection 或目标
+  identity 真实改变，必须继续拒绝写入。修复应找出打开 modal／后台 refresh 自己改变 snapshot 或 action
+  token 的原因；纯展示刷新、metadata 稳定化或同一 recovery 状态的等价重读不能制造假冲突。
+- Recreate modal 打开时应显示准确目标 Title、Time、Calendar／Note path 与重复风险；Cancel 必须零写入。
+  Confirm 前重新做 exact ID／stable identity lookup：找到任一候选则停止并要求 review，仍无候选时才创建
+  恰好一条 event、更新原 note linkage，并在后续 Sync 保持 clean。若真实 CAS 失败，刷新后的目标与
+  **Try again** 路径必须明确，不能只关闭操作后让用户重新寻找事件。
+- 回归覆盖无改动 Recreate、modal 打开后的真实 note 修改、外部 Calendar event 重现、Calendar selection
+  改变、重复点击、并发 Sync、metadata-only refresh、Cancel、plugin unload，以及已有旧 recovery 计数时的
+  目标隔离；任何失败都不得创建 event 或改写 note。
+- 2026-10-18 候选已修复 action 自己写入 pending 状态触发的假冲突，并冻结目标 Calendar 与完整 selection
+  快照；确认前再次核对 exact／stable identity、note bytes、settings、generation 与 unload。EventKit upsert
+  尚未开始时失效会精确回滚 staged note；upsert 已开始后的未知提交窗口保留 pending reconciliation note，
+  避免制造无记录的 Calendar orphan。自动门禁为完整 818 / 818、定向 226 / 226、TypeScript、ESLint、build
+  与 diff check；test-vault 已安装并 Force Reload。2026-10-18 原生复测确认 modal 显示准确 Title、Time、
+  Target calendar 与 Note path；Cancel 零写入，Confirm 恰好重建一条 event，原 note path 不变，再次 Sync 后
+  保持 linked／clean 且没有重复项。E.15／E.16 属于后续 Detach／Calendar selection 覆盖，不再阻塞本项。
+- 2026-10-21 提交前并发审查又覆盖了一个真实一致性窗口：Recreate 的 EventKit upsert 在途时，full Sync
+  可能已经把同一 pending note 收敛为 clean。最终 CAS 现在会重读 note，并只在 request、item、external、
+  occurrence identity 与内容 `syncHash` 全部匹配时接受该并发完成；Calendar 只更新
+  `externalModifiedAt` 等 metadata 也不会误删刚创建的 event。无法证明是同一写入时会保留 Calendar item
+  与 pending reconciliation note，并要求先运行 Sync；不会回滚一个可能已提交的 EventKit create。pending
+  note 已提交但 action 同时失效时，写入结果会回到 staging caller 做精确 CAS 恢复；plugin unload 则保留
+  recovery record 且不再发布 override 或启动 EventKit。当前自动门禁为完整 **829 / 829**、
+  Calendar／Home／runtime 定向 **255 / 255**、TypeScript、
+  零 warning ESLint、独立 production build 与 `git diff --check`；test-vault 已重新安装并 Force Reload。
 
 ## Answer UX / 模型措辞方向
 

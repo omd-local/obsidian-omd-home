@@ -101,7 +101,7 @@ npm audit --omit=dev
 
 ### 1.3 记录本次测试身份
 
-### 1.3A 当前 Calendar 删除／missing-event 候选（2026-10-06 NZST）
+### 1.3A 当前 Calendar recovery／Upcoming 候选（2026-10-21 NZST）
 
 当前源码候选把 EventKit helper contract 提升到 **protocol v3**。v3 的只读 event lookup 会把
 `occurrenceNotLocated` 表达为 `event: null`；Update／Delete 仍按 exact identity 与 compare-and-swap
@@ -110,17 +110,20 @@ fail closed。Calendar UI 还把 **Delete event note** 与 **Delete Calendar cop
 删除在最后写入前还要重新检查 lifecycle 与目标版本。
 
 当前 production Home bundle 与 protocol v3 helper 已安装到 test-vault，源码与安装资产的 SHA-256
-逐项一致，`data.json` 安装前后未改变；helper 的直接 CLI probe 返回 protocol v3。原生
-reload／Check helper／CAL-03 尚未完成，因此状态统一为 **RETEST**，不得写 native PASS。
+逐项一致，`data.json` 安装前后未改变；helper 的直接 CLI probe 返回 protocol v3。Community plugins
+Force Reload 已完成。`CAL-03 Recovery Fixture` 的 E.14 Cancel／Confirm 已原生通过：确认框显示准确的
+Title、Time、Target calendar 与 Note path，Cancel 零写入，Confirm 后原 note path 不变且 Calendar 只有一条
+同名 event，再次 Sync 后保持 linked／clean。E.15／E.16 的后续现场可能已推进，因此保留 test-vault 当前
+状态并从第一项尚未完成的步骤继续；这两步仍保持 **RETEST**，不得仅凭 E.14 提前写 native PASS。
 2026-10-05 的 bundle、helper hash、protocol v2 probe 与 777 / 777 自动门禁只证明下方历史候选；它们已被
-v3 contract 取代，不能作为当前候选证据。当前候选的原生结果仍待 release owner 补录。
+v3 contract 取代，不能作为当前候选证据。E.15／E.16 与表中其他人工差额仍待 release owner 补录。
 
-| 字段 | 2026-10-06 候选状态 |
+| 字段 | 2026-10-21 候选状态 |
 | --- | --- |
 | EventKit helper contract | protocol v3；v2 及更早版本必须显示 **Update Calendar helper** 并在读取／写入前 fail closed |
-| 自动证据 | **805 / 805** tests、TypeScript、零 warning ESLint、production build、EventKit release build、`git diff --check`；其中 200 / 200 Calendar／EventKit 定向测试覆盖 absent lookup、精确确认、CAS、queued refresh、unload/modal guard、删除后 refresh failure 与 per-event 继续同步 |
-| 原生安装 | test-vault 已安装；`main.js` `51a47fc4064c41f88e6463c3be7f75190b58f163e2d9a29928a376b3e4a49233`、`styles.css` `74eefbd3bb2873fde85f62958a24f64fae5f61f493f14414805b345ee49d1286`、`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`、helper `88fdb4733f5cdc91b8b212061d14edb0e447f5779d49f0792c3438a56947e2fe`；`data.json` 前后均为 `307c49913765543c3fbee1dde3c68ce253893db2f0a5c0bd3a595f2b08f44346`；native reload、Settings **Check helper** 与 CAL-03 仍为 **RETEST** |
-| 必做人工差额 | CAL-00 protocol v3 probe；CAL-03 A–F；G 中无需人为制造的 fault-injection 边界按自动证据记录，原生只做可安全执行的 smoke |
+| 自动证据 | **829 / 829** tests、TypeScript、零 warning ESLint、production build、EventKit helper protocol v3 CLI probe、`git diff --check`；其中 **255 / 255** Calendar／Home／runtime 定向测试覆盖 Recreate 的完整 selection 快照、note／identity CAS、已提交 pending stage 的精确恢复、自己的 pending refresh、并发 full Sync／metadata-only 稳定化／unload、全天本地日期边界、跨日时间与窄 Upcoming |
+| 原生安装 | test-vault 已安装并 Force Reload；`main.js` `c8ddf18be4ec7917b8276537f94ae1c72a6938e6adccffc279494d79f28ce2ce`、`styles.css` `4a17977bad8efe2f1f18d9d1c3071ccdb4287d7f06efb85b23f84265695fef34`、`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`、helper `88fdb4733f5cdc91b8b212061d14edb0e447f5779d49f0792c3438a56947e2fe`；`data.json` 安装前后均为 `97a63791df2a1aed505c12f160d369e60caa4731f55e12b53413a7836ccf6206`；helper CLI 返回 protocol v3；Home 原生 reload 后 Upcoming 日期与 **Event source key…** modal smoke 通过 |
+| 必做人工差额 | 保留现有 Calendar 现场，先完成 E.15／E.16 中尚未完成的步骤，再回到 Q0–Q2；CALENDAR-06 仍需窄栏、深浅主题和完整日期范围视觉复测 |
 
 ### 1.3B 上一已安装候选与历史入口（2026-10-05 NZST；已被 v3 取代）
 
@@ -157,11 +160,11 @@ protocol v2 helper；2026-10-05 已在 Community plugins 中停用／启用 OMD 
 - **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
 - **DEFERRED / P2**：本轮明确不测、不实现。
 
-#### 当前详细状态索引（2026-10-07；查证用，不按此表排序）
+#### 当前详细状态索引（2026-10-18；查证用，不按此表排序）
 
 2026-10-05 候选已经安装并通过 Community plugins 停用／启用完成原生 reload；这份 v2 结果只作为历史
-基线。当前 v3 Home bundle 与 helper 已安装到 test-vault，但 native reload 信息尚未补录；完成 reload
-与 Settings **Check helper** 前不要执行 CAL-00／03 并写 PASS。Local AI／Answer
+基线。当前 v3 Home bundle 与 helper 已重新安装到 test-vault，并已完成 Force Reload；
+`CAL-03 Recovery Fixture` 已通过 E.14，保持 linked／clean 供 E.15 继续。Local AI／Answer
 setup 仍按各自未完成的 case 单独检查；此前已取得的结果继续有效。下表只用于查证各 case 的当前状态，
 实际执行以紧随其后的 **Q0–Q11 最短人工队列** 为唯一顺序。
 
@@ -174,25 +177,27 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 | 5 | TARGETED RETEST | [CAP-07 C.2](#test-cap-07) | 最终候选已安装；重测 Rednote 最终 output 对账、Inbox／Recent、非空 transcript 与持久化隐私 | 使用测试者有权访问的公开 Rednote 视频；不要记录访问查询值 |
 | 6 | MIXED / RETEST + FIRST PASS | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | 保留已取得结果，只补表中仍标 RETEST 或空白的真实平台、wrapper failure、Retry、Cancel／unload／隐私子项 | 下方 `ps ... grep -E` 命令 |
 | 7 | DONE / NATIVE PASS | [ANSWER-02-R1](#test-answer-02-r1) | provider 自动 setup、目录加载、DeepSeek Pro／Flash 及官方 `claude-opus-5-5` 的事实／推论分离均已原生 PASS；保留 OpenAI 与 Claude Opus 4.5 已通过结论 | 固定 blue-key station 问题 |
-| 8 | RETEST / CONTINUE CAL-03 | CAL-00–03 | 保留 CAL-01／02 未受影响的历史结果；用 v3 重测 CAL-00 probe，并完整执行 CAL-03 写入、两轮冲突、移动、missing-event 与两类删除 | `CAL-03 Missing Does Not Block`、`CAL-03 Healthy Control`、`CAL-03 Linked Delete Split` |
+| 8 | RETEST / CONTINUE CAL-03 | [CAL-03 E.15–16](#test-cal-03) | A–D 与 E.14 Recreate 原生 PASS 保留；当前依次做 Detach 与 deselected Calendar | 已重建并 clean 的 `CAL-03 Recovery Fixture`、新建 `CAL-03 Unselected Calendar Fixture` |
 | 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补重复点击、tuple 失效、disable/reload 与 Console，不要在 Smoke 上等待 Home 的 Current task／Cancel | synthetic smoke prompts |
 | 10 | PREP + RERUN | [AI-08](#test-ai-08) | ANSWER-02-R1 已完成；导入三篇 Phase 2 fixtures 并通过 hard preflight，再重跑 P01–P06。2026-10-05 的缺 fixture 运行无产品结论 | `docs/benchmark-vault/` |
 | 11 | FIRST PASS / Extended | AI-09／10 | multilingual retrieval、semantic rerank 与 reload 恢复 | AI-08 fixtures 保留，再导入 legacy fixtures |
 | 12 | TARGETED NATIVE DELTA | [AI-11](#test-ai-11) | 自动回归已覆盖 unload 与 Recognition defaults 核心边界；只补原生 disable/quit、Console 和下一次 Capture 使用新默认值 | 固定本地 fixture 问题 |
 | 13 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
-### 1.3C 现在从这里继续：最短人工队列（2026-10-07）
+### 1.3C 现在从这里继续：最短人工队列（2026-10-21）
 
-当前 v3 bundle 已安装，自动门禁已经完成。人工测试不要重跑 fault injection，也不要重复已经通过的
-长音频、Answer model catalog 或旧 v2 helper。按下表从上到下执行；每完成一行就在本节后面的结果表
-写一行结论。Q0–Q2 是当前 Calendar 修复的发布必测，建议先连续完成；后面的组可以分次执行。
+当前 v3 bundle 已安装，自动门禁和 E.14 原生 Recreate 已完成。人工测试不要重跑 fault injection，也不要
+重复已经通过的长音频、Answer model catalog 或旧 v2 helper。为了保留现有 recovery fixture，先完成 Q3 的
+E.15／E.16 中尚未完成的步骤；随后必须回到 Q0，并依次完成仍标为 **RETEST** 的 Q0–Q2，再继续 Q4–Q11。
+Q3 A–D 与 E.14 的已有结果保留；调整执行顺序不代表 Q0–Q2 已通过。每完成一行就在本节后面的结果表写一行
+结论，后面的组可以分次执行。
 
 | 顺序 | 类型 | 预计人工时间 | Case | 只做这些步骤 | 可直接使用的例子／完成条件 |
 | --- | --- | ---: | --- | --- | --- |
 | Q0 | **当前候选准备／RETEST** | 5 分钟 | [CAL-00](#test-cal-00) v3 | 在 Community plugins 停用／启用 OMD Home；Settings → Calendar 点 **Check helper**；打开 OMD Calendar 点一次 **Sync** | helper 显示 ready 且 protocol v3；Sync 不再永久停在 **Calendar sync paused**；Console 无加载异常 |
 | Q1 | **本轮 critical fix／RETEST** | 20–30 分钟 | [CAL-03 F.17–21](#test-cal-03) | 依次验证 Vault-only 删除 note、linked 删除 note、linked 只删除 Calendar copy，以及一个 missing event 不阻塞 healthy event | 使用 `CAL-03 Vault Delete Fixture`、`CAL-03 Linked Delete Note`、`CAL-03 Linked Delete Calendar Copy`、`CAL-03 Missing Does Not Block`、`CAL-03 Healthy Control`；每个确认框显示准确 Title／Time／Note path 或 Calendar |
 | Q2 | **安全 smoke／RETEST** | 10 分钟 | [CAL-03 G](#test-cal-03) 的可人工部分 | 打开删除确认后先 Cancel；做一次 Calendar delete CAS；打开确认框后 disable／enable plugin | Cancel 零写入；外部版本变化时拒绝旧删除；reload 后 modal 关闭、无 stale button、orphan helper 或 Console rejection。queued refresh、错误 pass、token 与 note byte-CAS 已由 200 / 200 自动测试覆盖，不人工制造 |
-| Q3 | **Calendar FIRST PASS / PARTIAL 补齐** | 30–45 分钟 | [CAL-01](#test-cal-01)、[CAL-02](#test-cal-02)、[CAL-03 A–E](#test-cal-03) | 只补 linked 时间对照、all-day、empty Start、混合 LTR／RTL、最后一个来源不能关闭、三种来源对账、外部写入、两轮冲突、跨 Calendar 移动、Recreate／Detach | 不重测已通过的 datetime-local、范围错误、source disclosure 和 Pending sync 排版 |
+| Q3 | **Calendar RETEST / CONTINUE＋UI smoke** | 15–25 分钟 | [CAL-03 E.15–16](#test-cal-03)、[CAL-02 step 5](#test-cal-02) | ① 完成 E.15 Detach；② 用 A／B 两个已选 Calendar 完成 E.16；③ 不改 Calendar 现场，在 Home 验证 Upcoming 日期与 **Event source key…** modal | 从第一项尚未完成的 E.15／E.16 继续，不重建已通过 fixture 或重跑 A–D；CAL-02 smoke 需覆盖键盘关闭／焦点、Today／Tomorrow／更晚日期、timed 跨日／all-day 范围、窄栏与深浅主题 |
 | Q4 | **UI／Capture TARGETED RETEST** | 30–45 分钟 | [RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | 检查 AI tools／Improve formatting；warning card 与窄窗；完整绝对本地文件；Douyin／XHS Clear 显隐与焦点 | 本地文件必须使用 `$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html` 的实际绝对路径；不要粘贴字面量 `$REPO_ROOT` |
 | Q5 | **真实平台 RETEST / FIRST PASS** | 依素材长度 | [CAP-07 C／D](#test-cap-07) | Douyin 成功路径；Rednote output 对账与非空 transcript；wrapper failure／Retry；Cancel／unload／隐私 | Douyin tag `cap-07-douyin-retest`；Rednote tag `cap-07-xhs-video-retest`；没有可安全使用的公开素材或过期 cookies fixture 就记 NOT RUN，不伪造 PASS |
 | Q6 | **Hosted AI TARGETED RETEST** | 15–25 分钟 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05) | AI-03 只重测 `amber lighthouse checklist` grounded answer 与修正后的 zero-evidence 文案；AI-04 只补固定题 D2／尚未记录的 preview、Copy 与 provider 边界；AI-05 只做三个 provider 的 model memory、reload persistence 与 `data.json` 无 secret | 不重复 ANSWER-02-R1 已通过的模型 catalog 和 blue-key 答案；如果 provider 再次违反引用合同，保留 FAIL 与 fail-closed PASS，不反复发送 |
@@ -214,7 +219,7 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 | CAP-01A、CAP-06 B／C／D、114 秒 WAV | KEEP RESULT；普通本地文件 control 失败时才把 CAP-01A 升级为 RETEST |
 | AI-02 local Ollama、AI-06 Refresh／Check／三项 smoke／embedding | KEEP PASS；只执行 Q7 的三个差额 |
 | ANSWER-02-R1、provider 自动 setup、OpenAI／Claude／DeepSeek blue-key 答案 | KEEP PASS；Q6 只处理仍失败或未记录完整的 hosted 子项 |
-| 805 / 805 自动套件、200 / 200 Calendar／EventKit 定向矩阵 | AUTOMATED PASS；不要人工制造 queued-refresh failure、错误 confirmation token、helper crash 或 note byte-CAS race |
+| 829 / 829 自动套件、255 / 255 Calendar／Home／runtime 定向矩阵 | AUTOMATED PASS；不要人工制造 queued-refresh failure、错误 confirmation token、helper crash、selection race、full-Sync finalization 或 note byte-CAS race |
 
 已完成或不受本轮改动影响的结果保留在这里，不重新执行：
 
@@ -231,6 +236,7 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 
 | Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
 | --- | --- | --- | --- | --- |
+| CAL-03 E.14 Recreate 修复候选 | PASS | 2026-10-18 | 818 / 818 complete；226 / 226 targeted；TypeScript／ESLint／build／diff check；两路独立 review APPROVE；原生 Cancel／Confirm／再次 Sync | 确认框显示 Title、Time、Target calendar `Activity` 与准确 Note path；Cancel 零写入；Confirm 后原 note path 不变、月视图只有一条同名 event，frontmatter 与再次 Sync 均为 linked／clean。现场已保留给 E.15 |
 | CAL-03 F.18–21 原生进度 | PARTIAL；F.19 note-side PASS，F.20 healthy lane PASS，F.21 target-removal PASS；F.18 UX RETEST | 2026-10-12 | 截图 1–4＋vault frontmatter＋EventKit 定向 read-only lookup | Calendar copy 删除后 note 已为 `event-source: vault` / `sync-state: clean` 且无 Apple linkage；healthy note 已写入 `Healthy lane B` 并保持 clean；`Missing Does Not Block` note 已消失。后续 `1 unavailable event` 来自旧 `CAL-03 Conflict Fixture – calendar`，不是目标 note 复活。刚创建 linked note 即出现 `Calendar has newer changes` 与无指名的 recovery Notice 转 CALENDAR-05 |
 | 2026-10-06 Calendar delete/missing candidate | RETEST；automated PASS | 2026-10-06 | 805 / 805 tests；200 / 200 Calendar／EventKit targeted；TypeScript／ESLint／production build／helper build；asset hashes＋CLI probe | test-vault 已安装，helper 返回 v3 且 `data.json` 未变；Home native reload、CAL-00／03 待补，旧 v2 evidence 不得复用为 PASS |
 | 2026-10-05 最终 bundle 重装 | PASS | 2026-10-05 | 原生 Obsidian | 三项 hash 与上表一致；`data.json` SHA-256 前后不变；原生停用／启用完成，新 Calendar UI 可见，Current task 为 No task running |
@@ -2552,13 +2558,20 @@ PASS；当前 v3 候选仍须按本节重新 probe，不能从旧结果推断 re
 4. 只保留一个来源时，该来源应明确处于 disabled 状态并说明
    **At least one event source must remain visible**；不能继续显示可点击的 Hide 却点击无反应。
 5. 回到 OMD Home 的 **Upcoming**。行内只保留小形状，不放永久 legend；悬停／辅助技术名称应包含
-   Source。打开 Upcoming 的 `…`，在 **Event source key** 下应能按需看到与第 2 步完全相同的三项说明，
-   普通对比度可读且不会被误认为可执行命令。
+   Source。打开 Upcoming 的 `…`，用鼠标或键盘激活可聚焦的 **Event source key…**；modal 应以普通
+   对比度显示与第 2 步完全相同的三项说明，`Esc` 关闭后焦点回到 Upcoming 的 Options。再核对行内日期：
+   Today／Tomorrow／更晚日期均清楚；timed 跨日显示起止日期与时间，all-day 多日按 exclusive end 显示
+   正确的可见日期范围。把 Home widget 缩窄，并在深浅主题各看一次；日期、标题和来源不得重叠、截断或
+   依赖 hover 才能理解。
 
 通过条件：来源含义按需可发现，常态页面保持 minimal；筛选有即时反馈、不重置日期／view；最后一个来源
 不会产生无响应按钮；Calendar 与 Home 使用同一套来源术语。
 
-**2026-10-05 定向原生结果：PASS；完整 case PARTIAL。** 步骤 1–3、5 已通过：Calendar 常态只显示
+**2026-10-21 当前 bundle smoke：PARTIAL PASS。** Force Reload 后，Upcoming 原生显示 Tomorrow 与更晚日期；
+**Event source key…** 可聚焦并打开可读 modal，`Esc` 关闭后焦点回到 Options。timed 跨日／all-day 范围、
+窄栏和深浅主题仍须按步骤 5 完成人工复测。
+
+**2026-10-05 定向原生结果：PASS；完整 case PARTIAL。** 步骤 1–3、旧版步骤 5 已通过：Calendar 常态只显示
 **Sources · All**；展开后显示三项完整说明；隐藏 Vault only 后变为 **Sources · 2 of 3**，恢复后事件
 重新出现；Home Upcoming 的 `…` 显示同一套 Event source key。步骤 4 与三类新建 fixture 的完整对账
 仍待人工执行。
@@ -2619,8 +2632,11 @@ native PASS。
 
 10. 在 macOS Calendar 另建一个可删除的 writable calendar：
     `OMD CAL move target – delete after PASS`。回到 Settings → OMD Home → Calendar，Refresh 后同时
-    开启原测试 calendar 与这个 move target；default 仍保持原测试 calendar。
-11. 在 macOS Calendar 把 `CAL-03 Conflict Fixture – Calendar 2` 从原测试 calendar 移到
+    开启原测试 calendar 与这个 move target；default 仍保持原测试 calendar。回到 OMD Calendar，独立
+    新建 linked event `CAL-03 Move Fixture`，Destination 选 **Vault + 原测试 calendar**，保存并 Sync；
+    先确认 note 为 `event-source: linked`、`sync-state: clean`，且 OMD 与 macOS Calendar 各只有一条。
+    本节不依赖 A–C 的 `CAL-03 Conflict Fixture`，即使前面的冲突 fixture 已删除也可单独执行。
+11. 在 macOS Calendar 把 `CAL-03 Move Fixture` 从原测试 calendar 移到
     `OMD CAL move target – delete after PASS`，不改标题、时间或 location。回 OMD Calendar 只点一次
     **Sync**。
 12. Sync 必须找到唯一的同一 EventKit item、更新 note 内的 Calendar/linkage identity，并保持
@@ -2630,19 +2646,36 @@ native PASS。
 
 #### E. unavailable：只使用 Recreate／Detach
 
-13. 在 macOS Calendar 删除该 linked event，回 OMD Calendar 点 Sync。顶部应写 needs review 和
-    `1 unavailable event`。由于 Apple identifier 也可能在 move／full sync 后改变，页面不得声称已自动
-    “confirmed deleted”；点击红色事件时不显示普通 Save，恢复操作按 **Retry full sync**、明确的
-    **Recreate…** 与 **Detach**。
-14. 点 **Recreate…**。二次确认必须明确说明：请先在 Calendar 核实原 event 已删除；identifier 变化时
-    重新创建可能产生重复项。先点 Cancel，确认没有写入；再次打开并确认。执行前 OMD 还要做最后一次 exact
-    ID／stable identity lookup；若找到一条或多条候选必须停止并要求 review，只有仍无候选且用户已明确确认
-    时才建立新的 Calendar event。成功后 note 仍在、linkage 更新、状态 clean。
-15. 再次从 macOS Calendar 删除新 event并 Sync，这次选 **Detach**：note 保留并变为 Vault only，Apple
-    linkage ID 与 sync 字段由产品安全清理。
-16. 另做一次安全边界：保留一个仍存在的 linked event，只在 Settings 暂时取消选择它所属的 Calendar 后
-    Sync。事件应提示重新选择 Calendar 或 Detach，**不得出现 Recreate**。重新选回 Calendar 后 Sync，状态
-    应恢复；helper/read failure 同样只能提示修复 setup／Retry Sync，不能把未知状态当成已删除。
+13. 本节独立新建 linked `CAL-03 Recovery Fixture`，不要依赖 D 的 move fixture。Destination 选择一个
+    当前已启用的 writable Calendar；保存并 Sync 后，先确认 note 为 `event-source: linked`、
+    `sync-state: clean`，OMD 与 macOS Calendar 各只有一条。记录 Sync 前已有的 recovery 数量作为基线；
+    如果顶部已经有无法定位的旧 `unavailable` 计数，后续必须以本 fixture 的 title、红色 `!` 和计数相对
+    基线的变化判断，不能把旧总数误认成本 fixture 的结果。随后在 macOS Calendar 删除这条 event，回
+    OMD Calendar 点一次 Sync。目标格子必须进入明确 recovery 状态；顶部 recovery 数应比基线增加一项。
+    页面不得声称已自动 “confirmed deleted”；打开目标时不显示普通 Save，恢复操作为
+    **Retry full sync**、明确的 **Recreate…** 与 **Detach**。若只重复旧计数而目标 fixture 没有被标出，
+    本步记 FAIL，不要对其他 clean event 使用 Recreate。
+14. 点目标 fixture 的 **Recreate…**。二次确认必须显示准确的 Title、Time、Target calendar 与 Note path，
+    并明确说明：请先在 Calendar 核实原 event 已删除；identifier 变化时重新创建可能产生重复项。先点
+    Cancel，确认 Calendar 中仍为零条同名 event，note
+    仍处于原 recovery 状态且没有新 linkage。再次打开并确认；执行前 OMD 还要做最后一次 exact ID／
+    stable identity lookup，若找到一条或多条候选必须停止并要求 review。只有仍无候选且用户已明确确认
+    时才建立新 event。成功后原 note path 不变、Calendar 中恰好一条同名 event、linkage 更新、状态 clean；
+    再点一次 Sync，不得生成第二条或让本 fixture 再次计入 recovery。
+15. 再次从 macOS Calendar 删除刚 Recreate 的 event 并 Sync，打开被标出的
+    `CAL-03 Recovery Fixture`，这次选 **Detach**。note 必须保留并变为 Vault only；内部 `event-id` 必须
+    保留，Apple linkage ID、`calendar-request-id`、`calendar-modified-at`、`last-synced-at`、`sync-hash`、
+    pending／read-only 等只服务于 linked sync 的字段必须清理。再点一次 Sync：不得重新创建 Calendar event，
+    本 fixture 不得继续带红色 `!` 或增加 recovery 数；若旧基线计数仍存在，只记录为 CALENDAR-05，不能
+    把它归到已经 Detach 的本 fixture。
+16. 记录当前默认 Calendar，并准备两个已选、可写 Calendar A／B。暂把 B 设为默认，新建并 Sync clean 的
+    linked `CAL-03 Unselected Calendar Fixture`，确认实际写入 B；再把 A 设为临时默认，然后只在 Settings
+    取消选择 B。这样不会因取消当前默认项而把 default 清空。点 Sync 后，目标应明确提示重新选择 Calendar
+    或 Detach，**不得出现 Recreate**，也不得新建副本。重新选择 B 后再次 Sync，目标恢复 linked／clean，
+    note 与 Calendar 仍各恰好一条；最后恢复本节开始时记录的默认 Calendar。普通人工测试不需要故意破坏
+    helper；真实 helper/read failure 只能提示修复 setup／Retry Sync，不能把未知状态当成已删除，这部分由
+    自动错误注入覆盖。
+
 #### F. Vault note 与 Calendar copy 分开删除；missing 不阻塞健康项
 
 17. 新建一条 `CAL-03 Vault Delete Fixture`，Destination 选 **Vault note only**，保存后重新打开。确认有
@@ -2665,7 +2698,8 @@ native PASS。
     editor 关闭或刷新到不再允许重复删除旧 Calendar copy 的状态。
 20. 再建两条 linked event：`CAL-03 Missing Does Not Block` 与 `CAL-03 Healthy Control`。在 macOS Calendar
     删除前者，同时把后者 Location 改为 `Healthy lane B`，然后只点一次 **Sync**。结果应为
-    `1 unavailable event`；健康 note 同轮更新为 `Healthy lane B` 且 `sync-state: clean`。一条 missing
+    `1 linked note needs Calendar recovery`，并在 recovery 文案或高亮项中明确指出
+    `CAL-03 Missing Does Not Block`；健康 note 同轮更新为 `Healthy lane B` 且 `sync-state: clean`。一条 missing
     event 不能阻断排在它后面的健康写入，也不能让以后所有 Sync 停在 **Calendar sync paused** 循环。
 21. 打开 unavailable 的 `CAL-03 Missing Does Not Block`：普通字段与 Save 必须禁用；
     **Retry full sync** 明确说明会同步其他 linked events；还应能 Detach，或用

@@ -51,20 +51,33 @@ test("calendar sync summary distinguishes a clean completion from states that ne
 
   const needsReview = summarizeCalendarSync([
     { ...linked, id: "conflict", syncState: "conflict" },
-    { ...linked, id: "unavailable", syncState: "unavailable" },
+    { ...linked, id: "unavailable", title: "Recovery fixture", syncState: "unavailable" },
     { ...linked, id: "error", syncState: "error" },
     { ...linked, id: "pending", syncState: "pending", pendingDirection: "vault" },
   ]);
-  assert.deepEqual(needsReview, { conflicts: 1, unavailable: 1, errors: 1, pending: 1 });
+  assert.deepEqual(needsReview, {
+    conflicts: 1,
+    unavailable: 1,
+    errors: 1,
+    pending: 1,
+    recoveryTitles: ["Recovery fixture"],
+  });
   assert.equal(
     calendarSyncResultMessage(needsReview),
-    "Calendar sync needs review: 1 conflict, 1 unavailable event, 1 error, and 1 pending event. Open the highlighted events to compare versions and choose one.",
+    "Calendar sync needs review: 1 conflict, 1 linked note needs Calendar recovery, 1 error, and 1 pending event. Open the highlighted events to compare versions and choose one. Recovery: Recovery fixture.",
   );
 });
 
-test("calendar sync result gives unavailable events their explicit recovery actions", () => {
+test("calendar sync result names linked notes that need Calendar recovery", () => {
   assert.equal(calendarSyncResultMessage({ conflicts: 0, unavailable: 1, errors: 0, pending: 0 }),
-    "Calendar sync needs review: 1 unavailable event. Open the highlighted events for the safe recovery options.");
+    "Calendar sync needs review: 1 linked note needs Calendar recovery. Its Calendar copy may have been deleted, moved, or belong to a Calendar that is not selected. Open the highlighted linked note for safe recovery options.");
+  assert.equal(calendarSyncResultMessage({
+    conflicts: 0,
+    unavailable: 2,
+    errors: 0,
+    pending: 0,
+    recoveryTitles: ["Missing fixture", "Deselected fixture"],
+  }), "Calendar sync needs review: 2 linked notes need Calendar recovery. Their Calendar copies may have been deleted, moved, or belong to Calendars that are not selected. Open the highlighted linked notes for safe recovery options. Recovery: Missing fixture; Deselected fixture.");
   assert.equal(calendarSyncResultMessage({ conflicts: 0, unavailable: 0, errors: 2, pending: 0 }),
     "Calendar sync needs review: 2 errors. Open the highlighted events for details, then retry Sync.");
   assert.equal(calendarSyncResultMessage({ conflicts: 0, unavailable: 0, errors: 0, pending: 1 }),

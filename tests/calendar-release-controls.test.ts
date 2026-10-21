@@ -47,7 +47,10 @@ interface EditorStub extends ModalStub {
   retryCalendarSync(): Promise<void>;
 }
 interface ConflictStub extends ModalStub { resolve(choice: "vault" | "external"): Promise<void>; }
-interface RecreateConfirmationStub extends ModalStub { confirm(): Promise<void>; }
+interface RecreateConfirmationStub extends ModalStub {
+  confirm(): Promise<void>;
+  targetCalendar: { id: string; title: string; selectedCalendarIds: readonly string[] };
+}
 interface DeleteConfirmationStub extends ModalStub { confirm(): Promise<void>; }
 interface CalendarViewStub {
   syncButton: { disabled: boolean; setText(value: string): void };
@@ -133,26 +136,47 @@ test("saving prevents a competing detach from changing the same event", async ()
 test("Recreate opens a separate confirmation and Cancel performs no write", async () => {
   notices.length = 0;
   let recreates = 0;
+  const targetIds: string[] = [];
+  const selectionSnapshots: string[][] = [];
+  let tracked: RecreateConfirmationStub | undefined;
   const unverified = new classes.EventEditorModal({}, {
     ...event,
     source: "linked",
     syncState: "unavailable",
     unavailableReason: "unknown",
     appleItemId: "possibly-present",
-  }, { id: "cal_1", title: "Work" }, async () => {}, {
-    recreateCalendarEvent: async () => { recreates++; },
+  }, { id: "cal_1", title: "Work", selectedCalendarIds: ["cal_1", "cal_2"] }, async () => {}, {
+    recreateCalendarEvent: async (
+      _event: unknown,
+      _confirmation: unknown,
+      targetId: string,
+      selectedCalendarIds: readonly string[],
+    ) => {
+      recreates++;
+      targetIds.push(targetId);
+      selectionSnapshots.push([...selectedCalendarIds]);
+    },
+    trackModal: (modal: RecreateConfirmationStub) => {
+      tracked = modal;
+      return modal;
+    },
   });
   await unverified.recreateCalendarCopy();
   assert.equal(recreates, 0);
   assert.equal(unverified.closed, false);
+  assert.equal(tracked?.targetCalendar.title, "Work");
+  await tracked?.confirm();
+  assert.deepEqual(targetIds, ["cal_1"]);
+  assert.deepEqual(selectionSnapshots, [["cal_1", "cal_2"]]);
 
-  const cancelled = new classes.RecreateCalendarConfirmationModal({}, event, async () => { recreates++; });
+  const target = { id: "cal_1", title: "Work", selectedCalendarIds: ["cal_1"] };
+  const cancelled = new classes.RecreateCalendarConfirmationModal({}, event, target, async () => { recreates++; });
   cancelled.close();
-  assert.equal(recreates, 0);
-
-  const confirmed = new classes.RecreateCalendarConfirmationModal({}, event, async () => { recreates++; });
-  await confirmed.confirm();
   assert.equal(recreates, 1);
+
+  const confirmed = new classes.RecreateCalendarConfirmationModal({}, event, target, async () => { recreates++; });
+  await confirmed.confirm();
+  assert.equal(recreates, 2);
   assert.equal(confirmed.closed, true);
 });
 
@@ -240,7 +264,7 @@ test("unverified linked events can retry Sync from the recovery panel", async ()
   assert.equal(syncs, 1);
   assert.equal(modal.closed, true);
   assert.deepEqual(notices, [
-    "Calendar sync needs review: 1 unavailable event. Open the highlighted events for the safe recovery options.",
+    "Calendar sync needs review: 1 linked note needs Calendar recovery. Its Calendar copy may have been deleted, moved, or belong to a Calendar that is not selected. Open the highlighted linked note for safe recovery options.",
   ]);
 });
 

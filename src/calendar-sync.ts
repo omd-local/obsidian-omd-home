@@ -8,6 +8,7 @@ export interface CalendarSyncSummary {
   unavailable: number;
   errors: number;
   pending: number;
+  recoveryTitles?: string[];
 }
 
 export interface CalendarWriteOverride {
@@ -71,20 +72,25 @@ export function classifyLinkedChange(
 
 export function summarizeCalendarSync(events: CalendarEventRecord[]): CalendarSyncSummary {
   const summary: CalendarSyncSummary = { conflicts: 0, unavailable: 0, errors: 0, pending: 0 };
+  const recoveryTitles = new Set<string>();
   for (const event of events) {
     if (event.source !== "linked") continue;
     if (event.syncState === "conflict") summary.conflicts += 1;
-    else if (event.syncState === "unavailable") summary.unavailable += 1;
+    else if (event.syncState === "unavailable") {
+      summary.unavailable += 1;
+      if (event.title.trim()) recoveryTitles.add(event.title.trim());
+    }
     else if (event.syncState === "error") summary.errors += 1;
     else if (event.syncState === "pending") summary.pending += 1;
   }
+  if (recoveryTitles.size) summary.recoveryTitles = [...recoveryTitles];
   return summary;
 }
 
 export function calendarSyncResultMessage(summary: CalendarSyncSummary): string {
   const issues = [
     countLabel(summary.conflicts, "conflict", "conflicts"),
-    countLabel(summary.unavailable, "unavailable event", "unavailable events"),
+    countLabel(summary.unavailable, "linked note needs Calendar recovery", "linked notes need Calendar recovery"),
     countLabel(summary.errors, "error", "errors"),
     countLabel(summary.pending, "pending event", "pending events"),
   ].filter((value): value is string => Boolean(value));
@@ -93,11 +99,18 @@ export function calendarSyncResultMessage(summary: CalendarSyncSummary): string 
   const action = summary.conflicts > 0
     ? "Open the highlighted events to compare versions and choose one."
     : summary.unavailable > 0
-      ? "Open the highlighted events for the safe recovery options."
+      ? summary.unavailable === 1
+        ? "Its Calendar copy may have been deleted, moved, or belong to a Calendar that is not selected. Open the highlighted linked note for safe recovery options."
+        : "Their Calendar copies may have been deleted, moved, or belong to Calendars that are not selected. Open the highlighted linked notes for safe recovery options."
       : summary.errors > 0
         ? "Open the highlighted events for details, then retry Sync."
         : "Open the highlighted events to finish syncing them.";
-  return `Calendar sync needs review: ${subject}. ${action}`;
+  const recoveryTitles = summary.recoveryTitles?.slice(0, 3) ?? [];
+  const omittedRecoveryTitles = (summary.recoveryTitles?.length ?? 0) - recoveryTitles.length;
+  const recovery = recoveryTitles.length
+    ? ` Recovery: ${recoveryTitles.join("; ")}${omittedRecoveryTitles > 0 ? `; and ${omittedRecoveryTitles} more` : ""}.`
+    : "";
+  return `Calendar sync needs review: ${subject}. ${action}${recovery}`;
 }
 
 export function mergeExternalIntoLinked(

@@ -14,7 +14,13 @@ test("external events keep a Calendar-only destination instead of defaulting to 
 });
 
 test("linked events no longer offer detach-through-save destination changes", () => {
-  assert.deepEqual(helpers.destinationOptions("linked", "Work").map((option) => option.value), ["linked"]);
+  const options = helpers.destinationOptions("linked", "Activity", "calendar a");
+  assert.deepEqual(options.map((option) => option.value), ["linked"]);
+  assert.equal(options[0]?.label, "Vault + calendar a");
+  assert.equal(
+    helpers.destinationDescription("linked", "calendar a"),
+    "Save keeps this linked event in calendar a. Changing the default Calendar does not move it.",
+  );
 });
 
 test("calendar editor validates ISO ranges and requires end after start", () => {
@@ -101,8 +107,12 @@ test("destructive Calendar confirmations identify the selected event and destina
     helpers.calendarConfirmationIdentityFields(selected, { calendar: true }).map((field) => [field.label, field.value]),
     [["Title", selected.title], ["Time", time], ["Calendar", "Work"]],
   );
+  assert.deepEqual(
+    helpers.calendarConfirmationIdentityFields(selected, { targetCalendar: "Personal", notePath: true }).map((field) => [field.label, field.value]),
+    [["Title", selected.title], ["Time", time], ["Target calendar", "Personal"], ["Note path", selected.notePath]],
+  );
   assert.match(source, /renderCalendarConfirmationIdentity\(this\.contentEl, this\.event, \{ notePath: true \}\)/u);
-  assert.match(source, /renderCalendarConfirmationIdentity\(this\.contentEl, this\.event, \{ calendar: true \}\)/u);
+  assert.match(source, /targetCalendar: this\.targetCalendar\.title,[\s\S]*notePath: true/u);
   assert.match(source, /attr: \{ dir: field\.dir \}/u);
 });
 
@@ -138,7 +148,8 @@ test("event cards repeat the source key glyph and expose their visible time to a
 });
 
 function loadCalendarViewHelpers(fileSource: string): {
-  destinationOptions: (source: string, defaultCalendarTitle?: string) => Array<{ value: string; label: string }>;
+  destinationOptions: (source: string, defaultCalendarTitle?: string, linkedCalendarTitle?: string) => Array<{ value: string; label: string }>;
+  destinationDescription: (source: string, linkedCalendarTitle?: string) => string;
   validateCalendarEventRange: (start: string, end: string) => string | null;
   calendarStatusLabel: (syncState?: string) => string | null;
   calendarEventEditable: (event: { source: string; syncState?: string; readOnly?: boolean }) => boolean;
@@ -150,10 +161,11 @@ function loadCalendarViewHelpers(fileSource: string): {
   calendarEditorSaveBlockReason: (event: { id?: string; source: string; syncState?: string; unavailableReason?: string; readOnly?: boolean; notePath?: string }) => string | undefined;
   calendarConfirmationIdentityFields: (
     event: { title: string; start: string; end: string; allDay: boolean; calendar?: string; notePath?: string },
-    details: { notePath?: boolean; calendar?: boolean },
+    details: { notePath?: boolean; calendar?: boolean; targetCalendar?: string },
   ) => Array<{ label: string; value: string; dir: string }>;
 } {
   const destinationOptionsBody = extractFunctionBody(fileSource, "export function destinationOptions");
+  const destinationDescriptionBody = extractFunctionBody(fileSource, "function destinationDescription");
   const validateRangeBody = extractFunctionBody(fileSource, "export function validateCalendarEventRange");
   const parseIsoBoundaryBody = extractFunctionBody(fileSource, "function parseIsoBoundary");
   const statusLabelBody = extractFunctionBody(fileSource, "export function calendarStatusLabel");
@@ -162,8 +174,11 @@ function loadCalendarViewHelpers(fileSource: string): {
   const capabilitiesBody = extractFunctionBody(fileSource, "export function calendarEditorCapabilities");
   const saveBlockBody = extractFunctionBody(fileSource, "export function calendarEditorSaveBlockReason");
   const confirmationIdentityBody = extractFunctionBody(fileSource, "export function calendarConfirmationIdentityFields");
+  const executableConfirmationIdentityBody = confirmationIdentityBody
+    .replace(" as CalendarConfirmationIdentityField[]", "");
   return Function("calendarRecoveryPresentation", "isCalendarNoteErrorRecord", "calendarConflictVersionFields", `
-    function destinationOptions(source, defaultCalendarTitle) ${destinationOptionsBody}
+    function destinationOptions(source, defaultCalendarTitle, linkedCalendarTitle) ${destinationOptionsBody}
+    function destinationDescription(source, linkedCalendarTitle) ${destinationDescriptionBody}
     function validateCalendarEventRange(start, end) ${validateRangeBody}
     function parseIsoBoundary(value) ${parseIsoBoundaryBody}
     function calendarStatusLabel(syncState) ${statusLabelBody}
@@ -171,8 +186,8 @@ function loadCalendarViewHelpers(fileSource: string): {
     function requiresSyncBeforeEdit(event) ${requiresSyncBody}
     function calendarEditorCapabilities(event) ${capabilitiesBody}
     function calendarEditorSaveBlockReason(event) ${saveBlockBody}
-    function calendarConfirmationIdentityFields(event, details) ${confirmationIdentityBody}
-    return { destinationOptions, validateCalendarEventRange, calendarStatusLabel, calendarEventEditable, requiresSyncBeforeEdit, calendarEditorCapabilities, calendarEditorSaveBlockReason, calendarConfirmationIdentityFields };
+    function calendarConfirmationIdentityFields(event, details) ${executableConfirmationIdentityBody}
+    return { destinationOptions, destinationDescription, validateCalendarEventRange, calendarStatusLabel, calendarEventEditable, requiresSyncBeforeEdit, calendarEditorCapabilities, calendarEditorSaveBlockReason, calendarConfirmationIdentityFields };
   `)(calendarRecoveryPresentation, isCalendarNoteErrorRecord, calendarConflictVersionFields) as ReturnType<typeof loadCalendarViewHelpers>;
 }
 

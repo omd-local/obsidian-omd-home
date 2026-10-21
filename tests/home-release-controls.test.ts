@@ -62,8 +62,28 @@ class ElementStub {
   descendants(): ElementStub[] { return this.children.flatMap((child) => [child, ...child.descendants()]); }
 }
 
+class ModalStub {
+  modalEl = new ElementStub();
+  contentEl = new ElementStub();
+  opened = false;
+  closeCount = 0;
+  constructor(_app: unknown) {}
+  open() {
+    this.opened = true;
+    (this as unknown as { onOpen?: () => void }).onOpen?.();
+  }
+  close() {
+    if (!this.opened) return;
+    this.opened = false;
+    this.closeCount += 1;
+    (this as unknown as { onClose?: () => void }).onClose?.();
+  }
+}
+
 const source = readFileSync(new URL("../src/home-view.ts", import.meta.url), "utf8");
-const compiled = transformSync(source, { loader: "ts", format: "cjs", target: "es2022" }).code;
+const compiled = transformSync(`${source}\nexport { upcomingEventTiming };`, {
+  loader: "ts", format: "cjs", target: "es2022",
+}).code;
 const module = { exports: {} };
 Function("require", "module", "exports", compiled)((id: string) => {
   if (id === "obsidian") return {
@@ -72,7 +92,9 @@ Function("require", "module", "exports", compiled)((id: string) => {
       app: unknown;
       constructor(leaf: { app?: unknown }) { this.app = leaf.app; }
       registerEvent() {}
-    }, Notice: class {}, setIcon() {},
+    },
+    Modal: ModalStub,
+    Notice: class {}, setIcon() {},
   };
   if (id === "./layout") return layout;
   if (id === "./calendar-ui") return calendarUi;
@@ -102,10 +124,15 @@ interface HomeStub {
   renderLastIssue(body: ElementStub, issueId: number): void;
   renderIndependentCaptureFailure(body: ElementStub, failure: unknown): void;
   renderLocalAiAttention(body: ElementStub): void;
+  eventSourceKeyModal?: ModalStub;
+  openEventSourceKeyModal(): void;
   bindPointerTransform(handle: ElementStub, widget: ElementStub, id: string, mode: string): void;
   readonly captureActive: boolean;
 }
 const Home = (module.exports as { OmdHomeView: new (...args: unknown[]) => HomeStub }).OmdHomeView;
+const upcomingEventTiming = (module.exports as {
+  upcomingEventTiming: (event: { start: string; end: string; allDay: boolean }, now: number) => string;
+}).upcomingEventTiming;
 function makeHome() {
   const saved: WidgetPlacement[][] = [];
   const placement = { id: "today", x: 0, y: 2, w: 6, h: 6 } as const;
@@ -254,6 +281,167 @@ test("Upcoming rows explain source and sync state while keeping the shape marker
   assert.equal(row.attributes.title, row.attributes["aria-label"]);
   const marker = row.descendants().find((element) => element.className.includes("omd-source-mark"));
   assert.equal(marker?.attributes["aria-hidden"], "true");
+});
+
+test("event source key owns one modal and closes it with the Home view", async () => {
+  const home = new Home({ app: {} }, { deviceLayout: [] });
+
+  home.openEventSourceKeyModal();
+  const first = home.eventSourceKeyModal;
+  assert.ok(first?.opened);
+
+  home.openEventSourceKeyModal();
+  const second = home.eventSourceKeyModal;
+  assert.ok(second?.opened);
+  assert.notEqual(second, first);
+  assert.equal(first?.closeCount, 1, "reopening the key must close the previous modal");
+
+  second?.close();
+  const released = home.eventSourceKeyModal;
+  assert.equal(released, undefined, "a user close must release the owner reference");
+
+  home.openEventSourceKeyModal();
+  const final = home.eventSourceKeyModal;
+  await home.onClose();
+  assert.equal(final?.closeCount, 1, "closing Home must close its open source key");
+  assert.equal(home.eventSourceKeyModal, undefined);
+});
+
+test("all-day date-only bounds use local midnight and exclude the end date across timezones", { concurrency: false }, (context) => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "Pacific/Auckland";
+  try {
+    const now = new Date(2026, 9, 19, 0, 30).getTime();
+    context.mock.method(Date, "now", () => now);
+    const home = new Home({ app: { workspace: { openLinkText() {} } } }, {
+      calendarEvents: [
+        {
+          id: "ended-all-day", title: "Ended yesterday", source: "vault", calendar: "Vault",
+          start: "2026-10-18", end: "2026-10-19", allDay: true,
+        },
+        {
+          id: "current-all-day", title: "Current local day", source: "vault", calendar: "Vault",
+          start: "2026-10-19", end: "2026-10-20", allDay: true,
+        },
+      ],
+    });
+    const body = new ElementStub();
+    home.renderWidgetBody("today", body);
+    const titles = body.descendants()
+      .filter((element) => element.className === "omd-event-title")
+      .map((element) => element.textContent);
+    assert.deepEqual(titles, ["Current local day"]);
+  } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
+});
+
+test("all-day date-only bounds do not expire early west of UTC", { concurrency: false }, (context) => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  try {
+    const now = new Date(2026, 9, 18, 18).getTime();
+    context.mock.method(Date, "now", () => now);
+    const home = new Home({ app: { workspace: { openLinkText() {} } } }, {
+      calendarEvents: [{
+        id: "west-of-utc", title: "Still today locally", source: "vault", calendar: "Vault",
+        start: "2026-10-18", end: "2026-10-19", allDay: true,
+      }],
+    });
+    const body = new ElementStub();
+    home.renderWidgetBody("today", body);
+    const titles = body.descendants()
+      .filter((element) => element.className === "omd-event-title")
+      .map((element) => element.textContent);
+    assert.deepEqual(titles, ["Still today locally"]);
+  } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
+});
+
+test("Upcoming renders timed cross-day ranges and inclusive all-day ranges", { concurrency: false }, (context) => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "Pacific/Auckland";
+  try {
+    const now = new Date(2026, 9, 18, 9).getTime();
+    context.mock.method(Date, "now", () => now);
+    const sameDayStart = new Date(2026, 9, 18, 15).toISOString();
+    const sameDayEnd = new Date(2026, 9, 18, 16).toISOString();
+    const crossDayStart = new Date(2026, 9, 18, 23, 30).toISOString();
+    const crossDayEnd = new Date(2026, 9, 19, 0, 30).toISOString();
+    const localTime = (value: string) => new Intl.DateTimeFormat(undefined, {
+      hour: "numeric", minute: "2-digit",
+    }).format(new Date(value));
+    const home = new Home({ app: { workspace: { openLinkText() {} } } }, {
+      calendarEvents: [
+        {
+          id: "same-day-timed", title: "Same local day", source: "vault", calendar: "Vault",
+          start: sameDayStart, end: sameDayEnd, allDay: false,
+        },
+        {
+          id: "cross-day-timed", title: "Across local midnight", source: "vault", calendar: "Vault",
+          start: crossDayStart, end: crossDayEnd, allDay: false,
+        },
+        {
+          id: "today", title: "Today only", source: "vault", calendar: "Vault",
+          start: "2026-10-18", end: "2026-10-19", allDay: true,
+        },
+        {
+          id: "two-days", title: "Two local days", source: "vault", calendar: "Vault",
+          start: "2026-10-18", end: "2026-10-20", allDay: true,
+        },
+        {
+          id: "tomorrow", title: "Tomorrow only", source: "vault", calendar: "Vault",
+          start: "2026-10-19", end: "2026-10-20", allDay: true,
+        },
+      ],
+    });
+    const body = new ElementStub();
+    home.renderWidgetBody("upcoming", body);
+    const timings = new Map(body.children.map((row) => [
+      row.children.find((element) => element.className === "omd-event-title")?.textContent,
+      row.children.find((element) => element.className === "omd-event-time")?.textContent,
+    ]));
+    assert.equal(timings.get("Today only"), "Today · ALL");
+    assert.equal(timings.get("Two local days"), "Today–Tomorrow · ALL");
+    assert.equal(timings.get("Tomorrow only"), "Tomorrow · ALL");
+    assert.equal(timings.get("Same local day"), `Today · ${localTime(sameDayStart)}`);
+    assert.equal(
+      timings.get("Across local midnight"),
+      `Today · ${localTime(crossDayStart)}–Tomorrow · ${localTime(crossDayEnd)}`,
+    );
+    assert.equal(
+      upcomingEventTiming({ start: sameDayStart, end: "not-a-date", allDay: false }, now),
+      `Today · ${localTime(sameDayStart)}`,
+      "an invalid end must safely fall back to the known start",
+    );
+  } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
+});
+
+test("invalid date-only events are omitted instead of normalizing into another day", { concurrency: false }, (context) => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "Pacific/Auckland";
+  try {
+    context.mock.method(Date, "now", () => new Date(2026, 1, 28, 9).getTime());
+    const home = new Home({ app: { workspace: { openLinkText() {} } } }, {
+      calendarEvents: [{
+        id: "invalid-date", title: "Normalized by Date", source: "vault", calendar: "Vault",
+        start: "2026-02-30", end: "2026-03-03", allDay: true,
+      }],
+    });
+    const body = new ElementStub();
+    home.renderWidgetBody("upcoming", body);
+    assert.equal(body.descendants().some((element) => element.className === "omd-event-row"), false);
+    assert.equal(body.descendants().some((element) => element.textContent === "No events in this range"), true);
+  } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
 });
 
 test("pointer cancellation restores the widget layout without persisting the preview", async () => {

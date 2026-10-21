@@ -175,14 +175,32 @@ test("Home note surfaces and vault search results expose the shared pin action",
   assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
 });
 
-test("event source meaning stays available from the calendar widget menu without a permanent legend", () => {
+test("event source meaning opens from a normal calendar widget menu action without a permanent legend", () => {
   assert.match(homeSource, /row\.createSpan\(\{ cls: `omd-source-mark is-\$\{event\.source\}`, attr: \{ "aria-hidden": "true" \} \}\)/u);
   assert.match(homeSource, /`Source: \$\{source\.label\}\. \$\{source\.description\}\.`/u);
   const widgetMenu = extractMethodBody(homeSource, "private openWidgetMenu(");
   assert.match(widgetMenu, /id === "today" \|\| id === "upcoming"/u);
-  assert.match(widgetMenu, /setTitle\("Event source key"\)[\s\S]*setIsLabel\(true\)/u);
-  assert.match(widgetMenu, /EVENT_SOURCE_ORDER[\s\S]*presentation\.glyph[\s\S]*presentation\.description[\s\S]*setIsLabel\(true\)/u);
-  assert.doesNotMatch(widgetMenu, /presentation\.description[\s\S]*setDisabled\(true\)/u);
+  assert.match(widgetMenu, /setTitle\("Event source key…"\)[\s\S]*\.onClick\(\(\) => this\.openEventSourceKeyModal\(\)\)/u);
+  assert.doesNotMatch(widgetMenu, /setIsLabel\(true\)/u);
+  assert.match(homeSource, /class EventSourceKeyModal extends Modal/u);
+  assert.match(homeSource, /EVENT_SOURCE_ORDER[\s\S]*presentation\.glyph[\s\S]*presentation\.label[\s\S]*presentation\.description/u);
+  assert.match(homeSource, /role: "list"[\s\S]*role: "listitem"/u);
+  assert.match(stylesSource, /\.omd-source-key-row\s*\{[^}]*grid-template-columns:\s*24px minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /\.omd-source-key-glyph\s*\{[^}]*color:\s*var\(--omd-ink\)/su);
+});
+
+test("Upcoming shows local dates while Today stays compact and all-day ranges use the exclusive end", () => {
+  const calendarBody = extractMethodBody(homeSource, "private renderWidgetBody(");
+  assert.match(calendarBody, /id === "upcoming"\s*\? upcomingEventTiming\(event, now\)\s*:\s*event\.allDay \? "ALL" : shortTime\(event\.start\)/u);
+  assert.match(calendarBody, /eventAccessibleTiming\(event\)/u);
+  assert.match(homeSource, /if \(difference === 0\) return "Today";[\s\S]*if \(difference === 1\) return "Tomorrow";/u);
+  assert.match(homeSource, /weekday: "short", day: "numeric", month: "short"/u);
+  assert.match(homeSource, /allDayInclusiveEnd\(event\.start, event\.end\)/u);
+  assert.match(homeSource, /new Date\(endDate\.getFullYear\(\), endDate\.getMonth\(\), endDate\.getDate\(\) - 1, 12\)/u);
+  assert.match(homeSource, /All day from \$\{fullLocalDate\(start\)\} through \$\{fullLocalDate\(inclusiveEnd\)\}/u);
+  assert.match(stylesSource, /\.omd-widget-today,\s*\.omd-widget-upcoming\s*\{ container: omd-calendar-widget \/ inline-size; \}/u);
+  assert.match(stylesSource, /@container omd-calendar-widget \(max-width: 360px\)[\s\S]*\.omd-event-row \{ grid-template-columns: 10px minmax\(0, 1fr\);/u);
+  assert.match(stylesSource, /\.omd-event-row \.omd-source-mark \{ grid-row: 1 \/ span 2;/u);
 });
 
 test("Inbox and Recent share one cached metadata snapshot and responsive note renderer", () => {

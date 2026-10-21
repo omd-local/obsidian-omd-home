@@ -1,4 +1,4 @@
-import { ItemView, Menu, Notice, WorkspaceLeaf, getAllTags, setIcon, type TFile } from "obsidian";
+import { ItemView, Menu, Modal, Notice, WorkspaceLeaf, getAllTags, setIcon, type App, type TFile } from "obsidian";
 import { aiProviderLabel } from "./ai-provider.ts";
 import type { CaptureFailureRecord } from "./capture-request";
 import { omdHomeStatus } from "./inbox.ts";
@@ -39,6 +39,7 @@ export class OmdHomeView extends ItemView {
   private renderTimer: number | null = null;
   private clockTimer: number | null = null;
   private clockDay: string | null = null;
+  private eventSourceKeyModal?: EventSourceKeyModal;
   private noteSnapshot: HomeNoteRow<TFile>[] = [];
   private readonly noteTagFilters: Record<"inbox" | "recent", Set<string>> = {
     inbox: new Set(),
@@ -77,6 +78,9 @@ export class OmdHomeView extends ItemView {
     this.renderTimer = null;
     if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
     this.clockTimer = null;
+    const eventSourceKeyModal = this.eventSourceKeyModal;
+    this.eventSourceKeyModal = undefined;
+    eventSourceKeyModal?.close();
     this.omnibox?.dispose();
     this.omnibox = undefined;
   }
@@ -251,9 +255,9 @@ export class OmdHomeView extends ItemView {
   private renderWidgetBody(id: WidgetId, body: HTMLElement): void {
     if (id === "today" || id === "upcoming") {
       const now = Date.now();
-      const end = id === "today" ? endOfToday() : now + 7 * 86_400_000;
+      const end = id === "today" ? endOfToday(now) : now + 7 * 86_400_000;
       const events = this.plugin.calendarEvents
-        .filter((event) => new Date(event.end).getTime() >= now && new Date(event.start).getTime() <= end)
+        .filter((event) => eventOccursInRange(event, now, end))
         .sort((a, b) => a.start.localeCompare(b.start))
         .slice(0, id === "today" ? 8 : 6);
       if (!events.length) {
@@ -261,11 +265,13 @@ export class OmdHomeView extends ItemView {
       }
       for (const event of events) {
         const source = eventSourcePresentation(event.source);
-        const timing = event.allDay ? "All day" : shortTime(event.start);
+        const timing = id === "upcoming"
+          ? upcomingEventTiming(event, now)
+          : event.allDay ? "ALL" : shortTime(event.start);
         const status = homeCalendarStatusLabel(event.syncState);
         const accessibleLabel = [
           event.title,
-          timing,
+          eventAccessibleTiming(event),
           `Source: ${source.label}. ${source.description}.`,
           status ? `Status: ${status}.` : null,
         ].filter(Boolean).join(" ");
@@ -275,7 +281,7 @@ export class OmdHomeView extends ItemView {
           attr: { "aria-label": accessibleLabel, title: accessibleLabel },
         });
         row.createSpan({ cls: `omd-source-mark is-${event.source}`, attr: { "aria-hidden": "true" } });
-        row.createSpan({ cls: "omd-event-time", text: event.allDay ? "ALL" : shortTime(event.start) });
+        row.createSpan({ cls: "omd-event-time", text: timing });
         row.createSpan({ cls: "omd-event-title", text: event.title, attr: { dir: "auto", title: event.title } });
         if (event.syncState === "conflict") row.addClass("has-conflict");
         row.addEventListener("click", () => event.notePath
@@ -746,13 +752,10 @@ export class OmdHomeView extends ItemView {
     }));
     if (id === "today" || id === "upcoming") {
       menu.addSeparator();
-      menu.addItem((item) => item.setTitle("Event source key").setIcon("info").setIsLabel(true));
-      for (const source of EVENT_SOURCE_ORDER) {
-        const presentation = eventSourcePresentation(source);
-        menu.addItem((item) => item
-          .setTitle(`${presentation.glyph} ${presentation.label} · ${presentation.description}`)
-          .setIsLabel(true));
-      }
+      menu.addItem((item) => item
+        .setTitle("Event source key…")
+        .setIcon("info")
+        .onClick(() => this.openEventSourceKeyModal()));
     }
     const hidden = this.plugin.deviceLayout.filter((placement) => placement.hidden);
     if (hidden.length) {
@@ -768,6 +771,15 @@ export class OmdHomeView extends ItemView {
       this.render();
     }));
     menu.showAtMouseEvent(event);
+  }
+
+  private openEventSourceKeyModal(): void {
+    this.eventSourceKeyModal?.close();
+    const modal = new EventSourceKeyModal(this.app, () => {
+      if (this.eventSourceKeyModal === modal) this.eventSourceKeyModal = undefined;
+    });
+    this.eventSourceKeyModal = modal;
+    modal.open();
   }
 
   private openWidgetManagerMenu(event: MouseEvent): void {
@@ -1042,6 +1054,43 @@ export class OmdHomeView extends ItemView {
   }
 }
 
+class EventSourceKeyModal extends Modal {
+  constructor(app: App, private readonly afterClose: () => void) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("omd-source-key-modal");
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: "Event source key" });
+    this.contentEl.createEl("p", {
+      cls: "omd-source-key-intro",
+      text: "The marker beside each event shows where it is stored.",
+    });
+    const list = this.contentEl.createDiv({
+      cls: "omd-source-key-list",
+      attr: { role: "list", "aria-label": "Calendar event sources" },
+    });
+    for (const source of EVENT_SOURCE_ORDER) {
+      const presentation = eventSourcePresentation(source);
+      const row = list.createDiv({ cls: "omd-source-key-row", attr: { role: "listitem" } });
+      row.createSpan({
+        cls: "omd-source-key-glyph",
+        text: presentation.glyph,
+        attr: { "aria-hidden": "true" },
+      });
+      const copy = row.createDiv({ cls: "omd-source-key-copy" });
+      copy.createEl("strong", { text: presentation.label });
+      copy.createDiv({ cls: "omd-source-key-description", text: presentation.description });
+    }
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    this.afterClose();
+  }
+}
+
 function applyPlacement(element: HTMLElement, value: WidgetPlacement): void {
   element.style.gridColumn = `${Math.max(1, value.x + 1)} / span ${Math.max(1, value.w)}`;
   element.style.gridRow = `${Math.max(1, value.y + 1)} / span ${Math.max(1, value.h)}`;
@@ -1085,8 +1134,117 @@ function shortTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
-function endOfToday(): number {
-  const date = new Date();
+function upcomingEventTiming(event: Pick<CalendarEventRecord, "start" | "end" | "allDay">, now: number): string {
+  const start = eventDate(event.start);
+  if (!start) return event.allDay ? "ALL" : "Time unavailable";
+  const startLabel = relativeEventDayLabel(start, now);
+  if (!event.allDay) {
+    const startTiming = `${startLabel} · ${shortTime(event.start)}`;
+    const end = eventDate(event.end);
+    if (!end || sameLocalDate(start, end)) return startTiming;
+    return `${startTiming}–${relativeEventDayLabel(end, now)} · ${shortTime(event.end)}`;
+  }
+
+  const inclusiveEnd = allDayInclusiveEnd(event.start, event.end);
+  if (!inclusiveEnd || sameLocalDate(start, inclusiveEnd)) return `${startLabel} · ALL`;
+  return `${startLabel}–${relativeEventDayLabel(inclusiveEnd, now)} · ALL`;
+}
+
+function eventAccessibleTiming(event: Pick<CalendarEventRecord, "start" | "end" | "allDay">): string {
+  const start = eventDate(event.start);
+  if (!start) return event.allDay ? "All day; date unavailable." : "Time unavailable.";
+  if (event.allDay) {
+    const inclusiveEnd = allDayInclusiveEnd(event.start, event.end) ?? start;
+    if (sameLocalDate(start, inclusiveEnd)) return `All day on ${fullLocalDate(start)}.`;
+    return `All day from ${fullLocalDate(start)} through ${fullLocalDate(inclusiveEnd)}.`;
+  }
+  const end = eventDate(event.end);
+  if (!end) return `Starts ${fullLocalDateTime(start)}.`;
+  return `From ${fullLocalDateTime(start)} to ${fullLocalDateTime(end)}.`;
+}
+
+function relativeEventDayLabel(value: Date, now: number): string {
+  const difference = localDayNumber(value) - localDayNumber(new Date(now));
+  if (difference === 0) return "Today";
+  if (difference === 1) return "Tomorrow";
+  return new Intl.DateTimeFormat("en-NZ", {
+    weekday: "short", day: "numeric", month: "short",
+  }).format(value).replace(",", "");
+}
+
+function eventDate(value: string): Date | null {
+  const date = isCalendarDate(value) ? localCalendarDate(value, 12) : new Date(value);
+  if (!date) return null;
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function eventOccursInRange(
+  event: Pick<CalendarEventRecord, "start" | "end" | "allDay">,
+  rangeStart: number,
+  rangeEnd: number,
+): boolean {
+  const start = eventBoundaryDate(event.start, event.allDay);
+  const end = eventBoundaryDate(event.end, event.allDay);
+  if (!start || !end || end.getTime() < start.getTime()) return false;
+  // All-day `end` is the first excluded local calendar date. A one-day event
+  // ending at today's midnight must therefore not leak into today's list.
+  const hasNotEnded = event.allDay ? end.getTime() > rangeStart : end.getTime() >= rangeStart;
+  return hasNotEnded && start.getTime() <= rangeEnd;
+}
+
+function eventBoundaryDate(value: string, allDay: boolean): Date | null {
+  if (allDay && isCalendarDate(value)) return localCalendarDate(value, 0);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/u.test(value);
+}
+
+function localCalendarDate(value: string, hour: number): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day, hour);
+  if (year >= 0 && year < 100) date.setFullYear(year);
+  return date.getFullYear() === year
+    && date.getMonth() === month - 1
+    && date.getDate() === day
+    ? date
+    : null;
+}
+
+function allDayInclusiveEnd(start: string, end: string): Date | null {
+  const startDate = eventDate(start);
+  const endDate = eventDate(end);
+  if (!startDate || !endDate) return startDate;
+  const inclusiveEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - 1, 12);
+  return inclusiveEnd.getTime() < startDate.getTime() ? startDate : inclusiveEnd;
+}
+
+function sameLocalDate(left: Date, right: Date): boolean {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function localDayNumber(value: Date): number {
+  return Math.floor(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / 86_400_000);
+}
+
+function fullLocalDate(value: Date): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(value);
+}
+
+function fullLocalDateTime(value: Date): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(value);
+}
+
+function endOfToday(now = Date.now()): number {
+  const date = new Date(now);
   date.setHours(23, 59, 59, 999);
   return date.getTime();
 }

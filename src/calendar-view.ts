@@ -449,42 +449,39 @@ class SyncRequiredModal extends Modal {
 }
 
 export interface CalendarConfirmationIdentityField {
-  label: "Title" | "Time" | "Note path" | "Calendar";
+  label: "Title" | "Time" | "Note path" | "Calendar" | "Target calendar";
   value: string;
   dir: "auto" | "ltr";
 }
 
 export function calendarConfirmationIdentityFields(
   event: CalendarEventRecord,
-  details: { notePath?: boolean; calendar?: boolean },
+  details: { notePath?: boolean; calendar?: boolean; targetCalendar?: string },
 ): CalendarConfirmationIdentityField[] {
   const identity = calendarConflictVersionFields(event);
   const title = identity.find((field) => field.label === "Title")?.value ?? event.title;
   const time = identity.find((field) => field.label === "Time")?.value ?? `${event.start} – ${event.end}`;
-  if (details.notePath) {
-    return [
-      { label: "Title", value: title, dir: "auto" },
-      { label: "Time", value: time, dir: "ltr" },
-      { label: "Note path", value: event.notePath ?? "Unavailable", dir: "auto" },
-    ];
-  }
-  if (details.calendar) {
-    return [
-      { label: "Title", value: title, dir: "auto" },
-      { label: "Time", value: time, dir: "ltr" },
-      { label: "Calendar", value: event.calendar?.trim() || "Calendar", dir: "auto" },
-    ];
-  }
-  return [
+  const fields = [
     { label: "Title", value: title, dir: "auto" },
     { label: "Time", value: time, dir: "ltr" },
-  ];
+  ] as CalendarConfirmationIdentityField[];
+  if (details.calendar || details.targetCalendar) {
+    fields.push({
+      label: details.targetCalendar ? "Target calendar" : "Calendar",
+      value: details.targetCalendar ?? (event.calendar?.trim() || "Calendar"),
+      dir: "auto",
+    });
+  }
+  if (details.notePath) {
+    fields.push({ label: "Note path", value: event.notePath ?? "Unavailable", dir: "auto" });
+  }
+  return fields;
 }
 
 function renderCalendarConfirmationIdentity(
   container: HTMLElement,
   event: CalendarEventRecord,
-  details: { notePath?: boolean; calendar?: boolean },
+  details: { notePath?: boolean; calendar?: boolean; targetCalendar?: string },
 ): void {
   const summary = container.createEl("section", {
     cls: "omd-conflict-version omd-calendar-confirmation-identity",
@@ -501,6 +498,7 @@ class RecreateCalendarConfirmationModal extends Modal {
   constructor(
     app: App,
     private readonly event: CalendarEventRecord,
+    private readonly targetCalendar: WritableDefaultCalendar,
     private readonly onConfirm: () => Promise<void>,
   ) { super(app); }
 
@@ -513,7 +511,10 @@ class RecreateCalendarConfirmationModal extends Modal {
     this.contentEl.createEl("p", {
       text: "Check calendar first and continue only if the original event is gone. Continuing while it still exists will create a duplicate.",
     });
-    renderCalendarConfirmationIdentity(this.contentEl, this.event, { calendar: true });
+    renderCalendarConfirmationIdentity(this.contentEl, this.event, {
+      targetCalendar: this.targetCalendar.title,
+      notePath: true,
+    });
     const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
       .addButton((button) => {
@@ -707,11 +708,18 @@ class EventEditorModal extends Modal {
         .onChange((value) => { this.draft.location = value.trim() || undefined; });
     });
     if (capabilities.showDestination) {
+      const linkedCalendarTitle = this.initialSource === "linked"
+        ? this.draft.calendar?.trim() || undefined
+        : undefined;
       new Setting(this.contentEl)
         .setName("Destination")
-        .setDesc(destinationDescription(this.initialSource))
+        .setDesc(destinationDescription(this.initialSource, linkedCalendarTitle))
         .addDropdown((dropdown) => {
-        for (const option of destinationOptions(this.initialSource, this.defaultCalendar?.title)) {
+        for (const option of destinationOptions(
+          this.initialSource,
+          this.defaultCalendar?.title,
+          linkedCalendarTitle,
+        )) {
           dropdown.addOption(option.value, option.label);
         }
         dropdown.setValue(this.draft.source).onChange((value) => {
@@ -922,10 +930,12 @@ class EventEditorModal extends Modal {
       new Notice("Recreate is unavailable. Reopen the calendar and try again.");
       return;
     }
-    this.openTrackedModal(new RecreateCalendarConfirmationModal(this.app, this.draft, async () => {
+    this.openTrackedModal(new RecreateCalendarConfirmationModal(this.app, this.draft, defaultCalendar, async () => {
       await this.actions.recreateCalendarEvent!(
         { ...this.draft, title },
         CALENDAR_RECREATE_CONFIRMATION,
+        defaultCalendar.id,
+        defaultCalendar.selectedCalendarIds,
       );
       this.close();
     }));
@@ -1055,6 +1065,7 @@ export function calendarEditorSaveBlockReason(event: CalendarEventRecord): strin
 interface WritableDefaultCalendar {
   id: string;
   title: string;
+  selectedCalendarIds: readonly string[];
 }
 
 interface CalendarDestinationOption {
@@ -1066,13 +1077,23 @@ export interface CalendarViewPluginActions {
   synchronizeCalendarEvents?: () => Promise<CalendarSyncSummary>;
   detachCalendarEvent?: (event: CalendarEventRecord, confirmation: CalendarDetachConfirmation) => Promise<void>;
   deleteCalendarEventNote?: (event: CalendarEventRecord, confirmation: CalendarNoteDeleteConfirmation) => Promise<void>;
-  recreateCalendarEvent?: (event: CalendarEventRecord, confirmation: CalendarRecreateConfirmation) => Promise<void>;
+  recreateCalendarEvent?: (
+    event: CalendarEventRecord,
+    confirmation: CalendarRecreateConfirmation,
+    targetCalendarId: string,
+    selectedCalendarIds: readonly string[],
+  ) => Promise<void>;
 }
 
 interface CalendarEditorActions {
   detachCalendarEvent?: (event: CalendarEventRecord, confirmation: CalendarDetachConfirmation) => Promise<void>;
   deleteCalendarEventNote?: (event: CalendarEventRecord, confirmation: CalendarNoteDeleteConfirmation) => Promise<void>;
-  recreateCalendarEvent?: (event: CalendarEventRecord, confirmation: CalendarRecreateConfirmation) => Promise<void>;
+  recreateCalendarEvent?: (
+    event: CalendarEventRecord,
+    confirmation: CalendarRecreateConfirmation,
+    targetCalendarId: string,
+    selectedCalendarIds: readonly string[],
+  ) => Promise<void>;
   synchronizeCalendarEvents?: () => Promise<CalendarSyncSummary>;
   trackModal?: <T extends Modal>(modal: T) => T | null;
 }
@@ -1080,9 +1101,11 @@ interface CalendarEditorActions {
 export function destinationOptions(
   source: EventSource,
   defaultCalendarTitle?: string,
+  linkedCalendarTitle?: string,
 ): CalendarDestinationOption[] {
-  const linkedLabel = defaultCalendarTitle
-    ? `Vault + ${defaultCalendarTitle}`
+  const destinationCalendarTitle = source === "linked" ? linkedCalendarTitle : defaultCalendarTitle;
+  const linkedLabel = destinationCalendarTitle
+    ? `Vault + ${destinationCalendarTitle}`
     : "Vault + default Calendar (choose in settings)";
   if (source === "external") {
     return [
@@ -1097,9 +1120,12 @@ export function destinationOptions(
   ];
 }
 
-function destinationDescription(source: EventSource): string {
+function destinationDescription(source: EventSource, linkedCalendarTitle?: string): string {
   if (source === "external") return "Keep this as a Calendar event, or create a linked note for it.";
-  if (source === "linked") return "Linked events stay linked here. Use the explicit actions below to detach, delete, or recreate the Calendar copy.";
+  if (source === "linked") {
+    const destination = linkedCalendarTitle ?? "its current Calendar";
+    return `Save keeps this linked event in ${destination}. Changing the default Calendar does not move it.`;
+  }
   return "Keep a Markdown-only event, or link the note to the writable default macOS Calendar.";
 }
 
@@ -1167,12 +1193,15 @@ function resolveWritableDefaultCalendar(
   calendars: ExternalCalendarDescriptor[],
   settings: Pick<OmdHomePlugin["settings"], "defaultExternalCalendarId" | "selectedCalendarIds">,
 ): WritableDefaultCalendar | null {
+  const selectedCalendarIds = [...new Set(settings.selectedCalendarIds)].sort();
   const defaultCalendar = calendars.find((calendar) => (
     calendar.id === settings.defaultExternalCalendarId
     && calendar.allowsModifications
-    && settings.selectedCalendarIds.includes(calendar.id)
+    && selectedCalendarIds.includes(calendar.id)
   ));
-  return defaultCalendar ? { id: defaultCalendar.id, title: defaultCalendar.title } : null;
+  return defaultCalendar
+    ? { id: defaultCalendar.id, title: defaultCalendar.title, selectedCalendarIds }
+    : null;
 }
 
 function calendarEditorActions(
