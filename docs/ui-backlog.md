@@ -38,14 +38,21 @@ provider-scoped 主流程，视觉节奏不一致会让 credential 与显式授�
 
 ## UI-03：Ollama endpoint 校验信息挤压输入框与卡片留白
 
-**状态：已实现，待 AI-02 人工视觉验证。** 错误位于输入框下方的独立整行，保留即时校验、
-允许的两个地址和最后有效值；输入框通过 `aria-invalid`／`aria-describedby` 关联错误。
+**状态：IMPLEMENTED CANDIDATE；即时安全校验原生 PASS，响应式布局待原生复测。** 错误位于输入框
+下方的独立整行，保留即时校验、允许的两个地址和最后有效值；输入框通过
+`aria-invalid`／`aria-describedby` 关联错误。候选在窄 Settings 中使用明确的 input＋action grid，极窄时
+把 **Use automatic** 堆叠并左对齐。
 
 **证据与背景：** 在 **Advanced AI controls → Ollama troubleshooting** 中输入不受支持的
 endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings 面板里，长提示会紧贴输入框并在
 右侧狭窄空间中多行换行，挤压卡片原有留白，削弱错误与字段之间的视觉层级。此项只调整错误信息
 的布局、间距与响应式呈现；不改变仅允许 `http://localhost:11434` 和
 `http://127.0.0.1:11434`、且无效值不覆盖最后有效设置的校验行为。
+
+2026-10-31 原生复测确认：输入 `http://example.invalid:11434` 后字段即时标红，独立错误行准确说明
+允许地址与保留最后有效值；无效值未保存，因此不产生 Needs attention，也不需要先点 **Check setup**。
+安全语义 PASS。视觉上，输入框与 **Use automatic** 换行后按钮单独靠右落在第二行，产生不自然的
+空白且没有与输入框或相邻控件对齐，因此响应式布局仍为 FAIL。
 
 **验收标准：**
 
@@ -316,13 +323,18 @@ Recognition 的 image / speech dropdown、Optional local AI 的两个 toggle，�
 
 ### UI-14：Needs attention 可关闭单条已过期错误
 
-**状态：已实现。优先级：P1；待原生键盘与窄窗口复测。** 历史 issue 与独立 Retry 可按精确实例
-关闭；当前 setup／连接状态继续由实时健康检查驱动，不提供掩盖问题的关闭按钮。
+**状态：已实现。优先级：P1；键盘关闭原生 PASS，待窄窗口／150% 复测。** 历史 issue 与独立 Retry
+可按精确实例关闭；当前 setup／连接状态继续由实时健康检查驱动，不提供掩盖问题的关闭按钮。
 
 **证据与背景：** 2026-09-20 CAP-06 人工测试时，Needs attention 仍显示此前 enrichment 的
 **Vault AI failed** 和缺失测试模型产生的 **Capture can be retried**。后续流程已经恢复或用户已经
 决定不再重试时，这些历史错误仍占据面板，且目前只能等待另一次同类操作覆盖，无法逐条清理。
 用户需要关闭单个过期消息，同时保留其他仍有用的错误和恢复操作。
+
+2026-10-31 原生复测确认：先聚焦 **Check setup** 后按 `Shift+Tab`，焦点可到达历史
+**Vault AI failed** 的 `×`，按 Enter 能关闭该条。**AI answers need attention** 没有 `×` 属于预期，
+因为它是当前 hosted setup 健康状态，应在修复凭证并重新检查后自动消失；这不属于 UI-14 失败。
+键盘语义与操作 PASS，只剩窄窗口、150% 和多行内容排版待复测。
 
 [现场截图](assets/ui-backlog/ui-14-needs-attention-dismiss.png)
 
@@ -691,6 +703,25 @@ CAPTURE-01 与 CAPTURE-02 的实现已完成，但发布前仍需取得 `manual-
 人工证据。CAPTURE-03 继续保留为 Deferred / P2；在它完成前，对外能力说明不得声明 OMD Home 支持
 Local batches。
 
+### CAPTURE-04：Capture 选项的键盘名称与焦点可见性
+
+**状态：BACKLOG / FAIL；暂不修复。优先级：P2。**
+
+**原生测试证据（2026-11-01）：** **Polish Markdown** 与 **Review links and tags** 都会进入 Tab
+顺序，并可用 Space 切换，因此基本键盘操作存在；但聚焦后的控件被辅助功能树暴露为没有名称的
+generic container，而不是带可访问名称与选中状态的 checkbox／switch。可见焦点提示也过于微弱，
+用户难以确认当前焦点位于哪个选项。
+
+**后续验收标准：**
+
+- 两个控件都暴露与可见标签一致的 accessible name、合适的 checkbox／switch role，以及当前
+  checked state；屏幕阅读器不再将其读作 unnamed generic container。
+- Tab／Shift+Tab 可稳定到达，Space（以及所选控件语义适用时的 Enter）可切换状态，不改变现有
+  Capture 行为。
+- 深色／浅色主题、正常／窄窗口及 100%／150% zoom 下，焦点环都清晰可辨且不被裁切或与文字重叠。
+
+按当前发布测试安排，此项只记录到 backlog；本轮候选不修改实现。
+
 ## Calendar UX
 
 ### CALENDAR-01：Helper override 输入后缺少即时校验反馈
@@ -750,7 +781,7 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
 
 ### CALENDAR-04：Sync 完成反馈与 conflict 版本完整性
 
-**状态：IMPLEMENTED CANDIDATE；自动门禁 PASS，原生只剩 CAL-00 final Sync、CAL-03 F.17／F.18 与 Q2。优先级：P0。**
+**状态：IMPLEMENTED / NATIVE PASS；Q0–Q2 已由 release owner 确认完成。优先级：P0（完成）。**
 
 - 只有全部 clean 才能显示 **Calendar sync complete**；conflict、unavailable、error、pending 均返回数量
   与下一步，Calendar 顶部 Sync 和命令使用同一结果文案。
@@ -785,24 +816,23 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
   helper child，并使 bridge 拒绝后续调用；lookup／note revalidation 后、commit 前发生 unload 时必须零删除。
   commit 已完成才 unload 时不得再启动 refresh，UI 仍按已提交状态收敛。
 - Calendar editor／confirmation modal 现在统一登记，`onunload` 会关闭所有仍打开或 pending 的 Calendar
-  action modal；modal action guard 让迟到 callback 不能继续 destructive action。仍须补原生 disable/reload
-  smoke，确认无 stale button、Notice 或未处理 rejection；在此之前 unload/modal 子项保持 **RETEST**。
-- 当前自动发布门禁已通过：Home 829 / 829、其中 Calendar／Home／runtime 定向 255 / 255、TypeScript、
-  零 warning ESLint、production build、protocol v3 helper release build 与 `git diff --check`。同一资产已安装
-  到 test-vault，四项安装 hash 与源码一致且 `data.json` 未改变；此证据不替代 CAL-00／03 原生 RETEST。
+  action modal；modal action guard 让迟到 callback 不能继续 destructive action。原生 disable/reload smoke
+  已确认无 stale button、Notice、孤儿 helper 或未处理 rejection。
+- 当前 `0.2.0` 候选自动发布门禁已通过：841 / 841 tests、TypeScript、零 warning ESLint、production
+  build 与 `git diff --check`；protocol v3 helper 的既有 release evidence 保留。最终 tag 附件哈希与
+  clean-vault 安装证据在冻结后单独记录，不复用旧候选哈希。
 - linked/read-only event 的字段与 Save 现在保持只读一致；仍可 Detach 或删除本地 note，不再先展示可编辑
   UI、提交后才以 Calendar 不可写失败。
 - 原生已经通过 E.14 Recreate、E.15 Detach、E.16 Calendar 取消选择／恢复、Destination 显示、跨 Calendar
-  移动以及 F.19–21；Week／Day 的 Pending sync 也不溢出。当前只剩一次真实 Sync、F.17 Vault-only note
-  删除、F.18 linked note 删除，以及 Q2 的 Calendar CAS／modal unload smoke。其余 race、refresh failure、
-  token 与 note byte-CAS 由 255 / 255 自动证据承担，不再要求人工故障注入。
+  移动、F.17–21，以及 Q0–Q2 的 final Sync、删除 CAS／Cancel／modal unload smoke；Week／Day 的 Pending
+  sync 也不溢出。其余 race、refresh failure、token 与 note byte-CAS 由自动证据承担，不再要求人工故障注入。
 
 <a id="backlog-calendar-05"></a>
 
 ### CALENDAR-05：Recovery 提示没有说明具体是哪条 linked note
 
-**状态：OPEN / PARTIALLY IMPLEMENTED；建议首发前完成。优先级：P1。** 临时 Notice 已改善文案并列出
-最多 3 个 title，但 Calendar view 内仍没有持久、可点击的 recovery summary／**Review event**。
+**状态：IMPLEMENTED CANDIDATE / NATIVE RETEST；首发门禁。优先级：P1。** 临时 Notice 继续提供即时
+反馈；Calendar view 现在还会从持久的 linked recovery 状态渲染 title、状态与可点击的 **Review event**。
 
 - 2026-10-12 原生 CAL-03 中，`CAL-03 Missing Does Not Block` 已 Detach 并移入 Trash，note 不再存在；
   再次 Sync 仍显示 `1 unavailable event`。Vault 与 EventKit 定向核对证明真正需要 recovery 的是更早的
@@ -821,9 +851,10 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
   **1 unavailable event**。Vault 搜索 `[sync-state:unavailable]` 与原始文字均无结果。需要核对 recovery
   分类的来源与生命周期：已恢复／clean 的移动项不得保留过期 unavailable 计数；若计数来自另一条 note，
   summary 必须显示具体 title 并能导航，不能让用户误以为刚移动的 clean event 仍然失败。
-- 2026-10-18 候选已把用户可见文案改为 **linked note needs Calendar recovery**，说明 Calendar copy
-  可能被删除、移动或所属 Calendar 未选中；临时 Notice 会列出最多 3 个具体 title。仍缺少 Calendar view 内
-  持久、可点击的 summary 与 **Review event** 导航，因此本项保留为非阻塞 P1，不以临时 toast 关闭 backlog。
+- 2026-11-15 候选新增 Calendar view 内的持久 summary；它直接读取当前 `plugin.calendarEvents`，不依赖
+  会消失的最后一次 Sync Notice，也不受来源筛选或当前月／周范围影响。每项保留 `dir=auto` title、准确状态
+  与 **Review event**，并复用现有安全恢复 modal。自动 selector／UI contract 已覆盖；仍需原生确认点击、
+  隐藏 Linked 后入口保留、恢复完成后 summary 消失，以及窄窗／150%／深浅主题。
 
 <a id="backlog-calendar-06"></a>
 
@@ -981,3 +1012,33 @@ OMD 现在只对带 `output_schema` 的 DeepSeek 请求同时发送 JSON mode �
 上限掩盖问题，也没有自动改用 Flash。后端 1685 tests、Ruff 和过滤 AppleDouble 文件后的
 `py_compile` 通过。最终原生回归已分别显示两个真实 model ID 与完整引用答案；历史的 Pro 失败仍保留为
 修复前证据，不再把本项列为发布前待测。
+
+### ANSWER-05：补全本地 embedding model 的首次使用与故障引导
+
+**状态：BACKLOG。优先级：P2。** 默认保存的 `bge-m3` 缺失时，当前 Settings 和 Ask 结果已经提供
+明确的 **Install model**、**Use keyword search by default** 与 **Open retrieval settings**；下载只在
+用户明确点击后开始，不允许页面加载、Check setup 或提问静默 pull。这个默认路径继续保留。
+
+**现有缺口：** 一键安装目前只允许经过审核的 `bge-m3`。如果缺失的是其他已保存 model（例如
+`all-minilm:22m`），界面只提示在 Ollama 中手工安装，没有准确、可复制的下一步。Ollama 未安装、daemon
+未启动、Ollama 可达但没有任何 model、只有 embedding model 而没有 text/completion model 等状态，也
+没有形成连续的首次使用向导。用户容易把“用于 Vault 检索的 embedding model”和“用于本地回答／笔记
+处理的 text model”误认为同一个模型。
+
+**改进方向：** 根据实际检查结果只展示当前需要的一项主要操作，并说明完成后的下一步：安装或打开
+Ollama、启动本地服务、安装推荐的 embedding model、刷新 catalog、运行 **Test embeddings**。对非一键
+白名单 model，提供经过 model-id 校验的可复制 `ollama pull <model-id>` 命令或明确的 Ollama 操作说明，
+但不得直接执行任意已保存 ID。始终同时提供 **Use keyword search by default**，说明关键词检索不需要
+embedding model。若用户还选择 **Ollama on this computer** 作为回答 provider，另行说明需要一个
+text/completion model；使用 hosted answer provider 时，不应误导用户安装本地回答模型。
+
+**验收标准：**
+
+- 覆盖 Ollama 未安装、daemon 未启动、零本地模型、缺少 embedding model、缺少任意非默认已保存 model、
+  embedding-only 和完整可用七种状态；每种状态显示准确原因、一个主要恢复动作和可返回的验证步骤。
+- `bge-m3` 等审核过的推荐模型仍可在用户确认后由 Home 一键安装，并显示下载可能需要的时间／空间；
+  其他 model 不静默执行、替换或下载。
+- 安装或手工恢复后刷新 catalog，用户可直接运行 **Test embeddings**；成功状态明确显示当前用于检索的
+  model，失败状态不把 daemon、缺失 model、能力不兼容和 cloud-backed model 混为一类。
+- Settings 与 Ask 的恢复文案、按钮命名和目标页面一致；窄窗口、150% zoom、键盘与屏幕阅读器流程可用。
+- 引导清楚区分 embedding retrieval 与 text/completion generation，并保留 keyword-only 的无模型路径。

@@ -34,6 +34,7 @@ import {
   calendarRecoveryPresentation,
   calendarRangeValidationTarget,
   calendarRangeValidationMessage,
+  calendarRecoveryRecords,
   deviceTimeZoneDescription,
   deviceTimeZoneName,
   eventMatchesSourceFilter,
@@ -70,6 +71,7 @@ export class OmdCalendarView extends ItemView {
   private hostEl?: HTMLDivElement;
   private syncButton?: HTMLButtonElement;
   private sourceFilterSummaryEl?: HTMLElement;
+  private recoverySummaryEl?: HTMLDivElement;
   private syncing = false;
   private readonly plugin: OmdHomePlugin;
   private readonly ownedModals = new Set<Modal>();
@@ -99,6 +101,7 @@ export class OmdCalendarView extends ItemView {
     this.calendar = undefined;
     this.hostEl = undefined;
     this.sourceFilterSummaryEl = undefined;
+    this.recoverySummaryEl = undefined;
   }
 
   render(): void {
@@ -172,6 +175,7 @@ export class OmdCalendarView extends ItemView {
     if (!this.calendar) return;
     this.calendar.setOption("colorScheme", document.body.classList.contains("theme-dark") ? "dark" : "light");
     replaceCalendarEvents(this.calendar, this.visibleEvents().map(toFullCalendarEvent));
+    this.updateRecoverySummary();
   }
 
   createEvent(): void {
@@ -214,6 +218,10 @@ export class OmdCalendarView extends ItemView {
   private openEvent(info: EventClickInfo): void {
     const record = this.plugin.calendarEvents.find((event) => event.id === info.event.id);
     if (!record) return;
+    this.openRecord(record);
+  }
+
+  private openRecord(record: CalendarEventRecord): void {
     if (requiresSyncBeforeEdit(record)) {
       this.openTrackedModal(new SyncRequiredModal(this.app, record, async () => {
         const summary = await this.plugin.synchronizeCalendarEvents();
@@ -362,7 +370,46 @@ export class OmdCalendarView extends ItemView {
     sync.addEventListener("click", () => void this.syncEvents());
     const create = actions.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "New event" });
     create.addEventListener("click", () => this.createEvent());
+    this.recoverySummaryEl = shell.createDiv({
+      cls: "omd-calendar-recovery-summary",
+      attr: { role: "region", "aria-label": "Calendar recovery" },
+    });
+    this.recoverySummaryEl.hidden = true;
     this.hostEl = shell.createDiv({ cls: "omd-calendar-host" });
+  }
+
+  private updateRecoverySummary(): void {
+    const summary = this.recoverySummaryEl;
+    if (!summary) return;
+    const records = calendarRecoveryRecords(this.plugin.calendarEvents);
+    summary.empty();
+    summary.hidden = records.length === 0;
+    if (!records.length) return;
+
+    const count = records.length;
+    summary.createEl("strong", {
+      text: `${count} linked ${count === 1 ? "note needs" : "notes need"} Calendar recovery`,
+    });
+    summary.createEl("p", {
+      text: count === 1
+        ? "Its Calendar copy may have been deleted, moved, or belong to a Calendar that is not selected."
+        : "Their Calendar copies may have been deleted, moved, or belong to Calendars that are not selected.",
+    });
+    const list = summary.createDiv({ cls: "omd-calendar-recovery-list", attr: { role: "list" } });
+    for (const record of records) {
+      const row = list.createDiv({ cls: "omd-calendar-recovery-row", attr: { role: "listitem" } });
+      const identity = row.createDiv({ cls: "omd-calendar-recovery-identity" });
+      identity.createSpan({ cls: "omd-calendar-recovery-title", text: record.title, attr: { dir: "auto" } });
+      const status = calendarRecoveryPresentation(record)?.label;
+      if (status) identity.createSpan({ cls: "omd-calendar-recovery-state", text: status });
+      const review = row.createEl("button", {
+        cls: "omd-action-button",
+        type: "button",
+        text: "Review event",
+        attr: { "aria-label": `Review event: ${record.title}` },
+      });
+      review.addEventListener("click", () => this.openRecord(record));
+    }
   }
 
   private updateSourceFilterSummary(): void {

@@ -247,7 +247,28 @@
 .omd-omnibox-icon { display: grid; place-items: center; color: var(--omd-muted); }
 .omd-omnibox-icon svg { width: 15px; }
 .omd-omnibox-input { width: 100%; border: 0 !important; box-shadow: none !important; background: transparent !important; color: var(--omd-ink); font-size: 15px; }
-.omd-omnibox-hint { padding: 0 10px; color: var(--omd-muted); font: 600 var(--omd-font-small)/1.35 var(--font-monospace); letter-spacing: .16em; }
+.omd-omnibox-source-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  min-height: 30px;
+  margin-inline-end: 4px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--omd-muted);
+  font: 700 var(--omd-font-small)/1 var(--font-monospace);
+}
+.omd-omnibox-source-key:hover,
+.omd-omnibox-source-key:focus-visible {
+  border-color: var(--omd-line-strong);
+  background: var(--background-modifier-hover);
+  color: var(--omd-ink);
+}
+.omd-omnibox-source-glyph { display: inline-grid; width: 1em; place-items: center; }
 .omd-omnibox-actions { display: flex; gap: 5px; margin-top: 6px; }
 .omd-quick-action { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 4px 7px; color: var(--omd-muted); font-size: var(--omd-font-small); }
 .omd-quick-action svg { width: 12px; height: 12px; }
@@ -661,7 +682,7 @@
   --fc-classic-highlight: color-mix(in srgb, var(--omd-accent) 14%, transparent);
   --fc-classic-now: var(--omd-accent);
 }
-.omd-calendar-shell { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; max-width: 1480px; margin: 0 auto; }
+.omd-calendar-shell { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; max-width: 1480px; margin: 0 auto; }
 .omd-calendar-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 10px; }
 .omd-calendar-source-filter { position: relative; z-index: 4; color: var(--omd-muted); font-size: var(--omd-font-small); }
 .omd-calendar-source-summary {
@@ -694,6 +715,43 @@
   box-shadow: var(--shadow-s);
 }
 .omd-calendar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.omd-calendar-recovery-summary {
+  max-block-size: min(16rem, 40vh);
+  margin: 0 0 10px;
+  padding: 9px 10px;
+  overflow-y: auto;
+  border: 1px solid var(--omd-line);
+  border-inline-start: 3px solid var(--omd-accent);
+  border-radius: 1px;
+  background: var(--background-secondary);
+}
+.omd-calendar-recovery-summary[hidden] { display: none; }
+.omd-calendar-recovery-summary > strong {
+  color: var(--omd-ink);
+  font: 600 var(--omd-font-small)/1.35 var(--font-monospace);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.omd-calendar-recovery-summary > p {
+  margin: 4px 0 8px;
+  color: var(--omd-muted);
+  font-size: var(--omd-font-ui);
+  line-height: 1.45;
+}
+.omd-calendar-recovery-list { display: grid; gap: 4px; }
+.omd-calendar-recovery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--omd-line);
+}
+.omd-calendar-recovery-identity { display: grid; min-width: 0; }
+.omd-calendar-recovery-title { overflow: hidden; color: var(--omd-ink); text-overflow: ellipsis; white-space: nowrap; }
+.omd-calendar-recovery-state { color: var(--omd-muted); font: var(--omd-font-small)/1.35 var(--font-monospace); }
+.omd-calendar-recovery-row button { flex: 0 0 auto; }
 .omd-calendar-filter-button {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr);
@@ -1795,20 +1853,6 @@
 }
 .omd-answer-warning-actions button { font-size: var(--omd-font-small); }
 
-.omd-settings-fixed-value {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--input-radius);
-  background: var(--background-modifier-form-field);
-  color: var(--text-normal);
-  font-family: var(--font-monospace);
-  font-size: var(--font-ui-small);
-}
-.omd-settings-destination .setting-item-control { align-self: center; }
-
 @container omd-enrichment (max-width: 520px) {
   .omd-enrichment-shell {
     padding: 12px 12px 10px;
@@ -1930,6 +1974,15 @@
 .omd-modal-actions .setting-item-control { width: 100%; justify-content: flex-end; }
 .omd-modal-actions button { min-height: 32px; height: auto; white-space: normal; }
 
+.omd-formatting-modal {
+  width: min(680px, calc(100vw - 24px));
+  min-width: min(320px, calc(100vw - 24px));
+  min-height: min(240px, calc(100vh - 32px));
+  overflow: auto;
+  resize: both;
+  container: omd-formatting-dialog / inline-size;
+}
+.omd-formatting-modal .modal-content { min-width: 0; }
 .omd-formatting-status {
   margin: 0 0 14px;
   padding: 9px 10px;
@@ -1964,6 +2017,13 @@
   color: var(--omd-ink);
   font: 400 max(12px, var(--font-ui-smaller))/1.5 var(--font-monospace);
 }
+@container omd-formatting-dialog (max-width: 420px) {
+  .omd-formatting-modal .omd-modal-actions .setting-item-control {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .omd-formatting-modal .omd-modal-actions button { width: 100%; }
+}
 .omd-consent-evidence-card :is(strong, code, p),
 .omd-consent-modal p, .omd-event-conflict-modal p { overflow-wrap: anywhere; }
 @container omd-settings-page (max-width: 580px) {
@@ -1975,6 +2035,16 @@
   .omd-settings .setting-item:not(:has(.checkbox-container)) { flex-direction: column; align-items: stretch; }
   .omd-settings .setting-item:not(:has(.checkbox-container)) .setting-item-control { justify-content: flex-start; flex-basis: auto; }
   .omd-settings .setting-item:not(:has(.checkbox-container)) select { flex: 1 1 180px; width: 100%; }
+  .omd-settings .omd-settings-endpoint .setting-item-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .omd-settings .omd-settings-endpoint .setting-item-control input { width: 100%; }
+}
+@container omd-settings-page (max-width: 400px) {
+  .omd-settings .omd-settings-endpoint .setting-item-control { grid-template-columns: minmax(0, 1fr); }
+  .omd-settings .omd-settings-endpoint .setting-item-control button { justify-self: start; }
 }
 @container omd-settings-page (max-width: 680px) {
   .omd-settings .omd-settings-answer-status { grid-template-columns: minmax(0, 1fr); }
@@ -1994,6 +2064,8 @@
   :is(.omd-capture-modal, .omd-event-modal) .setting-item:has(select) { flex-direction: column; align-items: stretch; }
   :is(.omd-capture-modal, .omd-event-modal) .setting-item:has(select) .setting-item-control { width: 100%; }
   :is(.omd-capture-modal, .omd-event-modal) select { width: 100%; }
+  .omd-calendar-recovery-row { align-items: stretch; flex-direction: column; }
+  .omd-calendar-recovery-row button { align-self: flex-start; }
 }
 @media (prefers-reduced-motion: reduce) {
   .omd-home-view *, .omd-calendar-view *, .omd-cookie-path-drop-target { transition: none; }

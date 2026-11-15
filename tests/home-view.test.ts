@@ -102,6 +102,12 @@ test("closing Home disposes only its Omnibox-owned requests", () => {
   assert.doesNotMatch(onClose, /cancelActive|cancelActiveOmd/u);
 });
 
+test("omnibox Enter submits explicitly while Space remains ordinary input", () => {
+  assert.match(omniboxSource, /if \(event\.key === "Enter" && !event\.isComposing\) \{[\s\S]*event\.preventDefault\(\);[\s\S]*void this\.execute\(\);/u);
+  assert.doesNotMatch(omniboxSource, /event\.key === "(?: |Space|Spacebar)"/u);
+  assert.match(omniboxSource, /cls: "omd-omnibox-source-key",[\s\S]{0,180}attr: \{[\s\S]{0,80}type: "button"/u);
+});
+
 test("Current task and Needs attention do not render the same terminal capture error", () => {
   assert.doesNotMatch(homeSource, /renderProcessingSection\(body,[\s\S]{0,120}activity\.recent/);
   assert.match(homeSource, /lastErrorAt/);
@@ -187,6 +193,15 @@ test("event source meaning opens from a normal calendar widget menu action witho
   assert.match(homeSource, /role: "list"[\s\S]*role: "listitem"/u);
   assert.match(stylesSource, /\.omd-source-key-row\s*\{[^}]*grid-template-columns:\s*24px minmax\(0, 1fr\)/su);
   assert.match(stylesSource, /\.omd-source-key-glyph\s*\{[^}]*color:\s*var\(--omd-ink\)/su);
+});
+
+test("the omnibox replaces unused syntax hints with one accessible event source key", () => {
+  assert.doesNotMatch(omniboxSource, />  \+  @/u);
+  assert.match(omniboxSource, /cls: "omd-omnibox-source-key"[\s\S]*"aria-label": eventSourceKeyAccessibleLabel\(\)[\s\S]*"aria-haspopup": "dialog"/u);
+  assert.match(omniboxSource, /EVENT_SOURCE_ORDER[\s\S]*eventSourcePresentation\(source\)\.glyph/u);
+  assert.match(omniboxSource, /this\.openEventSourceKey\(\)/u);
+  assert.match(homeSource, /new Omnibox\([\s\S]*\(\) => this\.openEventSourceKeyModal\(\)/u);
+  assert.match(stylesSource, /\.omd-omnibox-source-key\s*\{[^}]*display:\s*inline-flex/su);
 });
 
 test("Upcoming shows local dates while Today stays compact and all-day ranges use the exclusive end", () => {

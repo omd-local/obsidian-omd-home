@@ -96,3 +96,18 @@ Suggested release threshold:
 
 Any distractor citation, fabricated fertiliser amount, or placeholder leak is a
 release blocker for the legacy Vault Q&A benchmark.
+
+## Domain-transfer multilingual case
+
+This case checks that the bilingual pairing behavior is not specific to tomato
+vocabulary.
+
+- Ground truth: `Sources/Benchmark/远程办公账号安全常见三个风险.md`
+- Nearby distractor: `Sources/Benchmark/Remote Work Desk Equipment Inventory.md`
+
+| ID | Query | Expected answer shape | Required sources | Must avoid |
+|---|---|---|---|---|
+| M01-RW | `@Review the notes about remote-work account safety. Present three separate problem–remedy pairs. Describe each unsafe practice in Chinese and its corresponding safer action in English, with a citation beside every pair.` | Three ordered Chinese unsafe-practice → English safer-action pairs | Account-safety note only | Equipment inventory and unrelated Vault notes |
+
+Score M01-RW with the same 4-point legacy rubric. It passes at **3/4** or better,
+but any equipment-inventory citation sets Source hygiene to `0/1`.

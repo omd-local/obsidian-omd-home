@@ -17,7 +17,8 @@ const macEnvironment = {
 
 test("automatic OMD discovery includes PATH, environment, package manager, and user locations", () => {
   const candidates = omdExecutableCandidates("omd", macEnvironment);
-  assert.equal(candidates[0], "omd");
+  assert.equal(candidates[0], "/opt/homebrew/opt/omd/bin/omd");
+  assert.ok(candidates.includes("omd"));
   assert.ok(candidates.includes("/Users/example/active-conda/bin/omd"));
   assert.ok(candidates.includes("/opt/homebrew/bin/omd"));
   assert.ok(candidates.includes("/opt/homebrew/Caskroom/miniconda/base/bin/omd"));
@@ -31,9 +32,28 @@ test("automatic OMD discovery tries an already verified executable before PATH c
     macEnvironment,
     "/Applications/OMD/bin/omd",
   );
-  assert.equal(candidates[0], "/Applications/OMD/bin/omd");
-  assert.equal(candidates[1], "omd");
+  assert.deepEqual(candidates.slice(0, 4), [
+    "/Applications/OMD/bin/omd",
+    "/opt/homebrew/opt/omd/bin/omd",
+    "/usr/local/opt/omd/bin/omd",
+    "omd",
+  ]);
   assert.equal(new Set(candidates).size, candidates.length);
+});
+
+test("automatic discovery keeps the verified executable when another compatible candidate exists", async () => {
+  const verified = "/Applications/OMD/bin/omd";
+  const probed: string[] = [];
+  const result = await discoverOmdExecutable(
+    "omd",
+    macEnvironment,
+    async (executable) => { probed.push(executable); },
+    async (candidate) => candidate,
+    verified,
+  );
+  assert.equal(result.executable, verified);
+  assert.deepEqual(result.candidatesTried, [verified]);
+  assert.deepEqual(probed, [verified]);
 });
 
 test("a custom OMD executable is the only discovery candidate", () => {
@@ -74,13 +94,26 @@ test("automatic discovery probes and returns the same resolved absolute PATH exe
   const result = await discoverOmdExecutable(
     "omd",
     macEnvironment,
-    async (executable) => { probed.push(executable); },
+    async (executable) => {
+      probed.push(executable);
+      if (executable.endsWith("/opt/omd/bin/omd")) {
+        throw new OmdEnrichmentError("missing_executable", "missing");
+      }
+    },
     async (candidate) => candidate === "omd" ? "/opt/homebrew/bin/omd" : candidate,
   );
 
   assert.equal(result.executable, "/opt/homebrew/bin/omd");
-  assert.deepEqual(probed, ["/opt/homebrew/bin/omd"]);
-  assert.deepEqual(result.candidatesTried, ["omd"]);
+  assert.deepEqual(probed, [
+    "/opt/homebrew/opt/omd/bin/omd",
+    "/usr/local/opt/omd/bin/omd",
+    "/opt/homebrew/bin/omd",
+  ]);
+  assert.deepEqual(result.candidatesTried, [
+    "/opt/homebrew/opt/omd/bin/omd",
+    "/usr/local/opt/omd/bin/omd",
+    "omd",
+  ]);
 });
 
 test("automatic discovery falls back to PATH when the verified absolute hint is no longer valid", async () => {
@@ -92,15 +125,27 @@ test("automatic discovery falls back to PATH when the verified absolute hint is 
     macEnvironment,
     async (executable) => {
       probed.push(executable);
-      if (executable === stale) throw new OmdEnrichmentError("missing_executable", "removed");
+      if (executable === stale || executable.endsWith("/opt/omd/bin/omd")) {
+        throw new OmdEnrichmentError("missing_executable", "removed");
+      }
     },
     async (candidate) => candidate === "omd" ? legacy : candidate,
     stale,
   );
 
   assert.equal(result.executable, legacy);
-  assert.deepEqual(result.candidatesTried, [stale, "omd"]);
-  assert.deepEqual(probed, [stale, legacy]);
+  assert.deepEqual(result.candidatesTried, [
+    stale,
+    "/opt/homebrew/opt/omd/bin/omd",
+    "/usr/local/opt/omd/bin/omd",
+    "omd",
+  ]);
+  assert.deepEqual(probed, [
+    stale,
+    "/opt/homebrew/opt/omd/bin/omd",
+    "/usr/local/opt/omd/bin/omd",
+    legacy,
+  ]);
 });
 
 test("bare executable resolution uses a shell-free bounded locator on macOS and Windows", async () => {

@@ -199,6 +199,7 @@ test("Home clock refreshes date-relative events across midnight and stops when c
     const home = new Home({ app }, {
       deviceLayout: [],
       calendarEvents: [
+        event("Earlier today", 16, 12, 0, 30),
         event("Yesterday's event", 16, 23, 50, 59),
         event("Today's event", 17, 12, 0, 30),
         event("New upcoming event", 24, 0, 0, 30),
@@ -223,7 +224,7 @@ test("Home clock refreshes date-relative events across midnight and stops when c
     };
     await home.onOpen();
     draft.focus();
-    assert.deepEqual(titles(today), ["Yesterday's event"]);
+    assert.deepEqual(titles(today), ["Earlier today", "Yesterday's event"]);
     assert.deepEqual(titles(upcoming), ["Yesterday's event", "Today's event"]);
     const heading = home.contentEl.descendants().find((element) => element.tagName === "h1");
     const date = home.contentEl.descendants().find((element) => element.tagName === "p");

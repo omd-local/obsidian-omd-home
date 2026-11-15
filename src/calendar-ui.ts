@@ -33,6 +33,14 @@ export function eventSourcePresentation(source: EventSource): EventSourcePresent
   return EVENT_SOURCE_PRESENTATIONS[source];
 }
 
+export function eventSourceKeyAccessibleLabel(): string {
+  const descriptions = EVENT_SOURCE_ORDER.map((source) => {
+    const presentation = eventSourcePresentation(source);
+    return `${presentation.label}: ${presentation.description}`;
+  }).join(". ");
+  return `Event source key. ${descriptions}.`;
+}
+
 export function eventSourceFilterSummary(enabledSources: ReadonlySet<EventSource>): string {
   const count = normalizeSourceFilters(enabledSources).size;
   return `Sources · ${count === EVENT_SOURCE_ORDER.length ? "All" : `${count} of ${EVENT_SOURCE_ORDER.length}`}`;
@@ -172,6 +180,10 @@ export function calendarRecoveryPresentation(
   }
   if (event.syncState !== "unavailable") return null;
   return UNAVAILABLE_PRESENTATIONS[event.unavailableReason ?? "unknown"];
+}
+
+export function calendarRecoveryRecords(events: readonly CalendarEventRecord[]): CalendarEventRecord[] {
+  return events.filter((event) => event.source === "linked" && calendarRecoveryPresentation(event) !== null);
 }
 
 export interface CalendarConflictVersionField {

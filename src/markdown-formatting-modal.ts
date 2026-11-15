@@ -1,4 +1,6 @@
-import { Modal, Setting, type App } from "obsidian";
+import { Modal, Setting, type App, type ButtonComponent } from "obsidian";
+
+let formattingModalSequence = 0;
 
 export class MarkdownFormattingModal extends Modal {
   private resolved = false;
@@ -8,7 +10,8 @@ export class MarkdownFormattingModal extends Modal {
   private statusEl?: HTMLElement;
   private previewSection?: HTMLElement;
   private previewCode?: HTMLElement;
-  private applyButton?: HTMLButtonElement;
+  private applyButton?: ButtonComponent;
+  private readonly previewHeadingId = `omd-formatting-preview-heading-${++formattingModalSequence}`;
 
   constructor(
     app: App,
@@ -35,10 +38,13 @@ export class MarkdownFormattingModal extends Modal {
     });
     this.previewSection = this.contentEl.createEl("section", {
       cls: "omd-formatting-preview",
-      attr: { "aria-label": `Formatting preview for ${this.noteName}` },
+      attr: { role: "region", "aria-labelledby": this.previewHeadingId },
     });
     this.previewSection.hidden = true;
-    this.previewSection.createEl("h3", { text: "Formatting preview" });
+    this.previewSection.createEl("h3", {
+      text: "Formatting preview",
+      attr: { id: this.previewHeadingId },
+    });
     const preview = this.previewSection.createEl("pre", { attr: { tabindex: "0" } });
     this.previewCode = preview.createEl("code", { attr: { dir: "auto" } });
 
@@ -49,7 +55,7 @@ export class MarkdownFormattingModal extends Modal {
           this.finish(true);
           this.close();
         });
-        this.applyButton = button.buttonEl;
+        this.applyButton = button;
       });
     actions.settingEl.addClass("omd-modal-actions");
   }
@@ -63,11 +69,11 @@ export class MarkdownFormattingModal extends Modal {
     this.finishGeneration();
     if (this.statusEl) {
       this.statusEl.removeClass("is-active");
-      this.statusEl.setText("Preview ready. The note is unchanged until you apply it.");
+      this.statusEl.setText(`Preview ready for ${this.noteName}. The note is unchanged until you apply it.`);
     }
     if (this.previewCode) this.previewCode.setText(markdown);
     if (this.previewSection) this.previewSection.hidden = false;
-    if (this.applyButton) this.applyButton.disabled = false;
+    this.applyButton?.setDisabled(false);
   }
 
   finishGeneration(): void {

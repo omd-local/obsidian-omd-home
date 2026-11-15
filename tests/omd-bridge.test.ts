@@ -25,6 +25,7 @@ import {
   captureInspectionError,
   captureErrorMessage,
   firstVerifiedWindowsPython,
+  MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
   OmdBridge,
   parseBridgeResponse,
   parseCaptureInspection,
@@ -750,6 +751,43 @@ test("Markdown formatting rejects a zero-exit OMD polish failure instead of call
   });
 });
 
+test("Markdown formatting explains when protected note content caused the safe refusal", async () => {
+  await withNodeRequire(async () => {
+    const bridge = new OmdBridge(() => "/opt/omd", () => "python3", () => "");
+    const managed = bridge as unknown as {
+      spawnManagedProcess: (
+        command: string,
+        args: string[],
+      ) => Promise<{ stdout: string; stderr: string; code: number }>;
+    };
+    managed.spawnManagedProcess = async (_command, args) => {
+      await writeFile(args[0] ?? "", "# Note\n\nraw transcript\n", "utf8");
+      return {
+        stdout: "",
+        stderr: `${JSON.stringify({
+          v: 1,
+          event: "warn",
+          ts: Date.now() / 1_000,
+          message: "polish chunk 2/3 failed: model changed source content; refusing a rewrite. Keeping this chunk and all remaining Markdown unchanged.",
+        })}\n`,
+        code: 0,
+      };
+    };
+
+    await assert.rejects(
+      bridge.previewMarkdownFormatting(
+        "/opt/omd",
+        "# Note\n\nraw transcript\n",
+        "qwen3:4b-instruct",
+        "http://localhost:11434",
+      ),
+      (error: unknown) => error instanceof Error
+        && error.message === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
+    );
+    bridge.dispose();
+  });
+});
+
 test("Markdown formatting permits an informational size warning and a true unchanged result", async () => {
   const baseline = "# Note\n\nAlready formatted.\n";
   await withNodeRequire(async () => {
@@ -1112,6 +1150,45 @@ test("maps a safe zero-evidence bridge failure without blaming local bridge setu
     }, "OMD Home bridge failed"),
     "No relevant vault evidence was found. No model request was sent.",
   );
+});
+
+test("bundled bridge ends zero-evidence previews before provider setup", async () => {
+  const vault = await mkdtemp(join(tmpdir(), "omd-home-zero-evidence-"));
+  try {
+    for (const [provider, model] of [
+      ["ollama", "qwen3:4b-instruct"],
+      ["openai", "gpt-test"],
+      ["anthropic", "claude-test"],
+      ["deepseek", "deepseek-test"],
+      ["ollama-cloud", "cloud-test"],
+    ] as const) {
+      const response = runBridge({
+        action: "preview_ai",
+        vault,
+        query: "zzqvnoevidence7391",
+        provider,
+        model,
+        endpoint: "http://localhost:11434",
+        limit: 8,
+        hybrid_retrieval_enabled: false,
+        embedding_model: "",
+        semantic_rerank_enabled: false,
+      });
+      assert.equal(response.ok, true, provider);
+      assert.equal(response.no_evidence, true, provider);
+      assert.deepEqual(response.evidence, [], provider);
+      assert.equal(response.consent_grant, null, provider);
+      assert.equal(response.preview?.character_count, 0, provider);
+      assert.equal(response.preview?.estimated_input_tokens, 0, provider);
+      assert.equal(
+        response.preview?.data_handling_summary,
+        "Nothing was sent because no relevant vault evidence was found.",
+        provider,
+      );
+    }
+  } finally {
+    await rm(vault, { recursive: true, force: true });
+  }
 });
 
 test("maps an unverified Ollama Cloud model to an actionable no-send message", () => {
@@ -1946,8 +2023,13 @@ def execute_text_task(task, source_text, consent_granted, consent_grant):
       query: "heading only",
     }, env);
     assert.equal(headingOnlyPreview.ok, true);
+    assert.equal(headingOnlyPreview.no_evidence, true);
     assert.deepEqual(headingOnlyPreview.evidence, []);
-    assert.match(String(headingOnlyPreview.preview?.data_handling_summary ?? ""), /SOURCE CATALOG\n\(none\)/u);
+    assert.equal(headingOnlyPreview.consent_grant, null);
+    assert.equal(
+      headingOnlyPreview.preview?.data_handling_summary,
+      "Nothing was sent because no relevant vault evidence was found.",
+    );
     assert.doesNotMatch(
       String(headingOnlyPreview.preview?.data_handling_summary ?? ""),
       /calendar\.md|Private calendar title|Private weekly heading|Private calendar section|Private setext heading/u,
@@ -1982,7 +2064,11 @@ def execute_text_task(task, source_text, consent_granted, consent_grant):
 test("Ask AI requires an exact Ollama Cloud consent grant before any model execution", async () => {
   const vault = await mkdtemp(join(tmpdir(), "omd-home-bridge-cloud-"));
   try {
-    await writeFile(join(vault, "calendar.md"), "# Calendar workflows\n\nUse weekly planning blocks.\n", "utf8");
+    await writeFile(
+      join(vault, "calendar.md"),
+      "# Calendar workflows\n\nThis calendar workflow uses weekly planning blocks.\n",
+      "utf8",
+    );
     const payload = {
       action: "preview_ai",
       vault,
@@ -3178,6 +3264,57 @@ test("vault evidence is framed as untrusted quoted data against prompt injection
   }
 });
 
+test("bilingual mistake questions add a trusted one-to-one response format", () => {
+  const code = [
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "mistakes = 'Summarise the tomato mistakes in Chinese, then restate the fixes in English.'",
+    "safety = 'Present three problem-remedy pairs. Describe each unsafe practice in Chinese and its safer action in English.'",
+    "print(json.dumps({'mistakes': bridge._block_context_prefix(mistakes), 'safety': bridge._block_context_prefix(safety), 'ordinary': bridge._block_context_prefix('What are the tomato mistakes?')}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as {
+    mistakes: string;
+    safety: string;
+    ordinary: string;
+  };
+  assert.match(value.mistakes, /TRUSTED RESPONSE FORMAT/u);
+  assert.match(value.mistakes, /one source_states item per requested pair/u);
+  assert.match(value.mistakes, /<Chinese mistake> — Fix: <English fix>/u);
+  assert.match(value.mistakes, /only English words for the fix after Fix:/u);
+  assert.match(value.safety, /TRUSTED RESPONSE FORMAT/u);
+  assert.match(value.safety, /<Chinese unsafe practice> — Remedy: <English safer action>/u);
+  assert.match(value.safety, /only English words for the safer action after Remedy:/u);
+  assert.doesNotMatch(value.ordinary, /TRUSTED RESPONSE FORMAT/u);
+});
+
+test("overlap questions require exhaustive paired citations without source labels in claims", () => {
+  const code = [
+    "import json",
+    "import bridge.omd_home_bridge as bridge",
+    "overlap = 'Which recommendations overlap across both tomato notes? Cite each overlap.'",
+    "negatives = ['What facts are shared across these three notes?', 'Which people overlap across both notes?', 'What dates are common to both sources?', 'Which risks overlap across two documents?']",
+    "print(json.dumps({'system': bridge.SYSTEM_PROMPT, 'context': bridge._block_context_prefix(overlap), 'ordinary': bridge._block_context_prefix('What are the tomato tips?'), 'negatives': [bridge._block_context_prefix(query) for query in negatives]}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as {
+    system: string;
+    context: string;
+    ordinary: string;
+    negatives: string[];
+  };
+  assert.match(value.system, /Claims contain no citations, source IDs/u);
+  assert.match(value.context, /TRUSTED RESPONSE FORMAT/u);
+  assert.match(value.context, /one source_states item for every recommendation explicitly supported by both sources/u);
+  assert.match(value.context, /do not stop after the first matches/u);
+  assert.match(value.context, /Put both source IDs only in that item's citations array/u);
+  assert.match(value.context, /Omit recommendations supported by only one source/u);
+  assert.doesNotMatch(value.ordinary, /TRUSTED RESPONSE FORMAT/u);
+  for (const context of value.negatives) assert.doesNotMatch(context, /TRUSTED RESPONSE FORMAT/u);
+});
+
 test("Ask AI scopes exhaustive questions and keeps evidence categories separate", () => {
   const source = readFileSync(bridgeScript, "utf8");
   assert.match(source, /Return JSON with source_states and model_inference arrays/u);
@@ -3642,6 +3779,48 @@ test("OmdBridge rejects a malformed AI preview instead of exposing partial conse
         ),
         /invalid AI preview/u,
       );
+      bridge.dispose();
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("OmdBridge preserves an explicit zero-evidence preview result", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omd-home-empty-preview-"));
+  const script = join(root, "empty_preview.py");
+  try {
+    await writeFile(script, [
+      "import json",
+      "print(json.dumps({",
+      "  'ok': True,",
+      "  'no_evidence': True,",
+      "  'preview': {",
+      "    'provider': 'openai',",
+      "    'model': 'gpt-test',",
+      "    'privacy_mode': 'cloud_for_this_task',",
+      "    'destination_domain': 'api.openai.com',",
+      "    'data_handling_summary': 'Nothing was sent because no relevant vault evidence was found.',",
+      "    'character_count': 0,",
+      "    'estimated_input_tokens': 0,",
+      "  },",
+      "  'evidence': [],",
+      "  'consent_grant': None,",
+      "}))",
+    ].join("\n"));
+    await withNodeRequire(async () => {
+      const bridge = new OmdBridge(() => "omd", () => "python3", () => script);
+      const preview = await bridge.previewAi(
+        root,
+        "zzqvnoevidence7391",
+        "openai",
+        "gpt-test",
+        "http://localhost:11434",
+        { hybridRetrievalEnabled: false, embeddingModel: "", semanticRerankEnabled: false },
+      );
+      assert.equal(preview.noEvidence, true);
+      assert.deepEqual(preview.evidence, []);
+      assert.equal(preview.consent_grant, null);
       bridge.dispose();
     });
   } finally {

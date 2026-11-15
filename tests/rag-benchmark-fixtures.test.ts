@@ -13,11 +13,41 @@ test("synthetic benchmark vault fixtures exist with the expected source set", ()
     "Sources/Benchmark/8 Balcony Tomato Tips for Small-Space Beginners.md",
     "Sources/Benchmark/阳台番茄新手常见三个错误.md",
     "Sources/Benchmark/Hydroponic Lettuce Yield Log.md",
+    "Sources/Benchmark/远程办公账号安全常见三个风险.md",
+    "Sources/Benchmark/Remote Work Desk Equipment Inventory.md",
     "Calendar/Events/2026-09-18-garden-swap.md",
   ];
   for (const relativePath of required) {
     assert.equal(existsSync(path.join(benchmarkRoot, relativePath)), true, `${relativePath} must exist`);
   }
+});
+
+test("remote-work benchmark keeps three bilingual safety pairs and one nearby distractor", () => {
+  const safety = readBenchmark("Sources/Benchmark/远程办公账号安全常见三个风险.md");
+  const equipment = readBenchmark("Sources/Benchmark/Remote Work Desk Equipment Inventory.md");
+
+  assert.match(safety, /benchmark_role: primary_account_safety/u);
+  assert.equal(
+    [...safety.matchAll(/^## 错误[一二三]/gmu)].length,
+    3,
+    "account-safety fixture must keep exactly three unsafe practices",
+  );
+  assert.equal(
+    [...safety.matchAll(/^### 更安全的做法/gmu)].length,
+    3,
+    "account-safety fixture must keep one remedy per unsafe practice",
+  );
+  assert.match(safety, /可信的个人热点/u);
+  assert.match(safety, /密码管理器/u);
+  assert.match(safety, /拒绝该请求/u);
+  assert.match(safety, /English recap/u);
+  assert.match(safety, /use a trusted hotspot or VPN/u);
+  assert.match(safety, /use unique passwords stored in a\s+password manager/u);
+  assert.match(safety, /deny the unexpected prompt; report it to security/u);
+
+  assert.match(equipment, /benchmark_role: distractor_equipment/u);
+  assert.match(equipment, /not an account\s+security guide/u);
+  assert.doesNotMatch(equipment, /MFA|password manager|public Wi-Fi/u);
 });
 
 test("primary benchmark notes keep deterministic facts and bilingual support", () => {

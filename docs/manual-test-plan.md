@@ -1,4 +1,4 @@
-# OMD Home v0.1.1 人工测试计划
+# OMD Home v0.2.0 人工测试计划
 
 本文件用于 OMD Home 发布候选版（Release Candidate，简称 RC）的人工验收。请先在可丢弃的
 vault 中完成安装和基础测试，再决定是否在日常 vault 中复测。不要用唯一一份重要 vault
@@ -34,7 +34,7 @@ export REPO_ROOT="$PWD"
 export TEST_VAULT="$REPO_ROOT/test-vault"
 export PLUGIN_DIR="$TEST_VAULT/.obsidian/plugins/omd-home"
 export OMD_BIN="/absolute/path/to/omd"
-export RELEASE_DIR="$REPO_ROOT/../omd-home-0.1.1-clean"
+export RELEASE_DIR="$REPO_ROOT/../omd-home-0.2.0-clean"
 ```
 
 `OMD_BIN` 必须指向本轮实际测试的 OMD executable；如果使用 Automatic discovery，可以保留
@@ -45,7 +45,7 @@ export RELEASE_DIR="$REPO_ROOT/../omd-home-0.1.1-clean"
 
 - `$REPO_ROOT` 是 clone 下来的 `obsidian-omd-home` 文件夹。
 - `$TEST_VAULT` 必须是可丢弃的测试 vault，不能指向唯一一份重要 vault。
-- `<version>` 要换成 Release 页面显示的准确版本，例如 `0.1.1`。
+- `<version>` 要换成 Release 页面显示的准确版本，例如 `0.2.0`。
 - 路径含空格时保留外层双引号，不要自己在双引号内再加入 `\ `。
 
 Shell 命令会展开上述变量。需要把 fixture 路径粘贴进 Obsidian 时，先在 Terminal 运行例如
@@ -125,7 +125,7 @@ v3 contract 取代，不能作为当前候选证据。
 | EventKit helper contract | protocol v3；v2 及更早版本必须显示 **Update Calendar helper** 并在读取／写入前 fail closed |
 | 自动证据 | **829 / 829** tests、TypeScript、零 warning ESLint、production build、EventKit helper protocol v3 CLI probe、`git diff --check`；其中 **255 / 255** Calendar／Home／runtime 定向测试覆盖 Recreate 的完整 selection 快照、note／identity CAS、已提交 pending stage 的精确恢复、自己的 pending refresh、并发 full Sync／metadata-only 稳定化／unload、全天本地日期边界、跨日时间与窄 Upcoming |
 | 原生安装 | test-vault 已安装并 Force Reload；`main.js` `c8ddf18be4ec7917b8276537f94ae1c72a6938e6adccffc279494d79f28ce2ce`、`styles.css` `4a17977bad8efe2f1f18d9d1c3071ccdb4287d7f06efb85b23f84265695fef34`、`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`、helper `88fdb4733f5cdc91b8b212061d14edb0e447f5779d49f0792c3438a56947e2fe`；`data.json` 安装前后均为 `97a63791df2a1aed505c12f160d369e60caa4731f55e12b53413a7836ccf6206`；helper CLI 返回 protocol v3；Home 原生 reload 后 Upcoming 日期与 **Event source key…** modal smoke 通过 |
-| 必做人工差额 | CAL-00 只剩一次真实 Sync；CAL-01 只剩 linked 本地时间、all-day、空 Start 与混合 LTR／RTL conflict；CAL-02 只剩最后一个来源 disabled 与三类 fixture 对账；CAL-03 只剩 F.17、F.18 与 Q2 的 Calendar CAS／unload smoke；CALENDAR-06 仍需窄栏、深浅主题和完整日期范围视觉复测 |
+| 必做人工差额 | Q0–Q2 已由 release owner 确认通过；从 Q3 继续 CAL-01 linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict，CAL-02 来源对账，以及 CALENDAR-06 的日期范围、150%、主题和 VoiceOver |
 
 ### 1.3B 上一已安装候选与历史入口（2026-10-05 NZST；已被 v3 取代）
 
@@ -146,7 +146,7 @@ protocol v2 helper；2026-10-05 已在 Community plugins 中停用／启用 OMD 
 | AI 设置 | 安装与原生 reload 均未改写 `data.json`；当前 provider 与模型选择保留，未完成的 provider setup 仍按对应测试单独检查 |
 | 自动门禁 | Home 777 / 777、TypeScript、零 warning ESLint、production build；EventKit release build 与 protocol v2 probe；`git diff --check`；独立最终 review APPROVE |
 | 原生安装门禁 | PASS；2026-10-05 只替换发布资产与可选 helper，`data.json` SHA-256 前后均为 `307c49913765543c3fbee1dde3c68ce253893db2f0a5c0bd3a595f2b08f44346`；Community plugins 停用／启用后新 Calendar UI 与 protocol v2 helper 已加载 |
-| 尚未覆盖 | 这是已被 v3 取代的历史行；当前真实差额以 1.3C 为准：一次 Calendar Sync、CAL-03 F.17／F.18／Q2、UI／Capture targeted、AI-06／11 native delta 与最终 REL-01 |
+| 尚未覆盖 | 这是已被 v3 取代的历史行；当时的 Calendar 差额后来已由 release owner 完成。当前只按 1.3C 的 Q3–Q12 执行 |
 
 安装时只替换 `main.js`、`manifest.json`、`styles.css` 与可选 `omd-eventkit`；不要删除 `data.json`、
 笔记、Pin、历史结果或 cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup**。旧 bundle 上已完成的 AI-03
@@ -181,33 +181,33 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 | 7 | PARTIAL / OPENAI RECORD ONLY | [ANSWER-02-R1](#test-answer-02-r1) | provider 自动 setup、目录加载、DeepSeek Pro／Flash 及官方 `claude-opus-5-5` 的事实／推论分离均已原生 PASS；OpenAI 成功 run 已有但 exact model 未记录，把这项并入 Q6 的同一次固定题，不额外发送 | 固定 `amber lighthouse checklist` 问题 |
 | 8 | DONE / NATIVE PASS | [CAL-03 E.14–16](#test-cal-03) | Recreate、Detach、Calendar 取消选择／恢复与 Destination 显示都保留 PASS，不重跑 | release owner 原生结果 |
 | 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补同一动作重复点击与 active 请求期间 disable/reload＋Console。provider/model controls 在 active 时禁用，tuple 失效由自动回归覆盖 | synthetic smoke prompts |
-| 10 | CONDITIONAL / Extended | [AI-08](#test-ai-08) | 三篇 Phase 2 fixtures 已导入，hard preflight 三行 READY 且 Home 已索引；若本次首发宣传 section-aware answer quality，直接跑 P01–P06；否则记录 NOT RUN / Extended | `test-vault/Sources/Benchmark/` |
-| 11 | OPTIONAL / Extended | AI-09／10 | 仅当首发宣传 semantic／multilingual retrieval 时执行 AI-09；AI-10 的 destructive model removal 与恢复保留 Extended | AI-08 fixtures 保留；需要时再导入 legacy fixtures |
+| 10 | REQUIRED / FIRST PASS | [AI-08](#test-ai-08) | 三篇 Phase 2 fixtures 已导入，hard preflight 三行 READY 且 Home 已索引；执行 P01–P06，每题三次 | `test-vault/Sources/Benchmark/` |
+| 11 | REQUIRED AI-09 / POST-RELEASE AI-10 | AI-09／10 | 完成 `all-minilm:22m` 与 `bge-m3` 两轮质量矩阵；AI-10 destructive model removal 留发布后维护 | AI-08 fixtures 保留；完成后保留 `bge-m3` |
 | 12 | TARGETED NATIVE DELTA | [AI-11](#test-ai-11) | 自动回归已覆盖 unload 与 Recognition defaults 核心边界；只补原生 disable/quit、Console 和下一次 Capture 使用新默认值 | 固定本地 fixture 问题 |
 | 13 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
-### 1.3C 现在从这里继续：最短人工队列（2026-10-21）
+### 1.3C 现在从这里继续：最短人工队列（2026-11-15）
 
-当前 v3 bundle 已安装；自动门禁、CAL-03 E.14–E.16 与 Destination 显示都已完成。人工测试不要重跑
-fault injection、长音频、Answer model catalog、旧 v2 helper 或已经通过的 Calendar recovery。Q0 的原生
-reload／helper／Refresh 与当前 v3 的 invalid override 恢复已由 agent-assisted smoke 完成，只剩一次真实
-Sync。按 Q0 → Q7、Q10 → Q12 执行；Q8 仅在本次首发宣传 section-aware answer quality 时成为门禁，
-Q9 是可选 Extended。每完成一行就在本节后面的结果表写一行结论。
+Q0–Q2 已由 release owner 完成并确认，不再安排重测；CAL-03 E.14–E.16 与 Destination 显示也保留 PASS。
+不要重跑 fault injection、长音频、Answer model catalog 或旧 v2 helper。当前首发范围明确包含
+section-aware answer quality、semantic rerank 与多语言检索，因此 Q8、Q9 都是必做质量门禁；AI-10 的
+destructive model removal 仍留到发布后维护测试。按 Q3 → Q11 执行，全部通过后才执行 Q12。每完成一行
+就在本节后面的结果表写一行结论。
 
 | 顺序 | 类型 | 预计人工时间 | Case | 只做这些步骤 | 可直接使用的例子／完成条件 |
 | --- | --- | ---: | --- | --- | --- |
-| Q0 | **当前候选准备／RETEST** | 2 分钟 | [CAL-00](#test-cal-00) v3 | 直接打开 OMD Calendar 点一次 **Sync**；reload、helper ready 与 Refresh 已完成 | clean success 或点名旧 linked note 的 recovery 可继续；helper／权限／read／bridge 错误为 FAIL。Settings 不显示 literal protocol 号，v3 由 CLI probe 证明 |
-| Q1 | **本轮 critical fix／RETEST** | 10–15 分钟 | [CAL-03 F.17–18](#test-cal-03) | 验证 Vault-only 与 linked 的 **Delete event note…**；F.18 第一次先 Cancel，第二次再确认 | 两次确认都显示准确 Title／Time／Note path；Cancel 零写入；linked note 删除后 Calendar copy 保留；不得因 metadata-only 更新误弹 **Calendar has newer changes** |
-| Q2 | **安全 smoke／RETEST** | 10 分钟 | [CAL-03 G](#test-cal-03) 的原生差额 | 对 Calendar copy 打开删除确认后在 macOS Calendar 修改同一 event，再点旧确认；再开一次确认框后 disable／enable plugin | 旧删除被 CAS 拒绝且新修改保留；reload 后 modal 关闭，无 stale button、orphan helper 或 Console rejection。queued refresh、错误 pass、token、note byte-CAS 与 mutation unload guard 已由 **255 / 255** 自动测试覆盖 |
+| Q0 | **DONE / NATIVE PASS** | 0 | [CAL-00](#test-cal-00) v3 | release owner 已确认完成 | 不重测 |
+| Q1 | **DONE / NATIVE PASS** | 0 | [CAL-03 F.17–18](#test-cal-03) | release owner 已确认完成 | 不重测 |
+| Q2 | **DONE / NATIVE PASS** | 0 | [CAL-03 G](#test-cal-03) | release owner 已确认完成 | 不重测 |
 | Q3 | **Calendar Core + UI smoke** | 25–35 分钟 | [CAL-01 steps 4／5／7／8](#test-cal-01)、[CAL-02 steps 4／5](#test-cal-02)、[CALENDAR-06](ui-backlog.md#backlog-calendar-06) | 补 linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict、最后一个来源 disabled 与三类 fixture 对账；再验 Upcoming 日期／范围与 source-key 屏幕阅读器 | 只用专用测试 Calendar；Today／Tomorrow／更晚日期、timed 跨日／all-day 多日、窄栏、150%、深浅主题。Event source key 的键盘打开／Escape／焦点已 smoke PASS，不作为新证据；E.14–E.16 不重做 |
-| Q4 | **UI／Capture TARGETED RETEST** | 35–50 分钟 | [UI-01／02／03](ui-backlog.md)、[UI-14](ui-backlog.md#backlog-ui-14)、[RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | Settings 标题层级、DeepSeek credential/opt-in 对齐、Ollama endpoint error；Needs attention 单条关闭；AI tools／Improve formatting；Capture warning／viewport、本地文件与 cookies Clear | 本地文件使用 `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html`；当前 local model 的 formatting 请求安全失败且未改 note，成功 Preview／Cancel／Apply／conflict 仍需复测 |
+| Q4 | **UI／Capture TARGETED RETEST** | 35–50 分钟 | [UI-01／02／03](ui-backlog.md)、[UI-14](ui-backlog.md#backlog-ui-14)、[RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | Settings 标题层级、DeepSeek credential/opt-in 对齐、Ollama endpoint error／Use automatic；Home Enter 的 URL→Capture、普通文字→Ask vault；Needs attention 单条关闭；AI tools／Improve formatting；Capture warning／viewport、本地文件与 cookies Clear | 本地文件使用 `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html`；Improve formatting 的 Preview／Cancel、可调整窄宽度、按钮堆叠与 Apply 生命周期已原生通过，但当前 qwen 候选只删除末尾句号，格式质量仍 FAIL；conflict 尚未执行 |
 | Q5 | **真实平台 RETEST / FIRST PASS** | 依素材长度 | [CAP-07 C／D](#test-cap-07) | Douyin 成功路径；Rednote output 对账与非空 transcript；wrapper failure／Retry；Cancel／unload／隐私 | Douyin tag `cap-07-douyin-retest`；Rednote tag `cap-07-xhs-video-retest`；没有可安全使用的公开素材或过期 cookies fixture 就记 NOT RUN，不伪造 PASS |
 | Q6 | **Hosted AI TARGETED RETEST** | 15–25 分钟 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05)、[ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答) | AI-03 重测 zero-evidence 修正文案；优先用当前 catalog 的 compatible OpenAI model 执行一次 `amber lighthouse checklist`，同一 run 覆盖 ANSWER-02 exact model、AI-04 preview／Copy／provider 边界；AI-05 只做三个 provider model memory／reload | zero-evidence 零发送安全、secret scan、非 OpenAI 的 ANSWER-02-R1 已通过；没有有效 OpenAI key/model 时记 NOT RUN，再用一个 ready provider 完成固定题，不为补矩阵反复发送 |
 | Q7 | **发布安全门禁／Local AI PARTIAL 补齐** | 5–10 分钟 | [AI-06](#test-ai-06) | AI-06 通常属于 Extended；本候选把重复点击与 active 请求期间 disable／reload＋Console 两项提升为必做发布安全门禁 | active 时 provider/model controls 本来就禁用，tuple 失效由自动回归覆盖；不重复 Refresh models、三项 smoke 与 embedding 459ms 基线 |
-| Q8 | **CONDITIONAL / Extended** | 20–30 分钟 | [AI-08](#test-ai-08) | 若首发宣传 section-aware answer quality，fixtures 已索引，可直接执行 P01–P06；否则写 NOT RUN / not in release claims | hard preflight 已三行 READY；旧的缺 fixture 结果继续记 INVALID SETUP / NOT RUN，不能当产品 FAIL |
-| Q9 | **OPTIONAL / Extended** | 30–45 分钟 | [AI-09](#test-ai-09)、[AI-10](#test-ai-10) | 仅在首发宣传 semantic／multilingual retrieval 时跑 AI-09；AI-10 destructive model removal 保留发布后 Extended | `bge-m3` 不应为本轮门禁自动下载；需要时只选一种安装方式 |
+| Q8 | **REQUIRED / FIRST PASS** | 20–30 分钟 | [AI-08](#test-ai-08) | 执行 P01–P06，每题三次；P01／02／03／04／06 必须 4/4，P05 至少 3/4 | hard preflight 已三行 READY；不得引用 release-checklist distractor 或泄漏 `[S#]`／`[E#]` |
+| Q9 | **REQUIRED / FIRST PASS** | 30–45 分钟 | [AI-09](#test-ai-09) | 先用 `all-minilm:22m` 完成 AI-09A，再安装并保留 `bge-m3` 完成 AI-09B；AI-10 留发布后 | D01／B04 必须 4/4，M01 至少 3/4；不要执行 `ollama rm` |
 | Q10 | **Lifecycle TARGETED RETEST** | 10–15 分钟 | [AI-11](#test-ai-11) | 只补 pending preview 时 disable／reload 与完全退出 Obsidian，以及改变 OCR／ASR 后确认下一次真实 Capture 使用新默认值 | 每次重新启用后必须出现新的 preview；Console 无 orphan／unhandled rejection。内部 race 和 Recognition isolation core 已自动通过 |
-| Q11 | **发布决策 REQUIRED** | 2 分钟 | [CALENDAR-05](ui-backlog.md#backlog-calendar-05) | 在 REL-01 前确认已实现持久、可点击 recovery summary，或由 release owner 明确记录本次接受该 P1 已知限制 | 临时 Notice 已列 title，但仍不能代替 Calendar view 内持久的 **Review event** 入口；不能因测试队列全绿而默认为已解决 |
+| Q11 | **IMPLEMENTED CANDIDATE / NATIVE RETEST** | 3–5 分钟 | [CALENDAR-05](ui-backlog.md#backlog-calendar-05) | 制造或保留一条 linked recovery；确认 Calendar view 持久显示 title、状态和 **Review event**，点击后进入同一安全恢复 modal | summary 不受来源筛选或当前日期范围影响；恢复完成后立即消失；临时 Notice 不能代替本项 PASS |
 | Q12 | **最终发布 FIRST PASS** | 10–15 分钟 | [REL-01](#test-rel-01) | 在 disposable clean vault 只安装三项 Marketplace 资产，完成 enable、disable／enable 与 cold restart；仅在 dependency-free host／隔离 profile 可用时验证无依赖状态，否则该子项记 `NOT RUN` | 必须最后执行；不要把当前有历史数据的 test-vault 当 clean-vault 证据，也不要卸载日常依赖来模拟缺失 |
 
 #### 真正需要 release owner 操作的完整步骤
@@ -216,29 +216,13 @@ Q9 是可选 Extended。每完成一行就在本节后面的结果表写一行�
 跨 Obsidian／macOS Calendar 的版本操作都必须由 release owner 执行；Calendar 测试中的 agent-assisted
 操作仅限只读 UI 检查与 Vault-only fixture。真实站点 cookies、hosted provider 发送批准与完全退出 Obsidian 也必须由 release owner
 执行；其余本地 UI 步骤可委托给 agent-assisted 原生操作。
-已由自动回归覆盖的内部 fault injection／note byte-CAS 不再要求手工模拟；Q2 的用户可见 Calendar
-delete CAS 仍必须原生执行。不要修改插件文件、`data.json` 或测试 note 的内部 linkage ID。
+已由自动回归覆盖的内部 fault injection／note byte-CAS 不再要求手工模拟；release owner 已确认
+Q0–Q2 的原生 Calendar 安全流程通过。不要修改插件文件、`data.json` 或测试 note 的内部 linkage ID。
 
-1. **Calendar P0（先做，约 20 分钟）**
-   1. 打开 DevTools Console 并清空旧日志；在 OMD Calendar 点一次 **Sync**。只有 clean success 或已知的、
-      点名单条 linked note 的 item-level recovery summary 允许继续。helper／权限／Calendar read／bridge
-      错误、永久停在 **Calendar sync paused**、helper crash 或未处理 rejection 都是 CAL-00 FAIL，停止后续
-      destructive Calendar 测试。
-   2. 新建 `CAL-03 Vault Delete Fixture`，Destination 选 **Vault note only**。打开后点
-      **Delete event note…**，核对 Title／Time／Note path，先 Cancel 并确认零写入；再次打开并
-      **Move to trash**。editor 和格子应消失，note 只进入 Obsidian 配置的 Trash。
-   3. 新建 linked `CAL-03 Linked Delete Note`。如果没有任何真实 Calendar 内容改动，打开 note 时不得先弹
-      **Calendar has newer changes**。点 **Delete event note…**，核对 Title／Time／Note path，第一次
-      Cancel 并确认 note 与 Calendar event 都保留；第二次 **Move to trash**。Markdown note 消失，Apple
-      event 保留，Refresh 后可作为 Calendar-only event 出现。
-   4. 新建 linked `CAL-03 Calendar Delete CAS`，打开 **Delete Calendar copy…**，核对 Title／Time／
-      Calendar，但保持确认框打开。去 macOS Calendar 把同一 event 改名为
-      `CAL-03 Calendar Delete CAS – changed after open`，回到旧确认框点 **Delete event**。旧删除必须被拒绝，
-      新标题 event 与 Markdown note 都保留；随后 Sync 才能基于新版本继续。
-   5. 新建 linked `CAL-03 Q2 Unload`，保持 **Delete Calendar copy…** 确认框打开；在 Console 运行
-      `await app.plugins.disablePlugin("omd-home")`。modal 必须关闭且两份对象都未删除；再运行
-      `await app.plugins.enablePlugin("omd-home")`，从 ribbon 重开 Calendar 并 Sync。不得残留旧按钮、orphan
-      helper 或 unhandled rejection。
+1. **Q0–Q2 Calendar P0（DONE / NATIVE PASS，不重做）**
+   release owner 已确认 final Sync、Vault-only／linked note 删除，以及 Cancel、Calendar delete CAS、
+   modal 打开时 disable／enable 三项安全 smoke 通过。这些步骤保留在 CAL-03 历史案例中供回归定位，
+   不再进入本候选的剩余执行队列。
 2. **Calendar Core + UI smoke（约 25–35 分钟，只用专用测试 Calendar）**
    1. 在 CAL-01 的未来测试周新建或复用 linked `CAL-01 Timed Fixture`，保存后重新打开；OMD editor 与
       macOS Calendar 都应保持同一组本地时间，没有时区偏移。开启 **All day**，Start 设为某日、exclusive
@@ -258,9 +242,12 @@ delete CAS 仍必须原生执行。不要修改插件文件、`data.json` 或测
       **Tomorrow**、更晚项目显示具体日期；timed
       跨日 event 显示可理解的起止日期／时间，all-day 多日 event 的界面结束日按用户看到的最后一天显示，
       不把存储用的 exclusive End 错当成多一天。
-   5. **Event source key…** 的键盘打开、Escape 与焦点返回已经 smoke PASS，不重复记功；只需用 macOS
-      VoiceOver 或当前屏幕阅读器朗读一次，确认 **Vault only**、**Calendar only**、**Linked** 的名称与含义
-      都被读出。没有可用读屏环境时把本子项明确记为 NOT RUN。
+   5. **E. VoiceOver／Event source key**：Home 搜索框右侧应以 `□ ■ ◧` 替代旧的 `> + @` 提示。按
+      `Command-F5` 开启 macOS VoiceOver，用 `VO-Right` 移到该单一按钮；应依次朗读 **Event source key**、
+      **Vault only · Markdown event note**、**Calendar only · macOS Calendar event**、
+      **Linked · Note synced with Calendar**。按 `VO-Space` 打开说明 modal，逐项确认相同名称与含义；按
+      `Esc` 关闭后焦点应回到 `□ ■ ◧` 按钮。再分别检查 Today／Upcoming 行本身的辅助技术名称包含 Source，
+      视觉 glyph 不被重复朗读。没有可用读屏环境时把本子项明确记为 NOT RUN。
    6. 缩窄 Obsidian 主窗口或 Home widget，再用 **View → Zoom in** 到约 150%；分别切换深色与浅色主题。
       日期、全天／时间、标题与轻量来源 marker 应换行而不重叠、截断或产生横向滚动。完成后 Reset zoom，
       只清理本步骤新建的专用 fixtures。
@@ -268,29 +255,34 @@ delete CAS 仍必须原生执行。不要修改插件文件、`data.json` 或测
    1. 记录当前 Answer provider 与 Ollama endpoint。分别在正常宽度与约 500px Settings 面板检查：同级
       section heading／helper 文字层级一致；切到 DeepSeek 时 **Developer key** 与 **Allow DeepSeek API
       answers** 的 label、说明、控件列和垂直间距一致，opt-in 不被弱化。不要输入或截图 key；完成后恢复
-      原 provider。
+      原 provider。云端 destination 应直接写在 **Allow … answers** 的说明和逐题 preview 中，不再占用独立
+      **Request destination** 卡片；preview 仍须显示准确域名。
    2. 展开 **Advanced AI controls → Ollama troubleshooting**，输入一个不允许的 endpoint，例如
       `http://example.invalid:11434`。错误必须在字段下方独立整行显示并通过 `aria-invalid` 关联，不能挤压
-      输入框或卡片留白；无效值不得覆盖先前有效 endpoint。恢复开始时记录的 endpoint。宽、窄、150% 与
-      深浅主题都不得重叠、贴边或横向溢出。
-   3. Needs attention 至少保留两条可关闭历史项；用键盘 Tab 聚焦一条的 × 并按 Enter。只移除目标项，
-      另一条保持；缩窄主窗口并放大到约 150%，× 仍可见、有 accessible label 且不遮正文。
-   4. 在一篇有足够正文的 Recent／Inbox note 选择 **AI tools → Improve formatting**。Preview 出现前 note
+      输入框或卡片留白；无效值不得覆盖先前有效 endpoint。点击 **Use automatic** 应恢复
+      `http://localhost:11434`、清除字段错误、保存并隐藏该按钮。宽、窄、150% 与深浅主题都不得重叠、贴边
+      或横向溢出。
+   3. 在 Home 输入一个单独 HTTPS URL 并按 Enter，应开始 Capture；输入普通问题文字并按 Enter，应进入
+      Ask vault。输入文字中的普通 Space 只插入空格，不触发提交、source key 或其他动作；`@` 前缀继续可用。
+   4. Needs attention 至少保留两种**独立类型**的可关闭项，例如一条 Capture retry 与一条 AI／Inbox issue；
+      连续制造两次 Capture failure 只会更新最新 Retry，不能当作双卡 fixture。用键盘 Tab 聚焦一条的 × 并按
+      Enter，只移除目标项，另一条保持；缩窄主窗口并放大到约 150%，× 仍可见、有 accessible label 且不遮正文。
+   5. 在一篇有足够正文的 Recent／Inbox note 选择 **AI tools → Improve formatting**。Preview 出现前 note
       不得变化；点 Cancel 后仍逐字一致。换可用的 local writing model 后再生成一次并 Apply，只允许写入
       preview 中的格式变化。窄窗和 150% 下 Preview／Cancel／Apply 不重叠。最后复制一份为
       `RC P2 Improve Formatting Conflict.md`：生成 preview 后先不 Apply，在 Terminal 对该文件追加
       `MANUAL-FORMAT-CONFLICT-KEEP-826`，再回旧 preview 点 Apply。必须拒绝旧 baseline，保留追加行、原
       marker／URL／多语言内容与 Inbox 状态；重新 Generate 才能应用。
-   5. Capture 普通文件时粘贴完整路径
+   6. Capture 普通文件时粘贴完整路径
       `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html`；关闭
       Polish Markdown 与 Review links and tags，Tags 填 `cap-07-control-local`。应只生成一条 Inbox note，
       Search `tag:#cap-07-control-local` 恰好为 1，正文含 `OMD-CAPTURE-SMALL-826`，不能报 file not found。
-   6. Settings 的 Douyin 与 Rednote cookies 字段各做“输入有效绝对路径 → Clear”。字段立即为空，Clear
+   7. Settings 的 Douyin 与 Rednote cookies 字段各做“输入有效绝对路径 → Clear”。字段立即为空，Clear
       立即隐藏，焦点回到可继续输入的位置；Capture modal 中相同行为一致。
-   7. 打开 **Capture URL or file**，分别粘贴计划提供的 Douyin 与 Rednote 整段分享文字但先不要提交。
+   8. 打开 **Capture URL or file**，分别粘贴计划提供的 Douyin 与 Rednote 整段分享文字但先不要提交。
       **Site access**／warning card 应沿用 Home 现有 warning/error 的颜色、边框与间距，长说明正常换行；仅
       粘贴文字不得启动 Current task。展开 Site access 后，cookies 路径、Clear 与提示均可用键盘到达。
-   8. Cancel 并关闭 Settings，尽量把 Obsidian 主窗口缩到系统允许的最窄宽度，重新打开 Capture，粘贴一段
+   9. Cancel 并关闭 Settings，尽量把 Obsidian 主窗口缩到系统允许的最窄宽度，重新打开 Capture，粘贴一段
       较长分享文字，再用 **View → Zoom in** 到约 150%。textarea、Site access、cookies 行、warning 和底部
       Cancel／Capture 应纵向换行或滚动，不重叠、不裁切且没有横向滚动；Reset zoom 后点 Cancel。不得生成
       note、Needs attention 或 active task。
@@ -336,14 +328,15 @@ delete CAS 仍必须原生执行。不要修改插件文件、`data.json` 或测
       问题必须得到新的 preview。再重复一次并完全退出／重开 Obsidian，结论相同。
    3. 启动本地 `@` fixture 问题，在等待回答时只更改 OCR／ASR 默认语言；问答继续。随后新建一次真实
       Capture，确认它使用新默认值；恢复默认值后再做一条新 Capture。旧 request 不得被追溯修改。
-7. **AI-08（仅当本次 release claim 包含 section-aware answer quality）**
+7. **AI-08／AI-09（本次首发必做质量门禁）**
    1. 三篇 Phase 2 fixtures 已复制到 `test-vault/Sources/Benchmark/`，hard preflight 为三行 **READY**。
       Home Recent 已显示三篇；开始前确认它们仍可从 Quick switcher 或 Search 找到，然后执行 P01–P06；
       按 `docs/benchmark-vault/benchmark-cases.md` 评分。此前缺 fixture 的答案保持 INVALID SETUP，不参与结论。
+   2. AI-08 达标后，先用 `all-minilm:22m` 执行 AI-09A，再安装并保留 `bge-m3` 执行 AI-09B；
+      两轮都按 AI-09 的 D01／M01／B04 阈值评分。不要执行 `ollama rm`，AI-10 留发布后。
 8. **CALENDAR-05 发布决策与最终 clean-vault**
-   1. 在 tag 前核对 CALENDAR-05：若 Calendar view 已有持久、可点击的 recovery summary 与
-      **Review event**，记录实现与原生 PASS；否则由 release owner 明确记录“接受本次 P1 已知限制”，不能
-      把临时 Notice 或完成其他测试当作关闭本项。
+   1. CALENDAR-05 是本次首发门禁：Calendar view 必须有持久、可点击的 recovery summary 与
+      **Review event**，并通过 Q11 原生验收。不能用临时 Notice、完成其他测试或“接受已知限制”关闭本项。
    2. 最后新建 disposable vault，仅安装 `manifest.json`、`main.js`、`styles.css`。Enable，disable／enable，
       连续 reload，再完全退出／cold restart。clean vault 不能模拟当前 host 上不存在 OMD／Ollama／EventKit；
       该子项只能在第二台依赖缺失的 host／隔离 profile 按 REL-01 做，当前没有这种环境就明确写
@@ -361,7 +354,7 @@ delete CAS 仍必须原生执行。不要修改插件文件、`data.json` 或测
 | CAP-01A、CAP-06 B／C／D、114 秒 WAV | KEEP RESULT；普通本地文件 control 失败时才把 CAP-01A 升级为 RETEST |
 | AI-02 local Ollama、AI-06 Refresh／Check／三项 smoke／embedding | KEEP PASS；只执行 Q7 的两个原生差额 |
 | ANSWER-02-R1 的 Claude／DeepSeek、provider 自动 setup 与 blue-key 答案 | KEEP PASS；OpenAI 成功 run 本身保留，Q6 只需在固定题同一次发送补录当前 exact model ID 与 compatible contract |
-| CAL-03 E.14 Recreate、E.15 Detach、E.16 Calendar 取消选择／恢复、Destination、F.19–21 | KEEP PASS；Q1 只做 F.17／F.18，Q2 只做 CAS／unload |
+| CAL-03 E.14–E.16、Destination、F.17–21 与 Q0–Q2 安全 smoke | KEEP PASS；release owner 已确认，不重做 |
 | UI-12 Inbox／Reviewed、ANSWER-04 DeepSeek Pro／Flash | DONE；原生证据已足够，backlog 已关闭，不重测 |
 | 829 / 829 自动套件、255 / 255 Calendar／Home／runtime 定向矩阵 | AUTOMATED PASS；不要人工制造 queued-refresh failure、错误 confirmation token、helper crash、selection race、full-Sync finalization 或 note byte-CAS race |
 
@@ -400,7 +393,8 @@ delete CAS 仍必须原生执行。不要修改插件文件、`data.json` 或测
 | CAP-07 C.2 Rednote 视频 | PARTIAL / HOME FAIL（旧候选） | 2026-10-04 21:20 | 人工反馈＋产物检查 | backend 已生成 note、sidecar 与非空 transcript；持久化来源按隐私规则省略 query／fragment 后，Home 仍与原请求做严格字符串比较，因而拒绝最终 output，Inbox 未更新 |
 | CAP-07 C.3／C.4 runtime failure／Retry |  |  |  | 两个子结果仍是 FIRST PASS，不能由真实平台失败代替 wrapper |
 | CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
-| RC-P2-04 AI tools／Improve formatting | PARTIAL；fail-safe PASS／success flow RETEST | 2026-10-21 | 原生 Obsidian＋自动 CAS 回归 | 两篇 note 都在当前 local model 上返回 **Could not improve formatting**，Current task 回到 idle 且 note 未改变；成功 Preview／Cancel／Apply／responsive 与原生 conflict 仍待模型可用后复测，自动 CAS 只证明底层 fail-closed |
+| Q4 UI／Capture checkpoint | PARTIAL；resume at Improve formatting | 2026-10-28 | 原生 Obsidian 人工反馈 | 当前基线为 Anthropic API、automatic `http://localhost:11434`，Douyin／Rednote cookies 已配置；Settings 与 Home routing 修改后需要一次定向复核。连续第二次 Capture failure 替换 latest Retry 属于单一 retry 记录，不是关闭旧 issue；测试暂停在 **Improve formatting：准备 fixture** 之前。cookie 绝对路径不写入发布文档。 |
+| RC-P2-04 AI tools／Improve formatting | PARTIAL / FAIL；note safety、failure terminal、Preview／Cancel、Apply lifecycle 与 responsive PASS；format quality FAIL；conflict NOT RUN | 2026-10-21／31 | 原生 Obsidian 人工反馈＋agent-assisted 原生 Apply＋真实 Ollama 复现＋自动 CAS 回归 | Formatting failure 没有修改 note，并创建了可单独关闭的 **Vault AI failed**。失败 modal 现会在发布 error 前关闭并回到 **No task running**。首次 Apply 卡住时 note hash 仍为 baseline；根因是底层 DOM 看似启用，但 Obsidian `ButtonComponent` 仍保持 disabled。改为通过组件 API 启用后，Apply 一次点击即关闭 modal、显示成功 Notice，并保持 Inbox。modal 可拖拽缩窄，窄宽度下 Cancel／Apply 纵向堆叠且不重叠；Preview 大区域 tooltip 已移除并保留可访问名称。实际 diff 只有删除末尾 `.`，没有更清楚的段落或 Markdown 结构，所以 C.3 格式质量仍 FAIL；frontmatter hash 与 sidecar hash 不变，marker／URL／多语言／fenced block 保留，无 `.raw.md`。仍需 conflict、Reviewed fixture 与 150% 深浅主题人工证据 |
 | AI-03 grounded answer contract | FAIL；fail-closed safety PASS | 2026-10-05 | 人工反馈 | `amber lighthouse checklist` 返回 `did not cite every claim`；未经验证正文未显示、未自动重发，所以安全阻断正确，但本次 grounded answer 不能记 PASS |
 | AI-03 zero-evidence safety | PASS；修正文案原生 RETEST | 2026-10-05 | 人工反馈＋自动回归 | `@zzqvnoevidence7391` 未打开 preview、未发送 model request；语义降级说明与零证据可同时出现，但旧文案误称 “this answer”，源码已改为 “This evidence check used keyword search only.”，仍须按 Q6 原生确认最终 copy |
 | DeepSeek keyword fallback 子分支（历史、已被后续固定题取代） | HISTORICAL PARTIAL / SUPERSEDED | 2026-10-05 | 截图 2／3 | model missing 与 daemon unreachable 的 fallback PASS；旧 prompt 曾把直接事实重复写入 Model inference。后续固定 blue-key 题的 Pro／Flash 两次原生 PASS 已取代这条 provenance 结论，见下一行与 ANSWER-04 CLOSED |
@@ -409,20 +403,19 @@ delete CAS 仍必须原生执行。不要修改插件文件、`data.json` 或测
 | CAL-00 helper override | CURRENT v3 NATIVE PASS；final Sync pending | 2026-10-21 | 原生 Obsidian＋自动回归 | 当前 helper CLI v3、disable／enable、Automatic helper ready 与 Refresh 10 个 Calendar 已通过；agent-assisted 原生输入 `/tmp/omd-home-missing-eventkit-v3` 后立即出现统一错误，旧 ready 消失，Use bundled 清空 override，Check helper 恢复 ready／10 calendars，`data.json` hash 仍为 `97a63791…6206`；只剩真实 Sync |
 | CAL-01 targeted UI | PASS；完整 case PARTIAL | 2026-10-05 | 原生 Obsidian | 原生 datetime-local、Pacific/Auckland 说明、无效 End 的红色 inline error／焦点／修正即清除已通过；linked time 对照、all-day、empty Start 与 mixed LTR／RTL conflict 仍待人工 |
 | CAL-02 source UX | PASS；完整 case PARTIAL | 2026-10-05 | 原生 Obsidian | Sources · All、三项说明、筛选后的 2 of 3、Home Event source key 已通过；最后一个来源 disabled 与完整三类 fixture 仍待人工 |
-| CAL-03 safety shell | HISTORICAL SNAPSHOT / SUPERSEDED | 2026-10-05 | 原生 Obsidian | 当时只验证 Pending sync shell；当前 A–E、跨 Calendar、Recreate／Detach 已有后续证据，真实差额仅为 F.17／F.18／Q2 |
+| CAL-03 safety shell | HISTORICAL SNAPSHOT / SUPERSEDED | 2026-10-05 | 原生 Obsidian | 当时只验证 Pending sync shell；后续 A–E、跨 Calendar、Recreate／Detach、F.17／F.18 与 Q0–Q2 已有 release owner 证据，不再重做 |
 | CAL-01 UI validation preview 清理 | OPTIONAL CLEANUP | 2026-10-05 | 原生 Obsidian | 原生控件自动化试验误建一条 Vault-only 临时记录；这不是产品缺陷，不阻塞 Q0–Q12。Q1 删除路径通过后可由界面单独清理，不要触及其他 fixture |
 | AI-06 | PARTIAL；native baseline PASS；本候选的 steps 4／6 已提升为发布安全门禁 | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running；tuple 失效自动 PASS，只剩重复点击及 disable/reload 原生差额 |
-| AI-08 Phase 2 benchmark | PREP PASS / CONDITIONAL EXTENDED | 2026-10-21 | hard preflight 三行 READY；Home Recent 原生显示三篇 fixture | 三篇 Phase 2 fixtures 已导入并被 Obsidian 索引；2026-10-05 的无关答案仍是 INVALID SETUP。只有首发包含 section-aware answer quality claim 时才从 P01 跑 P01–P06，否则记录 NOT RUN / Extended |
+| AI-08 Phase 2 benchmark | PREP PASS / REQUIRED QUALITY GATE | 2026-11-15 | hard preflight 三行 READY；Home Recent 原生显示三篇 fixture | 三篇 Phase 2 fixtures 已导入并被 Obsidian 索引；P01–P06 每题三次尚未执行，不能用 2026-10-05 的 INVALID SETUP 结果代替 |
 | AI-11.8 pending consent unload | automated core PASS；native delta NOT RUN | 2026-10-05 | `tests/main-runtime-regressions.test.ts` | 自动回归确认 unload 关闭 consent、排队中的批准也不能发送；仍需原生 disable/reload 与完全退出 Obsidian smoke，确认无 Console orphan/rejection |
 | AI-11.10 Recognition defaults isolation | automated PASS；native delta NOT RUN | 2026-10-05 | 109/109 定向回归 | 本地 Ask 运行中修改 OCR／ASR 不取消问答；旧 OMD 无 recognition override 仍可 Q&A；Capture request 固定创建时语言快照。原生仍需观察更改只作用于下一次 Capture |
-| AI-09／10 | OPTIONAL EXTENDED / NOT RUN | 2026-10-21 | release scope decision | AI-09 仅在首发宣传 semantic／multilingual retrieval 时执行；AI-10 destructive model removal 留发布后 Extended |
-| CALENDAR-05 release decision |  |  | release owner／日期／理由 | 只能记录 `IMPLEMENTED + NATIVE PASS`，或 `ACCEPTED KNOWN P1 LIMITATION` 并写明 owner、date、rationale；临时 Notice 不能算 PASS |
+| AI-09 | REQUIRED QUALITY GATE / NOT RUN | 2026-11-15 | release scope decision | `all-minilm:22m` 与 `bge-m3` 两轮矩阵均为首发门禁；完成后保留模型。AI-10 destructive model removal 留发布后 |
+| CALENDAR-05 persistent recovery summary | IMPLEMENTED CANDIDATE / NATIVE RETEST | 2026-11-15 | 自动 selector／UI contract 回归 | Calendar view 已从持久事件状态显示 title、状态与 **Review event**；仍需原生确认点击、跨日期／隐藏 Linked 和恢复后消失 |
 | REL-01 |  |  |  |  |
 
 **下一步：** 只按上方收敛后的队列执行。ANSWER-02-R1 的非 OpenAI matrix、E.14–E.16、Destination 与
-F.19–21 不重复；OpenAI exact model 只随 Q6 的同一次固定题补录。Q0 只剩当前 v3 candidate 的真实 Sync，
-Q8／Q9 为 conditional／optional Extended，Q11 必须作出 CALENDAR-05 的实现或具名已知限制决策，REL-01
-始终最后执行。每完成一项，立即写
+F.19–21 与 Q0–Q2 不重复；OpenAI exact model 只随 Q6 的同一次固定题补录。Q8／Q9 都是首发质量门禁，
+Q11 只验收新的持久恢复入口，REL-01 始终最后执行。每完成一项，立即写
 PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
 
 
@@ -661,7 +654,7 @@ D. **关闭单条历史错误（UI-14）**
    ```
 
 2. 等待 Needs attention 出现这一个 **Capture can be retried** 卡片；确认卡片有可读名称的 `×`，用
-   Tab 聚焦并按 Space / Enter 关闭。
+   Tab 聚焦并按 Enter 关闭。Space 保留为普通输入，不作为本项快捷键。
 3. 只有这一条历史 Retry 消失；其他 issue 保留。当前 setup / daemon 等实时健康问题不能靠 `×`
    隐藏，恢复健康后应自行消失。
 
@@ -970,7 +963,7 @@ npm run build
 浏览器操作：
 
 1. 打开 <https://github.com/omd-local/obsidian-omd-home/releases>。
-2. 进入你要测试的**准确版本**，例如 `0.1.1`。
+2. 进入你要测试的**准确版本**，例如 `0.2.0`。
 3. 展开 **Assets**。
 4. 分别下载 `main.js`、`manifest.json`、`styles.css`。
 5. 不要下载 **Source code (zip)** 或 **Source code (tar.gz)** 当作插件包；源码压缩包不等于
@@ -1105,7 +1098,7 @@ test ! -e "$PLUGIN_DIR" \
   `$PLUGIN_DIR`
 
 不要在原始 working repo 内再次运行 `git clone`。也不要在
-`omd-home-0.1.1-clean` 中运行 `npm run install:test-vault`：那会安装到干净 checkout 自己的
+`omd-home-0.2.0-clean` 中运行 `npm run install:test-vault`：那会安装到干净 checkout 自己的
 `test-vault`，而不是本轮指定的 vault。
 
 #### 第一步：确认 Obsidian 已退出，目标仍是干净状态
@@ -1132,8 +1125,9 @@ npm run build
 预期：
 
 - `git status --short` 没有输出。
-- commit 是 `6adac24442caa450a76184c728284ca26bdb086f`。
-- manifest 版本是 `0.1.1`。
+- `git rev-parse HEAD` 与 `git rev-list -n 1 0.2.0` 输出相同，且
+  `git describe --exact-match --tags` 输出 `0.2.0`。
+- manifest 版本是 `0.2.0`。
 - `npm ci` 和 `npm run build` 成功。
 
 确认三个源文件存在：
@@ -1179,7 +1173,7 @@ manifest：
 node -p "require(process.env.PLUGIN_DIR + '/manifest.json').version"
 ```
 
-预期为 `0.1.1`。最后逐项比较源文件和安装文件：
+预期为 `0.2.0`。最后逐项比较源文件和安装文件：
 
 ```bash
 cmp -s \
@@ -1265,13 +1259,13 @@ shasum -a 256 "$PLUGIN_DIR/data.json"
 17. **[CAP-02：本地 AI 生成 links/tags，Review 后才写入](#test-cap-02)**（Core）— 同时依赖成功 Capture 与可用本地模型。
 18. **[AI-06：Command Palette 诊断、busy 状态与生命周期](#test-ai-06)**（Extended）— 正常 AI 路径通过后只补重复点击与原生 unload；active tuple controls 禁用且失效边界已由自动回归覆盖。
 19. **[CAP-06：后台继续、unload 和退出取消](#test-cap-06)**（Core）— 复用已经验证的后台任务生命周期。
-20. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Extended）— 在基本 RAG 可用后评估答案质量。
+20. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Required release gate）— 在基本 RAG 可用后执行 P01–P06 质量门禁。
 
 ### 阶段 E：云端回答与多 Provider 隔离
 
 21. **[AI-03：Ollama Cloud 设置入口与逐题 preview](#test-ai-03)**（Core）— 保持 `bge-m3` 未安装，先验证 Cloud preview 和“未安装”降级。
 22. **[AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口](#test-ai-04)**（Core）— 保持 `bge-m3` 未安装，逐一验证 credential、preview、发送边界和准确的 embedding 降级原因。
-23. **[AI-09：Multilingual hybrid retrieval 与 semantic rerank](#test-ai-09)**（Extended）— AI-03/04 完成 missing-model 分支后，才安装 `bge-m3` 并建立 Keyword + semantic search 基线。
+23. **[AI-09：Multilingual hybrid retrieval 与 semantic rerank](#test-ai-09)**（Required release gate）— AI-03/04 完成 missing-model 分支后，安装并保留 `bge-m3`，完成两轮 Keyword + semantic search 质量矩阵。
 24. **[AI-05：Provider 切换、每个 provider 的 model 记忆与本地工作流隔离](#test-ai-05)**（Core）— 必须在多个 provider 已配置后执行。
 25. **[AI-11：Credential 状态、逐题证据与并发取消回归](#test-ai-11)**（Core）— 在正常本地/hosted 路径通过后测试状态刷新、provider 切换与待批准请求的取消。
 
@@ -1280,9 +1274,10 @@ shasum -a 256 "$PLUGIN_DIR/data.json"
 26. **[AI-10：Stale model、reload/unload 与故障恢复](#test-ai-10)**（Extended）— 故障注入可能改变当前环境，因此放在所有正常路径之后。
 27. **[REL-01：干净 vault 与三项 bundle](#test-rel-01)**（Core）— 使用最终 clean build 做最后发布验收。
 
-如果本轮只跑 Core，仍须按 1.3C Q7 执行 AI-06（18）中已提升为发布安全门禁的重复点击与原生 unload
-两项；其余 AI-06 Extended 子项不重跑。按以上顺序跳过 20、23、26，不能因为跳过而把它们记录为
-PASS；应记录为 `NOT RUN` 并写明原因。若 Core 中没有可用 hosted developer key，仍完成
+本轮首发范围包含 section-aware answer quality、semantic rerank 与多语言检索，因此 AI-08（20）和
+AI-09（23）不能按旧的 Extended 分类跳过；只有 AI-10（26）的破坏性模型移除留到发布后维护测试。
+仍须按 1.3C Q7 执行 AI-06（18）中已提升为发布安全门禁的重复点击与原生 unload 两项，其余
+AI-06 Extended 子项不重跑。若没有可用 hosted developer key，仍完成
 AI-04 的无 key与 opt-in 关闭边界；需要有效 key/model 的 catalog、preview、cancel 和真实网络
 分支记录为 `NOT RUN`，不得假装无 key 也能打开发送 preview。
 
@@ -1491,8 +1486,7 @@ API key。ChatGPT 或 Claude 的消费者订阅不等于 API 额度。没有可�
 2. 确认顶层顺序稳定：**Startup → OMD → AI answers → Calendar**。
 3. 在 **AI answers** 主流程中只应看到：
    - **Answer provider**
-   - 云端 provider 下的只读 **Request destination**
-   - 当前云端 provider 下的 **Allow … answers** 授权开关
+   - 当前云端 provider 下的 **Allow … answers** 授权开关；固定 destination 域名写在该行说明中
    - Hosted API 时的 **Developer key**
    - **Answer model**（本地 Ollama 或当前云端 provider）
    - **Answer setup** 与唯一主操作 **Check setup**
@@ -1775,11 +1769,13 @@ preview 出现。
 
 1. 打开 **Settings → OMD Home → AI answers**，在 **Answer provider** 下拉框选择 provider。
    `provider` 不是另一个菜单或页面。
-2. 在 **Answer provider** 正下方找到独立的 **Request destination** 行，并确认固定值：
+2. 在 **Allow … answers** 的说明与逐题发送 preview 中确认固定 destination；Settings 不再显示独立的
+   **Request destination** 行：
    - OpenAI API：`api.openai.com`
    - Anthropic API：`api.anthropic.com`
    - DeepSeek API：`api.deepseek.com`
-   说明必须写明只有逐题 preview 中显示的问题和 evidence excerpts 才可能发送。
+   说明必须写明只有逐题 preview 中显示的问题和 evidence excerpts 才可能发送；运行时仍必须拒绝任何
+   不符合当前 provider 固定域名的请求。
 3. 未提供 key 时，**Answer model** 应 disabled，并显示 **Add developer key first**；不得先显示
    **Choose an answer model**。
 4. 点击 **Check setup**。应显示 credential missing，并说明检查不会读取 Vault 内容；
@@ -2402,7 +2398,27 @@ hard preflight 通过后，选择本地 provider，依次运行：
 
 ### AI-09：Multilingual hybrid retrieval 与 semantic rerank
 
-先从源码目录导入 legacy tomato fixtures；AI-08 的三篇 Phase 2 fixtures 不需要删除：
+本节分成两个不同结论，不能混记：
+
+- **AI-09A（当前已安装模型 smoke）**：使用本机已经存在的 `all-minilm:22m` 验证 hybrid pipeline、
+  model 分类、rerank、keyword fallback 和 distractor hygiene；不需要下载模型。
+- **AI-09B（multilingual release gate）**：本次首发明确包含 multilingual semantic retrieval，因此必须
+  安装并保留 `bge-m3`，再重复完整质量题。只完成 AI-09A 不能通过本次发布门禁。
+
+本轮候选机在 **2026-11-08** 的已知目录如下；开始测试时仍须重新运行 `ollama list` 并记录实际输出，
+不要把这张表当成永久环境假设：
+
+| Model | 本轮目录状态 | 能力／用途 | 本节处理 |
+| --- | --- | --- | --- |
+| `all-minilm:22m` | 已安装，约 45 MB | embedding only；384 dimensions | AI-09A 的 Embedding model |
+| `qwen3:4b-instruct` | 已安装，约 2.5 GB | local completion | 本节固定 Answer model，避免把 retrieval 差异与小模型回答差异混在一起 |
+| `qwen3:0.6b` | 已安装 | completion／thinking | 只检查分类；不作为本轮质量基线 |
+| `gpt-oss:20b-cloud` | Cloud catalog entry | cloud completion | 不得作为本地 embedding model，也不用于本节回答 |
+| `bge-m3` | **未安装** | multilingual embedding | AI-09B 按明确安装动作添加并在完成后保留 |
+
+#### 准备 fixtures 与固定测试状态
+
+1. 从源码目录导入 legacy tomato fixtures；AI-08 的三篇 Phase 2 fixtures 不需要删除：
 
 ```bash
 cd "$REPO_ROOT"
@@ -2416,54 +2432,139 @@ cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
    "$TEST_VAULT/Calendar/Events/"
 ```
 
-确认共 4 篇 legacy fixtures 出现在 Vault。前两篇 tomato notes 是 ground truth；lettuce 与
-calendar event 是 distractors。准确答案和评分位于 `docs/benchmark-vault/benchmark-cases.md`。
+2. 用 **Quick switcher（Obsidian 快速切换器，macOS 按 `Command-O`）** 逐一搜索并打开以下四篇；
+   不要只看 Files pane 中的文件名：
+   - `8 Balcony Tomato Tips for Small-Space Beginners` — ground truth，8 条 tips
+   - `阳台番茄新手常见三个错误` — ground truth，3 组 mistake／fix
+   - `Hydroponic Lettuce Yield Log` — distractor
+   - `2026-09-18-garden-swap` — distractor，必须是合法的 Vault-only event note
 
-1. 先确认已保存的推荐 embedding model `bge-m3` 尚未下载时，**Vault retrieval** 中显示为
-   missing/unavailable，而不是 Ready 或可直接运行。界面必须在该模型附近提供 **Install model**。
-   页面加载、**Check setup** 和提问都不得自动下载；只有测试者明确点击 **Install model** 后，
-   插件才可调用本地 Ollama pull，并应显示 installing、success 或准确的 failure 状态。
-   如果要验证手动替代路径，不点按钮，改在 Terminal 运行：
+   导入后 Home／Calendar 不得出现该 fixture 导致的 **Sync paused**。若提示缺少 `type: event`，说明导入了
+   旧 fixture，不能继续评分；使用当前源码 fixture 重新复制。准确答案与 4 分制评分位于
+   `docs/benchmark-vault/benchmark-cases.md`。
+3. 在 Terminal 记录安装前目录，不要先 pull：
 
    ```bash
-   ollama pull bge-m3
+   ollama list
+   ollama show all-minilm:22m
    ```
 
-   两条路径二选一，不要同时运行。等待完成并重新打开/刷新本地模型状态。
-2. 命令完成后点击 **Check setup**，确认 `bge-m3` 在 **Answer model** 下拉中作为禁用的 embedding
-   model 可见，而不能被选作回答模型；在 **Embedding model** 中则可选择。也可以用 Command
-   Palette 运行 **OMD Home: Refresh local AI models**；除明确点击 **Install model** 外，插件不得
-   自行 pull。
-3. 在 **Advanced AI controls → Vault retrieval** 开启 **Keyword + semantic search**，Embedding model
-选择 `bge-m3`，先关闭 **Semantic rerank**，点击 **Test embeddings**。
-   点击后 **Advanced AI controls** disclosure 必须仍保持展开，以便直接看到 embedding model、
-   Test embeddings 结果和相邻的 readiness/error 状态。
-4. 测试必须返回同维度且大于 0 的 vectors；不得因 Test embeddings 自动 pull、接受 remote-backed model 或把
-   vector 写进 note/frontmatter。
-5. 连续三次运行 **D01**：
-   `@这些阳台番茄笔记给新手哪些建议？`
-6. 运行 **M01**：
-   `@Summarise the tomato mistakes in Chinese, then restate the fixes in English.`
-7. 每次应命中相应 tomato notes，不引用 lettuce/calendar；header 显示
-**Keyword + semantic search · bge-m3**。
-8. 开启 **Semantic rerank**，重复 D01，并直接运行 B04：
-   `@Which recommendations overlap across both tomato notes? Cite each overlap.`
-   顺序可变，但不得引入 distractor、移除正确 overlap evidence，或把单篇来源内容伪装成两篇
-   都明确支持的 overlap。成功答案仍须使用固定的 **Source states:** / **Model inference:**；
-   B04 的每项明确交集须引用两篇 tomato notes，不能只在末尾列出 sources。若只是模型推测的
-   相似点，应放在 **Model inference:** 并以审慎措辞说明，不能写成双方原文都确认的交集。
-9. 关闭 **Keyword + semantic search**，再问 D01。Header 应显示 **Keyword search** 且不发 embedding request；之后恢复。
-10. 可选：暂时让 embedding model unavailable。回答应降级为 **Keyword search**，并按准确原因显示 warning：
-    未安装时提供 **Install model**、**Use keyword search by default**、**Open retrieval settings**；daemon 不可达或
-    model 不支持 embedding 时只提供后两个动作，不得错误建议安装。恢复 model 后再次
-    **Test embeddings**，并确认 Advanced AI controls 仍展开。
-11. 修改一篇 fixture 后重问，再撤销测试修改。已变更 note 应重新 embedding，未变更 note 可复用
-cache；query embedding 不持久化。
+   本轮应看到 `all-minilm:22m` 的 **Capabilities: embedding**、**embedding length: 384**；`bge-m3`
+   不应出现在 `ollama list`。如果实际目录不同，以实际输出为准并把差异写入结果表。
+4. 打开 **Settings → OMD Home → AI answers**，明确设置而不是依赖旧 memory：
+   - **Answer provider**：`Ollama on this computer`
+   - **Answer model**：`qwen3:4b-instruct`
+   - **Ollama endpoint**：Automatic `http://localhost:11434`
+   - **Keyword + semantic search**：On
+   - **Embedding model**：`all-minilm:22m`
+   - **Semantic rerank**：Off
 
-通过条件：embedding traffic 只到默认 loopback Ollama；cache 在 Vault 笔记之外并按 model
-digest 隔离；除明确点击 **Install model** 外不自动下载；按钮安装与手动 `ollama pull bge-m3`
-都可被验证且不会并发重复；Test embeddings 后 Advanced disclosure 保持展开；missing、daemon
-unreachable、unsupported、timeout、malformed 或 dimension mismatch 都以相邻醒目状态安全降级为 Keyword search。
+   `Local writing model` 不参与 Vault Q&A retrieval；保持现值即可。点击 **Check setup**，保存一张不含
+   secret 的状态截图。再次运行 `ollama list`；页面加载与 Check setup 不得新增或下载任何 model。
+
+#### AI-09A：使用当前 `all-minilm:22m`（必做，不下载）
+
+1. **检查模型归类**：
+   - `all-minilm:22m` 必须能在 **Embedding model** 选择；若 Answer model 目录显示它，必须 disabled 并
+     标为 embedding-only，不能成为回答模型。
+   - `qwen3:0.6b` 与 `qwen3:4b-instruct` 属于 completion model；本轮只选择后者回答。
+   - `gpt-oss:20b-cloud` 不能出现在可用的本地 Embedding model 中，也不能被 semantic retrieval 调用。
+2. 保持 **Advanced AI controls** 展开，点击 **Test embeddings**。预期相邻状态或 Notice 明确显示：
+
+   ```text
+   Embedding test passed in <latency>ms: 2 vectors × 384 dims.
+   ```
+
+   两个 probes 必须得到相同且大于 0 的维度；测试结束后 disclosure 仍展开，Embedding model 仍是
+   `all-minilm:22m`。失败时记录完整错误，不把 keyword fallback 误记成 embedding PASS。
+3. 在第一次提问前记录三篇 Markdown ground-truth／distractor notes 的 SHA-256；最后再次比较，证明
+   Test embeddings 和提问没有把 vector 写进正文或 frontmatter：
+
+   ```bash
+   shasum -a 256 \
+     "$TEST_VAULT/Sources/Benchmark/8 Balcony Tomato Tips for Small-Space Beginners.md" \
+     "$TEST_VAULT/Sources/Benchmark/阳台番茄新手常见三个错误.md" \
+     "$TEST_VAULT/Sources/Benchmark/Hydroponic Lettuce Yield Log.md" \
+     "$TEST_VAULT/Calendar/Events/2026-09-18-garden-swap.md"
+   ```
+4. 保持 rerank **Off**，连续三次运行 **D01**：
+
+   ```text
+   @这些阳台番茄笔记给新手哪些建议？
+   ```
+
+   再运行一次 **M01**：
+
+   ```text
+   @Summarise the tomato mistakes in Chinese, then restate the fixes in English.
+   ```
+
+   每次 header 必须精确显示 **Keyword + semantic search · all-minilm:22m**。D01 应使用两篇 tomato
+   notes；M01 必须保持三组 mistake／fix 对应，可选用 tips note 补充 overlap context。任何 lettuce 或
+   calendar citation 都记 Source hygiene `0/1`。分别保存回答、Copy result、sources、warning、elapsed time
+   和分数，不以三次相同回答代替三条记录。
+5. 开启 **Semantic rerank**，确认设置仍为 `all-minilm:22m`，再执行一次 D01 和 **B04**：
+
+   ```text
+   @Which recommendations overlap across both tomato notes? Cite each overlap.
+   ```
+
+   B04 至少应识别 **deep watering、direct sun、early support**。每项明确 overlap 的同一句或相邻句必须
+   同时引用两篇 tomato notes；仅在末尾列 Sources 不够。单篇独有内容不能伪装成双方共同建议；推测只能
+   放入 **Model inference:** 并使用审慎措辞。Header 仍须显示 `all-minilm:22m`。
+6. 关闭 **Keyword + semantic search**，再运行一次 D01：
+   - header 只能显示 **Keyword search**；
+   - 不得显示 embedding model，也不得发 embedding request；
+   - keyword-only 结果可以与 hybrid 不同，但仍不得引用两个 distractors。
+
+   完成后重新开启 Hybrid、选择 `all-minilm:22m`、关闭 rerank，并再次 Test embeddings。
+7. **Daemon fallback（可选但推荐）**：记录当前 endpoint，临时改为
+   `http://localhost:9999`，运行 D01。应安全降级为 Keyword search，并只提供
+   **Use keyword search by default** 与 **Open retrieval settings**；daemon 不可达时不能显示
+   **Install model**。测试后点击 **Use automatic**，Check setup，并再次 Test embeddings。
+
+AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目标是 `4/4`，M01 至少 `3/4`；
+若跨语言召回不稳定，应如实记当前模型的质量 FAIL，不能用 keyword 命中掩盖 semantic 结论。
+
+#### AI-09B：`bge-m3` multilingual release gate（本次必做）
+
+当前 test-vault 已保存 `all-minilm:22m`，因此它不会凭空显示“`bge-m3` saved, not installed”或
+**Install model**。不要为制造该状态手改 `data.json`，也不要删除当前唯一可用 embedding model。
+
+1. 选择且只选择一种安装路径：
+   - **验证一键安装 UX**：在 disposable clean vault 使用默认保存的 `bge-m3`，先 Check setup，确认
+     `bge-m3 (saved, not installed)`、**Install model** 和 keyword fallback，再明确点击一次 Install model。
+   - **继续当前 test-vault**：在 Terminal 明确运行 `ollama pull bge-m3`。此路径不验证 Install model 按钮。
+
+   不要同时运行两种路径。pull 期间应显示 installing／progress 或准确 failure；页面加载、Check setup、
+   Test embeddings 和普通提问本身都不得触发 pull。
+2. 安装完成后运行 `ollama list`，再点击 **Check setup**：
+   - `bge-m3` 在 **Embedding model** 中可选择；
+   - 若它出现在 Answer model 目录，必须 disabled 并标为 embedding-only；
+   - `gpt-oss:20b-cloud` 仍不能成为本地 embedding model。
+3. 选择 `bge-m3`，Hybrid On、rerank Off，点击 Test embeddings。必须成功返回 **2 vectors × N dims**，
+   其中 `N > 0` 且两个 vectors 维度一致；不要把 `all-minilm` 的 384 维硬套给 `bge-m3`。
+4. 用 `bge-m3` 完整重复：D01 三次、M01 一次、rerank On 后 D01 一次和 B04 一次。所有 hybrid header
+   必须显示 **Keyword + semantic search · bge-m3**；D01／B04 必须 `4/4`，M01 至少 `3/4`，且没有
+   lettuce／calendar distractor。
+5. 不能把 AI-09A 的 all-minilm 结果抄成 AI-09B PASS。完成后保留 `bge-m3`，不要在本节
+   `ollama rm`；destructive model removal 属于发布后的 AI-10。
+
+#### Cache 与持久化边界
+
+1. 记录 test-vault 中 tips fixture 的原始 hash，并把原文临时备份到 Vault 外；不要在 Vault 内复制成
+   第二篇 note，否则 duplicate source 会污染本测试。随后在该 fixture 正文末尾增加唯一句
+   `AI09-CACHE-MARKER-826: prune one lower leaf before sunrise.`，保存后询问该 marker 的明确内容。
+   回答必须只引用已修改 note，证明新内容可被检索。
+2. 撤销该句并保存；原始 hash 必须恢复。重新提问不得继续把 marker 当作当前 source fact。
+3. 打开两篇 tomato notes 的 frontmatter 与正文，确认没有 vector、embedding payload、query 或 cache key。
+4. “未修改 note 复用 cache、query embedding 不持久化、cache 按 model digest 隔离”和“只向 loopback
+   Ollama 发 embedding traffic”无法仅凭普通 UI 可靠证明；这些项必须引用自动测试或 agent-assisted
+   request/cache instrumentation，不能仅凭回答成功手工记 PASS。
+
+总通过条件：模型角色不混淆；除测试者明确点击 Install model 或运行 `ollama pull bge-m3` 外无自动下载；
+Test embeddings 的 vector 数量／维度明确；Advanced disclosure 保持展开；hybrid、rerank、keyword-only 与
+fallback header／actions 准确；fixtures 不被写入 embedding 数据；回答不引用 lettuce／calendar distractor。
 
 <a id="test-ai-10"></a>
 
@@ -2661,7 +2762,8 @@ Calendar 测试步骤。
 **Check helper** 当时恢复 bundled protocol v2，并重新加载 9 个 Calendar。此行为是 2026-10-05 历史
 PASS。当前候选已经独立完成 protocol v3 CLI probe、Community plugins 停用／启用，以及原生
 `/tmp/omd-home-missing-eventkit-v3` 即时错误 → **Use bundled** → **Check helper** → Automatic helper ready／
-Refresh 10 个 Calendar；default 与 `data.json` hash 未变。CAL-00 只剩顶部 Q0 所列的一次真实 **Sync**。
+Refresh 10 个 Calendar；default 与 `data.json` hash 未变。Q0 的真实 **Sync** 后续已由 release owner
+确认通过，不重做。
 
 <a id="test-cal-01"></a>
 
@@ -2717,9 +2819,10 @@ Refresh 10 个 Calendar；default 与 `data.json` hash 未变。CAL-00 只剩顶
    再显示它，事件恢复。
 4. 只保留一个来源时，该来源应明确处于 disabled 状态并说明
    **At least one event source must remain visible**；不能继续显示可点击的 Hide 却点击无反应。
-5. 回到 OMD Home 的 **Upcoming**。行内只保留小形状，不放永久 legend；悬停／辅助技术名称应包含
-   Source。打开 Upcoming 的 `…`，用鼠标或键盘激活可聚焦的 **Event source key…**；modal 应以普通
-   对比度显示与第 2 步完全相同的三项说明，`Esc` 关闭后焦点回到 Upcoming 的 Options。再核对行内日期：
+5. 回到 OMD Home。搜索框右侧应显示紧凑的 `□ ■ ◧`，不再显示旧的 `> + @`；三者共同组成一个
+   **Event source key** 按钮。鼠标或键盘激活后，modal 应以普通对比度显示与第 2 步完全相同的三项说明，
+   `Esc` 关闭后焦点回到该按钮。Today／Upcoming 行内只保留小形状，不放永久 legend；悬停／辅助技术名称
+   应包含 Source。再核对 Upcoming 行内日期：
    Today／Tomorrow／更晚日期均清楚；timed 跨日显示起止日期与时间，all-day 多日按 exclusive end 显示
    正确的可见日期范围。把 Home widget 缩窄，并在深浅主题各看一次；日期、标题和来源不得重叠、截断或
    依赖 hover 才能理解。
@@ -2756,9 +2859,9 @@ Recreate／Detach，并由下方当前候选段与顶部 1.3C 取代这条历史
 Update／Delete 仍 fail closed；一个 missing event 只能把自身置为 unavailable，不能阻断同轮其他健康
 事件。Vault-only／linked note 的 **Delete event note…** 只使用 Obsidian Trash；Linked 的
 **Delete Calendar copy…** 只删除 Apple event 并把 note 留为 Vault only。两条路径使用不同的范围说明、
-确认与 CAS。后续原生证据已经完成 A–E、E.14–E.16、Destination 与 F.19–21；当前人工范围只剩顶部
-1.3C 的 F.17／F.18 和 Q2 Calendar CAS／modal unload。下方 A–G 保留为完整合同与历史复现步骤，不再
-要求从头执行，也不能把 G 的自动 fault injection 写成 native PASS。
+确认与 CAS。后续原生证据已经完成 A–E、E.14–E.16、Destination、F.17–21 与 Q0–Q2 的 Calendar
+CAS／modal unload。下方 A–G 只保留为完整合同与历史复现步骤，不再要求从头执行，也不能把 G 的
+自动 fault injection 写成 native PASS。
 
 #### A. 建立可核对的 clean 基线
 
@@ -2992,8 +3095,8 @@ plugin lifecycle 主动关闭后才能把 unload 子项记 PASS。
    3. 关闭 Capture，打开 **Settings → OMD Home → AI answers**。确认这里没有这两个开关的
       重复副本。
    4. 展开默认折叠的 **Advanced AI controls**，向下找到 **Ollama troubleshooting →
-      Ollama endpoint**。说明文字应明确显示默认值 `http://localhost:11434`，以及唯一允许的备用
-      地址 `http://127.0.0.1:11434`。把当前值临时改为不可用的 `http://localhost:9999`；这个值只用来
+      Ollama endpoint**。说明文字应明确显示 automatic 值 `http://localhost:11434`，以及唯一允许的备用
+      地址 `http://127.0.0.1:11434`；偏离 automatic 时显示 **Use automatic**。把当前值临时改为不可用的 `http://localhost:9999`；这个值只用来
       证明关闭 AI 的 capture 不会连接 Ollama，不要点击 **Check setup**。
    5. 回到 Home，再次点击 **Capture URL or file**。关闭两个 Optional local AI 开关，然后使用
       `docs/manual-test-fixtures/capture/small-local-file.html` 完成 capture。开关应为灰色且滑块位于左侧。
@@ -3002,7 +3105,7 @@ plugin lifecycle 主动关闭后才能把 unload 子项记 PASS。
       Obsidian 索引，这段等待属于正常现象。
    7. 再次打开 Capture，确认两个关闭状态已成为下一次新 capture 的起始状态；然后点击 Cancel。
       这证明只在提交 Capture 后记住选择。
-   8. 测试后立即把 **Ollama endpoint** 恢复为 `http://localhost:11434`。需要继续本地 AI 测试时，
+   8. 测试后点击 **Use automatic**，确认 **Ollama endpoint** 恢复为 `http://localhost:11434` 且按钮隐藏。需要继续本地 AI 测试时，
       点击 **Check setup** 重新验证。若要恢复第 1 步的开关状态，请在下一次真实 capture 提交前恢复；
       只修改后点击 Cancel 不会保存。
 

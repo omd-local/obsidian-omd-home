@@ -124,64 +124,63 @@ test("a second @ submission wins even when the first answer completes last", asy
   assert.deepEqual(box.results.visibleText(), ["answer:Q2"]);
 });
 
-test("a late OMD search cannot overwrite a newer @ answer", async () => {
-  const search = deferred<void>();
+test("a late plain-text answer cannot overwrite a newer @ answer", async () => {
+  const firstAnswer = deferred<void>();
   const answer = deferred<void>();
-  let searchSignal: AbortSignal | undefined;
+  let firstSignal: AbortSignal | undefined;
   const box = omniboxHarness();
-  box.searchVault = () => [];
   box.plugin = {
     settings: {},
-    async searchWithOmd(_query: string, output: FakeElement, signal: AbortSignal) {
-      searchSignal = signal;
-      await search.promise;
-      output.empty();
-      output.createDiv({ text: "late search" });
-    },
-    async askOmd(_query: string, output: FakeElement) {
-      await answer.promise;
-      output.createDiv({ text: "new answer" });
+    async askOmd(query: string, output: FakeElement, signal: AbortSignal) {
+      if (query === "no local match") {
+        firstSignal = signal;
+        await firstAnswer.promise;
+        output.empty();
+        output.createDiv({ text: "late answer" });
+      } else {
+        await answer.promise;
+        output.createDiv({ text: "new answer" });
+      }
     },
   };
 
   box.input.value = "no local match";
-  const searchRun = box.execute();
+  const firstRun = box.execute();
   box.input.value = "@new question";
   const answerRun = box.execute();
 
-  assert.equal(searchSignal?.aborted, true);
+  assert.equal(firstSignal?.aborted, true);
   answer.resolve();
   await answerRun;
-  search.resolve();
-  await searchRun;
+  firstAnswer.resolve();
+  await firstRun;
 
   assert.equal(box.resultPanel.hidden, false);
   assert.deepEqual(box.results.visibleText(), ["new answer"]);
 });
 
-test("a late OMD search cannot restore the result shell after a later command", async () => {
-  const search = deferred<void>();
+test("a late plain-text answer cannot restore the result shell after a later command", async () => {
+  const answer = deferred<void>();
   let commandRuns = 0;
   const box = omniboxHarness();
-  box.searchVault = () => [];
   box.commands = {
     listCommands: () => [{ id: "app:command", name: "Run command" }],
     executeCommandById: () => { commandRuns += 1; return true; },
   };
   box.plugin = {
     settings: {},
-    async searchWithOmd(_query: string, output: FakeElement) {
-      await search.promise;
-      output.createDiv({ text: "late search" });
+    async askOmd(_query: string, output: FakeElement) {
+      await answer.promise;
+      output.createDiv({ text: "late answer" });
     },
   };
 
   box.input.value = "no local match";
-  const searchRun = box.execute();
+  const answerRun = box.execute();
   box.input.value = ">run";
   await box.execute();
-  search.resolve();
-  await searchRun;
+  answer.resolve();
+  await answerRun;
 
   assert.equal(commandRuns, 1);
   assert.equal(box.resultPanel.hidden, true);
@@ -249,17 +248,16 @@ test("submitting +, captures, and commands clears a pending @ result shell", asy
   }
 });
 
-test("disposing an Omnibox aborts its pending OMD search request", async () => {
+test("disposing an Omnibox aborts its pending plain-text answer request", async () => {
   const pending = deferred<void>();
   let signal: AbortSignal | undefined;
   const box = omniboxHarness();
-  box.searchVault = () => [];
   box.plugin = {
     settings: {},
-    async searchWithOmd(_query: string, output: FakeElement, requestSignal: AbortSignal) {
+    async askOmd(_query: string, output: FakeElement, requestSignal: AbortSignal) {
       signal = requestSignal;
       await pending.promise;
-      output.createDiv({ text: "late search" });
+      output.createDiv({ text: "late answer" });
     },
   };
   box.input.value = "no local match";
@@ -269,6 +267,27 @@ test("disposing an Omnibox aborts its pending OMD search request", async () => {
   pending.resolve();
   await run;
   assert.deepEqual(box.results.visibleText(), []);
+});
+
+test("plain text asks the vault while a URL starts capture", async () => {
+  const asked: string[] = [];
+  const captured: string[] = [];
+  const box = omniboxHarness((query) => query.startsWith("https://"));
+  box.searchVault = () => { assert.fail("Enter must not open a local search result"); };
+  box.plugin = {
+    settings: {},
+    async askOmd(query: string) { asked.push(query); },
+    async searchWithOmd() { assert.fail("Plain text must use Ask vault"); },
+    async captureWithOmd(request: { source: string }) { captured.push(request.source); },
+  };
+
+  box.input.value = "What did I save about orchids?";
+  await box.execute();
+  box.input.value = "https://example.com/article";
+  await box.execute();
+
+  assert.deepEqual(asked, ["What did I save about orchids?"]);
+  assert.deepEqual(captured, ["https://example.com/article"]);
 });
 
 test("aborting a cloud @ request closes obsolete consent without sending evidence", async () => {

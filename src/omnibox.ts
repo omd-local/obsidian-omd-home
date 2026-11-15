@@ -1,6 +1,7 @@
 import { Notice, setIcon, type App, type TFile } from "obsidian";
 import type OmdHomePlugin from "./main";
 import { captureRequestFromSettings } from "./capture-request.ts";
+import { EVENT_SOURCE_ORDER, eventSourceKeyAccessibleLabel, eventSourcePresentation } from "./calendar-ui.ts";
 import {
   captureSourceFromDataTransfer,
   isPluginRecordingWrapperCommand,
@@ -39,6 +40,7 @@ export class Omnibox {
   private readonly app: App;
   private readonly plugin: OmdHomePlugin;
   private readonly onResultVisibilityChange?: (visible: boolean) => void;
+  private readonly openEventSourceKey: () => void;
   private root?: HTMLElement;
   private input!: HTMLInputElement;
   private resultPanel!: HTMLElement;
@@ -51,10 +53,16 @@ export class Omnibox {
   private resultOutput: HTMLElement | null = null;
   private disposed = false;
 
-  constructor(app: App, plugin: OmdHomePlugin, onResultVisibilityChange?: (visible: boolean) => void) {
+  constructor(
+    app: App,
+    plugin: OmdHomePlugin,
+    onResultVisibilityChange: ((visible: boolean) => void) | undefined,
+    openEventSourceKey: () => void,
+  ) {
     this.app = app;
     this.plugin = plugin;
     this.onResultVisibilityChange = onResultVisibilityChange;
+    this.openEventSourceKey = openEventSourceKey;
   }
 
   mount(container: HTMLElement): void {
@@ -82,8 +90,23 @@ export class Omnibox {
         spellcheck: "false",
       },
     });
-    const hint = form.createSpan({ cls: "omd-omnibox-hint", text: ">  +  @" });
-    hint.setAttribute("aria-hidden", "true");
+    const sourceKey = form.createEl("button", {
+      cls: "omd-omnibox-source-key",
+      attr: {
+        type: "button",
+        "aria-label": eventSourceKeyAccessibleLabel(),
+        "aria-haspopup": "dialog",
+        title: "Event source key",
+      },
+    });
+    for (const source of EVENT_SOURCE_ORDER) {
+      sourceKey.createSpan({
+        cls: `omd-omnibox-source-glyph is-${source}`,
+        text: eventSourcePresentation(source).glyph,
+        attr: { "aria-hidden": "true" },
+      });
+    }
+    sourceKey.addEventListener("click", () => this.openEventSourceKey());
     this.actionBar = this.root.createDiv({ cls: "omd-omnibox-actions" });
     this.renderQuickActions();
     this.resultPanel = this.root.createDiv({ cls: "omd-omnibox-result-panel" });
@@ -109,6 +132,11 @@ export class Omnibox {
       void this.execute();
     });
     this.input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing) {
+        event.preventDefault();
+        void this.execute();
+        return;
+      }
       if (event.key === "Escape") {
         this.clearResultShell();
         this.input.value = "";
@@ -256,18 +284,13 @@ export class Omnibox {
       else new Notice("No matching command");
       return;
     }
-    const first = this.searchVault(query)[0];
-    if (first) {
-      await this.app.workspace.openLinkText(first.path, "", false);
-    } else {
-      const request = this.beginResult(true, "omd-omnibox-search-surface");
-      if (!request) return;
-      this.setResultsVisible(true);
-      try {
-        await this.plugin.searchWithOmd(query, request.output, request.controller?.signal);
-      } finally {
-        this.finishResult(request);
-      }
+    const request = this.beginResult(true, "omd-omnibox-answer-surface");
+    if (!request) return;
+    this.setResultsVisible(true);
+    try {
+      await this.plugin.askOmd(query, request.output, request.controller?.signal);
+    } finally {
+      this.finishResult(request);
     }
   }
 

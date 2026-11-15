@@ -60,6 +60,19 @@ test("Calendar view reports review states instead of declaring every Sync comple
   assert.match(source, /synchronizeCalendarEvents\?: \(\) => Promise<CalendarSyncSummary>/u);
 });
 
+test("Calendar view keeps a persistent accessible recovery summary with direct review actions", () => {
+  assert.match(source, /calendarRecoveryRecords\(this\.plugin\.calendarEvents\)/u);
+  assert.match(source, /role: "region", "aria-label": "Calendar recovery"/u);
+  assert.match(source, /text: "Review event"/u);
+  assert.match(source, /"aria-label": `Review event: \$\{record\.title\}`/u);
+  assert.match(source, /review\.addEventListener\("click", \(\) => this\.openRecord\(record\)\)/u);
+  assert.match(styles, /\.omd-calendar-recovery-summary\[hidden\]\s*\{\s*display:\s*none;/u);
+  assert.match(
+    styles,
+    /\.omd-calendar-recovery-summary\s*\{[^}]*max-block-size:\s*min\(16rem, 40vh\);[^}]*overflow-y:\s*auto;/su,
+  );
+});
+
 test("event range errors stay inline and accessible until the range is corrected", () => {
   assert.match(source, /cls: "omd-event-validation is-error"/u);
   assert.match(source, /role: "alert"/u);

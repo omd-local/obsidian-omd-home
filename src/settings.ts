@@ -374,17 +374,6 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     providerSetting.settingEl.addClass("omd-settings-model", "omd-settings-answer-provider");
 
     if (isCloudAiProvider(provider)) {
-      const destination = new Setting(container)
-        .setName("Request destination")
-        .setDesc("Only the question and evidence excerpts shown in the per-request preview can be sent to this fixed destination.");
-      destination.controlEl.createSpan({
-        cls: "omd-settings-fixed-value",
-        text: aiProviderDestination(provider),
-      });
-      destination.settingEl.addClass("omd-settings-destination");
-    }
-
-    if (isCloudAiProvider(provider)) {
       const permission = new Setting(container)
         .setName(`Allow ${aiProviderLabel(provider)} answers`)
         .setDesc(`Allow @ answers to use ${aiProviderDestination(provider)} only while ${aiProviderLabel(provider)} is selected. Before every request, OMD Home shows the destination, model, and bounded evidence excerpts and asks you to approve sending them.`)
@@ -458,13 +447,20 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     );
     new Setting(advanced).setName("Ollama troubleshooting").setHeading().settingEl.addClass("omd-settings-subheading");
     let endpointValidation: ((value: string) => boolean) | undefined;
+    let endpointInput!: TextComponent;
+    let useAutomaticButton!: ButtonComponent;
     let validation: HTMLElement | null = null;
+    const updateAutomaticVisibility = (value: string): void => {
+      useAutomaticButton?.buttonEl.toggleAttribute("hidden", value.trim() === DEFAULT_SETTINGS.ollamaHost);
+    };
     const endpoint = new Setting(advanced)
       .setName("Ollama endpoint")
-      .setDesc("Default: http://localhost:11434. For security, the only alternative is http://127.0.0.1:11434.")
+      .setDesc("Automatic uses http://localhost:11434. For security, the only manual alternative is http://127.0.0.1:11434.")
       .addText((text) => {
+        endpointInput = text;
         const updateValidation = (value: string): boolean => {
           const candidate = value.trim();
+          updateAutomaticVisibility(candidate);
           try {
             normalizeLocalOllamaHost(candidate);
             endpoint.settingEl.removeClass("is-invalid");
@@ -485,6 +481,21 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           this.plugin.invalidateLocalAiState("host");
           await this.saveSettingsInOrder();
         });
+      })
+      .addButton((button) => {
+        useAutomaticButton = button;
+        button
+          .setButtonText("Use automatic")
+          .setDisabled(aiSetupBusy)
+          .onClick(async () => {
+            endpointInput.setValue(DEFAULT_SETTINGS.ollamaHost);
+            endpointValidation?.(DEFAULT_SETTINGS.ollamaHost);
+            this.plugin.settings.ollamaHost = DEFAULT_SETTINGS.ollamaHost;
+            this.plugin.invalidateLocalAiState("host");
+            updateAutomaticVisibility(DEFAULT_SETTINGS.ollamaHost);
+            endpointInput.inputEl.focus();
+            await this.saveSettingsInOrder();
+          });
       });
     validation = endpoint.settingEl.createDiv({ cls: "omd-settings-endpoint-validation" });
     validation.id = "omd-settings-endpoint-validation";
@@ -492,6 +503,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     endpoint.controlEl.querySelector<HTMLInputElement>("input")?.setAttribute("aria-describedby", validation.id);
     endpoint.settingEl.addClass("omd-settings-model", "omd-settings-endpoint");
     endpointValidation?.(this.plugin.settings.ollamaHost);
+    updateAutomaticVisibility(this.plugin.settings.ollamaHost);
   }
 
   private rerenderLocalAiSection(): void {

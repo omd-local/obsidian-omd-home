@@ -206,13 +206,13 @@ test("Phase 2 settings expose an explicit provider choice and inline provider bo
   assert.match(source, /for \(const value of AI_PROVIDER_VALUES\) dropdown\.addOption\(value, aiProviderLabel\(value\)\)/u);
   assert.match(source, /setDesc\(`Choose where @ questions are answered\. \$\{providerSetupDescription\(provider\)\}`\)/u);
   assert.match(source, /providerSetupDescription\(provider\)/u);
-  assert.match(source, /setName\("Request destination"\)/u);
-  assert.match(source, /text: aiProviderDestination\(provider\)/u);
-  assert.match(stylesSource, /\.omd-settings-fixed-value/u);
-  assert.match(stylesSource, /\.omd-settings-destination \.setting-item-control/u);
+  assert.doesNotMatch(source, /setName\("Request destination"\)/u);
+  assert.doesNotMatch(stylesSource, /\.omd-settings-fixed-value/u);
+  assert.doesNotMatch(stylesSource, /\.omd-settings-destination \.setting-item-control/u);
   assert.match(stylesSource, /\.omd-settings-answer-provider\s*\{[^}]*minmax\(220px, 360px\)/su);
   assert.match(stylesSource, /\.omd-settings-answer-provider \.setting-item-control select\s*\{[^}]*width:\s*100%/su);
   assert.match(source, /setName\(`Allow \$\{aiProviderLabel\(provider\)\} answers`\)/u);
+  assert.match(source, /Allow @ answers to use \$\{aiProviderDestination\(provider\)\} only while/u);
   assert.match(source, /allowedCloudAnswerProviders/u);
   assert.match(source, /bounded evidence excerpts/u);
   assert.match(source, /macOS Keychain/u);
@@ -334,8 +334,11 @@ test("AI answer settings rerender only their section and expose durable action f
   assert.match(source, /this\.localAiAdvancedExpanded = advanced\.open/u);
   assert.match(source, /The capture dialog turns optional writing actions on or off/iu);
   assert.match(source, /These actions never use the cloud answer provider/iu);
-  assert.match(source, /Default: http:\/\/localhost:11434/u);
+  assert.match(source, /Automatic uses http:\/\/localhost:11434/u);
   assert.match(source, /http:\/\/127\.0\.0\.1:11434/u);
+  assert.match(source, /setButtonText\("Use automatic"\)/u);
+  assert.match(source, /this\.plugin\.settings\.ollamaHost = DEFAULT_SETTINGS\.ollamaHost/u);
+  assert.match(source, /endpointInput\.setValue\(DEFAULT_SETTINGS\.ollamaHost\)/u);
   assert.match(source, /normalizeLocalOllamaHost\(candidate\)/u);
   assert.match(source, /The last valid endpoint remains saved/u);
   assert.match(source, /omd-settings-endpoint/u);
@@ -357,6 +360,9 @@ test("settings use one readable layout for headings, cloud consent, keys, and en
   assert.match(stylesSource, /@container omd-settings \(max-width: 580px\)\s*\{[^}]*\.omd-settings-model\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/su);
   assert.match(stylesSource, /\.omd-settings-answer-status\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/su);
   assert.match(stylesSource, /@container omd-settings-page \(max-width: 680px\)\s*\{[^}]*\.omd-settings \.omd-settings-answer-status\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /@container omd-settings-page \(max-width: 580px\)[\s\S]*\.omd-settings \.omd-settings-endpoint \.setting-item-control\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/su);
+  assert.match(stylesSource, /@container omd-settings-page \(max-width: 400px\)[\s\S]*\.omd-settings \.omd-settings-endpoint \.setting-item-control\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /\.omd-settings \.omd-settings-endpoint \.setting-item-control button\s*\{\s*justify-self:\s*start;/u);
 });
 
 test("local completion selectors show every downloaded local model while disabling unsafe choices", () => {

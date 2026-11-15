@@ -49,7 +49,12 @@ export function omdExecutableCandidates(
   const executableName = environment.platform === "win32" ? "omd.exe" : "omd";
   const pathApi = environment.platform === "win32" ? win32 : posix;
   const preferred = preferredExecutable.trim();
-  const candidates = preferred && pathApi.isAbsolute(preferred) ? [preferred] : [];
+  const candidates: string[] = [];
+  if (preferred && pathApi.isAbsolute(preferred)) candidates.push(preferred);
+  if (environment.platform === "darwin") candidates.push(
+    "/opt/homebrew/opt/omd/bin/omd",
+    "/usr/local/opt/omd/bin/omd",
+  );
   candidates.push(...(environment.platform === "win32" ? ["omd", "omd.exe"] : ["omd"]));
   const environmentPrefixes = [environment.condaPrefix, environment.virtualEnvironment];
   for (const prefix of environmentPrefixes) {

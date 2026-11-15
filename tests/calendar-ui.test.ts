@@ -7,12 +7,14 @@ import {
   calendarEditorStoredValue,
   calendarRangeValidationTarget,
   calendarRangeValidationMessage,
+  calendarRecoveryRecords,
   calendarRecoveryPresentation,
   deviceTimeZoneName,
   deviceTimeZoneDescription,
   eventMatchesSourceFilter,
   eventSourceFilterControlState,
   eventSourceFilterSummary,
+  eventSourceKeyAccessibleLabel,
   eventSourcePresentation,
   replaceCalendarEvents,
   toggleSourceFilter,
@@ -69,6 +71,10 @@ test("calendar source presentation stays consistent across Calendar and Home", (
   });
   assert.equal(eventSourceFilterSummary(new Set(["vault", "external", "linked"])), "Sources · All");
   assert.equal(eventSourceFilterSummary(new Set(["vault", "linked"])), "Sources · 2 of 3");
+  assert.equal(
+    eventSourceKeyAccessibleLabel(),
+    "Event source key. Vault only: Markdown event note. Calendar only: macOS Calendar event. Linked: Note synced with Calendar.",
+  );
 });
 
 test("event editor names the device timezone and explains range errors by mode", () => {
@@ -134,6 +140,22 @@ test("Calendar recovery keeps Recreate behind an explicit duplicate-risk confirm
   assert.match(prefixCollision?.description ?? "", /detach it/);
   assert.equal(calendarRecoveryPresentation({ syncState: "unavailable" })?.showRecreate, true);
   assert.equal(calendarRecoveryPresentation({ syncState: "clean" }), null);
+});
+
+test("Calendar recovery summary includes only linked notes with actionable recovery states", () => {
+  const base = {
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Work",
+  };
+  const records = calendarRecoveryRecords([
+    { ...base, id: "clean", title: "Clean", source: "linked", syncState: "clean" },
+    { ...base, id: "missing", title: "Missing", source: "linked", syncState: "unavailable" },
+    { ...base, id: "error", title: "Error", source: "linked", syncState: "error" },
+    { ...base, id: "vault", title: "Vault", source: "vault", syncState: "error" },
+  ]);
+  assert.deepEqual(records.map((record) => record.id), ["missing", "error"]);
 });
 
 test("calendar conflict comparison exposes the values needed for a safe choice", () => {

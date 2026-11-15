@@ -12,6 +12,7 @@ import {
 
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
 const modalSource = readFileSync(resolve("src/markdown-formatting-modal.ts"), "utf8");
+const styleSource = readFileSync(resolve("src/styles.css"), "utf8");
 
 test("formatting keeps existing frontmatter byte-for-byte around a formatted body", () => {
   const baseline = "---\nomd_home_status: inbox\nsource: https://example.com\n---\n# Note\n\nraw text\n";
@@ -128,8 +129,13 @@ test("an identical preview is a no-op and never enters the vault writer", async 
 test("formatting UI is review-first, cancellable, and announces generation", () => {
   assert.match(modalSource, /text: "Improving formatting…"[\s\S]*role: "status", "aria-live": "polite", "aria-atomic": "true"/u);
   assert.match(modalSource, /text: "Formatting preview"/u);
+  assert.match(modalSource, /role: "region", "aria-labelledby": this\.previewHeadingId/u);
+  assert.doesNotMatch(modalSource, /aria-label.*Formatting preview for/u);
   assert.match(modalSource, /setButtonText\("Cancel"\)/u);
   assert.match(modalSource, /setButtonText\("Apply formatting"\)\.setDisabled\(true\)/u);
+  assert.match(modalSource, /private applyButton\?: ButtonComponent/u);
+  assert.match(modalSource, /this\.applyButton\?\.setDisabled\(false\)/u);
+  assert.doesNotMatch(modalSource, /this\.applyButton\.disabled\s*=\s*false/u);
   assert.match(mainSource, /decision = modal\.openAndWait\(\)[\s\S]*previewMarkdownFormatting/u);
   assert.match(mainSource, /const body = markdownBodyForFormatting\(baseline\)[\s\S]*previewMarkdownFormatting\([\s\S]*executable,[\s\S]*body,/u);
   assert.match(mainSource, /applyMarkdownFormattingPreview\(this\.app\.vault, file, baseline, preview\)/u);
@@ -140,10 +146,22 @@ test("formatting UI is review-first, cancellable, and announces generation", () 
   assert.match(mainSource, /for \(const modal of this\.markdownFormattingModals\) modal\.close\(\)/u);
   assert.match(mainSource, /if \(this\.unloaded\) return;[\s\S]*applyMarkdownFormattingPreview/u);
   assert.match(mainSource, /error\.message === FORMATTING_UNSAFE_OUTPUT_MESSAGE[\s\S]*return error\.message/u);
+  assert.match(mainSource, /error\.message === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE[\s\S]*return error\.message/u);
+  assert.match(styleSource, /\.omd-formatting-modal \{[\s\S]*resize: both;[\s\S]*container: omd-formatting-dialog/u);
+  assert.match(styleSource, /@container omd-formatting-dialog \(max-width: 420px\)[\s\S]*flex-direction: column;[\s\S]*button \{ width: 100%; \}/u);
 
   const formattingMethod = mainSource.slice(
     mainSource.indexOf("async improveNoteFormatting("),
     mainSource.indexOf("async reviewNote("),
+  );
+  const failureBranch = formattingMethod.slice(
+    formattingMethod.indexOf("} catch (error) {"),
+    formattingMethod.indexOf("} finally {"),
+  );
+  assert.match(failureBranch, /modal\.finishGeneration\(\);\s*modal\.close\(\);/u);
+  assert.ok(
+    failureBranch.indexOf("modal.close();") < failureBranch.indexOf("this.reportLocalAiWorkflowIssue("),
+    "the failure modal must close before publishing the error state",
   );
   const applyBranch = formattingMethod.slice(formattingMethod.indexOf("applyMarkdownFormattingPreview"));
   assert.doesNotMatch(applyBranch, /clearIssue\("ai"\)/u, "an old preview must not clear a newer AI failure");

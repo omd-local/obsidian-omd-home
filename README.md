@@ -2,7 +2,7 @@
 
 <img src="docs/assets/omd-home-icon.png" alt="OMD Home pixel icon: a doorway inside a Markdown note" width="144">
 
-<sub>OMD HOME // PUBLIC BETA 0.1.1</sub>
+<sub>OMD HOME // PUBLIC BETA 0.2.0</sub>
 
 # OMD Home
 

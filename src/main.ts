@@ -41,6 +41,7 @@ import {
 } from "./settings";
 import {
   captureInspectionError,
+  MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
   OmdBridge,
   spawnProcess,
   type AiAnswer,
@@ -1407,7 +1408,7 @@ export default class OmdHomePlugin extends Plugin {
         await this.requireReadyOmdExecutable();
         requestSignal?.throwIfAborted();
         const preview = await this.previewLocalAnswer(query, requestSignal);
-        if (!preview.preview.evidence.length) {
+        if (preview.preview.noEvidence || !preview.preview.evidence.length) {
           const detail = "No relevant vault evidence was found. No model request was sent.";
           this.clearIssue("ai");
           this.setLocalAiFeedback("neutral", detail);
@@ -1437,7 +1438,7 @@ export default class OmdHomePlugin extends Plugin {
         requestSignal?.throwIfAborted();
         const preview = await this.previewCloudAnswer(query, provider, model, requestSignal);
         if (this.unloaded || requestSignal?.aborted) return;
-        if (!preview.preview.evidence.length) {
+        if (preview.preview.noEvidence || !preview.preview.evidence.length) {
           const detail = "No relevant vault evidence was found. No model request was sent.";
           this.clearIssue("ai");
           this.setLocalAiFeedback("neutral", detail);
@@ -1596,6 +1597,8 @@ export default class OmdHomePlugin extends Plugin {
       });
     } catch (error) {
       const cancelled = isAbortError(error) || controller.signal.aborted;
+      modal.finishGeneration();
+      modal.close();
       this.processingEvents.push({
         v: 1,
         event: cancelled ? "cancelled" : "error",
@@ -1605,11 +1608,9 @@ export default class OmdHomePlugin extends Plugin {
       });
       if (!cancelled) {
         const detail = noteFormattingFailureMessage(error);
-        modal.finishGeneration();
         this.reportLocalAiWorkflowIssue(error instanceof LocalAiError ? error : new Error(detail), file.path);
         new Notice(detail);
       }
-      modal.close();
       return;
     } finally {
       this.captureActive = false;
@@ -4720,6 +4721,9 @@ function noteFormattingFailureMessage(error: unknown): string {
     return `${error.message} The note was not changed.`;
   }
   if (error instanceof Error && error.message === FORMATTING_UNSAFE_OUTPUT_MESSAGE) {
+    return error.message;
+  }
+  if (error instanceof Error && error.message === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE) {
     return error.message;
   }
   return "Could not improve formatting. The note was not changed. Check the local writing model, then try again.";

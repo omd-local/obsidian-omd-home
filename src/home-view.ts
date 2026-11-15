@@ -191,7 +191,12 @@ export class OmdHomeView extends ItemView {
     );
     for (const [id, body] of this.widgetBodies) {
       if (id === "omnibox") {
-        this.omnibox ??= new Omnibox(this.app, this.plugin, (visible) => this.setOmniboxExpanded(visible));
+        this.omnibox ??= new Omnibox(
+          this.app,
+          this.plugin,
+          (visible) => this.setOmniboxExpanded(visible),
+          () => this.openEventSourceKeyModal(),
+        );
         this.omnibox.mount(body);
         continue;
       }
@@ -255,9 +260,10 @@ export class OmdHomeView extends ItemView {
   private renderWidgetBody(id: WidgetId, body: HTMLElement): void {
     if (id === "today" || id === "upcoming") {
       const now = Date.now();
+      const start = id === "today" ? startOfToday(now) : now;
       const end = id === "today" ? endOfToday(now) : now + 7 * 86_400_000;
       const events = this.plugin.calendarEvents
-        .filter((event) => eventOccursInRange(event, now, end))
+        .filter((event) => eventOccursInRange(event, start, end))
         .sort((a, b) => a.start.localeCompare(b.start))
         .slice(0, id === "today" ? 8 : 6);
       if (!events.length) {
@@ -1241,6 +1247,12 @@ function fullLocalDate(value: Date): string {
 
 function fullLocalDateTime(value: Date): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(value);
+}
+
+function startOfToday(now = Date.now()): number {
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
 }
 
 function endOfToday(now = Date.now()): number {

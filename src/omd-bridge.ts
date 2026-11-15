@@ -55,6 +55,9 @@ const MAX_CAPTURE_MANIFEST_BYTES = 1_000_000;
 const MAX_CAPTURE_MANIFESTS = 512;
 const OMD_PLANNED_OUTPUT_NAME = /^\d{4}-\d{2}-\d{2}-.+-[0-9a-f]{8}\.md$/u;
 
+export const MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE =
+  "The local writing model changed protected note content, so OMD rejected the formatting preview. The note was not changed. Try another note or local writing model.";
+
 function normalizeAnswerCompatibility(value: unknown): AnswerModelCompatibilityStatus {
   return value === "supported" || value === "unsupported" || value === "unverified"
     ? value
@@ -76,6 +79,7 @@ export interface AiPreview {
     data_handling_summary: string;
   };
   evidence: OmdSearchHit[];
+  noEvidence?: boolean;
   consent_grant?: Record<string, unknown> | null;
   retrieval_mode?: "sparse" | "hybrid";
   retrieval_model?: string | null;
@@ -176,6 +180,8 @@ function normalizeAiPreview(value: Record<string, unknown>): AiPreview | null {
   const consentGrant = value.consent_grant;
   if (consentGrant !== undefined && consentGrant !== null && (typeof consentGrant !== "object" || Array.isArray(consentGrant))) return null;
   const warnings = value.warnings;
+  const noEvidence = value.no_evidence;
+  if (noEvidence !== undefined && typeof noEvidence !== "boolean") return null;
   if (warnings !== undefined && (!Array.isArray(warnings) || warnings.some((item) => typeof item !== "string"))) return null;
   return {
     preview: {
@@ -192,6 +198,7 @@ function normalizeAiPreview(value: Record<string, unknown>): AiPreview | null {
       data_handling_summary: preview.data_handling_summary as string,
     },
     evidence,
+    noEvidence,
     consent_grant: consentGrant as Record<string, unknown> | null | undefined,
     retrieval_mode: retrievalMode,
     retrieval_model: retrievalModel,
@@ -413,9 +420,8 @@ export class OmdBridge {
       if (result.code !== 0) {
         throw new Error("OMD could not improve formatting. The note was not changed.");
       }
-      if (hasMarkdownFormattingFailureEvent(result.stderr)) {
-        throw new Error("OMD could not improve formatting. The note was not changed.");
-      }
+      const formattingFailure = markdownFormattingFailureMessage(result.stderr);
+      if (formattingFailure) throw new Error(formattingFailure);
       const formatted = await readFile(temporaryNote, "utf8");
       if (!formatted.trim()) {
         throw new Error("OMD returned an empty formatting preview. The note was not changed.");
@@ -714,17 +720,31 @@ export class OmdBridge {
   }
 }
 
-function hasMarkdownFormattingFailureEvent(stderr: string): boolean {
-  return stderr.split(/\r?\n/u).some((line) => {
+function markdownFormattingFailureMessage(stderr: string): string | null {
+  let failed = false;
+  for (const line of stderr.split(/\r?\n/u)) {
     const event = parseOmdEvent(line);
-    if (!event) return false;
-    if (event.event === "error" || event.event === "fatal") return true;
-    if (event.event !== "warn" || typeof event.message !== "string") return false;
+    if (!event) continue;
+    if (event.event === "error" || event.event === "fatal") {
+      failed = true;
+      continue;
+    }
+    if (event.event !== "warn" || typeof event.message !== "string") continue;
     const warning = event.message.toLowerCase();
-    return warning.includes("markdown polish skipped")
+    if (
+      warning.includes("model changed source content")
+      || warning.includes("model changed numeric content")
+      || warning.includes("model changed protected link")
+      || warning.includes("model changed protected links")
+      || warning.includes("model changed semantic operators")
+    ) {
+      return MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE;
+    }
+    failed ||= warning.includes("markdown polish skipped")
       || (warning.includes("polish chunk") && warning.includes("failed"))
       || warning.includes("markdown polish failed");
-  });
+  }
+  return failed ? "OMD could not improve formatting. The note was not changed." : null;
 }
 
 export async function resolveOmdCaptureOutput(
