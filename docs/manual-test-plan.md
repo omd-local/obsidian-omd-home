@@ -125,7 +125,7 @@ v3 contract 取代，不能作为当前候选证据。
 | EventKit helper contract | protocol v3；v2 及更早版本必须显示 **Update Calendar helper** 并在读取／写入前 fail closed |
 | 自动证据 | **829 / 829** tests、TypeScript、零 warning ESLint、production build、EventKit helper protocol v3 CLI probe、`git diff --check`；其中 **255 / 255** Calendar／Home／runtime 定向测试覆盖 Recreate 的完整 selection 快照、note／identity CAS、已提交 pending stage 的精确恢复、自己的 pending refresh、并发 full Sync／metadata-only 稳定化／unload、全天本地日期边界、跨日时间与窄 Upcoming |
 | 原生安装 | test-vault 已安装并 Force Reload；`main.js` `c8ddf18be4ec7917b8276537f94ae1c72a6938e6adccffc279494d79f28ce2ce`、`styles.css` `4a17977bad8efe2f1f18d9d1c3071ccdb4287d7f06efb85b23f84265695fef34`、`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`、helper `88fdb4733f5cdc91b8b212061d14edb0e447f5779d49f0792c3438a56947e2fe`；`data.json` 安装前后均为 `97a63791df2a1aed505c12f160d369e60caa4731f55e12b53413a7836ccf6206`；helper CLI 返回 protocol v3；Home 原生 reload 后 Upcoming 日期与 **Event source key…** modal smoke 通过 |
-| 必做人工差额 | Q0–Q2 已由 release owner 确认通过；从 Q3 继续 CAL-01 linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict，CAL-02 来源对账，以及 CALENDAR-06 的日期范围、150%、主题和 VoiceOver |
+| 必做人工差额 | Q0–Q3 已由 release owner 确认通过；Calendar Core + UI 不再重测，下一项从 Q4 开始 |
 
 ### 1.3B 上一已安装候选与历史入口（2026-10-05 NZST；已被 v3 取代）
 
@@ -191,7 +191,7 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 Q0–Q2 已由 release owner 完成并确认，不再安排重测；CAL-03 E.14–E.16 与 Destination 显示也保留 PASS。
 不要重跑 fault injection、长音频、Answer model catalog 或旧 v2 helper。当前首发范围明确包含
 section-aware answer quality、semantic rerank 与多语言检索，因此 Q8、Q9 都是必做质量门禁；AI-10 的
-destructive model removal 仍留到发布后维护测试。Q11 已通过并关闭；继续按 Q3 → Q10 执行，全部通过后
+destructive model removal 仍留到发布后维护测试。Q3、Q11 已通过并关闭；继续按 Q4 → Q10 执行，全部通过后
 才执行 Q12。每完成一行
 就在本节后面的结果表写一行结论。
 
@@ -200,7 +200,7 @@ destructive model removal 仍留到发布后维护测试。Q11 已通过并关�
 | Q0 | **DONE / NATIVE PASS** | 0 | [CAL-00](#test-cal-00) v3 | release owner 已确认完成 | 不重测 |
 | Q1 | **DONE / NATIVE PASS** | 0 | [CAL-03 F.17–18](#test-cal-03) | release owner 已确认完成 | 不重测 |
 | Q2 | **DONE / NATIVE PASS** | 0 | [CAL-03 G](#test-cal-03) | release owner 已确认完成 | 不重测 |
-| Q3 | **Calendar Core + UI smoke** | 25–35 分钟 | [CAL-01 steps 4／5／7／8](#test-cal-01)、[CAL-02 steps 4／5](#test-cal-02)、[CALENDAR-06](ui-backlog.md#backlog-calendar-06) | 补 linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict、最后一个来源 disabled 与三类 fixture 对账；再验 Upcoming 日期／范围与 source-key 屏幕阅读器 | 只用专用测试 Calendar；Today／Tomorrow／更晚日期、timed 跨日／all-day 多日、窄栏、150%、深浅主题。Event source key 的键盘打开／Escape／焦点已 smoke PASS，不作为新证据；E.14–E.16 不重做 |
+| Q3 | **DONE / NATIVE PASS** | 0 | [CAL-01 steps 4／5／7／8](#test-cal-01)、[CAL-02 steps 4／5](#test-cal-02)、[CALENDAR-06](ui-backlog.md#backlog-calendar-06) | release owner 已确认 Calendar Core + UI 全部通过 | linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict、三种来源／最后一项不可关闭、Upcoming 日期与跨日范围、窄栏、150%、深浅主题和 VoiceOver 均不重测 |
 | Q4 | **UI／Capture TARGETED RETEST** | 35–50 分钟 | [UI-01／02／03](ui-backlog.md)、[UI-14](ui-backlog.md#backlog-ui-14)、[RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | Settings 标题层级、DeepSeek credential/opt-in 对齐、Ollama endpoint error／Use automatic；Home Enter 的 URL→Capture、普通文字→Ask vault；Needs attention 单条关闭；AI tools／Improve formatting；Capture warning／viewport、本地文件与 cookies Clear | 本地文件使用 `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html`；Improve formatting 的 Preview／Cancel、可调整窄宽度、按钮堆叠与 Apply 生命周期已原生通过，但当前 qwen 候选只删除末尾句号，格式质量仍 FAIL；conflict 尚未执行 |
 | Q5 | **真实平台 RETEST / FIRST PASS** | 依素材长度 | [CAP-07 C／D](#test-cap-07) | Douyin 成功路径；Rednote output 对账与非空 transcript；wrapper failure／Retry；Cancel／unload／隐私 | Douyin tag `cap-07-douyin-retest`；Rednote tag `cap-07-xhs-video-retest`；没有可安全使用的公开素材或过期 cookies fixture 就记 NOT RUN，不伪造 PASS |
 | Q6 | **Hosted AI TARGETED RETEST** | 15–25 分钟 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05)、[ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答) | AI-03 重测 zero-evidence 修正文案；优先用当前 catalog 的 compatible OpenAI model 执行一次 `amber lighthouse checklist`，同一 run 覆盖 ANSWER-02 exact model、AI-04 preview／Copy／provider 边界；AI-05 只做三个 provider model memory／reload | zero-evidence 零发送安全、secret scan、非 OpenAI 的 ANSWER-02-R1 已通过；没有有效 OpenAI key/model 时记 NOT RUN，再用一个 ready provider 完成固定题，不为补矩阵反复发送 |
@@ -225,13 +225,14 @@ destructive model removal 仍留到发布后维护测试。Q11 已通过并关�
 操作仅限只读 UI 检查与 Vault-only fixture。真实站点 cookies、hosted provider 发送批准与完全退出 Obsidian 也必须由 release owner
 执行；其余本地 UI 步骤可委托给 agent-assisted 原生操作。
 已由自动回归覆盖的内部 fault injection／note byte-CAS 不再要求手工模拟；release owner 已确认
-Q0–Q2 的原生 Calendar 安全流程通过。不要修改插件文件、`data.json` 或测试 note 的内部 linkage ID。
+Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件文件、`data.json` 或测试 note 的内部 linkage ID。
 
 1. **Q0–Q2 Calendar P0（DONE / NATIVE PASS，不重做）**
    release owner 已确认 final Sync、Vault-only／linked note 删除，以及 Cancel、Calendar delete CAS、
    modal 打开时 disable／enable 三项安全 smoke 通过。这些步骤保留在 CAL-03 历史案例中供回归定位，
    不再进入本候选的剩余执行队列。
-2. **Calendar Core + UI smoke（约 25–35 分钟，只用专用测试 Calendar）**
+2. **Calendar Core + UI smoke（DONE / NATIVE PASS，不重做）**
+   release owner 已确认下列六组步骤全部通过；保留为回归合同，不再进入当前候选的剩余执行队列。
    1. 在 CAL-01 的未来测试周新建或复用 linked `CAL-01 Timed Fixture`，保存后重新打开；OMD editor 与
       macOS Calendar 都应保持同一组本地时间，没有时区偏移。开启 **All day**，Start 设为某日、exclusive
       End 设为下一日；保存／重开后仍显示为一天。再清空 Start 并点 Save：Save 被阻止、错误与焦点都落在
@@ -409,8 +410,9 @@ Q0–Q2 的原生 Calendar 安全流程通过。不要修改插件文件、`data
 | AI-05 local workflow isolation | PASS；AI-05 overall PARTIAL | 2026-10-21 | 人工反馈＋自动 state scan | Claude hosted key 不可用时 Generate AI tags 仍通过本地 writing model；五个 provider 的 model memory 已分别持久化，`data.json` secret scan PASS。只剩原生切换三个 provider 并 reload 后观察各自选项 |
 | ANSWER-02-R1 定向补测 | PARTIAL；Claude Opus 4.5、DeepSeek Pro／Flash 与 Anthropic `claude-opus-5-5` contract PASS；provider 自动 setup PASS；OpenAI exact ID RECORD ONLY | 2026-10-05 | 人工反馈＋截图 1／2／3＋canonical Opus 5.5 错误截图＋DeepSeek Pro／Flash 与修复后 Opus 5.5 原生结果＋最终候选原生设置 | 修复后 canonical `claude-opus-5-5` 正确回答 Orchid station／Tuesday；唯一事实位于 Source states 并带合法 wikilink，Model inference 为 None，无 placeholder 或原始 `S#`。底部 Sources 保留三篇检索清单，即使正文只使用其中一篇也符合合同。旧候选 citation FAIL 与 fail-closed safety PASS 作为回归证据保留。retired old Sonnet 与 `deepseek-chat` 缺席均为 NOT RUN；OpenAI run 已成功但 exact model ID 未记录，按 Q6 与固定题合并补录 |
 | CAL-00 helper override | CURRENT v3 NATIVE PASS；final Sync pending | 2026-10-21 | 原生 Obsidian＋自动回归 | 当前 helper CLI v3、disable／enable、Automatic helper ready 与 Refresh 10 个 Calendar 已通过；agent-assisted 原生输入 `/tmp/omd-home-missing-eventkit-v3` 后立即出现统一错误，旧 ready 消失，Use bundled 清空 override，Check helper 恢复 ready／10 calendars，`data.json` hash 仍为 `97a63791…6206`；只剩真实 Sync |
-| CAL-01 targeted UI | PASS；完整 case PARTIAL | 2026-10-05 | 原生 Obsidian | 原生 datetime-local、Pacific/Auckland 说明、无效 End 的红色 inline error／焦点／修正即清除已通过；linked time 对照、all-day、empty Start 与 mixed LTR／RTL conflict 仍待人工 |
-| CAL-02 source UX | PASS；完整 case PARTIAL | 2026-10-05 | 原生 Obsidian | Sources · All、三项说明、筛选后的 2 of 3、Home Event source key 已通过；最后一个来源 disabled 与完整三类 fixture 仍待人工 |
+| CAL-01 targeted UI | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | datetime-local、设备时区、linked 本地时间、all-day exclusive End、empty Start validation 与 mixed LTR／RTL／中文 conflict 全部通过 |
+| CAL-02 source UX | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | Vault-only／Linked／Calendar-only 三类 fixture 对账、来源筛选、最后一个来源 disabled、日期与 Week view 保持及 Event source key 全部通过 |
+| CALENDAR-06 Upcoming／source key | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | Today／Tomorrow／具体日期、timed 跨日、all-day 多日、窄栏、150%、深浅主题、键盘与 VoiceOver 全部通过 |
 | CAL-03 safety shell | HISTORICAL SNAPSHOT / SUPERSEDED | 2026-10-05 | 原生 Obsidian | 当时只验证 Pending sync shell；后续 A–E、跨 Calendar、Recreate／Detach、F.17／F.18 与 Q0–Q2 已有 release owner 证据，不再重做 |
 | CAL-01 UI validation preview 清理 | OPTIONAL CLEANUP | 2026-10-05 | 原生 Obsidian | 原生控件自动化试验误建一条 Vault-only 临时记录；这不是产品缺陷，不阻塞 Q0–Q12。Q1 删除路径通过后可由界面单独清理，不要触及其他 fixture |
 | AI-06 | PARTIAL；native baseline PASS；本候选的 steps 4／6 已提升为发布安全门禁 | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running；tuple 失效自动 PASS，只剩重复点击及 disable/reload 原生差额 |
@@ -423,7 +425,7 @@ Q0–Q2 的原生 Calendar 安全流程通过。不要修改插件文件、`data
 
 **下一步：** 只按上方收敛后的队列执行。ANSWER-02-R1 的非 OpenAI matrix、E.14–E.16、Destination 与
 F.19–21 与 Q0–Q2 不重复；OpenAI exact model 只随 Q6 的同一次固定题补录。Q8／Q9 都是首发质量门禁，
-Q11 已通过并关闭；REL-01 始终最后执行。每完成一项，立即写
+Q3、Q11 已通过并关闭；REL-01 始终最后执行。每完成一项，立即写
 PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
 
 

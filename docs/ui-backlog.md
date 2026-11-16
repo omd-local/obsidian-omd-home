@@ -867,7 +867,7 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
 
 ### CALENDAR-06：Upcoming 的来源说明不可读，跨日列表缺少日期
 
-**状态：IMPLEMENTED CANDIDATE；source-key 原生键盘 smoke PASS，剩余视觉复测待执行。优先级：P1。**
+**状态：PASS / CLOSED。优先级：P1。**
 
 - 2026-10-17 CAL-02 原生复测中，Upcoming 的 `…` 菜单虽然包含 **Event source key** 和三条来源说明，
   但它们被当作 disabled menu item 渲染成极低对比度灰字；用户实际判断为没有 source key。说明性内容
@@ -886,6 +886,8 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
   Today／Tomorrow／具体日期与全天范围，并按本地 civil date 处理全天 exclusive end。窄于 360px 时日期与
   标题分行。自动回归覆盖 Auckland／Los Angeles 边界、非法日期与窄栏；原生键盘 smoke 已通过，只剩
   timed 跨日、all-day 多日、窄栏／150%、深浅主题与屏幕阅读器说明的实景对账。
+- 2026-11-16 release owner 确认 Q3 Calendar Core + UI 全部通过，包括 Today／Tomorrow／具体日期、timed
+  跨日、all-day 多日、窄栏、150%、深浅主题、键盘与 VoiceOver；本项已通过首发门禁并关闭。
 
 ### CALENDAR-07：Recreate 在没有用户改动时立即报告 state changed
 
