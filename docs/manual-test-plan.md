@@ -1,4 +1,4 @@
-# OMD Home v0.2.0 人工测试计划
+# OMD Home v0.2.1 人工测试计划
 
 本文件用于 OMD Home 发布候选版（Release Candidate，简称 RC）的人工验收。请先在可丢弃的
 vault 中完成安装和基础测试，再决定是否在日常 vault 中复测。不要用唯一一份重要 vault
@@ -34,7 +34,7 @@ export REPO_ROOT="$PWD"
 export TEST_VAULT="$REPO_ROOT/test-vault"
 export PLUGIN_DIR="$TEST_VAULT/.obsidian/plugins/omd-home"
 export OMD_BIN="/absolute/path/to/omd"
-export RELEASE_DIR="$REPO_ROOT/../omd-home-0.2.0-clean"
+export RELEASE_DIR="$REPO_ROOT/../omd-home-0.2.1-clean"
 ```
 
 `OMD_BIN` 必须指向本轮实际测试的 OMD executable；如果使用 Automatic discovery，可以保留
@@ -45,7 +45,7 @@ export RELEASE_DIR="$REPO_ROOT/../omd-home-0.2.0-clean"
 
 - `$REPO_ROOT` 是 clone 下来的 `obsidian-omd-home` 文件夹。
 - `$TEST_VAULT` 必须是可丢弃的测试 vault，不能指向唯一一份重要 vault。
-- `<version>` 要换成 Release 页面显示的准确版本，例如 `0.2.0`。
+- `<version>` 要换成 Release 页面显示的准确版本，例如 `0.2.1`。
 - 路径含空格时保留外层双引号，不要自己在双引号内再加入 `\ `。
 
 Shell 命令会展开上述变量。需要把 fixture 路径粘贴进 Obsidian 时，先在 Terminal 运行例如
@@ -191,7 +191,8 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 Q0–Q2 已由 release owner 完成并确认，不再安排重测；CAL-03 E.14–E.16 与 Destination 显示也保留 PASS。
 不要重跑 fault injection、长音频、Answer model catalog 或旧 v2 helper。当前首发范围明确包含
 section-aware answer quality、semantic rerank 与多语言检索，因此 Q8、Q9 都是必做质量门禁；AI-10 的
-destructive model removal 仍留到发布后维护测试。按 Q3 → Q11 执行，全部通过后才执行 Q12。每完成一行
+destructive model removal 仍留到发布后维护测试。Q11 已通过并关闭；继续按 Q3 → Q10 执行，全部通过后
+才执行 Q12。每完成一行
 就在本节后面的结果表写一行结论。
 
 | 顺序 | 类型 | 预计人工时间 | Case | 只做这些步骤 | 可直接使用的例子／完成条件 |
@@ -207,8 +208,15 @@ destructive model removal 仍留到发布后维护测试。按 Q3 → Q11 执行
 | Q8 | **REQUIRED / FIRST PASS** | 20–30 分钟 | [AI-08](#test-ai-08) | 执行 P01–P06，每题三次；P01／02／03／04／06 必须 4/4，P05 至少 3/4 | hard preflight 已三行 READY；不得引用 release-checklist distractor 或泄漏 `[S#]`／`[E#]` |
 | Q9 | **REQUIRED / FIRST PASS** | 30–45 分钟 | [AI-09](#test-ai-09) | 先用 `all-minilm:22m` 完成 AI-09A，再安装并保留 `bge-m3` 完成 AI-09B；AI-10 留发布后 | D01／B04 必须 4/4，M01 至少 3/4；不要执行 `ollama rm` |
 | Q10 | **Lifecycle TARGETED RETEST** | 10–15 分钟 | [AI-11](#test-ai-11) | 只补 pending preview 时 disable／reload 与完全退出 Obsidian，以及改变 OCR／ASR 后确认下一次真实 Capture 使用新默认值 | 每次重新启用后必须出现新的 preview；Console 无 orphan／unhandled rejection。内部 race 和 Recognition isolation core 已自动通过 |
-| Q11 | **IMPLEMENTED CANDIDATE / NATIVE RETEST** | 3–5 分钟 | [CALENDAR-05](ui-backlog.md#backlog-calendar-05) | 制造或保留一条 linked recovery；确认 Calendar view 持久显示 title、状态和 **Review event**，点击后进入同一安全恢复 modal | summary 不受来源筛选或当前日期范围影响；恢复完成后立即消失；临时 Notice 不能代替本项 PASS |
+| Q11 | **DONE / NATIVE PASS** | 0 | [CALENDAR-05](ui-backlog.md#backlog-calendar-05) | release owner 已确认最后一条 linked recovery note 删除后 summary 消失且 Calendar 主体保持可用 | Month／Week／Day／List 与日期导航已通过；不重测 |
 | Q12 | **最终发布 FIRST PASS** | 10–15 分钟 | [REL-01](#test-rel-01) | 在 disposable clean vault 只安装三项 Marketplace 资产，完成 enable、disable／enable 与 cold restart；仅在 dependency-free host／隔离 profile 可用时验证无依赖状态，否则该子项记 `NOT RUN` | 必须最后执行；不要把当前有历史数据的 test-vault 当 clean-vault 证据，也不要卸载日常依赖来模拟缺失 |
+
+**2026-11-16 Q11 定向重测：`0.2.0` NATIVE FAIL；`0.2.1` NATIVE PASS。** 删除已经失去 Calendar copy 的
+最后一条 recovery note 后，note 正确移入 Trash，但 summary 的 `display:none` 使自动排布的 Calendar host
+落入第二个 `auto` grid row，真正的第三个 `1fr` row 留空；Month／Week／Day／List 共用的日期主体因此
+只有零高度。`0.2.1` 把 topbar／recovery／Calendar 固定到命名 grid areas，使 hidden summary 的 row
+自然收缩而 Calendar 始终占据 `1fr` row。release owner 已确认删除后 note 进入 Trash、summary 消失、
+当前日期与 view 保持，日期网格立即恢复，Month／Week／Day／List 及日期导航仍可用；Q11 关闭为 PASS。
 
 #### 真正需要 release owner 操作的完整步骤
 
@@ -410,12 +418,12 @@ Q0–Q2 的原生 Calendar 安全流程通过。不要修改插件文件、`data
 | AI-11.8 pending consent unload | automated core PASS；native delta NOT RUN | 2026-10-05 | `tests/main-runtime-regressions.test.ts` | 自动回归确认 unload 关闭 consent、排队中的批准也不能发送；仍需原生 disable/reload 与完全退出 Obsidian smoke，确认无 Console orphan/rejection |
 | AI-11.10 Recognition defaults isolation | automated PASS；native delta NOT RUN | 2026-10-05 | 109/109 定向回归 | 本地 Ask 运行中修改 OCR／ASR 不取消问答；旧 OMD 无 recognition override 仍可 Q&A；Capture request 固定创建时语言快照。原生仍需观察更改只作用于下一次 Capture |
 | AI-09 | REQUIRED QUALITY GATE / NOT RUN | 2026-11-15 | release scope decision | `all-minilm:22m` 与 `bge-m3` 两轮矩阵均为首发门禁；完成后保留模型。AI-10 destructive model removal 留发布后 |
-| CALENDAR-05 persistent recovery summary | IMPLEMENTED CANDIDATE / NATIVE RETEST | 2026-11-15 | 自动 selector／UI contract 回归 | Calendar view 已从持久事件状态显示 title、状态与 **Review event**；仍需原生确认点击、跨日期／隐藏 Linked 和恢复后消失 |
+| CALENDAR-05 persistent recovery summary | PASS / CLOSED | 2026-11-16 | 自动 selector／UI contract 回归＋release owner 原生复测 | 持久 summary 显示问题 note 与 **Review event**；删除最后一条 recovery note 后 summary 消失，Calendar 日期主体保持可见，Month／Week／Day／List 与日期导航仍可用 |
 | REL-01 |  |  |  |  |
 
 **下一步：** 只按上方收敛后的队列执行。ANSWER-02-R1 的非 OpenAI matrix、E.14–E.16、Destination 与
 F.19–21 与 Q0–Q2 不重复；OpenAI exact model 只随 Q6 的同一次固定题补录。Q8／Q9 都是首发质量门禁，
-Q11 只验收新的持久恢复入口，REL-01 始终最后执行。每完成一项，立即写
+Q11 已通过并关闭；REL-01 始终最后执行。每完成一项，立即写
 PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
 
 
@@ -963,7 +971,7 @@ npm run build
 浏览器操作：
 
 1. 打开 <https://github.com/omd-local/obsidian-omd-home/releases>。
-2. 进入你要测试的**准确版本**，例如 `0.2.0`。
+2. 进入你要测试的**准确版本**，例如 `0.2.1`。
 3. 展开 **Assets**。
 4. 分别下载 `main.js`、`manifest.json`、`styles.css`。
 5. 不要下载 **Source code (zip)** 或 **Source code (tar.gz)** 当作插件包；源码压缩包不等于
@@ -1098,7 +1106,7 @@ test ! -e "$PLUGIN_DIR" \
   `$PLUGIN_DIR`
 
 不要在原始 working repo 内再次运行 `git clone`。也不要在
-`omd-home-0.2.0-clean` 中运行 `npm run install:test-vault`：那会安装到干净 checkout 自己的
+`omd-home-0.2.1-clean` 中运行 `npm run install:test-vault`：那会安装到干净 checkout 自己的
 `test-vault`，而不是本轮指定的 vault。
 
 #### 第一步：确认 Obsidian 已退出，目标仍是干净状态
@@ -1125,9 +1133,9 @@ npm run build
 预期：
 
 - `git status --short` 没有输出。
-- `git rev-parse HEAD` 与 `git rev-list -n 1 0.2.0` 输出相同，且
-  `git describe --exact-match --tags` 输出 `0.2.0`。
-- manifest 版本是 `0.2.0`。
+- `git rev-parse HEAD` 与 `git rev-list -n 1 0.2.1` 输出相同，且
+  `git describe --exact-match --tags` 输出 `0.2.1`。
+- manifest 版本是 `0.2.1`。
 - `npm ci` 和 `npm run build` 成功。
 
 确认三个源文件存在：
@@ -1173,7 +1181,7 @@ manifest：
 node -p "require(process.env.PLUGIN_DIR + '/manifest.json').version"
 ```
 
-预期为 `0.2.0`。最后逐项比较源文件和安装文件：
+预期为 `0.2.1`。最后逐项比较源文件和安装文件：
 
 ```bash
 cmp -s \

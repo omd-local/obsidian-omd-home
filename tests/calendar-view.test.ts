@@ -71,6 +71,13 @@ test("Calendar view keeps a persistent accessible recovery summary with direct r
     styles,
     /\.omd-calendar-recovery-summary\s*\{[^}]*max-block-size:\s*min\(16rem, 40vh\);[^}]*overflow-y:\s*auto;/su,
   );
+  assert.match(
+    styles,
+    /\.omd-calendar-shell\s*\{[^}]*grid-template-areas:\s*"topbar"\s*"recovery"\s*"calendar";/su,
+  );
+  assert.match(styles, /\.omd-calendar-topbar\s*\{[^}]*grid-area:\s*topbar;/su);
+  assert.match(styles, /\.omd-calendar-recovery-summary\s*\{[^}]*grid-area:\s*recovery;/su);
+  assert.match(styles, /\.omd-calendar-host\s*\{[^}]*grid-area:\s*calendar;/su);
 });
 
 test("event range errors stay inline and accessible until the range is corrected", () => {

@@ -1,6 +1,6 @@
 {
   "name": "omd-home",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Open a local-first dashboard, calendar, Inbox, and omnibox for OMD.",
   "type": "module",

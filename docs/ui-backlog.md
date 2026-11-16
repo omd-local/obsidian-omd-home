@@ -818,9 +818,9 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
 - Calendar editor／confirmation modal 现在统一登记，`onunload` 会关闭所有仍打开或 pending 的 Calendar
   action modal；modal action guard 让迟到 callback 不能继续 destructive action。原生 disable/reload smoke
   已确认无 stale button、Notice、孤儿 helper 或未处理 rejection。
-- 当前 `0.2.0` 候选自动发布门禁已通过：841 / 841 tests、TypeScript、零 warning ESLint、production
-  build 与 `git diff --check`；protocol v3 helper 的既有 release evidence 保留。最终 tag 附件哈希与
-  clean-vault 安装证据在冻结后单独记录，不复用旧候选哈希。
+- 历史 `0.2.0` 候选自动发布门禁已通过：841 / 841 tests、TypeScript、零 warning ESLint、production
+  build 与 `git diff --check`；该证据只说明原候选，不替代 `0.2.1` 的重新构建与原生重测。protocol v3
+  helper 的既有 release evidence 保留；最终 tag 附件哈希与 clean-vault 安装证据在冻结后单独记录。
 - linked/read-only event 的字段与 Save 现在保持只读一致；仍可 Detach 或删除本地 note，不再先展示可编辑
   UI、提交后才以 Calendar 不可写失败。
 - 原生已经通过 E.14 Recreate、E.15 Detach、E.16 Calendar 取消选择／恢复、Destination 显示、跨 Calendar
@@ -831,8 +831,15 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
 
 ### CALENDAR-05：Recovery 提示没有说明具体是哪条 linked note
 
-**状态：IMPLEMENTED CANDIDATE / NATIVE RETEST；首发门禁。优先级：P1。** 临时 Notice 继续提供即时
+**状态：PASS / CLOSED。优先级：P1。** 临时 Notice 继续提供即时
 反馈；Calendar view 现在还会从持久的 linked recovery 状态渲染 title、状态与可点击的 **Review event**。
+
+- 2026-11-16 `0.2.0` 原生重测发现：删除最后一条 recovery note 后数据删除正确，但 hidden summary 不再
+  参与 CSS Grid 自动排布，Calendar host 因而落进第二个 `auto` row，第三个 `1fr` row 留空；日期主体
+  空白且切换 Month／Week／Day／List 无法恢复。`0.2.1` 候选已把 topbar／recovery／Calendar 固定到命名
+  grid areas，使 hidden summary 的 row 自然收缩而 Calendar 始终占据 `1fr` row。release owner 随后确认
+  删除最后一条 recovery note 后 summary 消失、日期网格立即恢复，Month／Week／Day／List 与日期导航均
+  保持可用；本项已通过首发门禁并关闭。
 
 - 2026-10-12 原生 CAL-03 中，`CAL-03 Missing Does Not Block` 已 Detach 并移入 Trash，note 不再存在；
   再次 Sync 仍显示 `1 unavailable event`。Vault 与 EventKit 定向核对证明真正需要 recovery 的是更早的

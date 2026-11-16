@@ -106,6 +106,7 @@ export class OmdCalendarView extends ItemView {
 
   render(): void {
     this.ensureShell();
+    this.updateRecoverySummary();
     if (!this.calendar && this.hostEl) {
       this.calendar = new Calendar(this.hostEl, {
         plugins: [classicThemePlugin, dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin],
@@ -175,7 +176,6 @@ export class OmdCalendarView extends ItemView {
     if (!this.calendar) return;
     this.calendar.setOption("colorScheme", document.body.classList.contains("theme-dark") ? "dark" : "light");
     replaceCalendarEvents(this.calendar, this.visibleEvents().map(toFullCalendarEvent));
-    this.updateRecoverySummary();
   }
 
   createEvent(): void {

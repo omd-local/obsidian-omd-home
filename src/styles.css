@@ -682,8 +682,19 @@
   --fc-classic-highlight: color-mix(in srgb, var(--omd-accent) 14%, transparent);
   --fc-classic-now: var(--omd-accent);
 }
-.omd-calendar-shell { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; max-width: 1480px; margin: 0 auto; }
-.omd-calendar-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 10px; }
+.omd-calendar-shell {
+  display: grid;
+  grid-template-areas:
+    "topbar"
+    "recovery"
+    "calendar";
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+.omd-calendar-topbar { grid-area: topbar; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 10px; }
 .omd-calendar-source-filter { position: relative; z-index: 4; color: var(--omd-muted); font-size: var(--omd-font-small); }
 .omd-calendar-source-summary {
   min-height: 32px;
@@ -716,6 +727,7 @@
 }
 .omd-calendar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .omd-calendar-recovery-summary {
+  grid-area: recovery;
   max-block-size: min(16rem, 40vh);
   margin: 0 0 10px;
   padding: 9px 10px;
@@ -1015,7 +1027,7 @@
 .omd-conflict-version dt { color: var(--omd-muted); font-size: var(--omd-font-small); }
 .omd-conflict-version dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--omd-ink); font-size: var(--omd-font-ui); }
 .omd-calendar-confirmation-identity { margin: 12px 0; }
-.omd-calendar-host { min-width: 0; min-height: 0; }
+.omd-calendar-host { grid-area: calendar; min-width: 0; min-height: 0; }
 .omd-calendar-host > * { min-width: 0; }
 .omd-calendar-host [role="columnheader"] [aria-hidden="true"],
 .omd-calendar-host [role="gridcell"][data-date] > div > [aria-hidden="true"] {
