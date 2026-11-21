@@ -1,0 +1,23 @@
+{
+  "manifest_version": 2,
+  "source": "__OMD_FIXTURE_AUDIO__",
+  "backend": "reel",
+  "recognition": {
+    "ocr": {
+      "requested": null,
+      "effective": "eng",
+      "source": "default"
+    },
+    "asr": {
+      "requested": "auto",
+      "detected": "en"
+    },
+    "generation": {
+      "language_policy": "same-as-source"
+    }
+  },
+  "untrusted": true,
+  "warnings": [
+    "The transcript covers much less time than the source duration and may be incomplete."
+  ]
+}

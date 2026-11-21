@@ -117,6 +117,30 @@ test("OllamaLocalClient rejects redirects and empty smoke output", async () => {
   );
 });
 
+test("OllamaLocalClient translates a bounded summary to English with a local chat request", async () => {
+  const client = new OllamaLocalClient({
+    requestJson: async ({ path, body }) => {
+      assert.equal(path, "/api/chat");
+      assert.equal(body?.model, "qwen3:4b-instruct");
+      assert.equal(body?.stream, false);
+      assert.equal(body?.think, false);
+      const messages = body?.messages as Array<{ role: string; content: string }>;
+      assert.match(messages[0]?.content ?? "", /untrusted/iu);
+      assert.equal(messages[1]?.content, "这是中文摘要。");
+      return {
+        statusCode: 200,
+        headers: {},
+        body: JSON.stringify({ model: "qwen3:4b-instruct", message: { content: "This is a Chinese summary." } }),
+      };
+    },
+  });
+
+  assert.equal(
+    await client.translateToEnglish("http://localhost:11434", "qwen3:4b-instruct", "这是中文摘要。"),
+    "This is a Chinese summary.",
+  );
+});
+
 test("OllamaLocalClient distinguishes an unavailable status API from an unreachable daemon", async () => {
   const failing = new OllamaLocalClient({
     requestJson: async () => ({ statusCode: 500, headers: {}, body: JSON.stringify({ error: "boom" }) }),

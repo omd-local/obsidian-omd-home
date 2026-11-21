@@ -30,6 +30,7 @@ export interface EnrichmentReviewState {
   newTags: EnrichmentSuggestion[];
   concepts: EnrichmentSuggestion[];
   warnings: string[];
+  hasAppliedSuggestions: boolean;
   statusText?: string;
   detailText?: string;
   canRetry?: boolean;
@@ -40,6 +41,7 @@ export interface EnrichmentSelection {
   includeSummary: boolean;
   summaryDraft: string;
   summarySource: string;
+  manualTags?: string[];
 }
 
 export interface EnrichmentPhaseCopy {
@@ -77,6 +79,7 @@ export function createEnrichmentSelection(state: EnrichmentReviewState): Enrichm
     includeSummary: false,
     summaryDraft: state.summary,
     summarySource: state.summary,
+    manualTags: [],
   };
 }
 
@@ -94,6 +97,7 @@ export function reconcileEnrichmentSelection(
     includeSummary: sameSummary ? selection.includeSummary : false,
     summaryDraft: sameSummary ? selection.summaryDraft : state.summary,
     summarySource: state.summary,
+    manualTags: [...(selection.manualTags ?? [])],
   };
 }
 
@@ -115,6 +119,44 @@ export function updateEnrichmentSummarySelection(
   return { ...selection, ...patch };
 }
 
+export function addManualEnrichmentTag(
+  selection: EnrichmentSelection,
+  rawTag: string,
+): { selection: EnrichmentSelection; error: string } {
+  const tag = rawTag.trim().replace(/^#+/u, "");
+  if (!tag) return { selection, error: "Enter a tag first." };
+  if ([...tag].length > 128) return { selection, error: "Tags must be 128 characters or fewer." };
+  if (/\s/u.test(tag)) return { selection, error: "Obsidian tags cannot contain spaces." };
+  if (containsInvalidManualTagCharacter(tag)) {
+    return { selection, error: "This tag contains a character Obsidian cannot use." };
+  }
+  const manualTags = selection.manualTags ?? [];
+  if (manualTags.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())) {
+    return { selection, error: `#${tag} is already added.` };
+  }
+  return { selection: { ...selection, manualTags: [...manualTags, tag] }, error: "" };
+}
+
+function containsInvalidManualTagCharacter(tag: string): boolean {
+  for (const character of tag) {
+    const code = character.charCodeAt(0);
+    if (character === "," || code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+export function removeManualEnrichmentTag(
+  selection: EnrichmentSelection,
+  tag: string,
+): EnrichmentSelection {
+  return {
+    ...selection,
+    manualTags: (selection.manualTags ?? []).filter(
+      (value) => value.toLocaleLowerCase() !== tag.toLocaleLowerCase(),
+    ),
+  };
+}
+
 export function enrichmentSummaryValidation(selection: EnrichmentSelection): ReturnType<typeof validateManagedSummaryText> | null {
   return selection.includeSummary ? validateManagedSummaryText(selection.summaryDraft) : null;
 }
@@ -133,7 +175,9 @@ export function selectedEnrichmentCount(
 export function canApplyEnrichment(state: EnrichmentReviewState, selection: EnrichmentSelection): boolean {
   if (state.phase !== "review") return false;
   const summary = enrichmentSummaryValidation(selection);
-  return selectedEnrichmentCount(state, selection).selected > 0 || summary?.ok === true;
+  return selectedEnrichmentCount(state, selection).selected > 0
+    || (selection.manualTags?.length ?? 0) > 0
+    || summary?.ok === true;
 }
 
 export function selectedSuggestions(
@@ -173,6 +217,7 @@ export function emptyReviewState(targetPath: string, model: string, endpoint: st
     newTags: [],
     concepts: [],
     warnings: [],
+    hasAppliedSuggestions: false,
   };
 }
 

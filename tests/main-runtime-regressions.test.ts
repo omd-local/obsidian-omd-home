@@ -99,6 +99,31 @@ function readMethod(file: string, name: string): string {
   return member.getText(source);
 }
 
+function readyHostedAiDisclosureCapability(): Record<string, unknown> {
+  const ready = (reviewedOn: string, expiresOn: string, policyUrl: string) => ({
+    status: "ready",
+    code: null,
+    reason: null,
+    reviewed_on: reviewedOn,
+    expires_on: expiresOn,
+    policy_url: policyUrl,
+  });
+  return {
+    schema_version: 1,
+    checked_on: "2026-11-18",
+    max_age_days: 90,
+    providers: {
+      openai: ready("2026-11-02", "2027-01-31", "https://developers.openai.com/api/docs/guides/your-data"),
+      anthropic: ready(
+        "2026-11-02",
+        "2027-01-31",
+        "https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data",
+      ),
+      deepseek: ready("2026-11-18", "2027-02-16", "https://api-docs.deepseek.com/guides/kv_cache/"),
+    },
+  };
+}
+
 function mainHarness(extraMethods: string[] = [], dependencies: Record<string, unknown> = {}): Harness {
   const notices: string[] = [];
   const plugin = loadMethods("src/main.ts", [
@@ -106,7 +131,7 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     "beginHostedAiAction", "isCurrentHostedAiAction", "finishHostedAiAction", "checkHostedAiConnection",
     "hostedAiSignal", "cancelHostedAiAction", "invalidateCloudAnswerConsent", "saveHostedApiKey",
     "deleteHostedApiKey", "assertCloudConsentStillCurrent", "withLocalAiSignal", "aiSetupBusy", "canStartAiSetupAction",
-    "beginHostedCredentialMutation", "finishHostedCredentialMutation", "assertProviderDestination", "renderRetrievalDiagnostics",
+    "beginHostedCredentialMutation", "finishHostedCredentialMutation", "assertProviderDestination", "assertHostedAiDisclosureReady", "renderRetrievalDiagnostics",
     "withCloudAnswerSignal", "cancelCloudAnswerRequests", ...extraMethods,
   ], {
     Notice: class { constructor(value: string) { notices.push(value); } },
@@ -135,6 +160,14 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     cloudAnswerConsentModals: new Set(),
     localAiState: { activeAction: "" },
     hostedAiState: null,
+    enrichmentCapability: {
+      status: "ready",
+      message: "OMD is ready.",
+      capabilities: {
+        enrich_note: { supported: true, schema_versions: [1] },
+        hosted_ai_disclosure: readyHostedAiDisclosureCapability(),
+      },
+    },
     notices,
     feedback: [] as string[],
     issues: [] as unknown[],
@@ -3427,6 +3460,170 @@ test("Open retrieval settings uses feature-detected navigation and falls back to
     if (previousWindow === undefined) Reflect.deleteProperty(runtime, "window");
     else Object.defineProperty(runtime, "window", { value: previousWindow, configurable: true, writable: true });
   }
+});
+
+test("hosted disclosure preflight fails closed when legacy OMD omits the contract", () => {
+  const plugin = mainHarness();
+  plugin.enrichmentCapability = {
+    status: "ready",
+    message: "Legacy OMD is otherwise ready.",
+    capabilities: { enrich_note: { supported: true, schema_versions: [1] } },
+  };
+
+  assert.throws(
+    () => plugin.assertHostedAiDisclosureReady("openai"),
+    (error: unknown) => error instanceof LocalAiError
+      && error.code === "disclosure_unavailable"
+      && /No vault evidence was sent/iu.test(error.message)
+      && /Update OMD/iu.test(error.message),
+  );
+});
+
+test("hosted disclosure preflight rejects a cached review after its expiry date", () => {
+  const plugin = mainHarness();
+  plugin.enrichmentCapability.capabilities.hosted_ai_disclosure.providers.openai.expires_on = "2000-01-01";
+
+  assert.throws(
+    () => plugin.assertHostedAiDisclosureReady("openai"),
+    (error: unknown) => error instanceof LocalAiError
+      && error.code === "disclosure_unavailable"
+      && /review has expired/iu.test(error.message)
+      && /No vault evidence was sent/iu.test(error.message),
+  );
+});
+
+test("hosted preview stops before credentials and local retrieval when disclosure is unavailable", async () => {
+  const plugin = mainHarness(["previewCloudAnswer"], {
+    DEFAULT_SETTINGS: { ollamaHost: "http://localhost:11434" },
+    normalizeLocalOllamaHost,
+  });
+  const calls: string[] = [];
+  Object.assign(plugin.settings, {
+    aiProvider: "deepseek",
+    aiModel: "deepseek-flash",
+    aiModels: { deepseek: "deepseek-flash" },
+    ollamaHost: "http://localhost:11434",
+  });
+  plugin.hostedAiState = {
+    provider: "deepseek",
+    checkedModel: "deepseek-flash",
+    checkedAnswerCompatibility: "supported",
+    checkedAnswerContract: "strict_json_schema",
+    code: "ready",
+    activeAction: "",
+    models: [{ name: "deepseek-flash" }],
+  };
+  const disclosure = plugin.enrichmentCapability.capabilities.hosted_ai_disclosure;
+  disclosure.providers.deepseek = {
+    ...disclosure.providers.deepseek,
+    status: "unavailable",
+    code: "disclosure_unavailable",
+    reason: "unverified",
+  };
+  plugin.currentLocalAiHost = () => null;
+  plugin.qaRetrievalOptions = () => ({ hybridRetrievalEnabled: false, embeddingModel: "", semanticRerankEnabled: false });
+  plugin.prepareQaRetrieval = async () => {
+    calls.push("retrieval");
+    return { options: plugin.qaRetrievalOptions(), warning: null, warningModel: null };
+  };
+  plugin.omdBridge = {
+    hostedCredentialState: async () => { calls.push("credential"); return credential; },
+    previewAi: async () => { calls.push("preview"); return {}; },
+  };
+
+  await assert.rejects(
+    plugin.previewCloudAnswer("What is in my vault?", "deepseek", "deepseek-flash"),
+    (error: unknown) => error instanceof LocalAiError
+      && error.code === "disclosure_unavailable"
+      && /No vault evidence was sent/iu.test(error.message),
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("hosted setup uses the same disclosure preflight before provider model checks", async () => {
+  const plugin = mainHarness();
+  const calls: string[] = [];
+  Object.assign(plugin.settings, {
+    aiProvider: "deepseek",
+    aiModel: "deepseek-flash",
+    aiModels: { deepseek: "deepseek-flash" },
+  });
+  const disclosure = plugin.enrichmentCapability.capabilities.hosted_ai_disclosure;
+  disclosure.providers.deepseek = {
+    ...disclosure.providers.deepseek,
+    status: "unavailable",
+    code: "disclosure_unavailable",
+    reason: "expired",
+  };
+  plugin.omdBridge = {
+    discoverProviderModels: async () => { calls.push("catalog"); return {}; },
+    checkProviderModel: async () => { calls.push("model"); return {}; },
+  };
+
+  assert.equal(await plugin.checkHostedAiConnection(), false);
+  assert.deepEqual(calls, []);
+  assert.equal(plugin.hostedAiState.code, "disclosure_unavailable");
+  assert.match(plugin.hostedAiState.detail, /No vault evidence was sent/iu);
+});
+
+test("hosted setup force-refreshes cached disclosure before provider model checks", async () => {
+  const plugin = mainHarness();
+  const calls: string[] = [];
+  Object.assign(plugin.settings, {
+    aiProvider: "deepseek",
+    aiModel: "deepseek-flash",
+    aiModels: { deepseek: "deepseek-flash" },
+  });
+  plugin.requireReadyOmdExecutable = async (forceRefresh = false) => {
+    assert.equal(forceRefresh, true);
+    const disclosure = plugin.enrichmentCapability.capabilities.hosted_ai_disclosure;
+    disclosure.providers.deepseek = {
+      ...disclosure.providers.deepseek,
+      status: "unavailable",
+      code: "disclosure_unavailable",
+      reason: "unverified",
+    };
+    return "/Applications/OMD/bin/omd";
+  };
+  plugin.omdBridge = {
+    discoverProviderModels: async () => { calls.push("catalog"); return {}; },
+    checkProviderModel: async () => { calls.push("model"); return {}; },
+  };
+
+  assert.equal(await plugin.checkHostedAiConnection(), false);
+  assert.deepEqual(calls, []);
+  assert.equal(plugin.hostedAiState.code, "disclosure_unavailable");
+});
+
+test("hosted Ask force-refreshes OMD capabilities before opening a cloud preview", async () => {
+  const plugin = mainHarness(["askOmd"], { cloudAnswerPermissionEnabled: () => true });
+  let forceRefresh: boolean | undefined;
+  let previewCalls = 0;
+  Object.assign(plugin.settings, {
+    aiProvider: "deepseek",
+    aiModel: "deepseek-flash",
+    aiModels: { deepseek: "deepseek-flash" },
+    hybridRetrievalEnabled: false,
+  });
+  plugin.requireReadyOmdExecutable = async (force = false) => {
+    forceRefresh = force;
+    throw new LocalAiError(
+      "disclosure_unavailable",
+      "The refreshed disclosure is unavailable. No vault evidence was sent.",
+    );
+  };
+  plugin.previewCloudAnswer = async () => {
+    previewCalls += 1;
+    return {};
+  };
+  plugin.reportLocalAiWorkflowIssue = (error: Error) => { plugin.lastError = error.message; };
+  const output = { hidden: true, empty() {}, createDiv() { return {}; } };
+
+  await plugin.askOmd("What does the note say?", output);
+
+  assert.equal(forceRefresh, true);
+  assert.equal(previewCalls, 0);
+  assert.match(plugin.lastError, /No vault evidence was sent/iu);
 });
 
 test("hosted preview checks credentials before model selection or vault retrieval", async () => {

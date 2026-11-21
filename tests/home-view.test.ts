@@ -228,7 +228,8 @@ test("Inbox and Recent share one cached metadata snapshot and responsive note re
   assert.match(homeSource, /datetime: new Date\(display\.timestamp\)\.toISOString\(\)/u);
   assert.match(stylesSource, /\.omd-widget-inbox,\s*\.omd-widget-recent\s*\{ container: omd-note-widget \/ inline-size; \}/u);
   assert.match(stylesSource, /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-list-row \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
-  assert.match(homeSource, /note\.status === "reviewed" \? "Review again" : "Review"/u);
+  assert.doesNotMatch(homeSource, /note\.status === "reviewed" \? "Review again" : "Review"/u);
+  assert.doesNotMatch(homeSource, /this\.createNoteTool\(actions/u);
   assert.match(homeSource, /this\.createAiToolsButton\(actions, note\.file\)/u);
   const aiTools = extractMethodBody(homeSource, "private createAiToolsButton(");
   assert.match(aiTools, /"aria-haspopup": "menu"/u);
@@ -247,7 +248,7 @@ test("Inbox and Recent share one cached metadata snapshot and responsive note re
   assert.doesNotMatch(homeSource, /"AI tags"|"Summarize"/u);
 });
 
-test("long note titles and three actions reflow without horizontal overlap", () => {
+test("long note titles and the two row actions reflow without horizontal overlap", () => {
   assert.match(stylesSource, /\.omd-result-title, \.omd-note-title\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis/su);
   assert.match(stylesSource, /\.omd-note-tools\s*\{[^}]*max-width:\s*100%/su);
   assert.match(
@@ -255,8 +256,8 @@ test("long note titles and three actions reflow without horizontal overlap", () 
     /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-list-row \{ grid-template-columns: minmax\(0, 1fr\); \}[\s\S]*\.omd-note-tools \{[^}]*flex-wrap: wrap/su,
   );
   const row = extractMethodBody(homeSource, "private renderWorkflowNoteRow(");
-  assert.match(row, /createNoteTool[\s\S]*createAiToolsButton[\s\S]*createPinButton/u);
-  assert.doesNotMatch(row, /createNoteTool[\s\S]*createNoteTool[\s\S]*createNoteTool/u);
+  assert.match(row, /createAiToolsButton[\s\S]*createPinButton/u);
+  assert.doesNotMatch(row, /createNoteTool/u);
 });
 
 test("widget move and resize are locked while omnibox results temporarily own the layout", () => {

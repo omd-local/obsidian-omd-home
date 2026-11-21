@@ -54,6 +54,10 @@ an OCR/limitation fixture, not the ordinary successful PDF/path fixture used by 
 - `vault-notes/OMD Improve Formatting Transcript.md` is an intentionally poorly paragraphed Inbox
   note for the review-first **Improve formatting** flow. Its marker, timecode, URL, multilingual
   wording, and fenced code block must survive unchanged.
+- `vault-notes/OMD Incomplete Transcript Range Repair.md` plus its `.omd.json` sidecar exercise the
+  local range-repair workflow. `install:test-vault` replaces the sidecar placeholder with the
+  checkout's absolute `generated/slow-bilingual-speech.wav` path, so the synchronized player and
+  local Whisper repair can run without a network source.
 
 Copy these into the disposable test vault with a fresh name for each manual run. Do not complete a
 later run against an already Reviewed copy.

@@ -138,6 +138,65 @@ test("hybrid Vault Q&A gets a longer bounded bridge timeout", () => {
   assert.equal(bridgeTimeoutMs({ action: "preview_ai", hybrid_retrieval_enabled: false }), 95_000);
   assert.equal(bridgeTimeoutMs({ action: "preview_ai", hybrid_retrieval_enabled: true }), 5 * 60_000);
   assert.equal(bridgeTimeoutMs({ action: "execute_ai", hybrid_retrieval_enabled: true }), 5 * 60_000);
+  assert.equal(bridgeTimeoutMs({ action: "prepare_transcript_repair_media" }), 10 * 60_000);
+  assert.equal(bridgeTimeoutMs({ action: "retranscribe_transcript_range" }), 10 * 60_000);
+});
+
+test("transcript repair bridge contains session media and returns only the selected interval", () => {
+  const code = [
+    "import json, shutil, sys, tempfile, types",
+    "from pathlib import Path",
+    "import bridge.omd_home_bridge as bridge",
+    "root = Path(tempfile.mkdtemp(prefix='omd-home-range-'))",
+    "try:",
+    "    (root / '.obsidian').mkdir()",
+    "    request = {'vault': str(root), 'config_dir': '.obsidian', 'session_id': 'safe-session'}",
+    "    cache = bridge._repair_cache_directory(request, create=True)",
+    "    media = cache / 'source.m4a'",
+    "    media.write_bytes(b'media')",
+    "    omd = types.ModuleType('omd')",
+    "    omd.__path__ = []",
+    "    audio = types.ModuleType('omd._audio')",
+    "    audio.duration_seconds = lambda path: 40.0",
+    "    reel = types.ModuleType('omd.reel')",
+    "    reel.DEFAULT_MODEL = 'test-model'",
+    "    reel.transcribe = lambda *args: {'language': 'en', 'segments': [",
+    "        {'start': 1, 'end': 3, 'text': 'outside before'},",
+    "        {'start': 9, 'end': 12, 'text': 'inside one'},",
+    "        {'start': 20, 'end': 24, 'text': 'inside two'},",
+    "        {'start': 25, 'end': 27, 'text': 'outside after'},",
+    "    ]}",
+    "    sys.modules['omd'] = omd",
+    "    sys.modules['omd._audio'] = audio",
+    "    sys.modules['omd.reel'] = reel",
+    "    bridge._clip_repair_audio = lambda source, output, start, end: output.write_bytes(b'clip')",
+    "    result = bridge._retranscribe_transcript_range({**request, 'media_path': str(media), 'start_seconds': 10, 'end_seconds': 25, 'context_seconds': 8, 'language': 'en'})",
+    "    traversal = None",
+    "    try:",
+    "        bridge._repair_cache_directory({**request, 'session_id': '../../escape'}, create=True)",
+    "    except Exception as exc:",
+    "        traversal = str(exc)",
+    "    print(json.dumps({'result': result, 'traversal': traversal}, sort_keys=True))",
+    "finally:",
+    "    shutil.rmtree(root, ignore_errors=True)",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as {
+    result: {
+      context_start_seconds: number;
+      context_end_seconds: number;
+      segments: Array<{ start: number; end: number; text: string }>;
+    };
+    traversal: string;
+  };
+  assert.equal(value.result.context_start_seconds, 2);
+  assert.equal(value.result.context_end_seconds, 33);
+  assert.deepEqual(value.result.segments, [
+    { start: 11, end: 14, text: "inside one" },
+    { start: 22, end: 25, text: "inside two" },
+  ]);
+  assert.match(value.traversal, /cache settings are invalid/u);
 });
 
 test("hosted model checks fail closed when compatibility metadata is incomplete", async () => {

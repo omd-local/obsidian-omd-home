@@ -10,9 +10,16 @@ import {
   missingInstalledOcrPacks,
   normalizeOcrLanguageSet,
   hasCaptureLanguageOverrides,
+  ocrLanguagePresetLabel,
   ocrLanguageValue,
   whisperLanguageValue,
 } from "../src/capture-request.ts";
+
+test("OCR preset labels use one English UI vocabulary", () => {
+  assert.equal(ocrLanguagePresetLabel("eng"), "English");
+  assert.equal(ocrLanguagePresetLabel("chi_sim+eng"), "Simplified Chinese + English");
+  assert.equal(ocrLanguagePresetLabel("chi_tra+eng"), "Traditional Chinese + English");
+});
 
 test("vault capture defaults preserve OMD language defaults", () => {
   const request = captureRequestFromSettings(" https://example.com ", {

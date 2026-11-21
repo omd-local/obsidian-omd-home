@@ -229,7 +229,7 @@ export class CaptureModal extends Modal {
     });
     new Setting(localAi)
       .setName("Polish Markdown")
-      .setDesc("Improve Markdown formatting after conversion. Long documents may take several minutes.")
+      .setDesc("Improve Markdown structure after conversion. Audio and video transcripts also get punctuation and paragraph breaks without changing source words.")
       .addToggle((toggle) => {
         toggle.setValue(this.polish).onChange((value) => {
           this.polish = value;
@@ -238,7 +238,7 @@ export class CaptureModal extends Modal {
       });
     const reviewSetting = new Setting(localAi)
       .setName("Review links and tags")
-      .setDesc("Suggest links and tags after capture. Review them before applying.")
+      .setDesc("Generate a source-language summary plus link and tag suggestions after capture. Nothing is added until you review and apply it.")
       .addToggle((toggle) => {
         toggle.setValue(this.suggest).onChange((value) => {
           this.suggest = value;

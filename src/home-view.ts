@@ -532,8 +532,6 @@ export class OmdHomeView extends ItemView {
     open.addEventListener("click", () => void this.app.workspace.openLinkText(note.path, "", false));
 
     const actions = row.createDiv({ cls: "omd-note-tools" });
-    const reviewLabel = context === "recent" && note.status === "reviewed" ? "Review again" : "Review";
-    this.createNoteTool(actions, note.file, reviewLabel, "list-checks", () => void this.plugin.reviewNote(note.file));
     this.createAiToolsButton(actions, note.file);
     this.createPinButton(actions, note.file);
   }
@@ -565,24 +563,6 @@ export class OmdHomeView extends ItemView {
       element.setAttribute("title", full);
       element.setAttribute("aria-label", `${label} ${full}`);
     }
-  }
-
-  private createNoteTool(
-    parent: HTMLElement,
-    file: TFile,
-    label: "Review" | "Review again",
-    icon: string,
-    action: () => void,
-  ): HTMLButtonElement {
-    const button = parent.createEl("button", {
-      cls: "omd-note-tool",
-      type: "button",
-      attr: { title: `${label} ${file.basename}`, "aria-label": `${label} ${file.basename}` },
-    });
-    setIcon(button, icon);
-    button.createSpan({ text: label });
-    button.addEventListener("click", action);
-    return button;
   }
 
   private createAiToolsButton(parent: HTMLElement, file: TFile): HTMLButtonElement {

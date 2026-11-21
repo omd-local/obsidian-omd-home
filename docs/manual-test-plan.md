@@ -174,11 +174,11 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 | --- | --- | --- | --- | --- |
 | 1 | PARTIAL / FINAL SYNC ONLY | [候选构建与安装](#guide-plugin-assets) + [CAL-00](#test-cal-00) | build/install、helper v3 CLI probe、原生停用／启用、当前 v3 的 invalid override → Use bundled → Check helper、Automatic helper ready 与 Refresh 10 个 Calendar 已完成；只剩真实 Calendar **Sync** | Settings 不显示 literal `protocol v3`；版本证据来自 `"$PLUGIN_DIR/omd-eventkit" version` |
 | 2 | DONE / NATIVE | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 2026-10-03 原生 Check setup 后 Needs attention 为 healthy、Settings／System 为 OMD ready、Local AI ready；Current task 基线为 No task running | exact contract 仍沿用已通过的 Terminal 证据 |
-| 3 | TARGETED RETEST | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 补完仍为空或已记录 RETEST 的 warning card、viewport 与普通本地文件 control；已通过子项不重跑 | 两段分享文字；完整绝对 `small-local-file.html` 路径 |
-| 4 | TARGETED RETEST | [CAP-07 B.2](#test-cap-07) | 最终候选已安装；重测字段清空后 Clear 立即隐藏，两个 provider 与 Capture 内行一致 | 两个 provider 各做输入 → Clear → 再输入 |
+| 3 | DONE / NATIVE | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 2026-11-18 warning card、窄窗／150% 与普通本地文件 control PASS | 完整绝对 `small-local-file.html` 路径已验证 |
+| 4 | DONE / NATIVE | [CAP-07 B.2](#test-cap-07) | 2026-11-18 两个 cookies 字段输入 → Clear → 再输入 PASS；Clear 清空后立即隐藏 | 不重测 |
 | 5 | TARGETED RETEST | [CAP-07 C.2](#test-cap-07) | 最终候选已安装；重测 Rednote 最终 output 对账、Inbox／Recent、非空 transcript 与持久化隐私 | 使用测试者有权访问的公开 Rednote 视频；不要记录访问查询值 |
 | 6 | MIXED / RETEST + FIRST PASS | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | 保留已取得结果，只补表中仍标 RETEST 或空白的真实平台、wrapper failure、Retry、Cancel／unload／隐私子项 | 下方 `ps ... grep -E` 命令 |
-| 7 | PARTIAL / OPENAI RECORD ONLY | [ANSWER-02-R1](#test-answer-02-r1) | provider 自动 setup、目录加载、DeepSeek Pro／Flash 及官方 `claude-opus-5-5` 的事实／推论分离均已原生 PASS；OpenAI 成功 run 已有但 exact model 未记录，把这项并入 Q6 的同一次固定题，不额外发送 | 固定 `amber lighthouse checklist` 问题 |
+| 7 | DONE / NATIVE PASS | [ANSWER-02-R1](#test-answer-02-r1) | OpenAI、Claude 与修复后的 DeepSeek Flash 均用单篇 `amber lighthouse checklist` 完成事实／推论分离、逐项 citation 与安全 preview／Cancel／Send 合同 | Q6 已关闭；不重发 hosted 固定题 |
 | 8 | DONE / NATIVE PASS | [CAL-03 E.14–16](#test-cal-03) | Recreate、Detach、Calendar 取消选择／恢复与 Destination 显示都保留 PASS，不重跑 | release owner 原生结果 |
 | 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补同一动作重复点击与 active 请求期间 disable/reload＋Console。provider/model controls 在 active 时禁用，tuple 失效由自动回归覆盖 | synthetic smoke prompts |
 | 10 | REQUIRED / FIRST PASS | [AI-08](#test-ai-08) | 三篇 Phase 2 fixtures 已导入，hard preflight 三行 READY 且 Home 已索引；执行 P01–P06，每题三次 | `test-vault/Sources/Benchmark/` |
@@ -201,9 +201,9 @@ destructive model removal 仍留到发布后维护测试。Q3、Q11 已通过并
 | Q1 | **DONE / NATIVE PASS** | 0 | [CAL-03 F.17–18](#test-cal-03) | release owner 已确认完成 | 不重测 |
 | Q2 | **DONE / NATIVE PASS** | 0 | [CAL-03 G](#test-cal-03) | release owner 已确认完成 | 不重测 |
 | Q3 | **DONE / NATIVE PASS** | 0 | [CAL-01 steps 4／5／7／8](#test-cal-01)、[CAL-02 steps 4／5](#test-cal-02)、[CALENDAR-06](ui-backlog.md#backlog-calendar-06) | release owner 已确认 Calendar Core + UI 全部通过 | linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict、三种来源／最后一项不可关闭、Upcoming 日期与跨日范围、窄栏、150%、深浅主题和 VoiceOver 均不重测 |
-| Q4 | **UI／Capture TARGETED RETEST** | 35–50 分钟 | [UI-01／02／03](ui-backlog.md)、[UI-14](ui-backlog.md#backlog-ui-14)、[RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | Settings 标题层级、DeepSeek credential/opt-in 对齐、Ollama endpoint error／Use automatic；Home Enter 的 URL→Capture、普通文字→Ask vault；Needs attention 单条关闭；AI tools／Improve formatting；Capture warning／viewport、本地文件与 cookies Clear | 本地文件使用 `/Volumes/Transcend_q/APPS/AI/omd-home/docs/manual-test-fixtures/capture/small-local-file.html`；Improve formatting 的 Preview／Cancel、可调整窄宽度、按钮堆叠与 Apply 生命周期已原生通过，但当前 qwen 候选只删除末尾句号，格式质量仍 FAIL；conflict 尚未执行 |
+| Q4 | **DONE / NATIVE PASS；FOLLOW-UP TARGETED RETEST** | 3 checks | [UI-01／02／03](ui-backlog.md)、[UI-14](ui-backlog.md#backlog-ui-14)、[RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | baseline UI／Capture 已通过；source-language／翻译／人工 tags／新控件响应式也已通过 | Capture warning、普通本地文件、cookies Clear 与普通 formatting lifecycle 不重测；只补 Transcript cleanup、两按钮 row、零 Apply 的 Done confirmation |
 | Q5 | **真实平台 RETEST / FIRST PASS** | 依素材长度 | [CAP-07 C／D](#test-cap-07) | Douyin 成功路径；Rednote output 对账与非空 transcript；wrapper failure／Retry；Cancel／unload／隐私 | Douyin tag `cap-07-douyin-retest`；Rednote tag `cap-07-xhs-video-retest`；没有可安全使用的公开素材或过期 cookies fixture 就记 NOT RUN，不伪造 PASS |
-| Q6 | **Hosted AI TARGETED RETEST** | 15–25 分钟 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05)、[ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答) | AI-03 重测 zero-evidence 修正文案；优先用当前 catalog 的 compatible OpenAI model 执行一次 `amber lighthouse checklist`，同一 run 覆盖 ANSWER-02 exact model、AI-04 preview／Copy／provider 边界；AI-05 只做三个 provider model memory／reload | zero-evidence 零发送安全、secret scan、非 OpenAI 的 ANSWER-02-R1 已通过；没有有效 OpenAI key/model 时记 NOT RUN，再用一个 ready provider 完成固定题，不为补矩阵反复发送 |
+| Q6 | **DONE / NATIVE PASS** | 0 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05)、[ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答) | OpenAI、Claude、DeepSeek Flash 固定题以及 zero-evidence、secret scan、provider memory／reload 均通过；DeepSeek preview 的 disclosure、Cancel 零发送与新 preview 后 Send 也已通过 | 2026-11-21 DeepSeek 结果为 1 retrieved note；事实、审慎推论和每项 citation 均合格，无 `[S#]`／`[E#]`；不重测 |
 | Q7 | **发布安全门禁／Local AI PARTIAL 补齐** | 5–10 分钟 | [AI-06](#test-ai-06) | AI-06 通常属于 Extended；本候选把重复点击与 active 请求期间 disable／reload＋Console 两项提升为必做发布安全门禁 | active 时 provider/model controls 本来就禁用，tuple 失效由自动回归覆盖；不重复 Refresh models、三项 smoke 与 embedding 459ms 基线 |
 | Q8 | **REQUIRED / FIRST PASS** | 20–30 分钟 | [AI-08](#test-ai-08) | 执行 P01–P06，每题三次；P01／02／03／04／06 必须 4/4，P05 至少 3/4 | hard preflight 已三行 READY；不得引用 release-checklist distractor 或泄漏 `[S#]`／`[E#]` |
 | Q9 | **REQUIRED / FIRST PASS** | 30–45 分钟 | [AI-09](#test-ai-09) | 先用 `all-minilm:22m` 完成 AI-09A，再安装并保留 `bge-m3` 完成 AI-09B；AI-10 留发布后 | D01／B04 必须 4/4，M01 至少 3/4；不要执行 `ollama rm` |
@@ -362,7 +362,7 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
 | RC-P2-01／02、RC-P2-03 的时间／状态／tags／filter／Pin／Unpin／长文件名 | KEEP PASS；只由 Q4 验证新的 AI tools 与 formatting 入口 |
 | CAP-01A、CAP-06 B／C／D、114 秒 WAV | KEEP RESULT；普通本地文件 control 失败时才把 CAP-01A 升级为 RETEST |
 | AI-02 local Ollama、AI-06 Refresh／Check／三项 smoke／embedding | KEEP PASS；只执行 Q7 的两个原生差额 |
-| ANSWER-02-R1 的 Claude／DeepSeek、provider 自动 setup 与 blue-key 答案 | KEEP PASS；OpenAI 成功 run 本身保留，Q6 只需在固定题同一次发送补录当前 exact model ID 与 compatible contract |
+| ANSWER-02-R1 hosted matrix、provider 自动 setup 与既有 blue-key 答案 | DONE / KEEP PASS；OpenAI、Claude 与修复后的 DeepSeek Flash 固定单篇 `amber lighthouse checklist` 结果均通过事实／推论、单来源 citation 与结构合同；Q6 已关闭 |
 | CAL-03 E.14–E.16、Destination、F.17–21 与 Q0–Q2 安全 smoke | KEEP PASS；release owner 已确认，不重做 |
 | UI-12 Inbox／Reviewed、ANSWER-04 DeepSeek Pro／Flash | DONE；原生证据已足够，backlog 已关闭，不重测 |
 | 829 / 829 自动套件、255 / 255 Calendar／Home／runtime 定向矩阵 | AUTOMATED PASS；不要人工制造 queued-refresh failure、错误 confirmation token、helper crash、selection race、full-Sync finalization 或 note byte-CAS race |
@@ -394,21 +394,22 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
 | OMD native setup baseline | PASS | 2026-10-03 | 原生 Obsidian | Check setup 后 healthy；OMD ready、Local AI ready、Current task 为 No task running |
 | repeated Force Reload stability | RETEST IN REL-01 | 2026-10-03 | 原生 Obsidian | 首次 reload 正常；第二次连续 Force Reload 曾空白超过 16 秒，完整退出重开后恢复且 `data.json` 未变；在 REL-01 重复 reload／cold restart 后再定结论 |
 | CAP-07 A.3 零／非 HTTP／多 URL | PASS | 2026-10-01 | 人工反馈 | 都显示明确原因且没有启动任务 |
-| CAP-07 A.1／A.4 布局 |  |  |  | 用新 warning card、主窗口窄屏和 150% 重测 |
-| CAP-07 A.5 普通文件 control | RETEST | 2026-10-01 | 人工反馈 | 上次粘贴不存在的 `/docs/...`；改用完整绝对路径 |
-| CAP-07 B.2 动态 Clear | FAIL（旧候选） | 2026-10-04 | 人工反馈 | 点击后字段已清空，但 Clear 仍然可见；最终候选定向重测，不能把数据清空误记为视觉 PASS |
+| CAP-07 A.1／A.4 布局 | PASS | 2026-11-18 | release owner 原生 Obsidian | Capture warning 在窄窗口与 150% zoom 下不贴边、不截断、不重叠 |
+| CAP-07 A.5 普通文件 control | PASS | 2026-11-18 | release owner 原生 Obsidian | 使用完整绝对 `small-local-file.html` 路径完成普通本地文件 control |
+| CAP-07 B.2 动态 Clear | PASS | 2026-11-18 | release owner 原生 Obsidian | 两个 cookies 字段均完成输入 → Clear → 再输入；清空后按钮立即隐藏，重新输入后再次出现 |
 | CAP-07 B provider 隔离／preflight 其余子项 | KEEP RESULT | 2026-10-03 | 人工反馈 | 保留已取得结果；未执行项仍按原计划记录，不由 B.2 修复代替 |
 | CAP-07 C.1 Douyin 成功 | RETEST | 2026-10-03 | 人工反馈＋隔离诊断 | 旧候选的 yt-dlp size 参数不兼容并被误报为 post fetch；修复后复用 `XHBDW3VW-6U` 样本 |
 | CAP-07 C.2 Rednote 视频 | PARTIAL / HOME FAIL（旧候选） | 2026-10-04 21:20 | 人工反馈＋产物检查 | backend 已生成 note、sidecar 与非空 transcript；持久化来源按隐私规则省略 query／fragment 后，Home 仍与原请求做严格字符串比较，因而拒绝最终 output，Inbox 未更新 |
 | CAP-07 C.3／C.4 runtime failure／Retry |  |  |  | 两个子结果仍是 FIRST PASS，不能由真实平台失败代替 wrapper |
 | CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
-| Q4 UI／Capture checkpoint | PARTIAL；resume at Improve formatting | 2026-10-28 | 原生 Obsidian 人工反馈 | 当前基线为 Anthropic API、automatic `http://localhost:11434`，Douyin／Rednote cookies 已配置；Settings 与 Home routing 修改后需要一次定向复核。连续第二次 Capture failure 替换 latest Retry 属于单一 retry 记录，不是关闭旧 issue；测试暂停在 **Improve formatting：准备 fixture** 之前。cookie 绝对路径不写入发布文档。 |
-| RC-P2-04 AI tools／Improve formatting | PARTIAL / FAIL；note safety、failure terminal、Preview／Cancel、Apply lifecycle 与 responsive PASS；format quality FAIL；conflict NOT RUN | 2026-10-21／31 | 原生 Obsidian 人工反馈＋agent-assisted 原生 Apply＋真实 Ollama 复现＋自动 CAS 回归 | Formatting failure 没有修改 note，并创建了可单独关闭的 **Vault AI failed**。失败 modal 现会在发布 error 前关闭并回到 **No task running**。首次 Apply 卡住时 note hash 仍为 baseline；根因是底层 DOM 看似启用，但 Obsidian `ButtonComponent` 仍保持 disabled。改为通过组件 API 启用后，Apply 一次点击即关闭 modal、显示成功 Notice，并保持 Inbox。modal 可拖拽缩窄，窄宽度下 Cancel／Apply 纵向堆叠且不重叠；Preview 大区域 tooltip 已移除并保留可访问名称。实际 diff 只有删除末尾 `.`，没有更清楚的段落或 Markdown 结构，所以 C.3 格式质量仍 FAIL；frontmatter hash 与 sidecar hash 不变，marker／URL／多语言／fenced block 保留，无 `.raw.md`。仍需 conflict、Reviewed fixture 与 150% 深浅主题人工证据 |
-| AI-03 grounded answer contract | FAIL；fail-closed safety PASS | 2026-10-05 | 人工反馈 | `amber lighthouse checklist` 返回 `did not cite every claim`；未经验证正文未显示、未自动重发，所以安全阻断正确，但本次 grounded answer 不能记 PASS |
-| AI-03 zero-evidence safety | PASS；修正文案原生 RETEST | 2026-10-05 | 人工反馈＋自动回归 | `@zzqvnoevidence7391` 未打开 preview、未发送 model request；语义降级说明与零证据可同时出现，但旧文案误称 “this answer”，源码已改为 “This evidence check used keyword search only.”，仍须按 Q6 原生确认最终 copy |
+| Q4 UI／Capture checkpoint | PASS / CLOSED | 2026-11-18 | release owner 原生 Obsidian | Settings／Home routing、Needs attention、AI tools、Capture warning、普通本地文件与两个 cookies Clear 的 targeted retest 全部通过；cookie 绝对路径不写入发布文档 |
+| RC-P2-04 AI tools／Improve formatting | BASELINE PASS；2026-11-20 follow-up PARTIAL | 2026-11-20 | release owner 原生 Obsidian＋自动 CAS 回归 | Preview／Cancel／Apply、format quality、exact-baseline conflict 与 Reviewed 状态保持继续 PASS；source-language／English 翻译、人工 tags、新控件窄窗／150% 已原生 PASS。Transcript 曾因把 capture metadata 一并交给模型而安全拒绝；已改为只处理 `## Transcript`，并统一 Capture polish 路径。安装后只补 Transcript、两按钮 row 与零 Apply 的 Done confirmation |
+| AI-03 grounded answer contract（历史候选） | HISTORICAL FAIL / SUPERSEDED；fail-closed safety PASS | 2026-10-05 | 人工反馈 | 旧候选返回 `did not cite every claim` 且安全阻断；后续 Q6 的 OpenAI、Claude 与 DeepSeek Flash 固定题均已原生通过，因此不再代表当前候选结论 |
+| AI-03 zero-evidence safety | PASS / CLOSED | 2026-11-18 | release owner 原生反馈＋自动回归 | `@zzqvnoevidence7391` 未打开 preview、未发送 model request；keyword fallback 只描述 evidence check，不再暗示已生成 answer。Q6 不重测此分支 |
+| Q6 hosted `amber lighthouse checklist` | PASS / CLOSED | 2026-11-21 | release owner 原生答案 | OpenAI、Claude 与修复后的 DeepSeek Flash 均为 **Based on 1 retrieved note**；Thursday 10:30、Morgan 与 stable phrase 在 Source states，审慎计划只在 Model inference，所有 claim 指向同一批准来源且无 `[S#]`／`[E#]`。DeepSeek disclosure、Cancel 零发送、新 preview 与最终 Send 一并通过 |
 | DeepSeek keyword fallback 子分支（历史、已被后续固定题取代） | HISTORICAL PARTIAL / SUPERSEDED | 2026-10-05 | 截图 2／3 | model missing 与 daemon unreachable 的 fallback PASS；旧 prompt 曾把直接事实重复写入 Model inference。后续固定 blue-key 题的 Pro／Flash 两次原生 PASS 已取代这条 provenance 结论，见下一行与 ANSWER-04 CLOSED |
-| AI-05 local workflow isolation | PASS；AI-05 overall PARTIAL | 2026-10-21 | 人工反馈＋自动 state scan | Claude hosted key 不可用时 Generate AI tags 仍通过本地 writing model；五个 provider 的 model memory 已分别持久化，`data.json` secret scan PASS。只剩原生切换三个 provider 并 reload 后观察各自选项 |
-| ANSWER-02-R1 定向补测 | PARTIAL；Claude Opus 4.5、DeepSeek Pro／Flash 与 Anthropic `claude-opus-5-5` contract PASS；provider 自动 setup PASS；OpenAI exact ID RECORD ONLY | 2026-10-05 | 人工反馈＋截图 1／2／3＋canonical Opus 5.5 错误截图＋DeepSeek Pro／Flash 与修复后 Opus 5.5 原生结果＋最终候选原生设置 | 修复后 canonical `claude-opus-5-5` 正确回答 Orchid station／Tuesday；唯一事实位于 Source states 并带合法 wikilink，Model inference 为 None，无 placeholder 或原始 `S#`。底部 Sources 保留三篇检索清单，即使正文只使用其中一篇也符合合同。旧候选 citation FAIL 与 fail-closed safety PASS 作为回归证据保留。retired old Sonnet 与 `deepseek-chat` 缺席均为 NOT RUN；OpenAI run 已成功但 exact model ID 未记录，按 Q6 与固定题合并补录 |
+| AI-05 local workflow isolation | PASS / CLOSED | 2026-11-18 | 人工反馈＋自动 state scan | hosted key 不可用时 Generate AI tags 仍通过本地 writing model；provider model memory／reload 与 `data.json` secret scan PASS。Q6 不再重测 |
+| ANSWER-02-R1 定向补测 | PASS / CLOSED | 2026-11-21 | release owner 原生答案＋既有截图／回归 | OpenAI、canonical `claude-opus-5-5` 与修复后的 DeepSeek Flash 单篇 lighthouse 答案均通过结构、citation 与事实／推论分离；既有 DeepSeek Pro／Flash blue-key 结果继续保留。旧候选 citation FAIL 与 fail-closed safety PASS 作为回归证据；retired model 缺席为 NOT RUN |
 | CAL-00 helper override | CURRENT v3 NATIVE PASS；final Sync pending | 2026-10-21 | 原生 Obsidian＋自动回归 | 当前 helper CLI v3、disable／enable、Automatic helper ready 与 Refresh 10 个 Calendar 已通过；agent-assisted 原生输入 `/tmp/omd-home-missing-eventkit-v3` 后立即出现统一错误，旧 ready 消失，Use bundled 清空 override，Check helper 恢复 ready／10 calendars，`data.json` hash 仍为 `97a63791…6206`；只剩真实 Sync |
 | CAL-01 targeted UI | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | datetime-local、设备时区、linked 本地时间、all-day exclusive End、empty Start validation 与 mixed LTR／RTL／中文 conflict 全部通过 |
 | CAL-02 source UX | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | Vault-only／Linked／Calendar-only 三类 fixture 对账、来源筛选、最后一个来源 disabled、日期与 Week view 保持及 Event source key 全部通过 |
@@ -533,8 +534,10 @@ Reviewed，重新执行以上 copy 并等待 metadata 刷新，不要另做 Capt
 
 #### RC-P2-04：AI tools 与 review-first Improve formatting（UI-21）
 
-**状态：TARGETED RETEST。** 实现与确定性自动回归完成后才安装最终候选；原生宽／窄窗口、键盘、
-150% 字体、真实本地模型、取消、冲突与失败终态尚未取得 PASS，不得由源码或自动测试代替。
+**状态：BASELINE NATIVE PASS；2026-11-20 FOLLOW-UP TARGETED RETEST。** 原有 preview／Cancel／Apply／
+conflict／响应式矩阵保持 PASS。source-language summary、可选 English 翻译、人工 tags 与新增控件在窄窗／
+150% 下已由 release owner 原生确认 PASS；只补测 Transcript scope 修复、精简后的 row actions，以及
+Done reviewing 未 Apply 时的内联确认。
 
 **A. 准备可重置 fixture 与 baseline**
 
@@ -558,17 +561,26 @@ Reviewed，重新执行以上 copy 并等待 metadata 刷新，不要另做 Capt
 
 **B. 动作层级、响应式与 suggestion 语义**
 
-1. 宽窗口下，每个 note row 只显示 **Review**／**Review again**、**AI tools**、**Pin**／**Unpin**。
-   不能再出现独立 **AI tags** 或 **Summarize**。打开 **AI tools**，菜单必须正好有两个诚实命名的项目，
+1. 宽窗口下，每个 note row 只显示 **AI tools**、**Pin**／**Unpin**；不再显示独立的 **Review**／
+   **Review again**，也不能出现独立 **AI tags** 或 **Summarize**。Review 由 **AI tools → Generate
+   suggestions · summary, links, tags** 打开。打开 **AI tools**，菜单必须正好有两个诚实命名的项目，
    顺序为 **Improve formatting**、**Generate suggestions · summary, links, tags**。
 2. 用 Tab 聚焦 AI tools，以 Enter／Space 打开，用方向键移动并以 Enter 选择；Escape 关闭菜单后焦点
    回到 trigger。每个控件有可读 accessible name 与可见 focus，不能只靠 icon 或 hover 说明用途。
-3. 缩窄 Obsidian 主窗口并用 **View → Zoom in** 到约 150%，再以深／浅主题各看一次。三个行级动作可
+3. 缩窄 Obsidian 主窗口并用 **View → Zoom in** 到约 150%，再以深／浅主题各看一次。两个行级动作可
    换行或稳定收纳，但不得重叠、截断、产生横向滚动或挤乱长文件名、status、tags、time 与 Pin 列。
    最后运行 **View → Actual Size**。
 4. 选择 **Generate suggestions · summary, links, tags**。它必须打开现有的 combined Review surface，
    同时呈现 proposal summary、links 与 tags；生成、关闭或 Cancel 都不写 note，也不改变 Inbox／
    Reviewed。只有用户在 Review 中明确选择并 Apply 才写入相应内容；Apply 仍不自动完成 Review。
+5. 在新生成的 proposal 中不要 Apply，直接选择 **Done reviewing**。侧栏 footer 必须原地显示
+   **No suggestions were applied**，并提供 **Keep reviewing** 与 **Mark reviewed anyway**；不能只显示
+   短暂 Notice，也不能写入 Needs attention。选择 **Keep reviewing** 后 proposal 与选择状态保留。成功
+   Apply 至少一项后再选择 Done reviewing，应直接完成，不重复显示“零 Apply”确认。
+6. Capture 的 **Polish Markdown** 与 AI tools 的 **Improve formatting** 使用同一 formatting 能力；前者
+   只是 conversion 后自动触发。Capture 的 **Review links and tags** 与 Generate suggestions 使用同一份
+   source-language summary／links／tags proposal；Capture helper 必须明确说明内容在 review + Apply 前
+   不会写入。含 `## Transcript` 的 Capture polish 也必须使用 Transcript cleanup，不能只在 AI tools 生效。
 
 **C. Improve formatting：进度、preview、Cancel 与 Apply**
 
@@ -600,8 +612,10 @@ Reviewed，重新执行以上 copy 并等待 metadata 刷新，不要另做 Capt
    printf '\nMANUAL-FORMAT-CONFLICT-KEEP-826\n' >> "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting Conflict.md"
    ```
 
-2. 回到旧 preview 点击 **Apply formatting**。应显示 note 在 preview 后已改变，拒绝覆盖；手工追加行、
-   原 marker／URL／多语言文字与 Inbox 状态全部保留。重新 Generate 才能基于新 baseline 应用。
+2. 回到旧 preview 点击 **Apply formatting**。原 modal 必须保持打开并在其中显示 note 在 preview 后已改变；
+   **Apply formatting** 隐藏，由自动聚焦的 **Generate again** 取代，且不能只依赖会消失的 Notice 或新增
+   Needs attention。手工追加行、原 marker／URL／多语言文字与 Inbox 状态全部保留。点击
+   **Generate again** 后旧 modal 关闭，并基于最新 note 内容生成新 preview。
 
 **E. Missing model、runtime error 与 no-op**
 
@@ -616,9 +630,61 @@ Reviewed，重新执行以上 copy 并等待 metadata 刷新，不要另做 Capt
    不打开可 Apply 的空 preview、不写 note，并回到 idle。真实模型未稳定产生 no-op 时记
    `NOT EXERCISED — deterministic automatic regression only`，不能为了 PASS 修改生产 note 或模型输出。
 
-通过条件：行级只保留 Review／Review again、AI tools、Pin／Unpin；AI tools 只有两个准确动作；formatting
-始终先生成完整 preview，Cancel／关闭／失败／no-op／conflict 均零写入；Apply 只改变经确认的正文格式，
-不改变文字、frontmatter、sidecar 或 Review 状态，也不在 vault 留下 `.raw.md`。
+**F. Incomplete transcript：同步播放器、选区重转录与原文备份**
+
+1. 重新运行 `npm run build && npm run install:test-vault` 后 reload OMD Home。安装脚本会重置以下专用
+   fixture；不要用已修复过的副本代替：
+
+   ```bash
+   export TRANSCRIPT_REPAIR_NOTE="$TEST_VAULT/OMD Manual Tests/OMD Incomplete Transcript Range Repair.md"
+   export TRANSCRIPT_REPAIR_SIDECAR="$TEST_VAULT/OMD Manual Tests/OMD Incomplete Transcript Range Repair.omd.json"
+   cp "$TRANSCRIPT_REPAIR_NOTE" "/tmp/OMD Incomplete Transcript Range Repair.before.md"
+   shasum -a 256 "$TRANSCRIPT_REPAIR_NOTE" "$TRANSCRIPT_REPAIR_SIDECAR"
+   ```
+
+   记录两项 hash。note 必须含 marker `OMD-INCOMPLETE-RANGE-REPAIR-113855`、Duration `113.855s`，
+   Timestamped 只到 `00:12`；sidecar 的 source 必须是当前 checkout 内实际存在的
+   `slow-bilingual-speech.wav` 绝对路径。
+2. 打开该 note。只有有 transcript warning 的 note header 才显示 **Review and repair transcript**；点击后
+   modal 必须持续显示，不依赖短暂 Notice。OMD 应自动把 `00:12–01:53` 标成 likely incomplete interval，
+   原音频播放器可播放，timestamped rows 与播放器同步；点击任一 row 应跳到对应时间，播放中的 row 与
+   当前选区有不同的可见状态。若 source 不可用，应在 modal 内显示可恢复错误且 note 零写入。
+3. 分别拖动 Start／End；选区摘要应即时更新且不能交叉。把播放器移到约 `00:20`，点击
+   **From here to end**，Start 应变成当前播放位置、End 变成媒体结尾。再用 slider 恢复
+   `00:12–01:53`；也验证 **Set start to player**、**Set end to player** 与
+   **Play selected range** 可用。窄窗与 150% 下播放器、两列 transcript、sliders 和按钮必须改为单列，
+   不重叠或产生横向滚动。
+4. 先点 **Keep original**。再次运行第 1 步的两项 hash，必须完全相同；不得创建 backup。重新打开 modal，
+   保持 `00:12–01:53`，点 **Re-transcribe selected range**。界面必须说明使用前后各 8 秒本机 context，
+   长操作期间按钮禁用且错误持续留在 modal。完成后必须同时显示 **Current text** 与
+   **New local transcript**；旧文本对缺失 tail 应明确写无 timestamped text，新文本带选区内 timestamps。
+   Preview 前 note、frontmatter 与 sidecar 均不变化。
+5. 确认 preview 后点 **Replace selected range**。OMD 必须先在
+   `$PLUGIN_DIR/transcript-backups/` 写一份完整 `.original.md`，再以 exact-baseline CAS 应用。应用后：
+   - `00:00–00:06`、`00:06–00:12` 两个原 timestamp rows 逐字不变；
+   - 只在选区插入／替换新 transcript rows，`## Manual test marker` 与 frontmatter 不变；
+   - incomplete warning 移除，状态变为 `Repaired after review`，并记录本机局部重转录范围；
+   - sidecar hash 与 baseline 相同；
+   - 自动 backup 与 `/tmp/OMD Incomplete Transcript Range Repair.before.md` 的 SHA-256 相同。
+
+   ```bash
+   rg -n '00:00 → 00:06|00:06 → 00:12|OMD-INCOMPLETE-RANGE-REPAIR-113855|Transcript repair|Repaired after review' "$TRANSCRIPT_REPAIR_NOTE"
+   shasum -a 256 "$TRANSCRIPT_REPAIR_SIDECAR"
+   find "$PLUGIN_DIR/transcript-backups" -name 'OMD Incomplete Transcript Range Repair-*.original.md' -print
+   export TRANSCRIPT_REPAIR_BACKUP="$(find "$PLUGIN_DIR/transcript-backups" -name 'OMD Incomplete Transcript Range Repair-*.original.md' -print | sort | tail -1)"
+   shasum -a 256 "/tmp/OMD Incomplete Transcript Range Repair.before.md" "$TRANSCRIPT_REPAIR_BACKUP"
+   ```
+6. Conflict：再次运行 `npm run install:test-vault` 重置 fixture，生成 replacement preview 后，先在 Terminal
+   追加 `MANUAL-TRANSCRIPT-RANGE-CONFLICT-KEEP-113855`，再点旧 **Replace selected range**。modal 必须持久
+   显示 changed-after-preview conflict；追加行保留，旧 preview 零写入，sidecar 不变。关闭后重开才可生成
+   新 preview。最后关闭 modal 后，session audio cache 应清理；完整 backup 只保留在明确 Apply 的分支。
+
+通过条件：行级只保留 AI tools、Pin／Unpin；AI tools 只有两个准确动作；未 Apply 时 Done reviewing 有
+内联二次确认；Capture 与 AI tools 的两项能力语义一致；formatting 始终先生成完整 preview，Cancel／
+关闭／失败／no-op／conflict 均零写入；Apply 只改变经确认的正文格式，
+不改变文字、frontmatter、sidecar 或 Review 状态，也不在 vault 留下 `.raw.md`。Incomplete transcript
+必须先自动建议区间、允许用户调整并同步播放，只把获批区间交给本机 Whisper；old/new preview、完整原文
+backup 与 exact-baseline conflict 三项缺一不可。
 
 <a id="test-rc-ui-01"></a>
 
@@ -1930,6 +1996,41 @@ HTTP 400；换成同一 provider 的 `gpt-4o-mini` 后可收到有来源引用�
     不能因为 `v4-pro` 较慢就静默回退到 Flash。结构化 DeepSeek 问答会显式关闭默认 thinking，避免
     reasoning 占用有界输出预算；若仍失败，记录安全错误类别、耗时与型号，不记录原始响应或凭证。
 
+**2026-11-18 disclosure 修复后的 Q6 最短复测（本轮只执行这里）**
+
+1. 先在 **Settings → OMD Home → OMD** 点击 **Check again**。应显示 OMD package
+   `0.3.0b4.dev2` 或更高；更低版本不要继续，它仍会把 DeepSeek disclosure 标成 unavailable。
+2. 选择 **DeepSeek API / `deepseek-flash`**，点击 **Check setup**。必须显示 setup ready；不能先显示
+   ready、到 Home 后才报 **could not prepare the exact evidence disclosure**。再切到
+   `deepseek-v4-pro` 只做一次 **Check setup** ready，然后切回 Flash；无需为 Pro 再发送同题。
+3. 在 Home 提交：
+
+   ```text
+   @Using only the note with the phrase “amber lighthouse checklist”, what does the source explicitly say about the lighthouse review, and what is one cautious planning inference? Label the two parts.
+   ```
+
+   preview 必须显示 DeepSeek、`deepseek-flash`、`api.deepseek.com` 与 1 source。Data handling 必须如实
+   说明：DeepSeek API 默认启用 per-account disk context cache；未使用的 cache 通常在 hours to days
+   内清理；已审核的官方条款没有公开 downstream-app evidence 的完整 API input/output retention 或
+   storage-location 规则；API 文档没有说明可供 OMD 使用的 cache opt-out，因此 OMD 不承诺 zero
+   retention。缺任何一项都记 FAIL，不批准发送。
+4. 第一次点 **Cancel**，确认 **No vault evidence was sent**。再次提交同题，取得新的 preview 后批准。
+   结果必须为 **Based on 1 retrieved note**；Thursday 10:30 与 Morgan 只能作为 Source states，审慎的
+   准备／协调建议只能作为 Model inference；每个 claim 都引用
+   `[[Manual Test Notes/English Markdown Note.md]]`，不得显示内部 `[S#]`／`[E#]`。
+5. 若第 2 步因 disclosure 不完整、过期或旧 OMD 而失败，Check setup 必须立即显示具体原因和
+   **No vault evidence was sent**，且不得请求 model catalog 或执行 Vault retrieval；这属于安全 PASS，
+   但 Q6 的 DeepSeek 成功路径仍不能关闭。
+
+**2026-11-18 修复候选实机证据**：步骤 1–3 与步骤 4 的首次 Cancel 已通过。test-vault 显示
+`0.3.0b4.dev2`，`deepseek-v4-pro` 与 `deepseek-flash` 均 Check setup ready；Flash preview 显示
+DeepSeek、正确 model／destination、1 source、231-token estimate、完整 Data handling 与正确的唯一
+fixture excerpt。点击 Cancel 后明确显示 **Cloud answer cancelled. No vault evidence was sent.**。
+
+**2026-11-21 最终原生结论：Q6 PASS / CLOSED。** 再次提交同题并批准后，DeepSeek Flash 返回
+**Based on 1 retrieved note**；Thursday 10:30、Morgan 与 stable phrase 均作为逐项引用的 Source states，
+唯一 planning inference 使用审慎措辞并引用同一 note，无内部 `[S#]`／`[E#]`。不再重复 hosted 固定题。
+
 <a id="test-ai-04-structured"></a>
 
 **结构化答案与失败分类回归（各 provider 共用）**
@@ -2166,7 +2267,13 @@ PARTIAL，不能只凭 AI tags 成功改为整项 PASS。
    关闭 OMD Home tab，再回到 Settings；plugin-level action 应完成或保留准确的最终反馈，且不产生第二个
    重叠动作。
 4. 在一个诊断进行时，确认相邻的 Check setup、Save／Remove credential、embedding check 等共享
-   setup 动作清楚显示 busy／disabled。连续点击不得启动重复 request 或 child process。
+   setup 动作清楚显示 busy／disabled。连续点击不得启动重复 request 或 child process。不要用逐次打开
+   Command Palette 的方式制造并发：短 smoke 往往会在下一次搜索命令前完成，三项随后都成功只证明它们
+   顺序完成。稳定的原生复测方法是给 **Smoke local AI: Note enrichment**、**Check local AI connection**
+   和 **Test local AI embeddings** 临时设置三个无冲突 Hotkeys；必要时先在 macOS Terminal 执行
+   `ollama stop qwen3:4b-instruct` 制造冷启动，再快速按 smoke 两次、check 一次、embedding 一次。第一项
+   active 时其余动作必须立即显示 busy／disabled 或 **Another AI setup action is already running…**；完成后
+   移除临时 Hotkeys。`ollama stop` 是 Terminal 命令，不是 Developer Console JavaScript。
 5. 动作 active 时确认 provider、endpoint 与 model 控件 disabled。当前 UI 不允许此时人工改变 tuple；
    旧 tuple 迟到结果不能覆盖新设置的边界由自动回归验证，不要求人工绕过 disabled 控件。
 6. 最后在 Community plugins disable／reload OMD Home。运行中的 request／child process 必须取消，
@@ -2188,8 +2295,9 @@ unload 后拒绝新 local-AI signal work、过期请求不能发布 stale 状态
 
 只补以下原生差额，已通过的 Refresh／Check／三项 smoke／embedding 不再重复：
 
-- [ ] **Step 4 · 重复点击：** 一个诊断 active 时再次触发同一命令，并操作邻近 Check setup、
-  Save／Remove credential 与 embedding check；必须清楚 busy／disabled，且只产生一个 request／child。
+- [ ] **Step 4 · 重复点击：** 使用上方临时 Hotkeys 在同一 active 时间窗快速触发 smoke ×2、check ×1、
+  embedding ×1；必须清楚 busy／disabled 或显示 overlap Notice，且只产生一个 request／child。若用
+  Command Palette 后三项都成功，应记录为 **INCONCLUSIVE — actions completed sequentially**，不能记 FAIL。
 - [x] **Step 5 · tuple 失效（AUTOMATED PASS）：** active 时 UI 会禁用 provider／endpoint／model，
   因此没有可执行的原生手工路径；自动回归已确认旧 tuple 的迟到结果不能覆盖新状态。
 - [ ] **Step 6 · lifecycle：** 动作 active 时 disable／reload 插件；request／child 被取消，Settings

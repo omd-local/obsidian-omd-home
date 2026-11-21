@@ -42,6 +42,7 @@ test("capture opts into remembered local Markdown polish", () => {
     "capture", "https://example.com", "--vault", "/vault", "--json-events",
     "--polish-md", "--polish-md-model", "qwen3:4b-instruct",
     "--polish-md-host", "http://localhost:11434",
+    "--polish-md-transcript-cleanup",
   ]);
 });
 

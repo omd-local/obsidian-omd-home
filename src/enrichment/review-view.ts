@@ -1,10 +1,12 @@
 import { ItemView, Notice, WorkspaceLeaf } from "obsidian";
 import {
+  addManualEnrichmentTag,
   canApplyEnrichment,
   createEnrichmentSelection,
   describeEnrichmentPhase,
   enrichmentSummaryValidation,
   reconcileEnrichmentSelection,
+  removeManualEnrichmentTag,
   selectedEnrichmentCount,
   selectedSuggestions,
   stageRailItems,
@@ -24,6 +26,7 @@ export interface EnrichmentApplyPayload {
 export interface EnrichmentReviewViewCallbacks {
   onGenerate: () => void | Promise<void>;
   onCancelGeneration: () => void | Promise<void>;
+  onTranslateSummary: (summary: string) => Promise<string>;
   onApply: (payload: EnrichmentApplyPayload) => void | Promise<void>;
   onDoneReviewing: () => void | Promise<void>;
   onClose: () => void;
@@ -31,6 +34,7 @@ export interface EnrichmentReviewViewCallbacks {
 }
 
 export const ENRICHMENT_REVIEW_VIEW_TYPE = "omd-home-enrichment-review";
+const TRANSLATE_TO_ENGLISH_LABEL = ["Translate to", "English"].join(" ");
 
 export class EnrichmentReviewView extends ItemView {
   private state: EnrichmentReviewState | null = null;
@@ -38,6 +42,11 @@ export class EnrichmentReviewView extends ItemView {
   private callbacks: EnrichmentReviewViewCallbacks | null = null;
   private focusTimer: number | null = null;
   private focusNextRender = true;
+  private summaryTranslated = false;
+  private summaryBeforeTranslation: string | null = null;
+  private translationPending = false;
+  private translationError = "";
+  private confirmDoneWithoutApply = false;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -69,15 +78,22 @@ export class EnrichmentReviewView extends ItemView {
     this.state = state;
     this.selection = createEnrichmentSelection(state);
     this.callbacks = callbacks;
+    this.confirmDoneWithoutApply = false;
+    this.resetSummaryTranslation();
     this.focusNextRender = true;
     this.render();
   }
 
   updateState(state: EnrichmentReviewState): void {
     if (state.targetPath !== this.state?.targetPath) return;
-    if (state.phase !== this.state?.phase) this.focusNextRender = true;
+    const proposalChanged = state.summary !== this.state?.summary;
+    if (state.phase !== this.state?.phase) {
+      this.focusNextRender = true;
+      this.confirmDoneWithoutApply = false;
+    }
     this.state = state;
     this.selection = reconcileEnrichmentSelection(state, this.selection);
+    if (proposalChanged) this.resetSummaryTranslation();
     if (this.contentEl.isConnected) this.render();
   }
 
@@ -149,13 +165,25 @@ export class EnrichmentReviewView extends ItemView {
     else if (this.state.warnings.length) this.renderWarnings(scroll, this.state.warnings);
 
     const footer = shell.createDiv({ cls: "omd-enrichment-footer" });
-    const footerCopy = footer.createDiv({ cls: "omd-enrichment-footer-copy" });
+    const footerCopy = footer.createDiv({
+      cls: `omd-enrichment-footer-copy${this.confirmDoneWithoutApply ? " is-confirmation" : ""}`,
+      attr: this.confirmDoneWithoutApply
+        ? { role: "alert", "aria-live": "assertive", "aria-atomic": "true" }
+        : {},
+    });
     const counts = selectedEnrichmentCount(this.state, this.selection);
     footerCopy.createDiv({
       cls: "omd-enrichment-count",
-      text: showsProposal(this.state) ? selectionCountText(this.state, this.selection, counts) : phase.title,
+      text: this.confirmDoneWithoutApply
+        ? "No suggestions applied"
+        : showsProposal(this.state) ? selectionCountText(this.state, this.selection, counts) : phase.title,
     });
-    footerCopy.createDiv({ cls: "omd-enrichment-footer-note", text: footerNote(this.state) });
+    footerCopy.createDiv({
+      cls: "omd-enrichment-footer-note",
+      text: this.confirmDoneWithoutApply
+        ? "No suggestions were applied to this note. Mark it Reviewed anyway?"
+        : footerNote(this.state),
+    });
     this.renderActions(footer.createDiv({ cls: "omd-enrichment-actions" }));
     scroll.scrollTop = scrollTop;
     if (focusKey || this.focusNextRender) {
@@ -185,21 +213,52 @@ export class EnrichmentReviewView extends ItemView {
     const summaryHeader = summary.createDiv({ cls: "omd-enrichment-summary-header" });
     summaryHeader.createDiv({ cls: "omd-enrichment-section-label", text: "Proposal summary" });
     const summaryActions = summaryHeader.createDiv({ cls: "omd-enrichment-summary-actions" });
+    const editable = state.phase === "review";
     const copy = summaryActions.createEl("button", {
       cls: "omd-inline-action omd-enrichment-summary-copy",
       type: "button",
       text: "Copy summary",
     });
     copy.dataset.omdFocusKey = "summary:copy";
-    copy.disabled = !state.summary.trim();
+    copy.disabled = !this.selection.summaryDraft.trim();
     copy.addEventListener("click", () => void this.copySummary());
 
-    const editable = state.phase === "review";
+    if (editable && this.selection.summaryDraft.trim()) {
+      const translate = this.summaryTranslated
+        ? summaryActions.createEl("button", {
+          cls: "omd-inline-action omd-enrichment-summary-translate",
+          type: "button",
+          text: "Show original",
+        })
+        : summaryActions.createEl("button", {
+          cls: "omd-inline-action omd-enrichment-summary-translate",
+          type: "button",
+          text: TRANSLATE_TO_ENGLISH_LABEL,
+        });
+      translate.dataset.omdFocusKey = "summary:translate";
+      translate.disabled = this.translationPending;
+      translate.addEventListener("click", () => {
+        if (this.summaryTranslated) this.restoreOriginalSummary();
+        else void this.translateSummaryToEnglish();
+      });
+    }
+
+    if (this.translationPending || this.translationError) {
+      summary.createDiv({
+        cls: "omd-enrichment-summary-translation-status",
+        text: this.translationPending ? "Translating locally…" : this.translationError,
+        attr: {
+          role: this.translationError ? "alert" : "status",
+          "aria-live": "polite",
+        },
+      });
+    }
+
     const includeRow = summary.createEl("label", { cls: "omd-enrichment-summary-option" });
     const include = includeRow.createEl("input", { type: "checkbox" });
     include.dataset.omdFocusKey = "summary:include";
     include.checked = this.selection.includeSummary;
-    include.disabled = !editable || !state.summary.trim();
+    include.disabled = !editable || this.translationPending || !state.summary.trim();
     includeRow.createSpan({ text: "Add summary to note" });
     include.addEventListener("change", () => {
       this.selection = updateEnrichmentSummarySelection(this.selection, { includeSummary: include.checked });
@@ -218,7 +277,7 @@ export class EnrichmentReviewView extends ItemView {
       });
       textarea.dataset.omdFocusKey = "summary:draft";
       textarea.value = this.selection.summaryDraft;
-      textarea.readOnly = !editable;
+      textarea.readOnly = !editable || this.translationPending;
       summaryError = summary.createDiv({
         cls: "omd-enrichment-summary-error",
         attr: { role: "alert" },
@@ -230,11 +289,15 @@ export class EnrichmentReviewView extends ItemView {
         this.syncApplyAction();
       });
     } else {
-      summary.createDiv({ cls: "omd-enrichment-summary-text", text: state.summary || "No summary was generated.", attr: { dir: "auto" } });
+      summary.createDiv({
+        cls: "omd-enrichment-summary-text",
+        text: this.selection.summaryDraft || "No summary was generated.",
+        attr: { dir: "auto" },
+      });
     }
     summary.createDiv({
       cls: "omd-enrichment-summary-footnote",
-      text: "Optional. Review or edit it before applying. Done reviewing does not add it.",
+      text: "Generated in the source language by default. Translation is optional. Done reviewing does not add it.",
     });
 
     this.renderWarnings(shell, state.warnings);
@@ -243,6 +306,80 @@ export class EnrichmentReviewView extends ItemView {
     this.renderSuggestionSection(sections, "Existing tags", state.existingTags);
     this.renderSuggestionSection(sections, "New tags", state.newTags);
     this.renderSuggestionSection(sections, "Suggested note topics", state.concepts, true);
+    this.renderManualTags(sections);
+  }
+
+  private renderManualTags(parent: HTMLElement): void {
+    const editable = this.state?.phase === "review";
+    const tags = this.selection.manualTags ?? [];
+    if (!editable && tags.length === 0) return;
+
+    const section = parent.createDiv({ cls: "omd-enrichment-section omd-enrichment-manual-tags" });
+    const header = section.createDiv({ cls: "omd-enrichment-section-header" });
+    header.createEl("h3", { text: "Add your own tags" });
+    header.createSpan({ cls: "omd-enrichment-section-count", text: String(tags.length) });
+    section.createEl("p", {
+      cls: "omd-enrichment-section-description",
+      text: "Add a tag directly when the local model did not suggest the taxonomy you need.",
+    });
+
+    if (tags.length) {
+      const list = section.createDiv({ cls: "omd-enrichment-manual-tag-list", attr: { "aria-label": "Tags you added" } });
+      for (const tag of tags) {
+        const chip = list.createDiv({ cls: "omd-enrichment-manual-tag" });
+        chip.createSpan({ text: `#${tag}`, attr: { dir: "auto" } });
+        if (editable) {
+          const remove = chip.createEl("button", {
+            cls: "omd-enrichment-manual-tag-remove",
+            type: "button",
+            text: "×",
+            attr: { "aria-label": "Remove tag #" + tag },
+          });
+          remove.dataset.omdFocusKey = `manual-tag:remove:${tag}`;
+          remove.addEventListener("click", () => {
+            this.selection = removeManualEnrichmentTag(this.selection, tag);
+            this.render();
+          });
+        }
+      }
+    }
+
+    if (!editable) return;
+    const form = section.createDiv({ cls: "omd-enrichment-manual-tag-form" });
+    const input = form.createEl("input", {
+      type: "text",
+      placeholder: "project/research",
+      attr: { "aria-label": "New tag", autocomplete: "off", spellcheck: "false" },
+    });
+    input.dataset.omdFocusKey = "manual-tag:input";
+    const add = form.createEl("button", {
+      cls: "omd-inline-action",
+      type: "button",
+      text: "Add tag",
+    });
+    add.dataset.omdFocusKey = "manual-tag:add";
+    const error = section.createDiv({
+      cls: "omd-enrichment-manual-tag-error",
+      attr: { role: "alert" },
+    });
+    error.hidden = true;
+    const submit = (): void => {
+      const result = addManualEnrichmentTag(this.selection, input.value);
+      if (result.error) {
+        error.setText(result.error);
+        error.hidden = false;
+        input.setAttribute("aria-invalid", "true");
+        return;
+      }
+      this.selection = result.selection;
+      this.render();
+    };
+    add.addEventListener("click", submit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      submit();
+    });
   }
 
   private renderSuggestionSection(
@@ -387,10 +524,25 @@ export class EnrichmentReviewView extends ItemView {
     const callbacks = this.callbacks;
     if (!state || !callbacks) return;
     const phase = state.phase;
+    if (this.confirmDoneWithoutApply) {
+      this.button(parent, "Keep reviewing", false, () => {
+        this.confirmDoneWithoutApply = false;
+        this.focusNextRender = true;
+        this.render();
+      });
+      this.button(parent, "Mark reviewed anyway", true, () => callbacks.onDoneReviewing());
+      return;
+    }
+    const doneReviewing = (): void | Promise<void> => {
+      if (state.hasAppliedSuggestions) return callbacks.onDoneReviewing();
+      this.confirmDoneWithoutApply = true;
+      this.focusNextRender = true;
+      this.render();
+    };
     if (phase === "idle") {
       this.button(parent, "Keep in Inbox", false, () => this.closeReview());
       this.button(parent, "Generate suggestions", false, () => callbacks.onGenerate());
-      this.button(parent, "Done reviewing", true, () => callbacks.onDoneReviewing());
+      this.button(parent, "Done reviewing", true, doneReviewing);
       return;
     }
     if (phase === "review") {
@@ -404,13 +556,16 @@ export class EnrichmentReviewView extends ItemView {
             includeSummary: this.selection.includeSummary,
             summaryDraft: this.selection.summaryDraft,
             summarySource: this.selection.summarySource,
+            manualTags: [...(this.selection.manualTags ?? [])],
           },
           selectedSuggestions: selectedSuggestions(state, this.selection),
         });
       });
-      apply.disabled = !canApplyEnrichment(state, this.selection);
+      apply.disabled = this.translationPending || !canApplyEnrichment(state, this.selection);
       apply.setAttribute("aria-disabled", String(apply.disabled));
-      this.button(parent, "Done reviewing", true, () => callbacks.onDoneReviewing());
+      const done = this.button(parent, "Done reviewing", true, doneReviewing);
+      done.disabled = this.translationPending;
+      done.setAttribute("aria-disabled", String(done.disabled));
       return;
     }
     if (phase === "capability" || phase === "catalog" || phase === "generating") {
@@ -433,7 +588,7 @@ export class EnrichmentReviewView extends ItemView {
         open.setAttribute("aria-disabled", String(open.disabled));
       }
       if (state.canRetry !== false) this.button(parent, "Generate again", false, () => callbacks.onGenerate());
-      this.button(parent, "Done reviewing", true, () => callbacks.onDoneReviewing());
+      this.button(parent, "Done reviewing", true, doneReviewing);
       return;
     }
     if (phase === "partial-failure") {
@@ -488,7 +643,7 @@ export class EnrichmentReviewView extends ItemView {
   }
 
   private async copySummary(): Promise<void> {
-    const value = this.selection.includeSummary ? this.selection.summaryDraft : this.state?.summary ?? "";
+    const value = this.selection.summaryDraft;
     if (!value.trim()) return;
     try {
       await navigator.clipboard.writeText(value);
@@ -510,11 +665,57 @@ export class EnrichmentReviewView extends ItemView {
     if (!this.state) return;
     const apply = this.contentEl.querySelector<HTMLButtonElement>('[data-omd-focus-key="action:Apply suggestions"]');
     if (apply) {
-      apply.disabled = !canApplyEnrichment(this.state, this.selection);
+      apply.disabled = this.translationPending || !canApplyEnrichment(this.state, this.selection);
       apply.setAttribute("aria-disabled", String(apply.disabled));
     }
     const count = this.contentEl.querySelector<HTMLElement>(".omd-enrichment-count");
     if (count) count.setText(selectionCountText(this.state, this.selection, selectedEnrichmentCount(this.state, this.selection)));
+  }
+
+  private async translateSummaryToEnglish(): Promise<void> {
+    const callbacks = this.callbacks;
+    const source = this.selection.summaryDraft;
+    if (!callbacks || this.translationPending || !source.trim()) return;
+    this.translationPending = true;
+    this.translationError = "";
+    this.summaryBeforeTranslation = source;
+    this.render();
+    try {
+      const translated = await callbacks.onTranslateSummary(source);
+      if (
+        !this.callbacks
+        || this.summaryBeforeTranslation !== source
+        || this.selection.summaryDraft !== source
+      ) return;
+      this.selection = updateEnrichmentSummarySelection(this.selection, { summaryDraft: translated });
+      this.summaryTranslated = true;
+    } catch (error) {
+      this.summaryTranslated = false;
+      this.summaryBeforeTranslation = null;
+      this.translationError = error instanceof Error
+        ? error.message
+        : "The local model could not translate this summary.";
+    } finally {
+      this.translationPending = false;
+      if (this.contentEl.isConnected) this.render();
+    }
+  }
+
+  private restoreOriginalSummary(): void {
+    if (this.summaryBeforeTranslation !== null) {
+      this.selection = updateEnrichmentSummarySelection(this.selection, {
+        summaryDraft: this.summaryBeforeTranslation,
+      });
+    }
+    this.resetSummaryTranslation();
+    this.render();
+  }
+
+  private resetSummaryTranslation(): void {
+    this.summaryTranslated = false;
+    this.summaryBeforeTranslation = null;
+    this.translationPending = false;
+    this.translationError = "";
   }
 
 }
@@ -548,7 +749,7 @@ function footerNote(state: EnrichmentReviewState): string {
 }
 
 function emptySelection(): EnrichmentSelection {
-  return { selectedIds: {}, includeSummary: false, summaryDraft: "", summarySource: "" };
+  return { selectedIds: {}, includeSummary: false, summaryDraft: "", summarySource: "", manualTags: [] };
 }
 
 function selectionCountText(
@@ -557,8 +758,9 @@ function selectionCountText(
   counts = selectedEnrichmentCount(state, selection),
 ): string {
   const summaryAvailable = Boolean(state.summary.trim());
-  const selected = counts.selected + (selection.includeSummary ? 1 : 0);
-  const available = counts.available + (summaryAvailable ? 1 : 0);
+  const manualTags = selection.manualTags?.length ?? 0;
+  const selected = counts.selected + manualTags + (selection.includeSummary ? 1 : 0);
+  const available = counts.available + manualTags + (summaryAvailable ? 1 : 0);
   return `${selected} selected / ${available} available`;
 }
 

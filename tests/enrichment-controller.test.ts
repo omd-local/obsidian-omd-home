@@ -72,6 +72,24 @@ test("Done reviewing is the only controller action that writes Reviewed status",
   assert.equal(controllerSource.match(/refreshInboxStatus\(file, "reviewed"\)/gu)?.length, 1);
 });
 
+test("Done reviewing warns before finishing when no suggestions were applied", async () => {
+  const idle = emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434");
+  assert.equal(idle.hasAppliedSuggestions, false);
+  assert.match(reviewViewSource, /No suggestions were applied/u);
+  assert.match(reviewViewSource, /Mark reviewed anyway/u);
+  assert.match(controllerSource, /hasAppliedSuggestions: result\.status === "applied"/u);
+
+  const rendered = renderActions(idle);
+  await rendered.buttons[2]?.action();
+  assert.equal(rendered.confirmations, 1);
+  assert.equal(rendered.done, 0);
+
+  const confirmed = renderActions(idle, undefined, true);
+  assert.deepEqual(confirmed.buttons.map((button) => button.label), ["Keep reviewing", "Mark reviewed anyway"]);
+  await confirmed.buttons[1]?.action();
+  assert.equal(confirmed.done, 1);
+});
+
 test("closing the pane clears transient review state without marking the note reviewed", () => {
   const closed = extractMember(controllerSource, "private viewClosed(");
   assert.match(closed, /this\.active = null/u);
@@ -84,7 +102,8 @@ test("review actions keep Apply suggestions separate from Done reviewing", async
   const idle = renderActions(emptyReviewState("Inbox/example.md", "local-model", "http://localhost:11434"));
   assert.deepEqual(idle.buttons.map((button) => button.label), ["Keep in Inbox", "Generate suggestions", "Done reviewing"]);
   await idle.buttons[2].action();
-  assert.equal(idle.done, 1);
+  assert.equal(idle.done, 0);
+  assert.equal(idle.confirmations, 1);
   assert.equal(idle.generates, 0);
 
   const review = renderActions({
@@ -123,6 +142,24 @@ test("an edited summary can be applied by itself and stays opt-in", async () => 
   assert.equal(rendered.buttons[1]?.disabled, false);
   await rendered.buttons[1]?.action();
   assert.equal(rendered.applies, 1);
+});
+
+test("review keeps source-language output by default and offers an explicit English translation", () => {
+  assert.match(reviewViewSource, /TRANSLATE_TO_ENGLISH_LABEL = \["Translate to", "English"\]\.join\(" "\)/u);
+  assert.match(reviewViewSource, /text: "Show original"/u);
+  assert.match(reviewViewSource, /onTranslateSummary/u);
+  assert.match(controllerSource, /translateSummaryToEnglish/u);
+  assert.match(mainSource, /translateLocalTextToEnglish/u);
+  assert.match(stylesSource, /\.omd-enrichment-summary-translation-status/u);
+  assert.match(reviewViewSource, /textarea\.readOnly = !editable \|\| this\.translationPending/u);
+  assert.match(reviewViewSource, /this\.selection\.summaryDraft !== source/u);
+});
+
+test("review supports explicit user-authored tags alongside model suggestions", () => {
+  assert.match(reviewViewSource, /text: "Add your own tags"/u);
+  assert.match(reviewViewSource, /placeholder: "project\/research"/u);
+  assert.match(reviewViewSource, /aria-label": "Remove tag/u);
+  assert.match(controllerSource, /payload\.selection\.manualTags/u);
 });
 
 test("invalid edited summaries expose their error state to assistive technology", () => {
@@ -187,19 +224,25 @@ test("generation uses a namespaced non-overlapping progress indicator", () => {
   assert.match(stylesSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.omd-enrichment-loading-indicator\s*\{[^}]*animation:\s*none/su);
 });
 
-function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelection = {
-  selectedIds: {},
-  includeSummary: false,
-  summaryDraft: "",
-  summarySource: "",
-}): {
+function renderActions(
+  state: EnrichmentReviewState,
+  selection: EnrichmentSelection | undefined = undefined,
+  confirmDoneWithoutApply = false,
+): {
   buttons: Array<{ label: string; action: () => void | Promise<void>; disabled: boolean }>;
   generates: number;
   cancels: number;
   applies: number;
   done: number;
+  confirmations: number;
   openedPaths: string[];
 } {
+  const resolvedSelection = selection ?? {
+    selectedIds: {},
+    includeSummary: false,
+    summaryDraft: "",
+    summarySource: "",
+  };
   const source = ts.createSourceFile("review-view.ts", reviewViewSource, ts.ScriptTarget.Latest, true);
   const member = source.statements
     .flatMap((node) => ts.isClassDeclaration(node) ? [...node.members] : [])
@@ -218,11 +261,13 @@ function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelect
     cancels: 0,
     applies: 0,
     done: 0,
+    confirmations: 0,
     openedPaths: [] as string[],
   };
   Object.assign(harness, {
     state,
-    selection,
+    selection: resolvedSelection,
+    confirmDoneWithoutApply,
     callbacks: {
       onGenerate() { result.generates += 1; },
       onCancelGeneration() { result.cancels += 1; },
@@ -231,6 +276,7 @@ function renderActions(state: EnrichmentReviewState, selection: EnrichmentSelect
       onOpenPath(path: string) { result.openedPaths.push(path); },
     },
     closeReview() {},
+    render() { result.confirmations += 1; },
     button(_parent: unknown, label: string, _primary: boolean, action: () => void | Promise<void>) {
       const button = { label, action, disabled: false, setAttribute() {} };
       result.buttons.push(button);

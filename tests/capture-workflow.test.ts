@@ -153,12 +153,16 @@ test("modal and omnibox build requests from vault defaults while capture choices
   assert.match(modalSource, /apply[^"\n]*this capture only/iu);
   assert.match(modalSource, /setName\("Optional local AI"\)\.setHeading\(\)/u);
   assert.match(modalSource, /setName\("Polish Markdown"\)/u);
+  assert.match(modalSource, /Audio and video transcripts also get punctuation and paragraph breaks without changing source words/u);
   assert.match(modalSource, /setName\("Review links and tags"\)/u);
+  assert.match(modalSource, /source-language summary plus link and tag suggestions after capture/u);
+  assert.match(modalSource, /Nothing is added until you review and apply it/u);
   assert.match(modalSource, /choices[^"\n]*remembered[^"\n]*capture/iu);
   assert.doesNotMatch(modalSource, /Inherit OMD|Inherit adapter default|Use OMD default|Use adapter default/u);
   assert.match(mainSource, /will be validated against the detected OMD build when you press Capture/iu);
   assert.match(modalSource, /languageAvailability\.status === "unsupported"/u);
   assert.match(modalSource, /Saved custom language:/u);
+  assert.match(mainSource, /label: ocrLanguagePresetLabel\(preset\.value\)/u);
   assert.match(mainSource, /ocrPresets: acceptsHomeOcrArgument\s*\? filterReadyOcrPresets/su);
   assert.doesNotMatch(mainSource, /installed_packs\.slice\(0, 12\)\.join/u);
   assert.match(modalSource, /captureLanguageSelectionError\(request, this\.languageAvailability\)/u);

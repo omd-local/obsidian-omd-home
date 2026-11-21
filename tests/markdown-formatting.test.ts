@@ -5,10 +5,15 @@ import test from "node:test";
 import {
   applyMarkdownFormattingPreview,
   FORMATTING_CONFLICT_MESSAGE,
+  FORMATTING_TRANSCRIPT_QUALITY_MESSAGE,
   FORMATTING_UNSAFE_OUTPUT_MESSAGE,
+  markdownFormattingBlockedReason,
+  markdownFormattingMode,
   markdownBodyForFormatting,
   preserveMarkdownFrontmatter,
 } from "../src/markdown-formatting.ts";
+
+const bridgeSource = readFileSync(resolve("src/omd-bridge.ts"), "utf8");
 
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
 const modalSource = readFileSync(resolve("src/markdown-formatting-modal.ts"), "utf8");
@@ -43,6 +48,34 @@ test("formatting sends only the note body to the local model", () => {
     "# Note\n\nraw\n",
   );
   assert.equal(markdownBodyForFormatting("# Ordinary\n\nraw\n"), "# Ordinary\n\nraw\n");
+});
+
+test("an ASR transcript selects punctuation-aware cleanup without changing ordinary notes", () => {
+  const transcript = `# Capture\n\n## Transcript\n\n${"中文转录没有标点也没有空格".repeat(30)}\n\n### Timestamped\n\n00:00 中文转录\n`;
+  assert.equal(markdownFormattingMode(transcript), "transcript-cleanup");
+  assert.equal(markdownFormattingMode("# Ordinary note\n\nA compact paragraph.\n"), "layout-only");
+  assert.match(bridgeSource, /mode === "transcript-cleanup"[\s\S]*--polish-md-transcript-cleanup/u);
+  assert.match(modalSource, /Clean transcript/u);
+  assert.match(modalSource, /punctuation and paragraph breaks/u);
+});
+
+test("a transcript quality warning blocks formatting before the local model runs", () => {
+  const unreliable = [
+    "# Capture",
+    "",
+    "## Transcript quality warning",
+    "",
+    "OMD detected possible transcription problems.",
+    "",
+    "## Transcript",
+    "",
+    "repeated repeated repeated",
+  ].join("\n");
+  assert.equal(markdownFormattingBlockedReason(unreliable), FORMATTING_TRANSCRIPT_QUALITY_MESSAGE);
+  assert.equal(
+    markdownFormattingBlockedReason("# Capture\n\n## Transcript\n\nA verified transcript.\n"),
+    null,
+  );
 });
 
 test("formatting rejects a malformed model metadata delimiter", () => {
@@ -127,14 +160,20 @@ test("an identical preview is a no-op and never enters the vault writer", async 
 });
 
 test("formatting UI is review-first, cancellable, and announces generation", () => {
-  assert.match(modalSource, /text: "Improving formatting…"[\s\S]*role: "status", "aria-live": "polite", "aria-atomic": "true"/u);
+  assert.match(
+    modalSource,
+    /text: transcriptCleanup \? "Cleaning transcript…" : "Improving formatting…"[\s\S]*role: "status", "aria-live": "polite", "aria-atomic": "true"/u,
+  );
   assert.match(modalSource, /text: "Formatting preview"/u);
   assert.match(modalSource, /role: "region", "aria-labelledby": this\.previewHeadingId/u);
   assert.doesNotMatch(modalSource, /aria-label.*Formatting preview for/u);
   assert.match(modalSource, /setButtonText\("Cancel"\)/u);
-  assert.match(modalSource, /setButtonText\("Apply formatting"\)\.setDisabled\(true\)/u);
+  assert.match(
+    modalSource,
+    /setButtonText\(transcriptCleanup \? "Apply transcript cleanup" : "Apply formatting"\)\.setDisabled\(true\)/u,
+  );
   assert.match(modalSource, /private applyButton\?: ButtonComponent/u);
-  assert.match(modalSource, /this\.applyButton\?\.setDisabled\(false\)/u);
+  assert.match(modalSource, /this\.applyButton\.setDisabled\(false\)/u);
   assert.doesNotMatch(modalSource, /this\.applyButton\.disabled\s*=\s*false/u);
   assert.match(mainSource, /decision = modal\.openAndWait\(\)[\s\S]*previewMarkdownFormatting/u);
   assert.match(mainSource, /const body = markdownBodyForFormatting\(baseline\)[\s\S]*previewMarkdownFormatting\([\s\S]*executable,[\s\S]*body,/u);
@@ -142,7 +181,8 @@ test("formatting UI is review-first, cancellable, and announces generation", () 
   assert.match(mainSource, /this\.captureActive = true[\s\S]*this\.captureController = controller/u);
   assert.match(mainSource, /event: cancelled \? "cancelled" : "error"/u);
   assert.match(mainSource, /markdownFormattingModals\.add\(modal\)/u);
-  assert.match(mainSource, /openAndWait\(\)\.finally\(\(\) => this\.markdownFormattingModals\.delete\(modal\)\)/u);
+  assert.match(mainSource, /this\.markdownFormattingModals\.delete\(modal\)/u);
+  assert.match(mainSource, /decision = modal\.openAndWait\(\)/u);
   assert.match(mainSource, /for \(const modal of this\.markdownFormattingModals\) modal\.close\(\)/u);
   assert.match(mainSource, /if \(this\.unloaded\) return;[\s\S]*applyMarkdownFormattingPreview/u);
   assert.match(mainSource, /error\.message === FORMATTING_UNSAFE_OUTPUT_MESSAGE[\s\S]*return error\.message/u);
@@ -158,11 +198,57 @@ test("formatting UI is review-first, cancellable, and announces generation", () 
     formattingMethod.indexOf("} catch (error) {"),
     formattingMethod.indexOf("} finally {"),
   );
-  assert.match(failureBranch, /modal\.finishGeneration\(\);\s*modal\.close\(\);/u);
-  assert.ok(
-    failureBranch.indexOf("modal.close();") < failureBranch.indexOf("this.reportLocalAiWorkflowIssue("),
-    "the failure modal must close before publishing the error state",
-  );
+  assert.match(failureBranch, /modal\.finishGeneration\(\);[\s\S]*modal\.showFailure\(\s*detail/u);
+  assert.doesNotMatch(failureBranch, /modal\.close\(\);/u, "a failure must remain readable in the modal");
+  assert.doesNotMatch(failureBranch, /new Notice\(detail\)/u, "a persistent modal replaces the short error Notice");
   const applyBranch = formattingMethod.slice(formattingMethod.indexOf("applyMarkdownFormattingPreview"));
   assert.doesNotMatch(applyBranch, /clearIssue\("ai"\)/u, "an old preview must not clear a newer AI failure");
+});
+
+test("formatting terminal states stay readable until the user closes them", () => {
+  assert.match(modalSource, /showFailure\(message: string/u);
+  assert.match(modalSource, /showNoChanges\(message: string/u);
+  assert.match(modalSource, /this\.statusEl\.setAttr\("role", "alert"\)/u);
+  assert.match(modalSource, /this\.closeButton\?\.setButtonText\("Close"\)/u);
+
+  const formattingMethod = mainSource.slice(
+    mainSource.indexOf("async improveNoteFormatting("),
+    mainSource.indexOf("async reviewNote("),
+  );
+  assert.match(
+    formattingMethod,
+    /const blockedReason = markdownFormattingBlockedReason\(baseline\)[\s\S]*if \(blockedReason\) throw new Error\(blockedReason\)/u,
+  );
+  assert.match(formattingMethod, /preview === baseline[\s\S]*modal\.showNoChanges\(FORMATTING_NO_CHANGES_MESSAGE\)/u);
+  assert.doesNotMatch(
+    formattingMethod,
+    /preview === baseline[\s\S]{0,500}new Notice\(FORMATTING_NO_CHANGES_MESSAGE\)/u,
+  );
+});
+
+test("a stale formatting preview stays open with an actionable Generate again control", () => {
+  assert.match(modalSource, /setButtonText\("Generate again"\)/u);
+  assert.match(modalSource, /showConflict\(message: string, onGenerateAgain: \(\) => void\)/u);
+  assert.match(modalSource, /setAttr\("role", "alert"\)/u);
+  assert.match(modalSource, /this\.generateAgainButton\.buttonEl\.hidden = false/u);
+  assert.match(modalSource, /this\.applyButton\.buttonEl\.hidden = true/u);
+
+  const formattingMethod = mainSource.slice(
+    mainSource.indexOf("async improveNoteFormatting("),
+    mainSource.indexOf("async reviewNote("),
+  );
+  const applyHandler = modalSource.slice(
+    modalSource.indexOf('setButtonText(transcriptCleanup ? "Apply transcript cleanup" : "Apply formatting")'),
+    modalSource.indexOf("actions.settingEl.addClass"),
+  );
+  assert.doesNotMatch(applyHandler, /this\.close\(\)/u, "Apply must leave the modal open until CAS finishes");
+  assert.match(
+    formattingMethod,
+    /const generateAgain = \(\) => \{[\s\S]*modal\.close\(\);[\s\S]*void this\.improveNoteFormatting\(file\)[\s\S]*result === "conflict"[\s\S]*modal\.showConflict\(FORMATTING_CONFLICT_MESSAGE, generateAgain\)/u,
+  );
+  assert.doesNotMatch(
+    formattingMethod,
+    /result === "conflict"[\s\S]{0,160}new Notice\(FORMATTING_CONFLICT_MESSAGE\)/u,
+    "a recognized conflict belongs in the open modal, not a transient Notice",
+  );
 });

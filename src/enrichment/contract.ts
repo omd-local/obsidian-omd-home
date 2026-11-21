@@ -107,6 +107,26 @@ export interface EnrichmentResponse {
   };
 }
 
+export type HostedAiDisclosureProvider = "openai" | "anthropic" | "deepseek";
+export type HostedAiDisclosureStatus = "ready" | "unavailable";
+export type HostedAiDisclosureReason = "missing" | "not_yet_reviewed" | "expired" | "unverified";
+
+export interface HostedAiDisclosureProviderState {
+  status: HostedAiDisclosureStatus;
+  code: "disclosure_unavailable" | null;
+  reason: HostedAiDisclosureReason | null;
+  reviewed_on: string | null;
+  expires_on: string | null;
+  policy_url: string | null;
+}
+
+export interface HostedAiDisclosureCapability {
+  schema_version: number;
+  checked_on: string;
+  max_age_days: number;
+  providers: Record<HostedAiDisclosureProvider, HostedAiDisclosureProviderState>;
+}
+
 export interface CapabilityResponse {
   package_version?: string;
   protocol_version?: number;
@@ -151,6 +171,7 @@ export interface CapabilityResponse {
       xhs?: string;
     };
   };
+  hosted_ai_disclosure?: HostedAiDisclosureCapability;
   enrich_note: {
     schema_versions: number[];
     supported: boolean;
@@ -259,6 +280,9 @@ export function validateCapabilityResponse(value: unknown): CapabilityResponse {
   if (record.capture_auth_options !== undefined) {
     capability.capture_auth_options = validateCaptureAuthOptions(record.capture_auth_options);
   }
+  if (record.hosted_ai_disclosure !== undefined) {
+    capability.hosted_ai_disclosure = validateHostedAiDisclosure(record.hosted_ai_disclosure);
+  }
   return capability;
 }
 
@@ -334,6 +358,70 @@ function validateCaptureAuthOptions(value: unknown): NonNullable<CapabilityRespo
     }
   }
   return normalized;
+}
+
+function validateHostedAiDisclosure(value: unknown): HostedAiDisclosureCapability {
+  const path = "capabilities.hosted_ai_disclosure";
+  const record = expectRecord(value, path);
+  const schemaVersion = expectPositiveInteger(record.schema_version, `${path}.schema_version`);
+  if (schemaVersion !== 1) {
+    throw new EnrichmentError("invalid_response", `OMD returned unsupported hosted AI disclosure schema v${schemaVersion}.`);
+  }
+  const providers = expectRecord(record.providers, `${path}.providers`);
+  const normalizedProviders = {} as Record<HostedAiDisclosureProvider, HostedAiDisclosureProviderState>;
+  for (const provider of ["openai", "anthropic", "deepseek"] as const) {
+    normalizedProviders[provider] = validateHostedAiDisclosureProvider(
+      providers[provider],
+      `${path}.providers.${provider}`,
+    );
+  }
+  return {
+    schema_version: schemaVersion,
+    checked_on: expectIsoDate(record.checked_on, `${path}.checked_on`),
+    max_age_days: expectPositiveInteger(record.max_age_days, `${path}.max_age_days`),
+    providers: normalizedProviders,
+  };
+}
+
+function validateHostedAiDisclosureProvider(
+  value: unknown,
+  path: string,
+): HostedAiDisclosureProviderState {
+  const record = expectRecord(value, path);
+  const status = expectBoundedString(record.status, 32, `${path}.status`);
+  if (status !== "ready" && status !== "unavailable") {
+    throw new EnrichmentError("invalid_response", `Expected ${path}.status to be ready or unavailable.`);
+  }
+  const code = record.code === null
+    ? null
+    : expectBoundedString(record.code, 64, `${path}.code`);
+  if (code !== null && code !== "disclosure_unavailable") {
+    throw new EnrichmentError("invalid_response", `Expected ${path}.code to be disclosure_unavailable or null.`);
+  }
+  const reason = record.reason === null
+    ? null
+    : expectBoundedString(record.reason, 64, `${path}.reason`);
+  if (reason !== null && !["missing", "not_yet_reviewed", "expired", "unverified"].includes(reason)) {
+    throw new EnrichmentError("invalid_response", `OMD returned an unknown ${path}.reason.`);
+  }
+  const reviewedOn = record.reviewed_on === null ? null : expectIsoDate(record.reviewed_on, `${path}.reviewed_on`);
+  const expiresOn = record.expires_on === null ? null : expectIsoDate(record.expires_on, `${path}.expires_on`);
+  const policyUrl = record.policy_url === null ? null : expectHttpsUrl(record.policy_url, `${path}.policy_url`);
+  if ((status === "ready" && (code !== null || reason !== null))
+    || (status === "unavailable" && (code !== "disclosure_unavailable" || reason === null))) {
+    throw new EnrichmentError("invalid_response", `OMD returned inconsistent ${path} readiness metadata.`);
+  }
+  if ((status === "ready" || reason !== "missing") && (!reviewedOn || !expiresOn || !policyUrl)) {
+    throw new EnrichmentError("invalid_response", `OMD returned incomplete ${path} readiness metadata.`);
+  }
+  return {
+    status,
+    code,
+    reason: reason as HostedAiDisclosureReason | null,
+    reviewed_on: reviewedOn,
+    expires_on: expiresOn,
+    policy_url: policyUrl,
+  };
 }
 
 function validateOcrReadiness(
@@ -671,6 +759,32 @@ function expectPositiveInteger(value: unknown, path: string): number {
     throw new EnrichmentError("invalid_response", `Expected ${path} to be a positive integer.`);
   }
   return number;
+}
+
+function expectIsoDate(value: unknown, path: string): string {
+  const string = expectBoundedString(value, 10, path);
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(string)) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be an ISO calendar date.`);
+  }
+  const parsed = new Date(`${string}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== string) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a valid ISO calendar date.`);
+  }
+  return string;
+}
+
+function expectHttpsUrl(value: unknown, path: string): string {
+  const string = expectBoundedString(value, 2048, path);
+  let url: URL;
+  try {
+    url = new URL(string);
+  } catch (error) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a valid HTTPS URL.`, { cause: error as Error });
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a credential-free HTTPS URL.`);
+  }
+  return string;
 }
 
 function expectVersionArray(value: unknown, path: string): number[] {

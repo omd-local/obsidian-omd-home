@@ -46,6 +46,7 @@ test("capability validation preserves optional build and capture language metada
       share_text: { supported: true, requires_single_http_url: true },
       platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
     },
+    hosted_ai_disclosure: sampleHostedAiDisclosure(),
     enrich_note: { supported: true, schema_versions: [1] },
   });
 
@@ -60,6 +61,12 @@ test("capability validation preserves optional build and capture language metada
     share_text: { supported: true, requires_single_http_url: true },
     platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
   });
+  assert.equal(capability.hosted_ai_disclosure?.checked_on, "2026-11-18");
+  assert.equal(capability.hosted_ai_disclosure?.providers.deepseek.status, "ready");
+  assert.equal(
+    capability.hosted_ai_disclosure?.providers.deepseek.policy_url,
+    "https://api-docs.deepseek.com/guides/kv_cache/",
+  );
 });
 
 test("capability validation rejects malformed social capture auth metadata", () => {
@@ -72,6 +79,34 @@ test("capability validation rejects malformed social capture auth metadata", () 
   }), /platform_cookie_flags\.douyin/u);
 });
 
+for (const [name, mutate, pattern] of [
+  ["unknown status", (value: Record<string, any>) => { value.providers.deepseek.status = "blocked"; }, /deepseek\.status/u],
+  ["unknown reason", (value: Record<string, any>) => {
+    value.providers.deepseek.status = "unavailable";
+    value.providers.deepseek.code = "disclosure_unavailable";
+    value.providers.deepseek.reason = "policy_changed";
+  }, /deepseek\.reason/u],
+  ["insecure policy URL", (value: Record<string, any>) => {
+    value.providers.deepseek.policy_url = "http://api-docs.deepseek.com/guides/kv_cache/";
+  }, /deepseek\.policy_url/u],
+  ["inconsistent ready metadata", (value: Record<string, any>) => {
+    value.providers.deepseek.code = "disclosure_unavailable";
+    value.providers.deepseek.reason = "expired";
+  }, /readiness metadata/u],
+  ["incomplete ready metadata", (value: Record<string, any>) => {
+    value.providers.deepseek.policy_url = null;
+  }, /readiness metadata/u],
+] as const) {
+  test(`capability validation rejects hosted AI disclosure with ${name}`, () => {
+    const disclosure = sampleHostedAiDisclosure();
+    mutate(disclosure);
+    assert.throws(() => validateCapabilityResponse({
+      enrich_note: { supported: true, schema_versions: [1] },
+      hosted_ai_disclosure: disclosure,
+    }), pattern);
+  });
+}
+
 test("capabilitySupportsEnrichNote accepts additive capability fields", () => {
   assert.equal(capabilitySupportsEnrichNote({
     enrich_note: {
@@ -81,6 +116,31 @@ test("capabilitySupportsEnrichNote accepts additive capability fields", () => {
     },
   }), true);
 });
+
+function sampleHostedAiDisclosure(): Record<string, any> {
+  const ready = (policyUrl: string, reviewedOn: string, expiresOn: string) => ({
+    status: "ready",
+    code: null,
+    reason: null,
+    reviewed_on: reviewedOn,
+    expires_on: expiresOn,
+    policy_url: policyUrl,
+  });
+  return {
+    schema_version: 1,
+    checked_on: "2026-11-18",
+    max_age_days: 90,
+    providers: {
+      openai: ready("https://developers.openai.com/api/docs/guides/your-data", "2026-11-02", "2027-01-31"),
+      anthropic: ready(
+        "https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data",
+        "2026-11-02",
+        "2027-01-31",
+      ),
+      deepseek: ready("https://api-docs.deepseek.com/guides/kv_cache/", "2026-11-18", "2027-02-16"),
+    },
+  };
+}
 
 test("utf8 helpers hash and count exact bytes", () => {
   const unicodeText = "\u{1f642} AI";

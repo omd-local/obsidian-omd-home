@@ -40,6 +40,7 @@ export function omdCaptureArgs(
       "--polish-md",
       "--polish-md-model", polish.model.trim() || "qwen3:4b-instruct",
       "--polish-md-host", polish.host.trim() || "http://localhost:11434",
+      "--polish-md-transcript-cleanup",
     );
   }
   return args;

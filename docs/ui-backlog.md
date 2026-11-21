@@ -54,11 +54,21 @@ endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings �
 安全语义 PASS。视觉上，输入框与 **Use automatic** 换行后按钮单独靠右落在第二行，产生不自然的
 空白且没有与输入框或相邻控件对齐，因此响应式布局仍为 FAIL。
 
+2026-11-17 原生复测补充：把 Settings 窗口重新拉宽后，**Use automatic** 仍停留在 endpoint 输入框
+下方，没有恢复为宽布局中的同行 action；按钮也没有与相邻设置项的右侧操作（例如
+**Refresh calendars**）形成一致的控件列和边缘对齐。左侧 endpoint 说明同时被压成过窄的多行文本，
+说明当前 breakpoint／grid 列宽没有随可用宽度正确恢复。这是宽窗口响应式布局 FAIL，不只是窄窗口下
+允许的按钮堆叠。
+
 **验收标准：**
 
 - endpoint 校验信息在字段附近清楚可见，但不与输入框争抢同一狭窄行；优先在控件下方使用独立
   的整行区域，并与输入框、卡片边缘保留一致间距。
 - 宽、窄 Settings 面板中均无文字贴边、异常断行、重叠或横向溢出；长提示保持可读。
+- 宽窗口中 endpoint 输入框与 **Use automatic** 位于同一 control row、垂直居中，并与其他设置项的
+  右侧操作列和卡片边缘对齐；只有空间确实不足时才允许按钮堆叠到下一行。
+- 窗口从窄重新拉宽时必须立即恢复宽布局，不保留窄布局的列宽或按钮位置；错误信息仍独占输入控件
+  下方的完整一行，不得通过挤窄左侧说明或把 action 永久推到第二行来腾出空间。
 - 错误状态仍与 endpoint 字段明确关联，恢复有效 endpoint 后提示立即消失。
 - 不改变允许的 loopback endpoint、即时校验或保留最后有效值的安全语义。
 
@@ -464,14 +474,14 @@ AND；Reviewed 项显示低优先级 **Review again**。2026-09-24 的时间、�
 与长文件名证据继续有效，不要求重跑旧按钮名称。
 
 **排版方向：** 行的第一层只放 title 和一个上下文主操作；第二层按 `path · time · status` 呈现弱化
-metadata。Tags 最多显示两个紧凑 token 和 `+N`，不能把每个 tag、时间和三个文字按钮同时铺满一行。
+metadata。Tags 最多显示两个紧凑 token 和 `+N`，不能把每个 tag、时间和两个文字按钮同时铺满一行。
 完整 tags 通过 hover / focus、展开或 note 打开后查看。最终发布动作层级以 UI-21 的单一
 **AI tools** menu 为准；宽／窄窗口都不再平铺含义重复的 **AI tags** 与 **Summarize**。
 
 **验收标准：**
 
-- Recent 与 Inbox 都能到达 UI-21 的 **AI tools**；Inbox 的上下文主操作仍是 **Review**，Recent 的
-  note 主体仍是打开 note。鼠标 hover、键盘 focus 和触屏下动作均可发现，不靠 hover 才能访问。
+- Recent 与 Inbox 都能到达 UI-21 的 **AI tools**；独立 **Review**／**Review again** 不再占用 row，
+  note 主体仍负责打开 note。鼠标 hover、键盘 focus 和触屏下动作均可发现，不靠 hover 才能访问。
 - summary、links 与 tags 保持同一个可审阅 proposal；生成不自动写 note 或标记 reviewed。可选的
   **Add summary to note**、写入范围和 conflict 防护仍沿用 UI-19。
 - Widget header 提供一个紧凑的 tag filter；来源使用 Obsidian metadata cache，选择和清除状态明确，
@@ -542,14 +552,23 @@ markers 和并发修改会安全停止。Apply 后仍为 Inbox。
 
 ### UI-21：用一个 AI tools 层级提供诚实的 suggestions 与 review-first formatting
 
-**状态：IMPLEMENTED；确定性自动回归完成，RC-P2-04 原生复测待执行。优先级：P1。** 最终候选
-已安装并完成原生 reload；RC-P2-04 的 preview／Apply／Cancel／conflict／responsive 矩阵仍须定向执行，
-不能把实现完成或 Calendar 的 targeted review 写成该项 native PASS。
+**状态：RC-P2-04 NATIVE PASS；2026-11-20 follow-up 部分原生 PASS，Transcript／row／Done confirmation
+待定向验收。优先级：P1。** 普通 formatting 的 preview／Apply／Cancel／conflict／responsive 矩阵已经
+关闭；source-language、Translate to English、人工 tag 与新增控件响应式已 PASS，不重开。当前只补测
+Transcript scope 修复、两按钮 row 与零 Apply 的 Done confirmation。
+
+**2026-11-18 UX follow-up：** Suggestions 现在把 note 原文语言写入受信任的模型合同，summary 与 reasons
+默认保持原语言；Proposal summary 提供显式 **Translate to English**／**Show original**，翻译仍走既有
+loopback local-AI gate 且不会自动选择写入。Review 增加 **Add your own tags** 输入、Enter／Add、可移除
+chips 与既有 Apply/CAS 边界。含 `## Transcript` 的 capture 改用 **Clean transcript** 模式：若
+`### Timestamped` 与完整 transcript 的原始字词一致，优先用可信 ASR 时间边界增加标点和段落；没有可用
+时间边界时才回退到受保护的 local model。两条路径都禁止改写字词、数字、URL、时间戳与运算符。
 
 **问题与决策：** 旧的 **AI tags** 和 **Summarize** 看似是两个不同工具，实际都生成同一份
 proposal summary、links 与 tags；再增加独立 Polish 按钮会让每行继续堆叠动作，并把“生成建议”、
-“改善正文格式”和“完成 Review”混在一起。最终 row 只显示 **Review**／**Review again**、
-**AI tools**、**Pin**／**Unpin**。**AI tools** 必须正好包含两个诚实名称的项目：
+“改善正文格式”和“完成 Review”混在一起。最终 row 只显示 **AI tools**、**Pin**／**Unpin**；独立
+**Review**／**Review again** 与 AI tools 内的 Generate suggestions 重复，已从 row 移除。**AI tools**
+必须正好包含两个诚实名称的项目：
 **Improve formatting** 与 **Generate suggestions · summary, links, tags**。旧 AI tags／Summarize 入口
 已移除，不能以不同 label 重复同一个 proposal。
 
@@ -570,13 +589,19 @@ proposal summary、links 与 tags；再增加独立 Polish 按钮会让每行继
 - **Generate suggestions · summary, links, tags** 打开现有 combined Review surface；生成本身不写
   summary、links、tags 或 status，只有用户选择并 Apply 才写所选内容。Apply 仍不等于
   **Done reviewing**。
-- **Review**／**Review again** 继续负责查看 note、选择建议和显式完成工作流；Improve formatting 是
-  正文排版工具，不替代 Review，也不评价事实正确性或模型质量。
+- 未成功 Apply 任何 suggestion 时选择 **Done reviewing**，必须在同一侧栏显示持久的内联确认，提供
+  **Keep reviewing** 与 **Mark reviewed anyway**；不能用瞬时 Notice 或 Needs attention 代替。
+- Capture **Review links and tags** 与 AI tools **Generate suggestions** 使用同一个 source-language
+  summary／links／tags proposal；Capture 只是在成功 conversion 后自动打开 review。Capture **Polish
+  Markdown** 与 AI tools **Improve formatting** 使用同一 backend，含 `## Transcript` 时两者都启用
+  Transcript cleanup。两组入口的差别只能是触发时机，不能是能力或安全边界。
+- Improve formatting 是正文排版工具，不评价事实正确性或模型质量；Generate suggestions 才负责可选
+  summary／links／tags 与显式完成 Review。
 
 **视觉、响应式与可访问验收：**
 
 - 继续使用 Obsidian 字体、颜色、细边框、紧凑间距和 focus 样式；不新增大卡片、渐变、阴影或常驻
-  第四个文字按钮。宽／窄窗口使用同一套三个行级动作语义。
+  第三个文字按钮。宽／窄窗口使用同一套两个行级动作语义。
 - 深浅主题、约 390px、100%／150%、长文件名、多语言 title、长 tags 与滚动状态下不得重叠、截断、
   横向滚动或让 Pin 列跳动。AI tools trigger 与两个 menu item 都有准确 accessible name、tooltip、
   可见 focus；Tab、Enter／Space、方向键和 Escape 行为与视觉顺序一致。
@@ -699,9 +724,9 @@ OMD Home 的 `omdCaptureArgs` 只生成单项 `capture <source> --vault …`，C
 - 测试混合 URL、PDF、图片、音频、Unicode／空格路径、重复项、缺失文件、部分失败、取消、插件
   unload 与大列表；窄窗口和长路径下仍保持 minimal 风格和可访问操作。
 
-CAPTURE-01 与 CAPTURE-02 的实现已完成，但发布前仍需取得 `manual-test-plan.md` 中 CAP-07 的原生
-人工证据。CAPTURE-03 继续保留为 Deferred / P2；在它完成前，对外能力说明不得声明 OMD Home 支持
-Local batches。
+CAPTURE-01 与 CAPTURE-02 的实现已完成；CAP-07 A.1／A.4／A.5 与 B.2 已于 2026-11-18 原生通过，
+发布前只保留 `manual-test-plan.md` 中仍未关闭的 CAP-07 C／D 证据。CAPTURE-03 继续保留为 Deferred /
+P2；在它完成前，对外能力说明不得声明 OMD Home 支持 Local batches。
 
 ### CAPTURE-04：Capture 选项的键盘名称与焦点可见性
 
@@ -1051,3 +1076,45 @@ text/completion model；使用 hosted answer provider 时，不应误导用户�
   model，失败状态不把 daemon、缺失 model、能力不兼容和 cloud-backed model 混为一类。
 - Settings 与 Ask 的恢复文案、按钮命名和目标页面一致；窄窗口、150% zoom、键盘与屏幕阅读器流程可用。
 - 引导清楚区分 embedding retrieval 与 text/completion generation，并保留 keyword-only 的无模型路径。
+
+### ANSWER-06：Ollama manual endpoint 支持安全的本机自定义端口
+
+**状态：BACKLOG；等当前整轮人工测试完成后再实现。优先级：P2。** 当前实现继续保持 Automatic
+`http://localhost:11434`，并只接受 `http://localhost:11434` 与
+`http://127.0.0.1:11434`。本项只记录后续改进，不在当前测试周期改变 endpoint 校验、已保存设置或
+发布候选行为。
+
+**现有缺口：** 当前文本框看起来允许手工配置 endpoint，实际却只接受两个指向同一本机默认端口的
+地址。标准 macOS、Windows 与 Linux Ollama 安装可正常使用，但自定义 `OLLAMA_HOST`、Docker 本机端口
+映射、本地反向代理、部分 WSL 转发和 IPv6 loopback 用户无法表达其仍然位于本机的 Ollama endpoint。
+例如 `http://localhost:9999` 会在输入阶段被拒绝，既不能由 **Check setup** 给出准确的连接失败，也无法
+用于 daemon fallback 的受控测试。
+
+**改进方向：** Automatic 保持 `http://localhost:11434`。Manual endpoint 继续限制为 loopback，不允许
+Vault evidence 被配置发送到局域网或远程主机；同时允许合法的本机自定义端口：
+
+- `http://localhost:<port>`
+- `http://127.0.0.1:<port>`
+- `http://[::1]:<port>`
+
+拒绝 LAN IP、任意域名、`0.0.0.0`、userinfo、path、query 与 fragment；不得跟随跳转到非 loopback
+地址。保存前只执行有界 Ollama identity/capability probe，确认目标确实提供预期的 Ollama API；连接失败
+应保留用户输入并由 **Check setup** 显示明确错误，不得自动改回默认端口、改用远程服务或静默发送任何
+Vault 内容。`http://localhost:9999` 应能作为合法格式保存，再由 Check setup 报告无法连接。
+
+如果产品最终决定只支持默认端口，则移除可编辑文本框，只显示 Automatic endpoint 与准确的只读说明，
+避免制造“可自定义但实际不可配置”的预期。
+
+**验收标准：**
+
+- Automatic 的值和既有安全默认值保持不变；Manual 只接受三种 loopback host 表达与有效端口。
+- URL 解析基于结构化 URL 字段而不是字符串前缀；拒绝 credentials、额外 path/query/fragment、混淆
+  host、非 loopback 解析结果及向非 loopback 的 redirect。
+- 标准端口、自定义 loopback 端口、IPv4、IPv6、Docker/WSL 本机转发分别有自动回归；macOS、Windows、
+  Linux 至少完成默认安装 smoke test。
+- endpoint 格式有效但 daemon 不可达时，**Check setup** 准确显示连接错误；embedding retrieval 可安全
+  降级为 Keyword search，并且不会错误显示 **Install model**。
+- 恢复有效 endpoint 后可重新 Check setup 和 Test embeddings；无效或不可达 endpoint 不会清空先前模型
+  选择，也不会触发自动下载或远程 fallback。
+- 实现时同步修订 `manual-test-plan.md` 中依赖 `localhost:9999` 的 daemon fallback 步骤；在本项实现前，
+  该场景通过保留有效 endpoint 并临时停止 daemon 测试。

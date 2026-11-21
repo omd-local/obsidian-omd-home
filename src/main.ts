@@ -1,6 +1,8 @@
 import {
   FileSystemAdapter,
   getFrontMatterInfo,
+  MarkdownView,
+  Menu,
   Notice,
   parseYaml,
   Platform,
@@ -55,6 +57,7 @@ import {
   createCaptureRequest,
   filterReadyOcrPresets,
   hasCaptureLanguageOverrides,
+  ocrLanguagePresetLabel,
   type CaptureFailureRecord,
   type CaptureLanguageAvailability,
   type CaptureRequest,
@@ -76,10 +79,23 @@ import {
 } from "./modals";
 import { MarkdownFormattingModal } from "./markdown-formatting-modal.ts";
 import {
+  TranscriptRepairModal,
+} from "./transcript-repair-modal.ts";
+import {
+  inspectTranscriptRepair,
+  repairInvalidTranscriptTail,
+  replaceTranscriptRange,
+  type TranscriptRecognitionContext,
+  type TranscriptRepairIssue,
+} from "./transcript-repair.ts";
+import {
   applyMarkdownFormattingPreview,
   FORMATTING_CONFLICT_MESSAGE,
   FORMATTING_NO_CHANGES_MESSAGE,
+  FORMATTING_TRANSCRIPT_QUALITY_MESSAGE,
   FORMATTING_UNSAFE_OUTPUT_MESSAGE,
+  markdownFormattingBlockedReason,
+  markdownFormattingMode,
   markdownBodyForFormatting,
   preserveMarkdownFrontmatter,
 } from "./markdown-formatting.ts";
@@ -194,6 +210,11 @@ interface CalendarWriteRevalidation {
   blocked: boolean;
 }
 
+interface TranscriptCaptureContext extends TranscriptRecognitionContext {
+  readonly source: string | null;
+  readonly sidecarPath: string | null;
+}
+
 export default class OmdHomePlugin extends Plugin {
   settings: OmdHomeSettings = { ...DEFAULT_SETTINGS };
   deviceLayout: WidgetPlacement[] = DEFAULT_LAYOUT.map((item) => ({ ...item }));
@@ -242,6 +263,8 @@ export default class OmdHomePlugin extends Plugin {
   private hostedCredentialHydrationActionToken: number | null = null;
   private readonly cloudAnswerConsentModals = new Set<CloudAnswerConsentModal>();
   private readonly markdownFormattingModals = new Set<MarkdownFormattingModal>();
+  private readonly transcriptRepairModals = new Set<TranscriptRepairModal>();
+  private readonly markdownViewActions = new Map<MarkdownView, { aiTools: HTMLElement; repair?: HTMLElement }>();
   private readonly calendarModals = new Set<Modal>();
   private readonly cloudAnswerControllers = new Set<AbortController>();
   private cloudAnswerConsentGeneration = 0;
@@ -270,6 +293,8 @@ export default class OmdHomePlugin extends Plugin {
   private omdCapabilityCheck: Promise<boolean> | null = null;
   private omdCapabilityGeneration = 0;
   private settingTab: OmdHomeSettingTab | null = null;
+  private markdownViewActionTimer: number | null = null;
+  private markdownViewActionGeneration = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -352,7 +377,11 @@ export default class OmdHomePlugin extends Plugin {
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
       if (this.isCalendarEventPath(file.path, file)) this.scheduleCalendarRefresh();
       if (file.extension === "md") this.refreshHomeViews();
+      if (file.extension === "md") this.scheduleMarkdownViewActions();
     }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleMarkdownViewActions()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.scheduleMarkdownViewActions()));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.scheduleMarkdownViewActions()));
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (this.isCalendarEventPath(file.path, file instanceof TFile ? file : undefined)) {
         this.scheduleCalendarRefresh();
@@ -408,6 +437,7 @@ export default class OmdHomePlugin extends Plugin {
       }
       if (Platform.isMacOS && this.hasEventKitHelper()) void this.refreshExternalCalendars(false);
       if (this.settings.openOnLaunch) void this.openHome(false);
+      this.scheduleMarkdownViewActions();
     });
   }
 
@@ -420,6 +450,16 @@ export default class OmdHomePlugin extends Plugin {
     this.cancelHostedAiAction();
     for (const modal of this.markdownFormattingModals) modal.close();
     this.markdownFormattingModals.clear();
+    for (const modal of [...(this.transcriptRepairModals ?? [])]) modal.close();
+    this.transcriptRepairModals?.clear();
+    if (typeof this.markdownViewActionTimer === "number") window.clearTimeout(this.markdownViewActionTimer);
+    this.markdownViewActionTimer = null;
+    this.markdownViewActionGeneration += 1;
+    for (const actions of this.markdownViewActions?.values() ?? []) {
+      actions.aiTools.remove();
+      actions.repair?.remove();
+    }
+    this.markdownViewActions?.clear();
     for (const modal of [...(this.calendarModals ?? [])]) modal.close();
     this.calendarModals?.clear();
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
@@ -509,7 +549,7 @@ export default class OmdHomePlugin extends Plugin {
       .filter((preset): preset is typeof preset & { value: "eng" | "chi_sim+eng" | "chi_tra+eng" } => (
         preset.value === "eng" || preset.value === "chi_sim+eng" || preset.value === "chi_tra+eng"
       ))
-      .map((preset) => ({ label: preset.label, value: preset.value }));
+      .map((preset) => ({ label: ocrLanguagePresetLabel(preset.value), value: preset.value }));
     const acceptsHomeAsrArgument = language.asr.argument === "--whisper-lang";
     const ocrReadiness = language.ocr.readiness;
     const readinessMessage = ocrReadiness
@@ -583,8 +623,9 @@ export default class OmdHomePlugin extends Plugin {
     this.setLocalAiFeedback("neutral", `Checking ${providerLabel(provider)} credentials and the selected model…`);
     const action = this.beginHostedAiAction("check-connection");
     try {
-      await this.requireReadyOmdExecutable();
+      await this.requireReadyOmdExecutable(true);
       if (!this.isCurrentHostedAiAction(action, provider)) return false;
+      this.assertHostedAiDisclosureReady(provider);
       const model = selectedAiModel(this.settings);
       const { catalog, checked } = await this.withLocalAiSignal(async (signal) => {
         if (!model) {
@@ -927,8 +968,8 @@ export default class OmdHomePlugin extends Plugin {
     return await this.checkEnrichmentCapability(true);
   }
 
-  async requireReadyOmdExecutable(): Promise<string> {
-    const force = this.enrichmentCapability.status === "unavailable";
+  async requireReadyOmdExecutable(forceRefresh = false): Promise<string> {
+    const force = forceRefresh || this.enrichmentCapability.status === "unavailable";
     const ready = await this.checkEnrichmentCapability(force);
     if (!ready) {
       throw new OmdEnrichmentError(
@@ -937,6 +978,38 @@ export default class OmdHomePlugin extends Plugin {
       );
     }
     return this.resolvedOmdExecutable();
+  }
+
+  private assertHostedAiDisclosureReady(provider: HostedAiProvider): void {
+    const providerDisclosure = this.enrichmentCapability.capabilities
+      ?.hosted_ai_disclosure
+      ?.providers[provider];
+    const now = new Date();
+    const localDate = [
+      now.getFullYear().toString().padStart(4, "0"),
+      (now.getMonth() + 1).toString().padStart(2, "0"),
+      now.getDate().toString().padStart(2, "0"),
+    ].join("-");
+    const cachedReviewExpired = providerDisclosure?.status === "ready"
+      && providerDisclosure.expires_on !== null
+      && providerDisclosure.expires_on < localDate;
+    if (providerDisclosure?.status === "ready" && !cachedReviewExpired) return;
+
+    const label = providerLabel(provider);
+    const reason = cachedReviewExpired ? "expired" : providerDisclosure?.reason;
+    const detail = !providerDisclosure
+      ? `The installed OMD version cannot verify current ${label} data handling.`
+      : reason === "expired"
+        ? `OMD's ${label} data-handling review has expired.`
+        : reason === "not_yet_reviewed"
+          ? `This OMD build does not yet have an active ${label} data-handling review.`
+          : reason === "unverified"
+            ? `This OMD build could not verify current ${label} data handling.`
+            : `This OMD build does not include a ${label} data-handling review.`;
+    throw new LocalAiError(
+      "disclosure_unavailable",
+      `${detail} No vault evidence was sent. Update OMD, then run Check setup again.`,
+    );
   }
 
   async requireCaptureOmdExecutable(request: CaptureRequest, signal?: AbortSignal): Promise<string> {
@@ -1434,7 +1507,7 @@ export default class OmdHomePlugin extends Plugin {
           new Notice(detail);
           return;
         }
-        await this.requireReadyOmdExecutable();
+        await this.requireReadyOmdExecutable(true);
         requestSignal?.throwIfAborted();
         const preview = await this.previewCloudAnswer(query, provider, model, requestSignal);
         if (this.unloaded || requestSignal?.aborted) return;
@@ -1507,12 +1580,282 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
+  private scheduleMarkdownViewActions(): void {
+    if (this.unloaded || this.markdownViewActionTimer !== null) return;
+    this.markdownViewActionTimer = window.setTimeout(() => {
+      this.markdownViewActionTimer = null;
+      void this.syncMarkdownViewActions();
+    }, 0);
+  }
+
+  private async syncMarkdownViewActions(): Promise<void> {
+    if (this.unloaded) return;
+    const generation = ++this.markdownViewActionGeneration;
+    const openViews = new Set<MarkdownView>();
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof MarkdownView) openViews.add(leaf.view);
+    });
+
+    for (const [view, actions] of this.markdownViewActions) {
+      if (openViews.has(view)) continue;
+      actions.aiTools.remove();
+      actions.repair?.remove();
+      this.markdownViewActions.delete(view);
+    }
+
+    for (const view of openViews) {
+      let actions = this.markdownViewActions.get(view);
+      if (!actions) {
+        const aiTools = view.addAction("sparkles", "AI tools", (event) => {
+          const file = view.file;
+          if (file) this.openMarkdownViewAiToolsMenu(event, file);
+        });
+        aiTools.addClass("omd-note-view-action");
+        aiTools.addClass("is-ai-tools");
+        aiTools.setAttr("aria-haspopup", "menu");
+        aiTools.createSpan({ cls: "omd-note-view-action-label", text: "AI tools" });
+        actions = { aiTools };
+        this.markdownViewActions.set(view, actions);
+      }
+
+      const file = view.file;
+      let issue: TranscriptRepairIssue | null = null;
+      if (file?.extension === "md") {
+        try {
+          const markdown = await this.app.vault.cachedRead(file);
+          issue = await this.inspectTranscriptRepairForFile(file, markdown);
+        } catch {
+          issue = null;
+        }
+      }
+      if (generation !== this.markdownViewActionGeneration || this.unloaded) return;
+
+      if (issue && file) {
+        if (!actions.repair) {
+          const repair = view.addAction("wrench", "Review and repair transcript", () => {
+            const current = view.file;
+            if (current) void this.reviewAndRepairTranscript(current);
+          });
+          repair.addClass("omd-note-view-action");
+          repair.addClass("is-transcript-repair");
+          repair.createSpan({ cls: "omd-note-view-action-label", text: "Review and repair transcript" });
+          actions.repair = repair;
+        }
+      } else if (actions.repair) {
+        actions.repair.remove();
+        actions.repair = undefined;
+      }
+    }
+  }
+
+  private openMarkdownViewAiToolsMenu(event: MouseEvent, file: TFile): void {
+    event.preventDefault();
+    const menu = new Menu();
+    menu.addItem((item) => item
+      .setTitle("Improve formatting")
+      .setIcon("text")
+      .onClick(() => void this.improveNoteFormatting(file)));
+    menu.addItem((item) => item
+      .setTitle("Generate suggestions · summary, links, tags")
+      .setIcon("sparkles")
+      .onClick(() => void this.suggestLinksAndTags(file)));
+    menu.showAtMouseEvent(event);
+  }
+
+  private async reviewAndRepairTranscript(file: TFile): Promise<void> {
+    let baseline: string;
+    try {
+      baseline = await this.app.vault.read(file);
+    } catch {
+      new Notice("Could not read this transcript. The note was not changed.");
+      return;
+    }
+    const issue = await this.inspectTranscriptRepairForFile(file, baseline);
+    if (!issue) {
+      this.scheduleMarkdownViewActions();
+      new Notice("No transcript problem is currently flagged for this note.");
+      return;
+    }
+    this.openTranscriptRepairModal(file, baseline, issue);
+  }
+
+  private openTranscriptRepairModal(file: TFile, baseline: string, issue: TranscriptRepairIssue): void {
+    const adapter = this.app.vault.adapter;
+    const sessionId = transcriptRepairSessionId();
+    const configDir = this.app.vault.configDir;
+    const cacheRelativePath = normalizePath(
+      `${configDir}/plugins/omd-home/transcript-repair-cache/${sessionId}`,
+    );
+    const mediaRelativePath = normalizePath(`${cacheRelativePath}/source.m4a`);
+    const session = {
+      vaultPath: this.vaultPath(),
+      configDir,
+      sessionId,
+    };
+    const contextPromise = this.transcriptCaptureContext(file);
+    let preparedMediaPath = "";
+    let modal: TranscriptRepairModal;
+    modal = new TranscriptRepairModal(
+      this.app,
+      file.basename,
+      issue,
+      {
+        prepareMedia: async (signal) => {
+          if (!(adapter instanceof FileSystemAdapter)) {
+            throw new Error("Transcript audio review requires a desktop filesystem vault.");
+          }
+          const context = await contextPromise;
+          if (!context.source) {
+            throw new Error("This note does not record its original media source. The note was not changed.");
+          }
+          const provider = socialCaptureProvider(context.source);
+          const cookiesPath = provider === "douyin"
+            ? this.settings.douyinCookiesPath
+            : provider === "xhs"
+              ? this.settings.xhsCookiesPath
+              : "";
+          const media = await this.omdBridge.prepareTranscriptRepairMedia(
+            session,
+            context.source,
+            cookiesPath,
+            signal,
+          );
+          preparedMediaPath = media.path;
+          return {
+            source: adapter.getResourcePath(mediaRelativePath),
+            durationSeconds: media.durationSeconds,
+          };
+        },
+        retranscribeRange: async (range, language, signal) => {
+          if (!preparedMediaPath) {
+            throw new Error("The original audio is not ready. Close and reopen transcript review.");
+          }
+          return await this.omdBridge.retranscribeTranscriptRange(
+            session,
+            preparedMediaPath,
+            range.startSeconds,
+            range.endSeconds,
+            language === "auto" ? null : language,
+            signal,
+          );
+        },
+        applyRange: async (range, segments) => {
+          const repaired = replaceTranscriptRange(baseline, range, segments);
+          const outcome = await this.applyTranscriptRepairWithBackup(file, baseline, repaired);
+          if (outcome.result === "applied") {
+            this.finishTranscriptRepair(
+              `Selected transcript range replaced. Full original backup: ${outcome.backupPath}`,
+            );
+          }
+          return outcome;
+        },
+        applyInvalidTail: async () => {
+          if (!issue.invalidTail) return { result: "no-op" };
+          const repaired = repairInvalidTranscriptTail(baseline, issue.invalidTail);
+          const outcome = await this.applyTranscriptRepairWithBackup(file, baseline, repaired);
+          if (outcome.result === "applied") {
+            this.finishTranscriptRepair(
+              `Invalid transcript tail removed. Full original backup: ${outcome.backupPath}`,
+            );
+          }
+          return outcome;
+        },
+        keepOriginal: () => new Notice("Original transcript kept. No text, metadata, or sidecar was changed."),
+        closed: () => {
+          this.transcriptRepairModals.delete(modal);
+          void this.removeTranscriptRepairCache(cacheRelativePath);
+        },
+      },
+    );
+    this.transcriptRepairModals.add(modal);
+    modal.open();
+  }
+
+  private async inspectTranscriptRepairForFile(file: TFile, markdown: string): Promise<TranscriptRepairIssue | null> {
+    const recognition = await this.transcriptCaptureContext(file);
+    return inspectTranscriptRepair(markdown, recognition);
+  }
+
+  private async transcriptCaptureContext(file: TFile): Promise<TranscriptCaptureContext> {
+    const sidecarPath = normalizePath(file.path.replace(/\.md$/u, ".omd.json"));
+    const sidecar = this.app.vault.getAbstractFileByPath(sidecarPath);
+    if (!(sidecar instanceof TFile)) return { source: null, sidecarPath: null };
+    try {
+      const value: unknown = JSON.parse(await this.app.vault.cachedRead(sidecar));
+      if (!isUnknownRecord(value)) return { source: null, sidecarPath };
+      const recognition = isUnknownRecord(value.recognition) ? value.recognition : null;
+      const asr = recognition && isUnknownRecord(recognition.asr) ? recognition.asr : null;
+      return {
+        requested: asr ? nullableString(asr.requested) : undefined,
+        detected: asr ? nullableString(asr.detected) : undefined,
+        source: firstNonEmptyString(value.source, value.source_url, value.local_source_path),
+        sidecarPath,
+      };
+    } catch {
+      return { source: null, sidecarPath };
+    }
+  }
+
+  private async applyTranscriptRepairWithBackup(
+    file: TFile,
+    baseline: string,
+    repaired: string,
+  ): Promise<{ result: "applied" | "conflict" | "no-op"; backupPath?: string }> {
+    if (repaired === baseline) return { result: "no-op" };
+    if (await this.app.vault.read(file) !== baseline) return { result: "conflict" };
+    const backupPath = await this.saveTranscriptRepairBackup(file, baseline);
+    const result = await applyMarkdownFormattingPreview(this.app.vault, file, baseline, repaired);
+    return { result, backupPath };
+  }
+
+  private async saveTranscriptRepairBackup(file: TFile, markdown: string): Promise<string> {
+    const adapter = this.app.vault.adapter;
+    const root = normalizePath(`${this.app.vault.configDir}/plugins/omd-home/transcript-backups`);
+    if (!await adapter.exists(root)) await adapter.mkdir(root);
+    const safeName = file.basename.replaceAll(/[\\/:*?"<>|]/gu, "-").trim() || "transcript";
+    const timestamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
+    const backupPath = normalizePath(`${root}/${safeName}-${timestamp}.original.md`);
+    await adapter.write(backupPath, markdown);
+    return backupPath;
+  }
+
+  private async removeTranscriptRepairCache(relativePath: string): Promise<void> {
+    try {
+      if (await this.app.vault.adapter.exists(relativePath)) {
+        await this.app.vault.adapter.rmdir(relativePath, true);
+      }
+    } catch {
+      // Session media is disposable and can be removed on the next review.
+    }
+  }
+
+  private finishTranscriptRepair(message: string): void {
+    this.refreshHomeViews();
+    this.scheduleMarkdownViewActions();
+    new Notice(message, 12_000);
+  }
+
   async suggestLinksAndTags(file = this.app.workspace.getActiveFile()): Promise<void> {
     if (!(file instanceof TFile) || file.extension !== "md") {
       new Notice("Open a Markdown note first.");
       return;
     }
     await this.enrichmentWorkflowController.start(file);
+  }
+
+  async translateLocalTextToEnglish(text: string, signal?: AbortSignal): Promise<string> {
+    const snapshot = createWorkflowSnapshot("enrichment", this.settings);
+    return await this.runLocalAiGated(
+      snapshot,
+      () => createWorkflowSnapshot("enrichment", this.settings),
+      async (gatedSnapshot, gatedSignal) => await this.ollamaLocalClient.translateToEnglish(
+        gatedSnapshot.host,
+        gatedSnapshot.model,
+        text,
+        gatedSignal,
+      ),
+      signal,
+    );
   }
 
   async improveNoteFormatting(file = this.app.workspace.getActiveFile()): Promise<void> {
@@ -1525,6 +1868,23 @@ export default class OmdHomePlugin extends Plugin {
       return;
     }
 
+    let baseline: string;
+    try {
+      baseline = await this.app.vault.read(file);
+    } catch {
+      const detail = "Could not read this note for formatting. The note was not changed.";
+      this.reportLocalAiWorkflowIssue(new Error(detail), file.path);
+      new Notice(detail);
+      return;
+    }
+    const transcriptRepairIssue = await this.inspectTranscriptRepairForFile(file, baseline);
+    if (transcriptRepairIssue) {
+      this.openTranscriptRepairModal(file, baseline, transcriptRepairIssue);
+      return;
+    }
+    const formattingMode = markdownFormattingMode(baseline);
+    const blockedReason = markdownFormattingBlockedReason(baseline);
+
     const controller = new AbortController();
     this.captureActive = true;
     this.captureCancelable = true;
@@ -1534,27 +1894,34 @@ export default class OmdHomePlugin extends Plugin {
       event: "stage",
       kind: "markdown_formatting",
       ts: Date.now() / 1_000,
-      label: "Improving formatting…",
+      label: formattingMode === "transcript-cleanup" ? "Cleaning transcript…" : "Improving formatting…",
     }];
     this.clearIssue("ai");
     this.refreshHomeViews();
 
-    const modal = new MarkdownFormattingModal(this.app, file.basename, () => {
+    let modal: MarkdownFormattingModal;
+    modal = new MarkdownFormattingModal(this.app, file.basename, formattingMode, () => {
       if (this.captureController !== controller || !this.captureCancelable) return;
       controller.abort();
       this.captureCancelable = false;
       this.refreshHomeViews();
+    }, () => {
+      this.markdownFormattingModals.delete(modal);
     });
+    const generateAgain = () => {
+      modal.close();
+      if (this.unloaded) return;
+      void this.improveNoteFormatting(file);
+    };
     let decision: Promise<boolean> | null = null;
-    let baseline = "";
     let preview = "";
     let previewReady = false;
 
     try {
       this.markdownFormattingModals.add(modal);
-      decision = modal.openAndWait().finally(() => this.markdownFormattingModals.delete(modal));
-      baseline = await this.app.vault.read(file);
+      decision = modal.openAndWait();
       controller.signal.throwIfAborted();
+      if (blockedReason) throw new Error(blockedReason);
       const executable = await this.requireReadyOmdExecutable();
       controller.signal.throwIfAborted();
       const snapshot = createWorkflowSnapshot("capture", this.settings, true);
@@ -1568,14 +1935,14 @@ export default class OmdHomePlugin extends Plugin {
           gatedSnapshot.model,
           gatedSnapshot.host,
           signal,
+          formattingMode,
         ),
         controller.signal,
       );
       controller.signal.throwIfAborted();
       preview = preserveMarkdownFrontmatter(baseline, formatted);
       if (preview === baseline) {
-        modal.finishGeneration();
-        modal.close();
+        modal.showNoChanges(FORMATTING_NO_CHANGES_MESSAGE);
         this.processingEvents.push({
           v: 1,
           event: "done",
@@ -1583,7 +1950,6 @@ export default class OmdHomePlugin extends Plugin {
           ts: Date.now() / 1_000,
           message: FORMATTING_NO_CHANGES_MESSAGE,
         });
-        new Notice(FORMATTING_NO_CHANGES_MESSAGE);
         return;
       }
       previewReady = true;
@@ -1598,7 +1964,6 @@ export default class OmdHomePlugin extends Plugin {
     } catch (error) {
       const cancelled = isAbortError(error) || controller.signal.aborted;
       modal.finishGeneration();
-      modal.close();
       this.processingEvents.push({
         v: 1,
         event: cancelled ? "cancelled" : "error",
@@ -1608,8 +1973,11 @@ export default class OmdHomePlugin extends Plugin {
       });
       if (!cancelled) {
         const detail = noteFormattingFailureMessage(error);
+        modal.showFailure(
+          detail,
+          detail === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE ? undefined : generateAgain,
+        );
         this.reportLocalAiWorkflowIssue(error instanceof LocalAiError ? error : new Error(detail), file.path);
-        new Notice(detail);
       }
       return;
     } finally {
@@ -1625,19 +1993,20 @@ export default class OmdHomePlugin extends Plugin {
     try {
       const result = await applyMarkdownFormattingPreview(this.app.vault, file, baseline, preview);
       if (result === "conflict") {
-        new Notice(FORMATTING_CONFLICT_MESSAGE);
+        modal.showConflict(FORMATTING_CONFLICT_MESSAGE, generateAgain);
         return;
       }
       if (result === "no-op") {
-        new Notice(FORMATTING_NO_CHANGES_MESSAGE);
+        modal.showNoChanges(FORMATTING_NO_CHANGES_MESSAGE);
         return;
       }
+      modal.close();
       this.refreshHomeViews();
       new Notice("Formatting applied. Review status is unchanged.");
     } catch {
       const detail = "Could not apply formatting. The note was not changed.";
+      modal.showFailure(detail, generateAgain);
       this.reportLocalAiWorkflowIssue(new Error(detail), file.path);
-      new Notice(detail);
     }
   }
 
@@ -4018,6 +4387,7 @@ export default class OmdHomePlugin extends Plugin {
       : this.currentLocalAiHost() ?? DEFAULT_SETTINGS.ollamaHost;
     const preview = await this.withCloudAnswerSignal(async (signal) => {
       if (isHostedApiProvider(provider)) {
+        this.assertHostedAiDisclosureReady(provider);
         const credential = await this.omdBridge.hostedCredentialState(provider, signal);
         if (credential.source === "missing") {
           throw new LocalAiError(
@@ -4606,6 +4976,26 @@ export default class OmdHomePlugin extends Plugin {
   }
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nullableString(value: unknown): string | null | undefined {
+  if (value === null || typeof value === "string") return value;
+  return undefined;
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function transcriptRepairSessionId(): string {
+  return `repair-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 async function probeOmdCaptureExecutable(executable: string, signal?: AbortSignal): Promise<void> {
   try {
     const result = await spawnProcess(executable, ["capture", "--help"], {
@@ -4639,9 +5029,9 @@ function captureLanguageAvailabilityState(
 ): CaptureLanguageAvailability {
   const options = status === "unchecked"
     ? [
-      { label: "English", value: "eng" as const },
-      { label: "简体中文 + English", value: "chi_sim+eng" as const },
-      { label: "繁體中文 + English", value: "chi_tra+eng" as const },
+      { label: ocrLanguagePresetLabel("eng"), value: "eng" as const },
+      { label: ocrLanguagePresetLabel("chi_sim+eng"), value: "chi_sim+eng" as const },
+      { label: ocrLanguagePresetLabel("chi_tra+eng"), value: "chi_tra+eng" as const },
     ]
     : [];
   return {
@@ -4721,6 +5111,9 @@ function noteFormattingFailureMessage(error: unknown): string {
     return `${error.message} The note was not changed.`;
   }
   if (error instanceof Error && error.message === FORMATTING_UNSAFE_OUTPUT_MESSAGE) {
+    return error.message;
+  }
+  if (error instanceof Error && error.message === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE) {
     return error.message;
   }
   if (error instanceof Error && error.message === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE) {

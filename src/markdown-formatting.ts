@@ -4,10 +4,30 @@ export const FORMATTING_CONFLICT_MESSAGE =
 export const FORMATTING_NO_CHANGES_MESSAGE =
   "No formatting changes suggested. The note was not changed.";
 
+export const FORMATTING_TRANSCRIPT_QUALITY_MESSAGE =
+  "This transcript is flagged as unreliable, so OMD did not format it. Recapture it with the correct speech language, or replace it with verified text before trying again. The note was not changed.";
+
 export const FORMATTING_UNSAFE_OUTPUT_MESSAGE =
   "The formatting result contained an unsafe metadata block. The note was not changed.";
 
 export type MarkdownFormattingApplyResult = "applied" | "conflict" | "no-op";
+export type MarkdownFormattingMode = "layout-only" | "transcript-cleanup";
+
+/** Select the punctuation-aware path for captured transcript sections. */
+export function markdownFormattingMode(markdown: string): MarkdownFormattingMode {
+  const body = markdownBodyForFormatting(markdown);
+  return /^## Transcript[ \t]*$/mu.test(body)
+    ? "transcript-cleanup"
+    : "layout-only";
+}
+
+/** Do not let formatting make an explicitly unreliable transcript look trustworthy. */
+export function markdownFormattingBlockedReason(markdown: string): string | null {
+  const body = markdownBodyForFormatting(markdown);
+  return /^## Transcript quality warning[ \t]*$/mu.test(body)
+    ? FORMATTING_TRANSCRIPT_QUALITY_MESSAGE
+    : null;
+}
 
 interface MarkdownVaultWriter<FileRef> {
   process(file: FileRef, transform: (current: string) => string): Promise<string>;

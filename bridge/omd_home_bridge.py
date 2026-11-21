@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -208,6 +212,8 @@ SENSITIVE_BRIDGE_ACTIONS = {
     "check_provider_model",
     "preview_ai",
     "execute_ai",
+    "prepare_transcript_repair_media",
+    "retranscribe_transcript_range",
 }
 SAFE_ERROR_CODES = frozenset({
     "cancelled",
@@ -342,6 +348,10 @@ def main() -> int:
             return _send(_execute_ai(
                 request, hits, source, retrieval_mode, retrieval_model, warnings, provider
             ))
+        if action == "prepare_transcript_repair_media":
+            return _send({"ok": True, "media": _prepare_transcript_repair_media(request)})
+        if action == "retranscribe_transcript_range":
+            return _send({"ok": True, "transcript": _retranscribe_transcript_range(request)})
         raise ValueError("unsupported action")
     except Exception as exc:  # noqa: BLE001 - process boundary redacts to a message
         _send({"ok": False, "error": _error_payload(exc, action)})
@@ -363,6 +373,389 @@ def _require_credentials() -> None:
 def _require_provider_models() -> None:
     if not HAS_OMD_PROVIDER_MODELS:
         raise ValueError("This OMD build cannot validate provider models yet. Update OMD and try again.")
+
+
+def _repair_cache_directory(request: dict[str, Any], *, create: bool) -> Path:
+    vault = Path(_string(request, "vault")).expanduser().resolve(strict=True)
+    if not vault.is_dir():
+        raise ValueError("vault path does not exist")
+    config_dir = Path(_string(request, "config_dir"))
+    if config_dir.is_absolute() or any(part in {"", ".", ".."} for part in config_dir.parts):
+        raise ValueError("Transcript repair cache settings are invalid.")
+    session_id = _string(request, "session_id")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", session_id):
+        raise ValueError("Transcript repair cache settings are invalid.")
+    root = (vault / config_dir / "plugins" / "omd-home" / "transcript-repair-cache").resolve()
+    cache = (root / session_id).resolve()
+    if not cache.is_relative_to(root) or not root.is_relative_to(vault):
+        raise ValueError("Transcript repair cache settings are invalid.")
+    if create:
+        cache.mkdir(parents=True, exist_ok=True)
+    elif not cache.is_dir():
+        raise ValueError("The prepared transcript audio is no longer available. Open Review transcript again.")
+    return cache
+
+
+def _prepare_transcript_repair_media(request: dict[str, Any]) -> dict[str, Any]:
+    cache = _repair_cache_directory(request, create=True)
+    source = _string(request, "source")
+    cookies_path = _optional_string(request.get("cookies_path")) or None
+    playable = cache / "source.m4a"
+    with tempfile.TemporaryDirectory(prefix="omd-home-transcript-repair-") as temporary:
+        workdir = Path(temporary)
+        try:
+            source_path = _resolve_repair_audio_source(source, workdir, cookies_path)
+            _standardize_playable_audio(source_path, playable)
+        except Exception as exc:
+            shutil.rmtree(cache, ignore_errors=True)
+            raise RuntimeError(
+                "OMD could not prepare the original audio for transcript review. "
+                "Check the source, cookies, ffmpeg, and local storage, then try again."
+            ) from exc
+    from omd._audio import duration_seconds
+
+    duration = duration_seconds(playable)
+    if duration is None or not math.isfinite(duration) or duration <= 0:
+        shutil.rmtree(cache, ignore_errors=True)
+        raise RuntimeError(
+            "OMD prepared the audio but could not verify its duration. Check ffprobe, then try again."
+        )
+    return {
+        "path": str(playable),
+        "duration_seconds": float(duration),
+    }
+
+
+def _resolve_repair_audio_source(
+    source: str,
+    workdir: Path,
+    cookies_path: str | None,
+) -> Path:
+    parsed = urllib.parse.urlparse(source)
+    if parsed.scheme == "file":
+        local = Path(urllib.request.url2pathname(urllib.parse.unquote(parsed.path)))
+        if os.name == "nt" and re.match(r"^/[A-Za-z]:", str(local)):
+            local = Path(str(local)[1:])
+        return _verified_local_media(local)
+    if parsed.scheme not in {"http", "https"}:
+        return _verified_local_media(Path(source).expanduser())
+
+    from omd.xhs import is_xhs_url
+
+    if is_xhs_url(source):
+        return _download_xhs_repair_audio(source, workdir, cookies_path)
+    from omd.reel import download
+
+    audio, _info, _thumbnail = download(
+        source,
+        workdir,
+        None,
+        cookies_path,
+    )
+    return _verified_local_media(audio)
+
+
+def _verified_local_media(path: Path) -> Path:
+    resolved = path.resolve(strict=True)
+    if not resolved.is_file():
+        raise ValueError("The original local media file is unavailable.")
+    return resolved
+
+
+def _download_xhs_repair_audio(
+    source: str,
+    workdir: Path,
+    cookies_path: str | None,
+) -> Path:
+    from omd.xhs import (
+        _authenticated_http_get,
+        download_to,
+        expand_short_url,
+        extract_note,
+        parse_initial_state,
+        parse_note_id,
+        video_to_audio,
+    )
+
+    url = expand_short_url(source)
+    final_url = url
+    state: dict[str, Any] = {}
+    candidate_note_id: str | None = None
+    for attempt in range(2):
+        status, _headers, body, final_url = _authenticated_http_get(url, cookies_path)
+        if status != 200:
+            raise RuntimeError("XHS / Rednote could not reopen the captured post.")
+        candidate_note_id = parse_note_id(final_url)
+        state = parse_initial_state(body.decode("utf-8", errors="replace"))
+        detail_map = (state.get("note") or {}).get("noteDetailMap") or {}
+        if candidate_note_id and candidate_note_id not in detail_map and attempt == 0:
+            continue
+        break
+    note = extract_note(state, candidate_note_id)
+    if note.get("type") != "video" or not note.get("video_url"):
+        raise RuntimeError("The captured Rednote post does not expose a repairable video stream.")
+    video = workdir / "source-video.mp4"
+    download_to(str(note["video_url"]), video)
+    return video_to_audio(video)
+
+
+def _standardize_playable_audio(source: Path, output: Path) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is not available")
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-i", str(source),
+            "-vn",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10 * 60,
+        check=False,
+    )
+    if result.returncode != 0 or not output.is_file():
+        raise RuntimeError("ffmpeg could not prepare review audio")
+
+
+def _retranscribe_transcript_range(request: dict[str, Any]) -> dict[str, Any]:
+    cache = _repair_cache_directory(request, create=False)
+    media = Path(_string(request, "media_path")).expanduser().resolve(strict=True)
+    if not media.is_file() or not media.is_relative_to(cache):
+        raise ValueError("The prepared transcript audio is outside the active review session.")
+    start = _finite_number(request, "start_seconds", minimum=0)
+    end = _finite_number(request, "end_seconds", minimum=0)
+    if end <= start:
+        raise ValueError("Choose a valid transcript range before re-transcribing.")
+    context = _finite_number(request, "context_seconds", minimum=5, maximum=10)
+    chunk_seconds = _finite_number(
+        {"chunk_seconds": request.get("chunk_seconds", 25)},
+        "chunk_seconds",
+        minimum=20,
+        maximum=30,
+    )
+    requested_language = _optional_string(request.get("language")).lower() or None
+    language = None if requested_language in {None, "auto"} else requested_language
+    if language not in {None, "en", "zh"}:
+        raise ValueError("Transcript repair supports Auto, Chinese, or English recognition.")
+    from omd._audio import duration_seconds
+
+    duration = duration_seconds(media)
+    if duration is None or start >= duration:
+        raise ValueError("The selected transcript range starts after the source audio ends.")
+    bounded_end = min(float(duration), end)
+    try:
+        from omd.reel import DEFAULT_MODEL, transcribe
+    except Exception as exc:
+        raise RuntimeError(
+            "Local Whisper is unavailable. Check the local speech setup, then try again."
+        ) from exc
+
+    segments: list[dict[str, Any]] = []
+    chunk_languages: list[str] = []
+    quality_warnings: list[str] = []
+    suspect_intervals: list[dict[str, Any]] = []
+    context_starts: list[float] = []
+    context_ends: list[float] = []
+    core_start = start
+    chunk_index = 0
+    while core_start < bounded_end:
+        core_end = min(bounded_end, core_start + chunk_seconds)
+        context_start = max(0.0, core_start - context)
+        context_end = min(float(duration), core_end + context)
+        context_starts.append(context_start)
+        context_ends.append(context_end)
+        clip = cache / f"selected-range-{chunk_index:03d}.wav"
+        _clip_repair_audio(media, clip, context_start, context_end)
+        try:
+            transcript = transcribe(clip, cache, DEFAULT_MODEL, language)
+        except Exception as exc:
+            raise RuntimeError(
+                "Local Whisper could not re-transcribe the selected range. Check the local speech setup, then try again."
+            ) from exc
+
+        detected_language = _optional_string(transcript.get("language")) or language
+        if detected_language:
+            chunk_languages.append(detected_language)
+        raw_segments = [item for item in transcript.get("segments") or [] if isinstance(item, dict)]
+        chunk_segments: list[dict[str, Any]] = []
+        final_chunk = core_end >= bounded_end
+        for item in raw_segments:
+            text = str(item.get("text") or "").strip()
+            try:
+                item_start = context_start + float(item.get("start") or 0)
+                item_end = context_start + float(item.get("end") or 0)
+            except (TypeError, ValueError):
+                continue
+            midpoint = item_start + max(0.0, item_end - item_start) / 2
+            if (
+                not text
+                or midpoint < core_start
+                or midpoint > core_end
+                or (not final_chunk and midpoint >= core_end)
+            ):
+                continue
+            clipped_start = max(core_start, item_start)
+            clipped_end = min(core_end, item_end)
+            if clipped_end <= clipped_start:
+                continue
+            chunk_segments.append({
+                "start": round(clipped_start, 3),
+                "end": round(clipped_end, 3),
+                "text": text,
+            })
+        segments.extend(chunk_segments)
+
+        chunk_warnings = _transcript_chunk_quality_warnings(transcript, raw_segments, chunk_segments)
+        for warning in chunk_warnings:
+            if warning not in quality_warnings:
+                quality_warnings.append(warning)
+        if chunk_warnings:
+            suspect_intervals.append({
+                "start": round(core_start, 3),
+                "end": round(core_end, 3),
+                "reasons": chunk_warnings,
+            })
+        core_start = core_end
+        chunk_index += 1
+
+    segments = _deduplicate_repair_segments(segments)
+    if not segments:
+        raise RuntimeError(
+            "Whisper found no readable speech inside the selected range. Adjust the range and try again."
+        )
+    unique_languages = _unique_strings(chunk_languages)
+    return {
+        "segments": segments,
+        "language": (
+            unique_languages[0]
+            if len(unique_languages) == 1
+            else "mixed" if unique_languages
+            else language
+        ),
+        "chunk_languages": chunk_languages,
+        "quality_warnings": quality_warnings,
+        "suspect_intervals": suspect_intervals,
+        "safe_to_apply": not quality_warnings and not suspect_intervals,
+        "context_start_seconds": min(context_starts),
+        "context_end_seconds": max(context_ends),
+    }
+
+
+def _transcript_chunk_quality_warnings(
+    transcript: dict[str, Any],
+    raw_segments: list[dict[str, Any]],
+    selected_segments: list[dict[str, Any]],
+) -> list[str]:
+    reported_warnings = transcript.get("quality_warnings")
+    warnings = _unique_strings(
+        list(reported_warnings) if isinstance(reported_warnings, (list, tuple)) else []
+    )
+    if raw_segments and not selected_segments:
+        warnings.append("Whisper left a coverage gap inside the selected interval.")
+    if len(selected_segments) >= 2:
+        ordered = sorted(selected_segments, key=lambda item: float(item["start"]))
+        largest_gap = max(
+            (float(right["start"]) - float(left["end"]) for left, right in zip(ordered, ordered[1:])),
+            default=0.0,
+        )
+        if largest_gap > 12:
+            warnings.append("Whisper left an unusually large coverage gap inside this chunk.")
+        punctuation_only = sum(
+            1 for item in selected_segments
+            if re.fullmatch(r"[^\w\u3400-\u9fff]+", str(item.get("text") or "").strip())
+        )
+        if punctuation_only / len(selected_segments) >= 0.5:
+            warnings.append("Whisper produced too many punctuation-only segments.")
+    for item in raw_segments:
+        if "avg_logprob" in item:
+            try:
+                if not math.isfinite(float(item["avg_logprob"])):
+                    warnings.append("Whisper returned an invalid confidence score for this chunk.")
+                    break
+            except (TypeError, ValueError):
+                warnings.append("Whisper returned an invalid confidence score for this chunk.")
+                break
+    for item in raw_segments:
+        if "compression_ratio" not in item:
+            continue
+        try:
+            if float(item["compression_ratio"]) > 2.8:
+                warnings.append("Whisper returned an unusually high compression ratio for this chunk.")
+                break
+        except (TypeError, ValueError):
+            continue
+    return _unique_strings(warnings)
+
+
+def _deduplicate_repair_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for segment in sorted(segments, key=lambda item: (float(item["start"]), float(item["end"]))):
+        normalized = re.sub(r"\s+", "", str(segment["text"])).casefold()
+        duplicate = any(
+            normalized == re.sub(r"\s+", "", str(existing["text"])).casefold()
+            and float(segment["start"]) < float(existing["end"])
+            and float(segment["end"]) > float(existing["start"])
+            for existing in result[-3:]
+        )
+        if not duplicate:
+            result.append(segment)
+    return result
+
+
+def _clip_repair_audio(
+    source: Path,
+    output: Path,
+    start_seconds: float,
+    end_seconds: float,
+) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is not available")
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-ss", f"{start_seconds:.3f}",
+            "-to", f"{end_seconds:.3f}",
+            "-i", str(source),
+            "-vn",
+            "-ac", "1",
+            "-ar", "16000",
+            "-c:a", "pcm_s16le",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10 * 60,
+        check=False,
+    )
+    if result.returncode != 0 or not output.is_file():
+        raise RuntimeError("ffmpeg could not prepare the selected audio range")
+
+
+def _finite_number(
+    value: dict[str, Any],
+    key: str,
+    *,
+    minimum: float,
+    maximum: float | None = None,
+) -> float:
+    item = value.get(key)
+    if isinstance(item, bool) or not isinstance(item, (int, float)):
+        raise ValueError(f"{key} must be a number")
+    number = float(item)
+    if not math.isfinite(number) or number < minimum or (maximum is not None and number > maximum):
+        raise ValueError(f"{key} is outside the supported range")
+    return number
 
 
 def _provider(request: dict[str, Any]) -> str:
@@ -2599,6 +2992,14 @@ def _allowlisted_action_error_message(action: str, message: str) -> str:
         "check_provider_model": "Provider model check failed without safe error details.",
         "preview_ai": "AI answer preview failed without safe error details.",
         "execute_ai": "AI answer request failed without safe error details.",
+        "prepare_transcript_repair_media": (
+            "OMD could not prepare the original audio for transcript review. "
+            "Check that the source is still available and that local capture access is configured, then try again."
+        ),
+        "retranscribe_transcript_range": (
+            "OMD could not re-transcribe the selected range locally. "
+            "Adjust the range or check the local Whisper setup, then try again."
+        ),
     }.get(action, "Operation failed without safe error details.")
 
 

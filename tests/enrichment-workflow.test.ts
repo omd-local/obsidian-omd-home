@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  addManualEnrichmentTag,
   canApplyEnrichment,
   createEnrichmentSelection,
   describeEnrichmentPhase,
   reconcileEnrichmentSelection,
+  removeManualEnrichmentTag,
   selectedEnrichmentCount,
   toggleEnrichmentSelection,
   updateEnrichmentSummarySelection,
@@ -30,6 +32,7 @@ const baseState: EnrichmentReviewState = {
     { id: "concept-1", kind: "new-concept", label: "Calendar workflow map", evidence: "Concept only." , selectable: false },
   ],
   warnings: ["Candidate list is short."],
+  hasAppliedSuggestions: false,
 };
 
 test("phase copy labels review and generating states distinctly", () => {
@@ -71,6 +74,27 @@ test("selection toggles immutably", () => {
   assert.notEqual(toggled, selection);
   assert.equal(toggled.selectedIds["new-tag-1"], true);
   assert.equal(selection.selectedIds["new-tag-1"], false);
+});
+
+test("manual review tags are normalized, deduplicated, removable, and make Apply available", () => {
+  const emptySuggestions = {
+    ...baseState,
+    summary: "",
+    existingLinks: [],
+    existingTags: [],
+    newTags: [],
+  };
+  const initial = createEnrichmentSelection(emptySuggestions);
+  const first = addManualEnrichmentTag(initial, " #remote/work ");
+  const duplicate = addManualEnrichmentTag(first.selection, "REMOTE/work");
+
+  assert.equal(first.error, "");
+  assert.deepEqual(first.selection.manualTags, ["remote/work"]);
+  assert.match(duplicate.error, /already added/iu);
+  assert.deepEqual(duplicate.selection.manualTags, ["remote/work"]);
+  assert.equal(canApplyEnrichment(emptySuggestions, first.selection), true);
+  assert.deepEqual(removeManualEnrichmentTag(first.selection, "remote/work").manualTags, []);
+  assert.match(addManualEnrichmentTag(initial, "two words").error, /spaces/iu);
 });
 
 test("summary is optional, editable, and can be the only applied item", () => {

@@ -107,6 +107,7 @@ export class EnrichmentWorkflowController {
     active.view.bindTarget(state, {
       onGenerate: async () => await this.generate(active),
       onCancelGeneration: () => { this.cancel(false); },
+      onTranslateSummary: async (summary) => await this.translateSummaryToEnglish(active, summary),
       onApply: async (payload) => await this.apply(active, payload),
       onDoneReviewing: async () => await this.doneReviewing(active),
       onClose: () => this.viewClosed(active),
@@ -127,6 +128,7 @@ export class EnrichmentWorkflowController {
     }
     if (active.state.phase === "applying" || active.state.phase === "finishing") return;
 
+    const hasAppliedSuggestions = active.state.hasAppliedSuggestions;
     active.abortController?.abort();
     this.plugin.omdEnrichmentRunner.cancel();
     const abortController = new AbortController();
@@ -136,6 +138,7 @@ export class EnrichmentWorkflowController {
     active.state = {
       ...emptyReviewState(active.file.path, this.plugin.settings.localWritingModel, this.plugin.settings.ollamaHost),
       phase: "capability",
+      hasAppliedSuggestions,
       statusText: "Checking that this OMD installation can generate suggestions.",
     };
     active.view.updateState(active.state);
@@ -188,7 +191,7 @@ export class EnrichmentWorkflowController {
       );
       if (!this.isCurrent(active)) return;
 
-      active.state = reviewState(request, response, catalogById);
+      active.state = reviewState(request, response, catalogById, hasAppliedSuggestions);
       active.abortController = null;
       active.view.updateState(active.state);
       this.plugin.clearEnrichmentIssue();
@@ -268,7 +271,8 @@ export class EnrichmentWorkflowController {
       const selectedLinks = payload.selectedSuggestions.filter((item) => item.kind === "existing-link");
       const selectedTags = payload.selectedSuggestions
         .filter((item) => item.kind === "existing-tag" || item.kind === "new-tag")
-        .map((item) => item.label.replace(/^#/u, ""));
+        .map((item) => item.label.replace(/^#/u, ""))
+        .concat(payload.selection.manualTags ?? []);
       const plan: ApplyEnrichmentPlan = {
         targetPath: active.request.note.path,
         originalContent: active.request.note.content,
@@ -294,7 +298,11 @@ export class EnrichmentWorkflowController {
       const statusText = result.status === "applied"
         ? `${describeAppliedSelection(result)} The note remains in Inbox.`
         : result.message;
-      this.update(active, { phase, statusText });
+      this.update(active, {
+        phase,
+        statusText,
+        hasAppliedSuggestions: result.status === "applied" || active.state.hasAppliedSuggestions,
+      });
       this.setBusy(false);
       this.plugin.clearEnrichmentIssue();
       this.plugin.refreshHomeViews();
@@ -316,6 +324,26 @@ export class EnrichmentWorkflowController {
         this.plugin.reportEnrichmentIssue(error, active.file.path);
         new Notice(failure.statusText);
       }
+    }
+  }
+
+  private async translateSummaryToEnglish(active: ActiveEnrichment, summary: string): Promise<string> {
+    if (!this.isCurrent(active) || active.state.phase !== "review") {
+      throw new Error("This proposal is no longer available to translate.");
+    }
+    if (this.plugin.captureActive) {
+      throw new Error("Wait for the active OMD capture to finish, or cancel it first.");
+    }
+    if (active.abortController) throw new Error("Another local AI action is already running.");
+
+    const abortController = new AbortController();
+    active.abortController = abortController;
+    this.setBusy(true);
+    try {
+      return await this.plugin.translateLocalTextToEnglish(summary, abortController.signal);
+    } finally {
+      if (active.abortController === abortController) active.abortController = null;
+      if (this.isCurrent(active)) this.setBusy(false);
     }
   }
 
@@ -422,6 +450,7 @@ function reviewState(
   request: OmdEnrichRequest,
   response: EnrichmentResponse,
   catalogById: ReadonlyMap<string, EnrichmentCandidate>,
+  hasAppliedSuggestions = false,
 ): EnrichmentReviewState {
   return {
     phase: "review",
@@ -460,6 +489,7 @@ function reviewState(
       selectable: false,
     })),
     warnings: response.warnings,
+    hasAppliedSuggestions,
     statusText: "Review the proposal and choose what OMD Home may write.",
   };
 }

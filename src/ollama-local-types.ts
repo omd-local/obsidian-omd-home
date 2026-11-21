@@ -17,6 +17,7 @@ export type LocalAiReadinessCode =
   | "credentials_missing"
   | "provider_unreachable"
   | "provider_catalog_unavailable"
+  | "disclosure_unavailable"
   | "model_unavailable"
   | "selected_model_missing"
   | "selected_model_incompatible"

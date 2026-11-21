@@ -7,6 +7,17 @@ import {
 export const OCR_LANGUAGE_PRESETS = ["eng", "chi_sim+eng", "chi_tra+eng"] as const;
 
 export type OcrLanguagePreset = typeof OCR_LANGUAGE_PRESETS[number];
+
+const OCR_LANGUAGE_PRESET_LABELS: Readonly<Record<OcrLanguagePreset, string>> = Object.freeze({
+  eng: "English",
+  "chi_sim+eng": "Simplified Chinese + English",
+  "chi_tra+eng": "Traditional Chinese + English",
+});
+
+export function ocrLanguagePresetLabel(value: OcrLanguagePreset): string {
+  return OCR_LANGUAGE_PRESET_LABELS[value];
+}
+
 export type CaptureAsrSetting = "inherit-adapter-default" | "auto-detect" | "en" | "zh";
 
 export type CaptureOcrOption =

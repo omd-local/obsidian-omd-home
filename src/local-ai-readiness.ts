@@ -272,6 +272,8 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Provider unreachable";
     case "provider_catalog_unavailable":
       return "Model catalog unavailable";
+    case "disclosure_unavailable":
+      return "Disclosure unavailable";
     case "model_unavailable":
       return "Model unavailable";
     case "selected_model_missing":

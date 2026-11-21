@@ -20,6 +20,8 @@ import {
   prependExecutableDirectoryToPath,
 } from "./omd-events.ts";
 import type { CaptureRequest } from "./capture-request.ts";
+import type { MarkdownFormattingMode } from "./markdown-formatting.ts";
+import type { ReplacementTranscriptSegment } from "./transcript-repair.ts";
 import { isXhsShortlinkSource, socialCaptureProvider } from "./omnibox-utils.ts";
 
 export interface SpawnResult {
@@ -46,6 +48,7 @@ const BRIDGE_TIMEOUT_MS = 95_000;
 const HYBRID_BRIDGE_TIMEOUT_MS = 5 * 60_000;
 const CAPTURE_TIMEOUT_MS = 10 * 60_000;
 const MARKDOWN_FORMATTING_TIMEOUT_MS = 5 * 60_000;
+const TRANSCRIPT_REPAIR_TIMEOUT_MS = 10 * 60_000;
 const CAPTURE_INSPECT_TIMEOUT_MS = 30_000;
 const MAX_CAPTURE_INSPECT_BYTES = 64 * 1024;
 const WHICH_TIMEOUT_MS = 5_000;
@@ -116,6 +119,32 @@ export interface HybridRetrievalOptions {
   embeddingModel: string;
   embeddingModelRevision?: string;
   semanticRerankEnabled: boolean;
+}
+
+export interface PreparedTranscriptRepairMedia {
+  readonly path: string;
+  readonly durationSeconds: number;
+}
+
+export interface RetranscribedTranscriptRange {
+  readonly segments: readonly ReplacementTranscriptSegment[];
+  readonly language: string | null;
+  readonly chunkLanguages: readonly string[];
+  readonly qualityWarnings: readonly string[];
+  readonly suspectIntervals: readonly {
+    readonly startSeconds: number;
+    readonly endSeconds: number;
+    readonly reasons: readonly string[];
+  }[];
+  readonly safeToApply: boolean;
+  readonly contextStartSeconds: number;
+  readonly contextEndSeconds: number;
+}
+
+export interface TranscriptRepairSessionRequest {
+  readonly vaultPath: string;
+  readonly configDir: string;
+  readonly sessionId: string;
 }
 
 function normalizeCredential(value: Record<string, unknown> | undefined): HostedAiCredentialState | null {
@@ -215,6 +244,89 @@ function normalizeNumberRecord(value: unknown): Record<string, number> | undefin
     result[key] = item;
   }
   return result;
+}
+
+function normalizePreparedTranscriptMedia(value: unknown): PreparedTranscriptRepairMedia | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.path !== "string" || !record.path.trim()) return null;
+  if (typeof record.duration_seconds !== "number"
+    || !Number.isFinite(record.duration_seconds)
+    || record.duration_seconds <= 0) return null;
+  return {
+    path: record.path,
+    durationSeconds: record.duration_seconds,
+  };
+}
+
+function normalizeRetranscribedTranscriptRange(value: unknown): RetranscribedTranscriptRange | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.segments) || !record.segments.length) return null;
+  const segments: ReplacementTranscriptSegment[] = [];
+  for (const item of record.segments) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const segment = item as Record<string, unknown>;
+    if (typeof segment.start !== "number" || !Number.isFinite(segment.start) || segment.start < 0
+      || typeof segment.end !== "number" || !Number.isFinite(segment.end) || segment.end <= segment.start
+      || typeof segment.text !== "string" || !segment.text.trim()) return null;
+    segments.push({ start: segment.start, end: segment.end, text: segment.text.trim() });
+  }
+  const contextStart = record.context_start_seconds;
+  const contextEnd = record.context_end_seconds;
+  if (typeof contextStart !== "number" || !Number.isFinite(contextStart) || contextStart < 0
+    || typeof contextEnd !== "number" || !Number.isFinite(contextEnd) || contextEnd <= contextStart) return null;
+  if (record.language !== null && record.language !== undefined && typeof record.language !== "string") return null;
+  const chunkLanguages = normalizeStringArray(record.chunk_languages);
+  const qualityWarnings = normalizeStringArray(record.quality_warnings);
+  if (!chunkLanguages || !qualityWarnings) return null;
+  const suspectIntervals: Array<{
+    startSeconds: number;
+    endSeconds: number;
+    reasons: readonly string[];
+  }> = [];
+  if (record.suspect_intervals !== undefined) {
+    if (!Array.isArray(record.suspect_intervals)) return null;
+    for (const item of record.suspect_intervals) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const interval = item as Record<string, unknown>;
+      const reasons = normalizeStringArray(interval.reasons);
+      if (typeof interval.start !== "number" || !Number.isFinite(interval.start) || interval.start < 0
+        || typeof interval.end !== "number" || !Number.isFinite(interval.end) || interval.end <= interval.start
+        || !reasons || !reasons.length) return null;
+      suspectIntervals.push({
+        startSeconds: interval.start,
+        endSeconds: interval.end,
+        reasons,
+      });
+    }
+  }
+  if (record.safe_to_apply !== undefined && typeof record.safe_to_apply !== "boolean") return null;
+  const safeToApply = record.safe_to_apply !== false
+    && qualityWarnings.length === 0
+    && suspectIntervals.length === 0;
+  return {
+    segments,
+    language: typeof record.language === "string" && record.language.trim() ? record.language.trim() : null,
+    chunkLanguages,
+    qualityWarnings,
+    suspectIntervals,
+    safeToApply,
+    contextStartSeconds: contextStart,
+    contextEndSeconds: contextEnd,
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const strings: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim()) return null;
+    const normalized = item.trim();
+    if (!strings.includes(normalized)) strings.push(normalized);
+  }
+  return strings;
 }
 
 function normalizeAiAnswer(value: Record<string, unknown>): AiAnswer | null {
@@ -394,6 +506,7 @@ export class OmdBridge {
     model: string,
     host: string,
     signal?: AbortSignal,
+    mode: MarkdownFormattingMode = "layout-only",
   ): Promise<string> {
     this.assertDesktop();
     const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "omd-home-format-"));
@@ -401,7 +514,7 @@ export class OmdBridge {
     try {
       signal?.throwIfAborted();
       await writeFile(temporaryNote, markdown, "utf8");
-      const result = await this.spawnManagedProcess(executable, [
+      const args = [
         temporaryNote,
         "--polish-md",
         "--polish-md-model",
@@ -409,7 +522,9 @@ export class OmdBridge {
         "--polish-md-host",
         host,
         "--json-events",
-      ], {
+      ];
+      if (mode === "transcript-cleanup") args.push("--polish-md-transcript-cleanup");
+      const result = await this.spawnManagedProcess(executable, args, {
         signal,
         shell: false,
         timeoutMs: MARKDOWN_FORMATTING_TIMEOUT_MS,
@@ -463,6 +578,50 @@ export class OmdBridge {
       throw new Error("OMD could not verify this link as the selected social source. Check the link and try again.");
     }
     return inspection;
+  }
+
+  async prepareTranscriptRepairMedia(
+    session: TranscriptRepairSessionRequest,
+    source: string,
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<PreparedTranscriptRepairMedia> {
+    const response = await this.callPythonBridge({
+      action: "prepare_transcript_repair_media",
+      vault: session.vaultPath,
+      config_dir: session.configDir,
+      session_id: session.sessionId,
+      source,
+      cookies_path: cookiesPath || null,
+    }, { signal });
+    const media = normalizePreparedTranscriptMedia(response.media);
+    if (!media) throw new Error("OMD Home bridge returned invalid transcript review media.");
+    return media;
+  }
+
+  async retranscribeTranscriptRange(
+    session: TranscriptRepairSessionRequest,
+    mediaPath: string,
+    startSeconds: number,
+    endSeconds: number,
+    language: string | null,
+    signal?: AbortSignal,
+  ): Promise<RetranscribedTranscriptRange> {
+    const response = await this.callPythonBridge({
+      action: "retranscribe_transcript_range",
+      vault: session.vaultPath,
+      config_dir: session.configDir,
+      session_id: session.sessionId,
+      media_path: mediaPath,
+      start_seconds: startSeconds,
+      end_seconds: endSeconds,
+      context_seconds: 8,
+      chunk_seconds: 25,
+      language,
+    }, { signal });
+    const transcript = normalizeRetranscribedTranscriptRange(response.transcript);
+    if (!transcript) throw new Error("OMD Home bridge returned an invalid transcript range.");
+    return transcript;
   }
 
   async search(vaultPath: string, query: string, signal?: AbortSignal): Promise<OmdSearchHit[]> {
@@ -857,6 +1016,9 @@ function isContainedPath(root: string, candidate: string): boolean {
 
 export function bridgeTimeoutMs(payload: Record<string, unknown>): number {
   const action = typeof payload.action === "string" ? payload.action : "";
+  if (action === "prepare_transcript_repair_media" || action === "retranscribe_transcript_range") {
+    return TRANSCRIPT_REPAIR_TIMEOUT_MS;
+  }
   const hybridEnabled = payload.hybrid_retrieval_enabled === true;
   if (hybridEnabled && (action === "preview_ai" || action === "execute_ai")) {
     return HYBRID_BRIDGE_TIMEOUT_MS;
