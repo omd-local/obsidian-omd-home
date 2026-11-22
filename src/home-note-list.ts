@@ -96,6 +96,16 @@ export function sortHomeNoteRows<TFile extends HomeNoteFileLike>(
   });
 }
 
+export function prioritizePinnedHomeNotes<TFile extends HomeNoteFileLike>(
+  rows: readonly HomeNoteRow<TFile>[],
+  isPinned: (path: string) => boolean,
+): HomeNoteRow<TFile>[] {
+  const pinned: HomeNoteRow<TFile>[] = [];
+  const unpinned: HomeNoteRow<TFile>[] = [];
+  for (const row of rows) (isPinned(row.path) ? pinned : unpinned).push(row);
+  return [...pinned, ...unpinned];
+}
+
 export function matchesHomeNoteTagFilters(tags: readonly string[], filters: Iterable<string>): boolean {
   const normalizedTags = tags.map(normalizeTagKey).filter((tag) => tag.length > 0);
   for (const value of filters) {

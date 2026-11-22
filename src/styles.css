@@ -344,6 +344,10 @@
 .omd-note-row:active,
 .omd-event-row:active { transform: translateY(1px); }
 .omd-result-title, .omd-note-title { display: block; width: 100%; margin: 0; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.omd-note-title-line { display: flex; align-items: center; width: 100%; min-width: 0; gap: 5px; }
+.omd-note-title-line .omd-note-title { flex: 1 1 auto; width: auto; min-width: 0; }
+.omd-note-title-pin { display: inline-flex; flex: 0 0 auto; color: var(--omd-accent); }
+.omd-note-title-pin svg { width: 11px; height: 11px; }
 .omd-result-detail, .omd-note-path { display: block; width: 100%; margin: 0; padding: 0; overflow: hidden; color: var(--omd-muted); font-size: var(--omd-font-small); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .omd-note-status {
   display: block;
@@ -509,8 +513,7 @@
   .omd-note-tools > :first-child { border-left: 0; }
   .omd-note-metadata { align-items: flex-start; }
 }
-.omd-widget-today,
-.omd-widget-upcoming { container: omd-calendar-widget / inline-size; }
+.omd-widget-today { container: omd-calendar-widget / inline-size; }
 .omd-event-row { grid-template-columns: 10px max-content minmax(0, 1fr); align-items: center; gap: 6px; }
 .omd-event-row.has-conflict { color: var(--omd-danger); }
 .omd-event-time {

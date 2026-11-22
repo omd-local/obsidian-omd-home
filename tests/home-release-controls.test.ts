@@ -175,7 +175,7 @@ test("repeated keyboard moves keep the grip focused after widget reparenting", a
   assert.deepEqual(move.lastFocusOptions, { preventScroll: true });
 });
 
-test("Home clock refreshes date-relative events across midnight and stops when closed", async (context) => {
+test("Home clock keeps one Today & Upcoming timeline in day-first order across midnight", async (context) => {
   context.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 8, 16, 23, 59).getTime() });
   const previousWindow = globalThis.window;
   const intervals = new Map<number, () => void>();
@@ -206,26 +206,21 @@ test("Home clock refreshes date-relative events across midnight and stops when c
       ],
     });
     const today = new ElementStub();
-    const upcoming = new ElementStub();
     const omnibox = new ElementStub();
     const draft = omnibox.createEl("input", { text: "研究 / بحث" });
     home.widgetBodies.set("today", today);
-    home.widgetBodies.set("upcoming", upcoming);
     home.widgetBodies.set("omnibox", omnibox);
     const titles = (body: ElementStub) => body.descendants().filter((el) => el.attributes.dir === "auto").map((el) => el.textContent);
     let fullRefreshes = 0;
     home.syncWidgets = () => {};
     home.refreshWidgets = () => {
       fullRefreshes++;
-      for (const [id, body] of [["today", today], ["upcoming", upcoming]] as const) {
-        body.empty();
-        home.renderWidgetBody(id, body);
-      }
+      today.empty();
+      home.renderWidgetBody("today", today);
     };
     await home.onOpen();
     draft.focus();
-    assert.deepEqual(titles(today), ["Earlier today", "Yesterday's event"]);
-    assert.deepEqual(titles(upcoming), ["Yesterday's event", "Today's event"]);
+    assert.deepEqual(titles(today), ["Earlier today", "Yesterday's event", "Today's event"]);
     const heading = home.contentEl.descendants().find((element) => element.tagName === "h1");
     const date = home.contentEl.querySelector(".omd-home-date");
     assert.ok(heading && date);
@@ -241,8 +236,7 @@ test("Home clock refreshes date-relative events across midnight and stops when c
     assert.equal(heading.textContent, "Good morning");
     assert.notEqual(date.textContent, previousDate);
     assert.equal(date.textContent, new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(new Date()));
-    assert.deepEqual(titles(today), ["Today's event"]);
-    assert.deepEqual(titles(upcoming), ["Today's event", "New upcoming event"]);
+    assert.deepEqual(titles(today), ["Today's event", "New upcoming event"]);
     assert.equal(fullRefreshes, 1, "the clock must not rebuild the full dashboard");
     assert.equal(omnibox.children[0], draft);
     assert.equal(draft.textContent, "研究 / بحث");
@@ -258,7 +252,7 @@ test("Home clock refreshes date-relative events across midnight and stops when c
   }
 });
 
-test("Upcoming rows explain source and sync state while keeping the shape marker decorative", () => {
+test("Today & Upcoming rows explain source and sync state while keeping the shape marker decorative", () => {
   const start = new Date(Date.now() + 60_000).toISOString();
   const end = new Date(Date.now() + 3_600_000).toISOString();
   const home = new Home({ app: { workspace: { openLinkText() {} } } }, {
@@ -274,7 +268,7 @@ test("Upcoming rows explain source and sync state while keeping the shape marker
     }],
   });
   const body = new ElementStub();
-  home.renderWidgetBody("upcoming", body);
+  home.renderWidgetBody("today", body);
   const row = body.descendants().find((element) => element.className === "omd-event-row");
   assert.ok(row);
   assert.match(row.attributes["aria-label"], /Source: Linked\. Note synced with Calendar\./u);
@@ -362,7 +356,7 @@ test("all-day date-only bounds do not expire early west of UTC", { concurrency: 
   }
 });
 
-test("Upcoming renders timed cross-day ranges and inclusive all-day ranges", { concurrency: false }, (context) => {
+test("Today & Upcoming renders timed cross-day ranges and inclusive all-day ranges", { concurrency: false }, (context) => {
   const previousTimeZone = process.env.TZ;
   process.env.TZ = "Pacific/Auckland";
   try {
@@ -400,7 +394,7 @@ test("Upcoming renders timed cross-day ranges and inclusive all-day ranges", { c
       ],
     });
     const body = new ElementStub();
-    home.renderWidgetBody("upcoming", body);
+    home.renderWidgetBody("today", body);
     const timings = new Map(body.children.map((row) => [
       row.children.find((element) => element.className === "omd-event-title")?.textContent,
       row.children.find((element) => element.className === "omd-event-time")?.textContent,
@@ -436,9 +430,9 @@ test("invalid date-only events are omitted instead of normalizing into another d
       }],
     });
     const body = new ElementStub();
-    home.renderWidgetBody("upcoming", body);
+    home.renderWidgetBody("today", body);
     assert.equal(body.descendants().some((element) => element.className === "omd-event-row"), false);
-    assert.equal(body.descendants().some((element) => element.textContent === "No events in this range"), true);
+    assert.equal(body.descendants().some((element) => element.textContent === "No events in the next 7 days"), true);
   } finally {
     if (previousTimeZone === undefined) delete process.env.TZ;
     else process.env.TZ = previousTimeZone;
@@ -537,6 +531,40 @@ test("Recent notes show exact Inbox and Reviewed Properties without adding a pla
   assert.equal(rowFor("Captured").children[0]?.attributes["aria-label"], "Open Captured. Status: Inbox.");
   assert.equal(rowFor("Finished").children[0]?.attributes["aria-label"], "Open Finished. Status: Reviewed.");
   assert.equal(rowFor("Ordinary").children[0]?.attributes["aria-label"], "Open Ordinary");
+});
+
+test("legacy pins move to the top of Recent before its row limit and unpin restores time order", () => {
+  const files = Array.from({ length: 9 }, (_, index) => ({
+    basename: `Note ${index + 1}`,
+    path: `Notes/Note ${index + 1}.md`,
+    parent: { path: "Notes" },
+    stat: { ctime: index + 1, mtime: index + 1 },
+  }));
+  const legacyPinnedPath = files[0]!.path;
+  const pinned = new Set([legacyPinnedPath]);
+  const app = { workspace: { openLinkText() {} } };
+  const plugin = {
+    isNotePinned: (path: string) => pinned.has(path),
+    toggleNotePinned() {},
+  };
+  const home = new Home({ app }, plugin);
+  home.noteSnapshot = homeNoteList.buildHomeNoteSnapshot(files, () => ({}));
+  const recent = new ElementStub();
+  const renderedTitles = () => recent.descendants()
+    .filter((element) => element.className === "omd-note-title")
+    .map((element) => element.textContent);
+
+  home.renderWidgetBody("recent", recent);
+
+  assert.deepEqual(renderedTitles(), ["Note 1", "Note 9", "Note 8", "Note 7", "Note 6", "Note 5", "Note 4"]);
+  assert.equal(new Set(renderedTitles()).size, 7, "a pinned note must not be duplicated");
+  assert.equal(recent.descendants().filter((element) => element.className === "omd-note-title-pin").length, 1);
+
+  pinned.clear();
+  recent.empty();
+  home.renderWidgetBody("recent", recent);
+
+  assert.deepEqual(renderedTitles(), ["Note 9", "Note 8", "Note 7", "Note 6", "Note 5", "Note 4", "Note 3"]);
 });
 
 test("workflow status remains a Recent-only hint", () => {

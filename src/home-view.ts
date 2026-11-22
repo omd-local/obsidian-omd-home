@@ -9,6 +9,7 @@ import {
   formatRelativeHomeNoteTime,
   homeNoteDisplayTime,
   homeNoteTagFilterOptions,
+  prioritizePinnedHomeNotes,
   sortHomeNoteRows,
   visibleHomeNoteTags,
   type HomeNoteRow,
@@ -135,12 +136,9 @@ export class OmdHomeView extends ItemView {
     if (this.dateEl && this.dateEl.textContent !== nextDate) this.dateEl.setText(nextDate);
     this.refreshRenderedNoteTimes();
     if (dayChanged) {
-      for (const id of ["today", "upcoming"] as const) {
-        const body = this.widgetBodies.get(id);
-        if (!body) continue;
-        body.empty();
-        this.renderWidgetBody(id, body);
-      }
+      const body = this.widgetBodies.get("today");
+      body?.empty();
+      if (body) this.renderWidgetBody("today", body);
     }
   }
 
@@ -218,7 +216,7 @@ export class OmdHomeView extends ItemView {
       filter.createSpan({ cls: "omd-note-filter-count" });
       filter.addEventListener("click", (event) => this.openNoteFilterMenu(event, context));
     }
-    if (placement.id === "today" || placement.id === "upcoming") {
+    if (placement.id === "today") {
       const add = controls.createEl("button", { cls: "clickable-icon omd-widget-action", attr: { "aria-label": "Create event" } });
       setIcon(add, "plus");
       add.addEventListener("click", () => void this.plugin.createCalendarEvent());
@@ -253,22 +251,15 @@ export class OmdHomeView extends ItemView {
   }
 
   private renderWidgetBody(id: WidgetId, body: HTMLElement): void {
-    if (id === "today" || id === "upcoming") {
+    if (id === "today") {
       const now = Date.now();
-      const start = id === "today" ? startOfToday(now) : now;
-      const end = id === "today" ? endOfToday(now) : now + 7 * 86_400_000;
-      const events = this.plugin.calendarEvents
-        .filter((event) => eventOccursInRange(event, start, end))
-        .sort((a, b) => a.start.localeCompare(b.start))
-        .slice(0, id === "today" ? 8 : 6);
+      const events = homeCalendarEvents(this.plugin.calendarEvents, now);
       if (!events.length) {
-        return emptyAction(body, "No events in this range", "+ Create event", () => void this.plugin.createCalendarEvent());
+        return emptyAction(body, "No events in the next 7 days", "+ Create event", () => void this.plugin.createCalendarEvent());
       }
       for (const event of events) {
         const source = eventSourcePresentation(event.source);
-        const timing = id === "upcoming"
-          ? upcomingEventTiming(event, now)
-          : event.allDay ? "ALL" : shortTime(event.start);
+        const timing = upcomingEventTiming(event, now);
         const status = homeCalendarStatusLabel(event.syncState);
         const accessibleLabel = [
           event.title,
@@ -293,15 +284,6 @@ export class OmdHomeView extends ItemView {
     }
     if (id === "inbox") return this.renderInbox(body);
     if (id === "recent") return this.renderRecent(body);
-    if (id === "continue") {
-      const file = this.app.workspace.getActiveFile();
-      if (!file) return emptyState(body, "Nothing open yet", "Choose a recent note to continue.");
-      return this.renderFileList(body, [file], "Nothing open yet");
-    }
-    if (id === "pinned") {
-      const files = this.plugin.settings.pinnedNotes.map((path) => this.app.vault.getFileByPath(path)).filter((file): file is TFile => Boolean(file));
-      return this.renderFileList(body, files, "Use a Pin button on a note to keep it here");
-    }
     if (id === "processing") {
       if (this.plugin.enrichmentPhase === "review" && !this.plugin.captureActive) {
         return emptyState(body, "Ready to review", "Choose suggestions in the OMD review pane.");
@@ -468,7 +450,10 @@ export class OmdHomeView extends ItemView {
     const source = context === "inbox"
       ? this.noteSnapshot.filter((note) => note.inbox)
       : this.noteSnapshot;
-    const ordered = sortHomeNoteRows(source, context);
+    const ordered = prioritizePinnedHomeNotes(
+      sortHomeNoteRows(source, context),
+      (path) => this.plugin.isNotePinned(path),
+    );
     const filtered = filterHomeNoteRows(ordered, this.noteTagFilters[context]);
     this.syncNoteFilterButton(context, filtered.length, source.length);
 
@@ -506,7 +491,7 @@ export class OmdHomeView extends ItemView {
         title: note.path,
       },
     });
-    open.createSpan({ cls: "omd-note-title", text: note.title, attr: { dir: "auto" } });
+    this.createNoteTitle(open, note.title, note.path);
     open.createSpan({ cls: "omd-note-path", text: note.parentPath, attr: { dir: "auto" } });
     const metadata = open.createSpan({ cls: "omd-note-metadata" });
     if (context === "recent" && statusLabel) {
@@ -688,7 +673,7 @@ export class OmdHomeView extends ItemView {
           title: file.path,
         },
       });
-      open.createSpan({ cls: "omd-note-title", text: file.basename, attr: { dir: "auto" } });
+      this.createNoteTitle(open, file.basename, file.path);
       open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/", attr: { dir: "auto" } });
       if (statusLabel) open.createSpan({ cls: "omd-note-status", text: statusLabel });
       open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
@@ -713,6 +698,15 @@ export class OmdHomeView extends ItemView {
     return button;
   }
 
+  private createNoteTitle(parent: HTMLElement, title: string, path: string): void {
+    const line = parent.createSpan({ cls: "omd-note-title-line" });
+    if (this.plugin.isNotePinned(path)) {
+      const pin = line.createSpan({ cls: "omd-note-title-pin", attr: { "aria-hidden": "true" } });
+      setIcon(pin, "pin");
+    }
+    line.createSpan({ cls: "omd-note-title", text: title, attr: { dir: "auto" } });
+  }
+
   private openWidgetMenu(event: MouseEvent, id: WidgetId): void {
     const menu = new Menu();
     menu.addItem((item) => item.setTitle("Hide widget").setIcon("eye-off").onClick(async () => {
@@ -730,7 +724,7 @@ export class OmdHomeView extends ItemView {
       }));
       this.render();
     }));
-    if (id === "today" || id === "upcoming") {
+    if (id === "today") {
       menu.addSeparator();
       menu.addItem((item) => item
         .setTitle("Event source key…")
@@ -1095,7 +1089,7 @@ function applyPlacement(element: HTMLElement, value: WidgetPlacement): void {
 }
 
 function widgetTitle(id: WidgetId): string {
-  return ({ omnibox: "Omnibox", today: "Today", inbox: "OMD Inbox", processing: "Current task", recent: "Recent notes", continue: "Continue", upcoming: "Upcoming", pinned: "Pinned", attention: "Needs attention", tags: "Vault tags", status: "System" })[id];
+  return ({ omnibox: "Omnibox", today: "Today & Upcoming", inbox: "OMD Inbox", processing: "Current task", recent: "Recent notes", continue: "Continue", upcoming: "Upcoming", pinned: "Pinned", attention: "Needs attention", tags: "Vault tags", status: "System" })[id];
 }
 
 function emptyState(container: HTMLElement, title: string, detail: string): void {
@@ -1146,6 +1140,21 @@ function upcomingEventTiming(event: Pick<CalendarEventRecord, "start" | "end" | 
   const inclusiveEnd = allDayInclusiveEnd(event.start, event.end);
   if (!inclusiveEnd || sameLocalDate(start, inclusiveEnd)) return `${startLabel} · ALL`;
   return `${startLabel}–${relativeEventDayLabel(inclusiveEnd, now)} · ALL`;
+}
+
+function homeCalendarEvents(events: readonly CalendarEventRecord[], now: number): CalendarEventRecord[] {
+  const todayStart = startOfToday(now);
+  const todayEnd = endOfToday(now);
+  const horizon = now + 7 * 86_400_000;
+  const byStart = (left: CalendarEventRecord, right: CalendarEventRecord) => left.start.localeCompare(right.start);
+  const today = events
+    .filter((event) => eventOccursInRange(event, todayStart, todayEnd))
+    .sort(byStart);
+  const todaySet = new Set(today);
+  const upcoming = events
+    .filter((event) => !todaySet.has(event) && eventOccursInRange(event, todayEnd + 1, horizon))
+    .sort(byStart);
+  return [...today.slice(0, 8), ...upcoming.slice(0, 6)];
 }
 
 function eventAccessibleTiming(event: Pick<CalendarEventRecord, "start" | "end" | "allDay">): string {

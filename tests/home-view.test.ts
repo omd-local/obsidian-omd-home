@@ -198,6 +198,20 @@ test("Home note surfaces and vault search results expose the shared pin action",
   assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
 });
 
+test("pinned notes stay in their workflow lists with a compact title marker", () => {
+  const workflow = extractMethodBody(homeSource, "private renderWorkflowNoteList(");
+  assert.match(workflow, /prioritizePinnedHomeNotes\([\s\S]*this\.plugin\.isNotePinned\(path\)/u);
+  assert.match(workflow, /filtered\.slice\(0, 7\)/u, "pin priority must be applied before the visible-row limit");
+  assert.match(homeSource, /cls: "omd-note-title-pin"/u);
+  assert.match(homeSource, /setIcon\(pin, "pin"\)/u);
+  assert.doesNotMatch(extractMethodBody(homeSource, "private renderWidgetBody("), /id === "pinned"/u);
+  assert.match(stylesSource, /\.omd-note-title-line\s*\{[^}]*display:\s*flex/su);
+  const toggle = extractMethodBody(mainSource, "async toggleNotePinned(");
+  assert.match(toggle, /await this\.saveSettings\(\);\s*this\.refreshHomeViews\(\);/u);
+  assert.match(toggle, /Pinned to the top of OMD Home lists\./u);
+  assert.match(toggle, /Unpinned; restored the list's usual order\./u);
+});
+
 test("file-menu actions stay grouped without changing their command paths", () => {
   const fileMenu = mainSource.slice(
     mainSource.indexOf('this.registerEvent(this.app.workspace.on("file-menu"'),
@@ -214,7 +228,8 @@ test("event source meaning opens from a normal calendar widget menu action witho
   assert.match(homeSource, /row\.createSpan\(\{ cls: `omd-source-mark is-\$\{event\.source\}`, attr: \{ "aria-hidden": "true" \} \}\)/u);
   assert.match(homeSource, /`Source: \$\{source\.label\}\. \$\{source\.description\}\.`/u);
   const widgetMenu = extractMethodBody(homeSource, "private openWidgetMenu(");
-  assert.match(widgetMenu, /id === "today" \|\| id === "upcoming"/u);
+  assert.match(widgetMenu, /id === "today"/u);
+  assert.doesNotMatch(widgetMenu, /id === "upcoming"/u);
   assert.match(widgetMenu, /setTitle\("Event source key…"\)[\s\S]*\.onClick\(\(\) => this\.openEventSourceKeyModal\(\)\)/u);
   assert.doesNotMatch(widgetMenu, /setIsLabel\(true\)/u);
   assert.match(homeSource, /class EventSourceKeyModal extends Modal/u);
@@ -233,16 +248,20 @@ test("the omnibox replaces unused syntax hints with one accessible event source 
   assert.match(stylesSource, /\.omd-omnibox-source-key\s*\{[^}]*display:\s*inline-flex/su);
 });
 
-test("Upcoming shows local dates while Today stays compact and all-day ranges use the exclusive end", () => {
+test("Today & Upcoming uses one date-aware timeline and all-day ranges use the exclusive end", () => {
   const calendarBody = extractMethodBody(homeSource, "private renderWidgetBody(");
-  assert.match(calendarBody, /id === "upcoming"\s*\? upcomingEventTiming\(event, now\)\s*:\s*event\.allDay \? "ALL" : shortTime\(event\.start\)/u);
+  assert.match(calendarBody, /const events = homeCalendarEvents\(this\.plugin\.calendarEvents, now\)/u);
+  assert.match(calendarBody, /const timing = upcomingEventTiming\(event, now\)/u);
+  assert.doesNotMatch(calendarBody, /id === "upcoming"/u);
   assert.match(calendarBody, /eventAccessibleTiming\(event\)/u);
   assert.match(homeSource, /if \(difference === 0\) return "Today";[\s\S]*if \(difference === 1\) return "Tomorrow";/u);
   assert.match(homeSource, /weekday: "short", day: "numeric", month: "short"/u);
   assert.match(homeSource, /allDayInclusiveEnd\(event\.start, event\.end\)/u);
   assert.match(homeSource, /new Date\(endDate\.getFullYear\(\), endDate\.getMonth\(\), endDate\.getDate\(\) - 1, 12\)/u);
   assert.match(homeSource, /All day from \$\{fullLocalDate\(start\)\} through \$\{fullLocalDate\(inclusiveEnd\)\}/u);
-  assert.match(stylesSource, /\.omd-widget-today,\s*\.omd-widget-upcoming\s*\{ container: omd-calendar-widget \/ inline-size; \}/u);
+  assert.match(homeSource, /today: "Today & Upcoming"/u);
+  assert.match(stylesSource, /\.omd-widget-today\s*\{ container: omd-calendar-widget \/ inline-size; \}/u);
+  assert.doesNotMatch(stylesSource, /\.omd-widget-upcoming/u);
   assert.match(stylesSource, /@container omd-calendar-widget \(max-width: 360px\)[\s\S]*\.omd-event-row \{ grid-template-columns: 10px minmax\(0, 1fr\);/u);
   assert.match(stylesSource, /\.omd-event-row \.omd-source-mark \{ grid-row: 1 \/ span 2;/u);
 });

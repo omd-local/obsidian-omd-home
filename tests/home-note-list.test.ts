@@ -7,6 +7,7 @@ import {
   homeNoteTagFilterOptions,
   matchesHomeNoteTagFilters,
   normalizeHomeNoteTags,
+  prioritizePinnedHomeNotes,
   sortHomeNoteRows,
   visibleHomeNoteTags,
   type HomeNoteFileLike,
@@ -77,6 +78,21 @@ test("newest-first sorting has a stable path tie break", () => {
     NOW,
   );
   assert.deepEqual(sortHomeNoteRows(rows, "recent").map((row) => row.path), ["new.md", "a.md", "z.md"]);
+});
+
+test("pinned notes form a stable priority group without changing the underlying sort", () => {
+  const rows = buildHomeNoteSnapshot(
+    [file("old.md", 10, 10), file("middle.md", 20, 20), file("new.md", 30, 30)],
+    () => ({}),
+    NOW,
+  );
+  const sorted = sortHomeNoteRows(rows, "recent");
+
+  assert.deepEqual(
+    prioritizePinnedHomeNotes(sorted, (path) => path === "middle.md" || path === "old.md").map((row) => row.path),
+    ["middle.md", "old.md", "new.md"],
+  );
+  assert.deepEqual(sorted.map((row) => row.path), ["new.md", "middle.md", "old.md"]);
 });
 
 test("a large Home refresh reads metadata once per file and never requests note bodies", () => {

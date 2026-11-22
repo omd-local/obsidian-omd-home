@@ -6,6 +6,17 @@ export const MIN_WIDGET_HEIGHT = 2;
 
 export const DEFAULT_LAYOUT: WidgetPlacement[] = [
   { id: "omnibox", x: 0, y: 0, w: 12, h: 2 },
+  { id: "today", x: 0, y: 2, w: 6, h: 8 },
+  { id: "inbox", x: 6, y: 2, w: 6, h: 8 },
+  { id: "processing", x: 0, y: 10, w: 6, h: 4 },
+  { id: "attention", x: 6, y: 10, w: 6, h: 4 },
+  { id: "recent", x: 0, y: 14, w: 6, h: 5 },
+  { id: "tags", x: 6, y: 14, w: 3, h: 5 },
+  { id: "status", x: 9, y: 14, w: 3, h: 5 },
+];
+
+export const SPLIT_DASHBOARD_DEFAULT_LAYOUT: WidgetPlacement[] = [
+  { id: "omnibox", x: 0, y: 0, w: 12, h: 2 },
   { id: "today", x: 0, y: 2, w: 6, h: 6 },
   { id: "inbox", x: 6, y: 2, w: 6, h: 6 },
   { id: "processing", x: 0, y: 8, w: 6, h: 4 },
@@ -45,16 +56,21 @@ export const LEGACY_DEFAULT_LAYOUT: WidgetPlacement[] = [
   { id: "tags", x: 0, y: 16, w: 12, h: 3 },
 ];
 
+const ACTIVE_WIDGET_IDS = new Set(DEFAULT_LAYOUT.map((placement) => placement.id));
+
 export function migrateLegacyLayout(layout: WidgetPlacement[]): WidgetPlacement[] {
   const normalized = normalizeLayout(layout);
-  const matchesKnownDefault = [LEGACY_DEFAULT_LAYOUT, PREVIOUS_DEFAULT_LAYOUT].some((knownDefault) => knownDefault.every((fallback) => {
-    const placement = normalized.find((item) => item.id === fallback.id);
-    return placement
-      && placement.x === fallback.x
-      && placement.y === fallback.y
-      && placement.w === fallback.w
-      && placement.h === fallback.h;
-  }));
+  const matchesKnownDefault = [LEGACY_DEFAULT_LAYOUT, PREVIOUS_DEFAULT_LAYOUT, SPLIT_DASHBOARD_DEFAULT_LAYOUT]
+    .some((knownDefault) => knownDefault
+      .filter((fallback) => ACTIVE_WIDGET_IDS.has(fallback.id))
+      .every((fallback) => {
+        const placement = normalized.find((item) => item.id === fallback.id);
+        return placement
+          && placement.x === fallback.x
+          && placement.y === fallback.y
+          && placement.w === fallback.w
+          && placement.h === fallback.h;
+      }));
   if (!matchesKnownDefault) return normalized;
   return DEFAULT_LAYOUT.map((placement) => ({
     ...placement,
@@ -66,7 +82,7 @@ export function normalizeLayout(layout: WidgetPlacement[]): WidgetPlacement[] {
   const seen = new Set<WidgetId>();
   const normalized: WidgetPlacement[] = [];
   for (const placement of layout) {
-    if (seen.has(placement.id)) continue;
+    if (!ACTIVE_WIDGET_IDS.has(placement.id) || seen.has(placement.id)) continue;
     seen.add(placement.id);
     normalized.push(clampPlacement(placement));
   }

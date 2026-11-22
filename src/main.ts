@@ -1058,7 +1058,7 @@ export default class OmdHomePlugin extends Plugin {
     this.settings.pinnedNotes = setPinnedNote(this.settings.pinnedNotes, path, pinned);
     await this.saveSettings();
     this.refreshHomeViews();
-    new Notice(pinned ? "Pinned to OMD Home." : "Unpinned from OMD Home.");
+    new Notice(pinned ? "Pinned to the top of OMD Home lists." : "Unpinned; restored the list's usual order.");
     return pinned;
   }
 
