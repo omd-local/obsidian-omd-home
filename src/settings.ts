@@ -143,22 +143,10 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("omd-settings");
 
-    const intro = containerEl.createDiv({ cls: "omd-settings-intro" });
-    new Setting(intro)
-      .setName("Capture, review, and sync")
-      .setHeading()
-      .settingEl.addClass("omd-settings-intro-heading");
-    intro.createEl("p", {
-      text: "Capture links and files as Markdown, review notes with local AI, and keep Markdown events connected to your calendar.",
-    });
-
-    new Setting(containerEl).setName("Capture and processing").setHeading().settingEl.addClass("omd-settings-heading");
-    this.renderOmdSetup(containerEl);
-
     new Setting(containerEl).setName("Home").setHeading().settingEl.addClass("omd-settings-heading");
     new Setting(containerEl)
       .setName("Open OMD Home on launch")
-      .setDesc("Open once when Obsidian starts without closing restored tabs.")
+      .setDesc("Open the dashboard when Obsidian starts without closing restored tabs.")
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.openOnLaunch).onChange(async (value) => {
         this.plugin.settings.openOnLaunch = value;
         await this.saveSettingsInOrder();
@@ -166,6 +154,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
 
     const localAiSection = containerEl.createDiv({ cls: "omd-settings-section omd-settings-local-ai" });
     this.renderLocalAiSection(localAiSection);
+
+    new Setting(containerEl).setName("Capture and processing").setHeading().settingEl.addClass("omd-settings-heading");
+    this.renderOmdSetup(containerEl);
 
     const calendarSection = containerEl.createDiv({ cls: "omd-settings-section omd-settings-calendar" });
     this.renderCalendarSection(calendarSection);

@@ -1146,27 +1146,6 @@
   font-weight: 600;
   line-height: 1.35;
 }
-.omd-settings-intro {
-  margin: 0 0 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--omd-line);
-}
-.omd-settings-intro-heading {
-  margin: 0;
-  color: var(--omd-ink);
-  font-size: var(--font-ui-large);
-  font-weight: 600;
-}
-.omd-settings-intro-heading .setting-item-name {
-  font-size: inherit;
-}
-.omd-settings-intro p {
-  max-width: 68ch;
-  margin: 6px 0 0;
-  color: var(--omd-muted);
-  font-size: var(--omd-font-ui);
-  line-height: 1.5;
-}
 .omd-settings-subheading .setting-item-name {
   font-size: var(--font-ui-medium);
   font-weight: 600;

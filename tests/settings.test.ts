@@ -749,18 +749,21 @@ test("OMD setup makes automatic discovery primary and keeps path overrides advan
   assert.doesNotMatch(source, /this\.pathSetting\(containerEl, "OMD executable"/u);
 });
 
-test("settings explain the product and put core setup before optional Home behavior", () => {
+test("settings lead with Home and AI answers before capture and calendar setup", () => {
   const display = extractFunctionBody(source, "display(): void");
-  assert.match(display, /new Setting\(intro\)[\s\S]*?\.setName\("Capture, review, and sync"\)[\s\S]*?\.setHeading\(\)/u);
-  assert.match(display, /Capture links and files as Markdown, review notes with local AI/u);
-  const captureHeading = display.indexOf('setName("Capture and processing")');
-  const setup = display.indexOf("this.renderOmdSetup(containerEl)");
   const homeHeading = display.indexOf('setName("Home")');
   const startupToggle = display.indexOf('setName("Open OMD Home on launch")');
-  assert.ok(captureHeading >= 0 && captureHeading < setup);
-  assert.ok(setup < homeHeading && homeHeading < startupToggle);
+  const localAiSection = display.indexOf('createDiv({ cls: "omd-settings-section omd-settings-local-ai" })');
+  const captureHeading = display.indexOf('setName("Capture and processing")');
+  const setup = display.indexOf("this.renderOmdSetup(containerEl)");
+  const calendarSection = display.indexOf('createDiv({ cls: "omd-settings-section omd-settings-calendar" })');
+  assert.ok(homeHeading >= 0 && homeHeading < startupToggle);
+  assert.ok(startupToggle < localAiSection);
+  assert.ok(localAiSection < captureHeading && captureHeading < setup);
+  assert.ok(setup < calendarSection);
+  assert.doesNotMatch(display, /omd-settings-intro|Open, ask, capture, and sync|Choose what opens at startup/u);
   assert.doesNotMatch(display, /setName\("Startup"\)/u);
-  assert.match(stylesSource, /\.omd-settings-intro\s*\{[^}]*border-bottom:\s*1px solid var\(--omd-line\)/su);
+  assert.doesNotMatch(stylesSource, /\.omd-settings-intro/u);
 });
 
 test("social access feedback uses the shared status-card hierarchy", () => {
