@@ -42,6 +42,11 @@ import {
   type OmdHomeSettings,
 } from "./settings";
 import {
+  FIRST_USE_GUIDE_PATH,
+  FIRST_USE_GUIDE_TEXT,
+  shouldShowFirstUseGuide,
+} from "./onboarding.ts";
+import {
   captureInspectionError,
   MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
   OmdBridge,
@@ -272,6 +277,7 @@ export default class OmdHomePlugin extends Plugin {
   private hostedAiController: AbortController | null = null;
   private hostedCredentialMutation: symbol | null = null;
   private unloaded = false;
+  private firstUseGuideOpening = false;
   private calendarRefresh: Promise<CalendarSyncSummary> | null = null;
   private calendarRefreshQueued: Promise<CalendarSyncSummary> | null = null;
   private calendarRefreshQueuedReconcile = false;
@@ -314,6 +320,12 @@ export default class OmdHomePlugin extends Plugin {
     this.addRibbonIcon("layout-dashboard", "Open OMD Home", () => void this.openHome());
     this.addRibbonIcon("calendar-days", "Open OMD calendar", () => void this.openCalendar());
     this.addCommand({ id: "open-home", name: "Open home", callback: () => void this.openHome() });
+    this.addCommand({
+      id: "open-language-settings",
+      name: "Open language settings",
+      callback: () => void this.openLanguageSettings(),
+    });
+    this.registerObsidianProtocolHandler("omd-home-language-settings", () => void this.openLanguageSettings());
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => void this.openCalendar() });
     this.addCommand({ id: "new-event", name: "Create event", callback: () => void this.createCalendarEvent() });
     this.addCommand({
@@ -441,7 +453,7 @@ export default class OmdHomePlugin extends Plugin {
         void this.ensureHostedCredentialState(this.settings.aiProvider);
       }
       if (Platform.isMacOS && this.hasEventKitHelper()) void this.refreshExternalCalendars(false);
-      if (this.settings.openOnLaunch) void this.openHome(false);
+      void this.openInitialWorkspace();
       this.scheduleMarkdownViewActions();
     });
   }
@@ -485,7 +497,12 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = normalizeOmdHomeSettings(await this.loadData());
+    const stored = await this.loadData() as unknown;
+    this.settings = normalizeOmdHomeSettings(stored);
+    if (!shouldShowFirstUseGuide(stored) && !this.settings.welcomeGuideShown) {
+      this.settings.welcomeGuideShown = true;
+      await this.saveData(this.settings);
+    }
     this.syncLocalAiState("");
     this.syncHostedAiState("");
   }
@@ -1080,6 +1097,59 @@ export default class OmdHomePlugin extends Plugin {
     this.refreshHomeViews();
     new Notice(pinned ? "Pinned to the top of OMD Home lists." : "Unpinned; restored the list's usual order.");
     return pinned;
+  }
+
+  private async openInitialWorkspace(): Promise<void> {
+    if (this.settings.openOnLaunch) {
+      try {
+        await this.openHome(false);
+      } catch {
+        if (!this.unloaded) new Notice("OMD Home could not open automatically. Use the ribbon button to try again.");
+      }
+    }
+    try {
+      await this.openFirstUseGuide();
+    } catch {
+      if (!this.unloaded) new Notice("OMD Home could not open its first-use guide. Open OMD Home settings to review setup.");
+    }
+  }
+
+  private async openFirstUseGuide(): Promise<void> {
+    if (this.unloaded || this.settings.welcomeGuideShown || this.firstUseGuideOpening) return;
+    this.firstUseGuideOpening = true;
+    try {
+      const folder = FIRST_USE_GUIDE_PATH.slice(0, FIRST_USE_GUIDE_PATH.lastIndexOf("/"));
+      await this.ensureFolder(folder);
+      if (this.unloaded) return;
+
+      let guide = this.app.vault.getAbstractFileByPath(FIRST_USE_GUIDE_PATH);
+      if (!guide) {
+        try {
+          guide = await this.app.vault.create(FIRST_USE_GUIDE_PATH, FIRST_USE_GUIDE_TEXT);
+        } catch (error) {
+          guide = this.app.vault.getAbstractFileByPath(FIRST_USE_GUIDE_PATH);
+          if (!guide) throw error;
+        }
+      }
+      if (!(guide instanceof TFile)) {
+        new Notice(`Could not open ${FIRST_USE_GUIDE_PATH} because that path is not a note.`);
+        return;
+      }
+      if (this.unloaded) return;
+
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({
+        type: "markdown",
+        state: { file: guide.path, mode: "preview" },
+        active: true,
+      });
+      this.settings.welcomeGuideShown = true;
+      await this.saveSettings();
+      if (this.unloaded) return;
+      await this.app.workspace.revealLeaf(leaf);
+    } finally {
+      this.firstUseGuideOpening = false;
+    }
   }
 
   async openHome(focus = true): Promise<WorkspaceLeaf> {
@@ -2533,6 +2603,27 @@ export default class OmdHomePlugin extends Plugin {
       window.setTimeout(() => this.settingTab?.showRetrievalSettings(), 0);
     } catch {
       new Notice("Open settings → OMD Home → advanced AI controls → vault retrieval.");
+    }
+  }
+
+  async openLanguageSettings(): Promise<void> {
+    const settings = (this.app as App & {
+      setting?: { open?: () => void; openTabById?: (id: string) => void };
+    }).setting;
+    if (!settings || typeof settings.open !== "function" || typeof settings.openTabById !== "function" || !this.settingTab) {
+      new Notice("Open settings → OMD Home → capture and processing → recognition defaults.");
+      return;
+    }
+    try {
+      settings.open();
+      settings.openTabById(this.manifest.id);
+      if (this.enrichmentCapability.status === "unchecked") await this.checkEnrichmentCapability();
+      if (this.unloaded) return;
+      window.setTimeout(() => {
+        if (!this.unloaded) this.settingTab?.showRecognitionSettings();
+      }, 0);
+    } catch {
+      new Notice("Open settings → OMD Home → capture and processing → recognition defaults.");
     }
   }
 

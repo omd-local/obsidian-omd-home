@@ -120,7 +120,7 @@ function createHarness(methods: string[] = []) {
     settings: {
       aiProvider: "ollama", aiModel: "qwen3:4b-instruct", aiModels: { ...providerHelpers.DEFAULT_AI_MODELS },
       localWritingModel: "qwen3:4b-instruct", omdExecutable: "omd", pythonExecutable: "", pythonBridgePath: "",
-      captureOcrLanguage: "", captureAsrLanguage: "inherit-adapter-default",
+      captureOcrLanguage: "eng", captureAsrLanguage: "auto-detect",
       douyinCookiesPath: "", xhsCookiesPath: "",
       eventKitHelperPath: "", selectedCalendarIds: [], defaultExternalCalendarId: "",
     },
@@ -355,6 +355,44 @@ test("recognition dropdowns save capture defaults without invalidating local AI"
   assert.equal(h.tab.plugin.settings.captureAsrLanguage, "zh");
   assert.equal(h.saveCalls(), 2);
   assert.deepEqual(invalidations, [], "capture-only language defaults must not cancel or stale a running Q&A request");
+});
+
+test("fresh recognition defaults render as English and Auto-detect speech", () => {
+  const h = createHarness();
+  h.tab.renderOmdSetup(h.container);
+
+  const ocr = h.row("Image text language").dropdowns[0]!;
+  const asr = h.row("Speech language").dropdowns[0]!;
+  assert.equal(ocr.value, "eng");
+  assert.equal(ocr.selectEl.options.find((option) => option.value === "eng")?.label, "English");
+  assert.equal(asr.value, "auto-detect");
+  assert.equal(asr.selectEl.options.find((option) => option.value === "auto-detect")?.label, "Auto-detect speech");
+});
+
+test("fresh defaults keep readable labels while converter detection is pending", () => {
+  const h = createHarness();
+  h.tab.plugin.captureLanguageAvailability = () => ({
+    status: "unchecked",
+    message: "Detection is still running.",
+    ocrPresets: [],
+    customOcr: false,
+    ocrBackendAvailable: null,
+    ocrInstalledPacks: null,
+    asrAutoDetect: false,
+    asrExplicit: false,
+  });
+  h.tab.renderOmdSetup(h.container);
+
+  const ocr = h.row("Image text language");
+  const asr = h.row("Speech language");
+  assert.equal(ocr.dropdowns[0]!.value, "eng");
+  assert.equal(ocr.dropdowns[0]!.selectEl.options.find((option) => option.value === "eng")?.label, "English");
+  assert.equal(asr.dropdowns[0]!.value, "auto-detect");
+  assert.equal(asr.dropdowns[0]!.selectEl.options.find((option) => option.value === "auto-detect")?.label, "Auto-detect speech");
+  assert.match(ocr.description, /still being checked/iu);
+  assert.match(asr.description, /still being checked/iu);
+  assert.equal(ocr.buttons.some((button) => button.label === "Clear preference"), false);
+  assert.equal(asr.buttons.some((button) => button.label === "Clear preference"), false);
 });
 
 test("social cookie settings reject invalid paths inline and persist only absolute paths or clear", async () => {

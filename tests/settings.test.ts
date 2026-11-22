@@ -52,10 +52,10 @@ test("settings normalization trims strings, filters arrays, and falls back inval
   assert.deepEqual(normalized.pinnedNotes, ["Note.md"]);
 });
 
-test("legacy and invalid recognition settings migrate to safe defaults", () => {
+test("missing recognition settings migrate to usable defaults while invalid values fail safe", () => {
   const legacy = helpers.normalizeOmdHomeSettings({ capturePolish: true });
-  assert.equal(legacy.captureOcrLanguage, "");
-  assert.equal(legacy.captureAsrLanguage, "inherit-adapter-default");
+  assert.equal(legacy.captureOcrLanguage, "eng");
+  assert.equal(legacy.captureAsrLanguage, "auto-detect");
 
   const invalid = helpers.normalizeOmdHomeSettings({
     captureOcrLanguage: "eng --output /tmp/file",
@@ -73,6 +73,15 @@ test("legacy and invalid recognition settings migrate to safe defaults", () => {
 
   const scriptPack = helpers.normalizeOmdHomeSettings({ captureOcrLanguage: " script/HanS + eng " });
   assert.equal(scriptPack.captureOcrLanguage, "script/HanS+eng");
+});
+
+test("explicit legacy no-preference choices remain user-owned", () => {
+  const explicit = helpers.normalizeOmdHomeSettings({
+    captureOcrLanguage: "",
+    captureAsrLanguage: "inherit-adapter-default",
+  });
+  assert.equal(explicit.captureOcrLanguage, "");
+  assert.equal(explicit.captureAsrLanguage, "inherit-adapter-default");
 });
 
 test("OMD settings expose readable per-vault recognition defaults without inheritance jargon", () => {

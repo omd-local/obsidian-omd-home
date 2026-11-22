@@ -77,6 +77,18 @@ test("capture emits exact OCR and ASR argv only for explicit overrides", () => {
   ]);
 });
 
+test("fresh-vault recognition defaults reach OMD as exact argv", () => {
+  const request = createCaptureRequest({
+    source: "fixture.wav",
+    ocr: { mode: "preset", language: "eng" },
+    asr: { mode: "auto-detect" },
+  });
+  assert.deepEqual(omdCaptureArgs(request, "/vault"), [
+    "capture", "fixture.wav", "--vault", "/vault", "--json-events",
+    "--ocr-lang", "eng", "--whisper-lang", "auto",
+  ]);
+});
+
 test("social capture sends only the matching provider cookie path as one shell-free argument", () => {
   const paths = {
     douyinCookiesPath: "/Users/test/抖音 access/cookies $(touch never).txt",

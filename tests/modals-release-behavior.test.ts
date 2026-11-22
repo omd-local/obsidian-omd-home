@@ -243,6 +243,38 @@ test("capture submits user-selected tags, polish, review, OCR, and speech option
   assert.deepEqual(request?.asr, { mode: "auto-detect" });
 });
 
+test("capture submits fresh-vault recognition defaults without reopening settings", async () => {
+  let submitted: capture.CaptureRequest | undefined;
+  const harness = loadModals();
+  const initial = capture.captureRequestFromSettings("/fixtures/english-ocr.png", {
+    capturePolish: false,
+    captureSuggestLinksAndTags: true,
+    captureOcrLanguage: "eng",
+    captureAsrLanguage: "auto-detect",
+  });
+  const modal = new harness.CaptureModal(
+    {},
+    initial,
+    { douyinCookiesPath: "", xhsCookiesPath: "" },
+    availability,
+    "local-writing-model",
+    async () => {},
+    async (request: capture.CaptureRequest) => { submitted = request; },
+  ) as Harness;
+  modal.open();
+
+  assert.equal(harness.settings.find((item) => item.name === "Image text language")!.controls[0].value, "eng");
+  assert.equal(harness.settings.find((item) => item.name === "Speech language")!.controls[0].value, "auto-detect");
+  await harness.button("Capture").click();
+
+  assert.ok(submitted);
+  assert.deepEqual(submitted.ocr, { mode: "preset", language: "eng" });
+  assert.deepEqual(submitted.asr, { mode: "auto-detect" });
+  assert.deepEqual(omdCaptureArgs(submitted, "/fresh-vault").slice(-4), [
+    "--ocr-lang", "eng", "--whisper-lang", "auto",
+  ]);
+});
+
 test("textarea Enter stays multiline while Cmd/Ctrl+Enter submits outside IME composition", async () => {
   let calls = 0;
   const harness = captureModal("", async () => { calls += 1; });

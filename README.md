@@ -82,12 +82,16 @@ tag changes wait for review.
   plugin unload, or quitting Obsidian stops plugin-owned child work. On macOS
   and Linux, cancellation also stops the OMD process group, including nested
   `yt-dlp`, `ffmpeg`, and Whisper work, with a bounded forced stop if needed.
-- Capture keeps OCR and speech recognition separate. On first use, both controls
-  begin with **No language preference**. Vault-wide defaults live under
-  **Recognition defaults** in Settings. OCR can also use `eng`, `chi_sim+eng`,
-  or `chi_tra+eng`; speech can use explicit **Auto-detect**, `en`, or `zh`.
+- Capture keeps OCR and speech recognition separate. On first use, image text
+  starts with **English** and speech starts with **Auto-detect speech**.
+  Vault-wide defaults live under **Recognition defaults** in Settings. OCR can
+  also use `chi_sim+eng` or `chi_tra+eng`; speech can use explicit `en` or `zh`.
+  Existing saved choices, including **No language preference**, are preserved.
   Recognition changes in the Capture dialog apply only to that capture, while
   Retry preserves them without changing the vault defaults.
+- A new vault opens **Welcome to OMD Home** once. Its language-settings link
+  opens and focuses Recognition defaults; OMD setup, optional AI, social access,
+  and Calendar boundaries are summarized without changing any settings.
 - **Review links and tags** is proposal-only. Nothing is written until you explicitly press **Apply**.
   Suggested note topics remain ideas only, new tags start unchecked, and adding the proposal summary is optional.
   Applying suggestions keeps the note in Inbox; **Done reviewing** is the only action that marks it Reviewed.

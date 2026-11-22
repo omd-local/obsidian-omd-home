@@ -52,11 +52,12 @@ const DEFAULT_SETTINGS: OmdHomeSettings = {
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
   captureSuggestLinksAndTags: true,
-  captureOcrLanguage: "",
-  captureAsrLanguage: "inherit-adapter-default",
+  captureOcrLanguage: "eng",
+  captureAsrLanguage: "auto-detect",
   douyinCookiesPath: "",
   xhsCookiesPath: "",
   pinnedNotes: [],
+  welcomeGuideShown: false,
 };
 
 const localModel = buildModelEntry({ name: "qwen3:4b-instruct", capabilities: ["completion", "thinking", "tools"] });

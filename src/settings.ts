@@ -40,6 +40,7 @@ import {
   OCR_LANGUAGE_PRESETS,
   missingInstalledOcrPacks,
   normalizeOcrLanguageSet,
+  ocrLanguagePresetLabel,
   type CaptureAsrSetting,
 } from "./capture-request.ts";
 import { localFilePathFromDataTransfer, normalizeLocalAccessPath } from "./omnibox-utils.ts";
@@ -97,6 +98,7 @@ export interface OmdHomeSettings {
   douyinCookiesPath: string;
   xhsCookiesPath: string;
   pinnedNotes: string[];
+  welcomeGuideShown: boolean;
 }
 
 export const DEFAULT_SETTINGS: OmdHomeSettings = {
@@ -118,11 +120,12 @@ export const DEFAULT_SETTINGS: OmdHomeSettings = {
   ollamaHost: "http://localhost:11434",
   capturePolish: false,
   captureSuggestLinksAndTags: true,
-  captureOcrLanguage: "",
-  captureAsrLanguage: "inherit-adapter-default",
+  captureOcrLanguage: "eng",
+  captureAsrLanguage: "auto-detect",
   douyinCookiesPath: "",
   xhsCookiesPath: "",
   pinnedNotes: [],
+  welcomeGuideShown: false,
 };
 
 export class OmdHomeSettingTab extends PluginSettingTab {
@@ -132,6 +135,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   private readonly hostedCredentialDrafts = new Map<HostedAiProvider, string>();
   private settingsSaveQueue: Promise<void> = Promise.resolve();
   private localAiAdvancedExpanded = false;
+  private recognitionDefaultsExpanded = false;
 
   constructor(app: App, plugin: OmdHomePlugin) {
     super(app, plugin);
@@ -566,6 +570,14 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     target?.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
+  showRecognitionSettings(): void {
+    this.recognitionDefaultsExpanded = true;
+    this.display();
+    const target = this.containerEl.querySelector<HTMLElement>(".omd-settings-recognition");
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    target?.querySelector<HTMLSelectElement>("select")?.focus();
+  }
+
   private async runAiSetupAction<T>(action: () => Promise<T>): Promise<T> {
     const pending = action();
     this.rerenderLocalAiSection();
@@ -943,14 +955,20 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       async (value) => { this.plugin.settings.xhsCookiesPath = value; },
     );
 
-    const recognition = container.createEl("details", { cls: "omd-settings-advanced" });
+    const recognition = container.createEl("details", {
+      cls: "omd-settings-advanced omd-settings-recognition",
+    });
+    recognition.open = this.recognitionDefaultsExpanded;
     recognition.createEl("summary", { text: "Recognition defaults" });
     const languageAvailability = this.plugin.captureLanguageAvailability();
     const recognitionReady = languageAvailability.status === "supported";
+    const recognitionChecking = languageAvailability.status === "unchecked";
     recognition.createEl("p", {
       text: recognitionReady
         ? `Vault defaults for new image, audio, and video captures. Recognition only; OMD does not translate the captured text. A language selected while capturing applies only to that item; a retry repeats it. ${languageAvailability.message}`
-        : `Vault defaults for new image, audio, and video captures. Recognition only; OMD does not translate the captured text. Language preferences remain off until a compatible local converter is detected. ${languageAvailability.message}`,
+        : recognitionChecking
+          ? `Vault defaults for new image, audio, and video captures. Recognition only; OMD does not translate the captured text. Checking whether the local converter supports these saved defaults. ${languageAvailability.message}`
+          : `Vault defaults for new image, audio, and video captures. Recognition only; OMD does not translate the captured text. Language preferences require a compatible local converter. ${languageAvailability.message}`,
     });
     const savedOcrLanguage = this.plugin.settings.captureOcrLanguage;
     const readyOcrPresets = languageAvailability.ocrPresets.filter((preset) => (
@@ -958,16 +976,19 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       && missingInstalledOcrPacks(preset.value, languageAvailability.ocrInstalledPacks).length === 0
     ));
     const savedIsPreset = OCR_LANGUAGE_PRESETS.includes(savedOcrLanguage as typeof OCR_LANGUAGE_PRESETS[number]);
-    const savedOcrSupported = !savedOcrLanguage
+    const savedOcrSupported = recognitionChecking || !savedOcrLanguage
       || (savedIsPreset
         ? languageAvailability.ocrPresets.some((preset) => preset.value === savedOcrLanguage)
         : languageAvailability.customOcr);
-    const savedOcrReady = savedOcrSupported
+    const savedOcrReady = recognitionChecking || (savedOcrSupported
       && languageAvailability.ocrBackendAvailable !== false
-      && missingInstalledOcrPacks(savedOcrLanguage, languageAvailability.ocrInstalledPacks).length === 0;
+      && missingInstalledOcrPacks(savedOcrLanguage, languageAvailability.ocrInstalledPacks).length === 0);
+    const savedOcrUnavailable = !recognitionChecking && (!recognitionReady || !savedOcrReady);
     const ocrSetting = new Setting(recognition)
       .setName("Image text language")
-      .setDesc(savedOcrLanguage && (!recognitionReady || !savedOcrReady)
+      .setDesc(recognitionChecking
+        ? "Default for new image captures. Converter support is still being checked."
+        : savedOcrLanguage && savedOcrUnavailable
         ? "The saved image text preference is unavailable in the detected converter. Choose an installed language or clear the preference."
         : "Default for new image captures. Choose a language only when image text is recognized incorrectly.")
       .addDropdown((dropdown) => {
@@ -981,10 +1002,16 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         if (recognitionReady && savedOcrReady && savedCustom) {
           dropdown.addOption(savedOcrLanguage, `Custom: ${savedOcrLanguage}`);
         }
-        if (savedOcrLanguage && (!recognitionReady || !savedOcrReady)) {
-          dropdown.addOption(savedOcrLanguage, `${savedOcrLanguage} (saved, unavailable)`);
+        if (savedOcrLanguage && (recognitionChecking || savedOcrUnavailable)) {
+          const pendingLabel = savedIsPreset
+            ? ocrLanguagePresetLabel(savedOcrLanguage as typeof OCR_LANGUAGE_PRESETS[number])
+            : `Custom: ${savedOcrLanguage}`;
+          dropdown.addOption(
+            savedOcrLanguage,
+            recognitionChecking ? pendingLabel : `${savedOcrLanguage} (saved, unavailable)`,
+          );
           const unavailable = Array.from(dropdown.selectEl.options).find((option) => option.value === savedOcrLanguage);
-          if (unavailable) unavailable.disabled = true;
+          if (unavailable && savedOcrUnavailable) unavailable.disabled = true;
         }
         dropdown
           .setValue(savedOcrLanguage)
@@ -994,7 +1021,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           await this.saveSettingsInOrder();
           });
       });
-    if ((!recognitionReady || !savedOcrReady) && savedOcrLanguage) {
+    if (savedOcrUnavailable && savedOcrLanguage) {
       ocrSetting.addButton((button) => button.setButtonText("Clear preference").onClick(async () => {
         this.plugin.settings.captureOcrLanguage = "";
         await this.saveSettingsInOrder();
@@ -1026,12 +1053,15 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         });
     }
     const savedAsrLanguage = this.plugin.settings.captureAsrLanguage;
-    const savedAsrReady = savedAsrLanguage === "inherit-adapter-default"
+    const savedAsrReady = recognitionChecking || savedAsrLanguage === "inherit-adapter-default"
       || (recognitionReady && (savedAsrLanguage === "auto-detect"
         ? languageAvailability.asrAutoDetect : languageAvailability.asrExplicit));
+    const savedAsrUnavailable = !recognitionChecking && !savedAsrReady;
     const asrSetting = new Setting(recognition)
       .setName("Speech language")
-      .setDesc(savedAsrReady
+      .setDesc(recognitionChecking
+        ? "Default for new audio and video captures. Converter support is still being checked."
+        : savedAsrReady
         ? "Default for new audio and video captures. Choose auto-detect when the recording's language is unknown."
         : "The saved speech preference is unavailable in the detected converter. Choose a supported language or clear the preference.")
       .addDropdown((dropdown) => {
@@ -1042,11 +1072,11 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         if (recognitionReady && languageAvailability.asrExplicit) {
           dropdown.addOption("en", "English").addOption("zh", "Chinese");
         }
-        if (!savedAsrReady) {
+        if (recognitionChecking && savedAsrLanguage !== "inherit-adapter-default" || savedAsrUnavailable) {
           const label = savedAsrLanguage === "auto-detect" ? "Auto-detect speech" : savedAsrLanguage === "zh" ? "Chinese" : "English";
-          dropdown.addOption(savedAsrLanguage, `${label} (saved, unavailable)`);
+          dropdown.addOption(savedAsrLanguage, recognitionChecking ? label : `${label} (saved, unavailable)`);
           const unavailable = Array.from(dropdown.selectEl.options).find((option) => option.value === savedAsrLanguage);
-          if (unavailable) unavailable.disabled = true;
+          if (unavailable && savedAsrUnavailable) unavailable.disabled = true;
         }
         dropdown
           .setValue(savedAsrLanguage)
@@ -1056,7 +1086,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           await this.saveSettingsInOrder();
           });
       });
-    if (!savedAsrReady) {
+    if (savedAsrUnavailable) {
       asrSetting.addButton((button) => button.setButtonText("Clear preference").onClick(async () => {
         this.plugin.settings.captureAsrLanguage = "inherit-adapter-default";
         await this.saveSettingsInOrder();
@@ -1630,6 +1660,9 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
     douyinCookiesPath: normalizeSavedAccessPath(input.douyinCookiesPath),
     xhsCookiesPath: normalizeSavedAccessPath(input.xhsCookiesPath),
     pinnedNotes: uniqueStrings(input.pinnedNotes),
+    welcomeGuideShown: typeof input.welcomeGuideShown === "boolean"
+      ? input.welcomeGuideShown
+      : DEFAULT_SETTINGS.welcomeGuideShown,
   };
 }
 
@@ -1672,11 +1705,15 @@ function uniqueStrings(value: unknown): string[] {
 }
 
 function normalizeCaptureOcrLanguage(value: unknown): string {
-  return typeof value === "string" ? normalizeOcrLanguageSet(value) ?? "" : "";
+  if (value === "") return "";
+  return typeof value === "string"
+    ? normalizeOcrLanguageSet(value) ?? ""
+    : DEFAULT_SETTINGS.captureOcrLanguage;
 }
 
 function normalizeCaptureAsrLanguage(value: unknown): OmdHomeSettings["captureAsrLanguage"] {
-  return value === "auto-detect" || value === "en" || value === "zh"
+  if (value === undefined || value === null) return DEFAULT_SETTINGS.captureAsrLanguage;
+  return value === "inherit-adapter-default" || value === "auto-detect" || value === "en" || value === "zh"
     ? value
     : "inherit-adapter-default";
 }

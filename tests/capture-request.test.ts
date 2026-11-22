@@ -37,6 +37,20 @@ test("vault capture defaults preserve OMD language defaults", () => {
   assert.equal(whisperLanguageValue(request.asr), null);
 });
 
+test("fresh-vault defaults request English OCR and automatic speech detection", () => {
+  const request = captureRequestFromSettings("fixture.wav", {
+    capturePolish: false,
+    captureSuggestLinksAndTags: true,
+    captureOcrLanguage: "eng",
+    captureAsrLanguage: "auto-detect",
+  });
+
+  assert.deepEqual(request.ocr, { mode: "preset", language: "eng" });
+  assert.deepEqual(request.asr, { mode: "auto-detect" });
+  assert.equal(ocrLanguageValue(request.ocr), "eng");
+  assert.equal(whisperLanguageValue(request.asr), "auto");
+});
+
 test("capture settings map OCR presets and all three ASR modes", () => {
   const simplified = captureRequestFromSettings("image.png", {
     capturePolish: true,
