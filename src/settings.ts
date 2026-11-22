@@ -570,6 +570,14 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     target?.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
+  showLocalWritingSettings(): void {
+    this.localAiAdvancedExpanded = true;
+    this.display();
+    const target = this.containerEl.querySelector<HTMLElement>(".omd-settings-local-writing-model");
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    target?.querySelector<HTMLElement>("select, input, button")?.focus();
+  }
+
   showRecognitionSettings(): void {
     this.recognitionDefaultsExpanded = true;
     this.display();
@@ -1367,7 +1375,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           if (container.isConnected) this.rerenderLocalAiSection();
         }));
     }
-    setting.settingEl.addClass("omd-settings-model");
+    setting.settingEl.addClass("omd-settings-model", "omd-settings-local-writing-model");
     this.modelReadinessRail(container, name, workflowState, selector.stale);
   }
 

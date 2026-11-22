@@ -2,6 +2,7 @@ import { Modal, Setting, type App, type ButtonComponent } from "obsidian";
 import type { MarkdownFormattingMode } from "./markdown-formatting.ts";
 
 let formattingModalSequence = 0;
+type FormattingFailurePhase = "generate" | "apply";
 
 export class MarkdownFormattingModal extends Modal {
   private resolved = false;
@@ -9,10 +10,12 @@ export class MarkdownFormattingModal extends Modal {
   private closed = false;
   private readonly pendingDecision: Promise<boolean>;
   private resolveDecision!: (apply: boolean) => void;
+  private introEl?: HTMLElement;
   private statusEl?: HTMLElement;
   private previewSection?: HTMLElement;
   private previewCode?: HTMLElement;
   private closeButton?: ButtonComponent;
+  private localModelButton?: ButtonComponent;
   private applyButton?: ButtonComponent;
   private generateAgainButton?: ButtonComponent;
   private generateAgain?: () => void;
@@ -24,6 +27,7 @@ export class MarkdownFormattingModal extends Modal {
     private readonly mode: MarkdownFormattingMode,
     private readonly onCancelGeneration: () => void,
     private readonly onClosed: () => void,
+    private readonly onOpenLocalWritingSettings: () => void,
   ) {
     super(app);
     this.pendingDecision = new Promise<boolean>((resolve) => {
@@ -35,7 +39,7 @@ export class MarkdownFormattingModal extends Modal {
     this.modalEl.addClass("omd-formatting-modal");
     const transcriptCleanup = this.mode === "transcript-cleanup";
     this.titleEl.setText(transcriptCleanup ? "Clean transcript" : "Improve formatting");
-    this.contentEl.createEl("p", {
+    this.introEl = this.contentEl.createEl("p", {
       cls: "omd-modal-intro",
       text: transcriptCleanup
         ? "Add punctuation and paragraph breaks while preserving every original word, number, URL, timestamp, and language."
@@ -50,7 +54,7 @@ export class MarkdownFormattingModal extends Modal {
       cls: "omd-formatting-preview",
       attr: { role: "region", "aria-labelledby": this.previewHeadingId },
     });
-    this.previewSection.hidden = true;
+    this.setElementVisible(this.previewSection, false);
     this.previewSection.createEl("h3", {
       text: "Formatting preview",
       attr: { id: this.previewHeadingId },
@@ -64,14 +68,22 @@ export class MarkdownFormattingModal extends Modal {
         this.closeButton = button;
       })
       .addButton((button) => {
-        button.setCta().setButtonText("Generate again").onClick(() => {
+        button.setButtonText("Change local model").onClick(() => {
+          this.close();
+          this.onOpenLocalWritingSettings();
+        });
+        this.localModelButton = button;
+        this.setButtonVisible(button, false);
+      })
+      .addButton((button) => {
+        button.setCta().setButtonText("Try again").onClick(() => {
           const generateAgain = this.generateAgain;
           if (!generateAgain) return;
           button.setDisabled(true);
           generateAgain();
         });
-        button.buttonEl.hidden = true;
         this.generateAgainButton = button;
+        this.setButtonVisible(button, false);
       })
       .addButton((button) => {
         button.setCta().setButtonText(transcriptCleanup ? "Apply transcript cleanup" : "Apply formatting").setDisabled(true).onClick(() => {
@@ -94,6 +106,8 @@ export class MarkdownFormattingModal extends Modal {
 
   showPreview(markdown: string): void {
     this.finishGeneration();
+    this.titleEl.setText("Review formatting");
+    this.introEl?.setText("Only Markdown structure and spacing may change. Your wording and protected source details stay intact.");
     if (this.statusEl) {
       this.statusEl.removeClass("is-active");
       this.statusEl.removeClass("is-conflict");
@@ -104,16 +118,19 @@ export class MarkdownFormattingModal extends Modal {
       this.statusEl.setText(`Preview ready for ${this.noteName}. The note is unchanged until you apply it.`);
     }
     if (this.previewCode) this.previewCode.setText(markdown);
-    if (this.previewSection) this.previewSection.hidden = false;
-    if (this.generateAgainButton) this.generateAgainButton.buttonEl.hidden = true;
+    this.setElementVisible(this.previewSection, true);
+    this.setButtonVisible(this.localModelButton, false);
+    this.setButtonVisible(this.generateAgainButton, false);
     if (this.applyButton) {
-      this.applyButton.buttonEl.hidden = false;
+      this.setButtonVisible(this.applyButton, true);
       this.applyButton.setDisabled(false);
     }
   }
 
   showConflict(message: string, onGenerateAgain: () => void): void {
     this.generateAgain = onGenerateAgain;
+    this.titleEl.setText("Note changed during review");
+    this.introEl?.setText("Your newer edits were kept. Generate a fresh preview before applying formatting.");
     if (this.statusEl) {
       this.statusEl.removeClass("is-active");
       this.statusEl.removeClass("is-error");
@@ -123,20 +140,26 @@ export class MarkdownFormattingModal extends Modal {
       this.statusEl.setAttr("aria-live", "assertive");
       this.statusEl.setText(message);
     }
-    if (this.applyButton) {
-      this.applyButton.setDisabled(true);
-      this.applyButton.buttonEl.hidden = true;
-    }
+    this.setButtonVisible(this.localModelButton, false);
+    this.applyButton?.setDisabled(true);
+    this.setButtonVisible(this.applyButton, false);
     if (this.generateAgainButton) {
-      this.generateAgainButton.buttonEl.hidden = false;
+      this.setButtonVisible(this.generateAgainButton, true);
       this.generateAgainButton.setDisabled(false);
       this.generateAgainButton.buttonEl.focus();
     }
   }
 
-  showFailure(message: string, onGenerateAgain?: () => void): void {
+  showFailure(
+    message: string,
+    onGenerateAgain?: () => void,
+    offerLocalModelSettings = false,
+    phase: FormattingFailurePhase = "generate",
+  ): void {
     this.finishGeneration();
     this.generateAgain = onGenerateAgain;
+    this.titleEl.setText(phase === "apply" ? "Formatting couldn’t be applied" : "Formatting couldn’t be generated");
+    this.introEl?.setText(phase === "apply" ? "Your note is unchanged." : "OMD kept the original note safe.");
     if (this.statusEl) {
       this.statusEl.removeClass("is-active");
       this.statusEl.removeClass("is-conflict");
@@ -146,22 +169,27 @@ export class MarkdownFormattingModal extends Modal {
       this.statusEl.setAttr("aria-live", "assertive");
       this.statusEl.setText(message);
     }
-    if (this.previewSection) this.previewSection.hidden = true;
-    if (this.applyButton) {
-      this.applyButton.setDisabled(true);
-      this.applyButton.buttonEl.hidden = true;
-    }
+    this.setElementVisible(this.previewSection, false);
+    this.applyButton?.setDisabled(true);
+    this.setButtonVisible(this.applyButton, false);
+    this.setButtonVisible(this.localModelButton, offerLocalModelSettings);
     if (this.generateAgainButton) {
-      this.generateAgainButton.buttonEl.hidden = !onGenerateAgain;
+      this.setButtonVisible(this.generateAgainButton, Boolean(onGenerateAgain));
       this.generateAgainButton.setDisabled(!onGenerateAgain);
     }
     this.closeButton?.setButtonText("Close");
-    (onGenerateAgain ? this.generateAgainButton : this.closeButton)?.buttonEl.focus();
+    (onGenerateAgain
+      ? this.generateAgainButton
+      : offerLocalModelSettings
+        ? this.localModelButton
+        : this.closeButton)?.buttonEl.focus();
   }
 
   showNoChanges(message: string): void {
     this.finishGeneration();
     this.generateAgain = undefined;
+    this.titleEl.setText("No formatting changes");
+    this.introEl?.setText("Your note is unchanged.");
     if (this.statusEl) {
       this.statusEl.removeClass("is-active");
       this.statusEl.removeClass("is-conflict");
@@ -171,12 +199,11 @@ export class MarkdownFormattingModal extends Modal {
       this.statusEl.setAttr("aria-live", "polite");
       this.statusEl.setText(message);
     }
-    if (this.previewSection) this.previewSection.hidden = true;
-    if (this.generateAgainButton) this.generateAgainButton.buttonEl.hidden = true;
-    if (this.applyButton) {
-      this.applyButton.setDisabled(true);
-      this.applyButton.buttonEl.hidden = true;
-    }
+    this.setElementVisible(this.previewSection, false);
+    this.setButtonVisible(this.localModelButton, false);
+    this.setButtonVisible(this.generateAgainButton, false);
+    this.applyButton?.setDisabled(true);
+    this.setButtonVisible(this.applyButton, false);
     this.closeButton?.setButtonText("Close");
     this.closeButton?.buttonEl.focus();
   }
@@ -193,6 +220,18 @@ export class MarkdownFormattingModal extends Modal {
       this.closed = true;
       this.onClosed();
     }
+  }
+
+  private setButtonVisible(button: ButtonComponent | undefined, visible: boolean): void {
+    if (!button) return;
+    button.buttonEl.hidden = !visible;
+    button.buttonEl.style.display = visible ? "" : "none";
+  }
+
+  private setElementVisible(element: HTMLElement | undefined, visible: boolean): void {
+    if (!element) return;
+    element.hidden = !visible;
+    element.style.display = visible ? "" : "none";
   }
 
   private finish(apply: boolean): void {

@@ -17,6 +17,7 @@ const bridgeSource = readFileSync(resolve("src/omd-bridge.ts"), "utf8");
 
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
 const modalSource = readFileSync(resolve("src/markdown-formatting-modal.ts"), "utf8");
+const settingsSource = readFileSync(resolve("src/settings.ts"), "utf8");
 const styleSource = readFileSync(resolve("src/styles.css"), "utf8");
 
 test("formatting keeps existing frontmatter byte-for-byte around a formatted body", () => {
@@ -206,7 +207,7 @@ test("formatting UI is review-first, cancellable, and announces generation", () 
 });
 
 test("formatting terminal states stay readable until the user closes them", () => {
-  assert.match(modalSource, /showFailure\(message: string/u);
+  assert.match(modalSource, /showFailure\([\s\S]*?message: string/u);
   assert.match(modalSource, /showNoChanges\(message: string/u);
   assert.match(modalSource, /this\.statusEl\.setAttr\("role", "alert"\)/u);
   assert.match(modalSource, /this\.closeButton\?\.setButtonText\("Close"\)/u);
@@ -226,12 +227,40 @@ test("formatting terminal states stay readable until the user closes them", () =
   );
 });
 
-test("a stale formatting preview stays open with an actionable Generate again control", () => {
-  assert.match(modalSource, /setButtonText\("Generate again"\)/u);
+test("formatting failures expose one safe recovery path without a stale Apply action", () => {
+  assert.match(modalSource, /Your note is unchanged\./u);
+  assert.match(modalSource, /setButtonText\("Change local model"\)/u);
+  assert.match(modalSource, /setButtonText\("Try again"\)/u);
+  assert.match(modalSource, /phase === "apply" \? "Formatting couldn.t be applied" : "Formatting couldn.t be generated"/u);
+  assert.match(
+    modalSource,
+    /private setButtonVisible\([\s\S]*button\.buttonEl\.hidden = !visible;[\s\S]*button\.buttonEl\.style\.display = visible \? "" : "none"/u,
+  );
+
+  const failureMethod = modalSource.slice(
+    modalSource.indexOf("showFailure("),
+    modalSource.indexOf("showNoChanges("),
+  );
+  assert.match(failureMethod, /this\.setButtonVisible\(this\.applyButton, false\)/u);
+  assert.match(failureMethod, /this\.setButtonVisible\(this\.localModelButton, offerLocalModelSettings\)/u);
+  assert.doesNotMatch(failureMethod, /this\.applyButton\.buttonEl\.hidden = false/u);
+
+  assert.match(mainSource, /openLocalWritingSettings\(\): void/u);
+  assert.match(mainSource, /this\.settingTab\?\.showLocalWritingSettings\(\)/u);
+  assert.match(settingsSource, /showLocalWritingSettings\(\): void[\s\S]*localAiAdvancedExpanded = true/u);
+  assert.match(settingsSource, /omd-settings-local-writing-model/u);
+
+  const applyBranch = mainSource.slice(mainSource.indexOf("applyMarkdownFormattingPreview"));
+  assert.match(applyBranch, /modal\.showFailure\(detail, generateAgain, false, "apply"\)/u);
+  assert.match(modalSource, /this\.setElementVisible\(this\.previewSection, false\)/u);
+});
+
+test("a stale formatting preview stays open with an actionable Try again control", () => {
+  assert.match(modalSource, /setButtonText\("Try again"\)/u);
   assert.match(modalSource, /showConflict\(message: string, onGenerateAgain: \(\) => void\)/u);
   assert.match(modalSource, /setAttr\("role", "alert"\)/u);
-  assert.match(modalSource, /this\.generateAgainButton\.buttonEl\.hidden = false/u);
-  assert.match(modalSource, /this\.applyButton\.buttonEl\.hidden = true/u);
+  assert.match(modalSource, /this\.setButtonVisible\(this\.generateAgainButton, true\)/u);
+  assert.match(modalSource, /this\.setButtonVisible\(this\.applyButton, false\)/u);
 
   const formattingMethod = mainSource.slice(
     mainSource.indexOf("async improveNoteFormatting("),

@@ -59,7 +59,7 @@ const MAX_CAPTURE_MANIFESTS = 512;
 const OMD_PLANNED_OUTPUT_NAME = /^\d{4}-\d{2}-\d{2}-.+-[0-9a-f]{8}\.md$/u;
 
 export const MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE =
-  "The local writing model changed protected note content, so OMD rejected the formatting preview. The note was not changed. Try another note or local writing model.";
+  "The local model tried to change words, numbers, links, or another protected source detail. OMD discarded the result. Your note is unchanged.";
 
 function normalizeAnswerCompatibility(value: unknown): AnswerModelCompatibilityStatus {
   return value === "supported" || value === "unsupported" || value === "unverified"
@@ -544,7 +544,10 @@ export class OmdBridge {
       return formatted;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") throw error;
-      if (error instanceof Error && /note was not changed/u.test(error.message)) throw error;
+      if (error instanceof Error && (
+        /note was not changed/u.test(error.message)
+        || error.message === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE
+      )) throw error;
       throw new Error("OMD could not improve formatting. The note was not changed.", { cause: error as Error });
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true });

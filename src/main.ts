@@ -2001,7 +2001,7 @@ export default class OmdHomePlugin extends Plugin {
       this.refreshHomeViews();
     }, () => {
       this.markdownFormattingModals.delete(modal);
-    });
+    }, () => this.openLocalWritingSettings());
     const generateAgain = () => {
       modal.close();
       if (this.unloaded) return;
@@ -2070,6 +2070,7 @@ export default class OmdHomePlugin extends Plugin {
         modal.showFailure(
           detail,
           detail === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE ? undefined : generateAgain,
+          detail === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
         );
         this.reportLocalAiWorkflowIssue(error instanceof LocalAiError ? error : new Error(detail), file.path);
       }
@@ -2099,7 +2100,7 @@ export default class OmdHomePlugin extends Plugin {
       new Notice("Formatting applied. Review status is unchanged.");
     } catch {
       const detail = "Could not apply formatting. The note was not changed.";
-      modal.showFailure(detail, generateAgain);
+      modal.showFailure(detail, generateAgain, false, "apply");
       this.reportLocalAiWorkflowIssue(new Error(detail), file.path);
     }
   }
@@ -2603,6 +2604,23 @@ export default class OmdHomePlugin extends Plugin {
       window.setTimeout(() => this.settingTab?.showRetrievalSettings(), 0);
     } catch {
       new Notice("Open settings → OMD Home → advanced AI controls → vault retrieval.");
+    }
+  }
+
+  openLocalWritingSettings(): void {
+    const settings = (this.app as App & {
+      setting?: { open?: () => void; openTabById?: (id: string) => void };
+    }).setting;
+    if (!settings || typeof settings.open !== "function" || typeof settings.openTabById !== "function" || !this.settingTab) {
+      new Notice("Open settings → OMD Home → advanced AI controls → local writing model.");
+      return;
+    }
+    try {
+      settings.open();
+      settings.openTabById(this.manifest.id);
+      window.setTimeout(() => this.settingTab?.showLocalWritingSettings(), 0);
+    } catch {
+      new Notice("Open settings → OMD Home → advanced AI controls → local writing model.");
     }
   }
 
