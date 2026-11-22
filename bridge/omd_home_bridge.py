@@ -1335,12 +1335,13 @@ def _fallback_execute(
     warnings = _merge_warnings(
         _merge_warnings(warnings, structure_warnings), _answer_contract_warnings(text, hits, source)
     )
+    answer_hits = _cited_answer_hits(text, hits, source)
     text = _restore_exact_source_paths(text, hits, source)
     return {
         "ok": True,
         "grounding_contract_version": 1,
         "text": text,
-        "evidence": [_hit_dict(hit) for hit in hits],
+        "evidence": [_hit_dict(hit) for hit in answer_hits],
         "provider": provider,
         "model": response.get("model", model),
         "retrieval_mode": retrieval_mode,
@@ -1412,12 +1413,13 @@ def _execute_result(
     warnings = _merge_warnings(
         _merge_warnings(warnings, structure_warnings), _answer_contract_warnings(text, hits, source)
     )
+    answer_hits = _cited_answer_hits(text, hits, source)
     text = _restore_exact_source_paths(text, hits, source)
     return {
         "ok": True,
         "grounding_contract_version": 1,
         "text": text,
-        "evidence": [_hit_dict(hit) for hit in hits],
+        "evidence": [_hit_dict(hit) for hit in answer_hits],
         "provider": result.provider,
         "model": result.actual_model,
         "retrieval_mode": retrieval_mode,
@@ -1485,12 +1487,13 @@ def _execute_ollama_cloud(
     warnings = _merge_warnings(
         _merge_warnings(warnings, structure_warnings), _answer_contract_warnings(text, hits, source)
     )
+    answer_hits = _cited_answer_hits(text, hits, source)
     text = _restore_exact_source_paths(text, hits, source)
     return {
         "ok": True,
         "grounding_contract_version": 1,
         "text": text,
-        "evidence": [_hit_dict(hit) for hit in hits],
+        "evidence": [_hit_dict(hit) for hit in answer_hits],
         "provider": "ollama-cloud",
         "model": _optional_string(response.get("model")) or model,
         "retrieval_mode": retrieval_mode,
@@ -2530,11 +2533,31 @@ def _source_catalog(blocks: Any) -> dict[str, str]:
     return catalog
 
 
-def _restore_exact_source_paths(text: str, hits: list[SearchHit], source: str) -> str:
-    block_sources = {
+def _block_source_ids(source: str) -> dict[str, str]:
+    _prefix, marker, evidence = source.rpartition("\n\nUNTRUSTED EVIDENCE BLOCKS\n")
+    if not marker:
+        return {}
+    return {
         f"E{block_id}": f"S{source_id}"
-        for block_id, source_id in re.findall(r"BLOCK E(\d+)\nSource: \[S(\d+)\]", source)
+        for block_id, source_id in re.findall(
+            r"(?m)^BLOCK E(\d+)\nSource: \[S(\d+)\]$", evidence,
+        )
     }
+
+
+def _citation_identifiers(text: str) -> set[str]:
+    return {
+        identifier
+        for group in re.findall(
+            r"\[\[?((?:[SE]\d+)(?:\s*,\s*[SE]\d+)*)\]\]?",
+            text,
+        )
+        for identifier in re.findall(r"[SE]\d+", group)
+    }
+
+
+def _restore_exact_source_paths(text: str, hits: list[SearchHit], source: str) -> str:
+    block_sources = _block_source_ids(source)
     source_citations = {
         f"S{index}": _safe_source_citation(f"S{index}", hit.path)
         for index, hit in enumerate(hits, start=1)
@@ -2551,6 +2574,20 @@ def _restore_exact_source_paths(text: str, hits: list[SearchHit], source: str) -
 
     citation = r"(?:[SE]\d+)(?:\s*,\s*(?:[SE]\d+))*"
     return re.sub(rf"\[\[({citation})\]\]|\[({citation})\]", restore_citation, text.strip())
+
+
+def _cited_answer_hits(
+    text: str, hits: list[SearchHit], source: str,
+) -> list[SearchHit]:
+    block_sources = _block_source_ids(source)
+    cited_source_ids = {
+        block_sources.get(identifier, identifier)
+        for identifier in _citation_identifiers(text)
+    }
+    return [
+        hit for index, hit in enumerate(hits, start=1)
+        if f"S{index}" in cited_source_ids
+    ]
 
 
 def _safe_source_citation(source_id: str, path: str) -> str:
@@ -2709,10 +2746,7 @@ def _answer_contract_warnings(
     # Never derive the citation allowlist from the prompt or evidence text: both
     # contain untrusted user content that can mention fake [S#] ids or SOURCE lines.
     valid_source_ids = {f"S{index}" for index, _hit in enumerate(hits, start=1)}
-    block_sources = {
-        f"E{block_id}": f"S{source_id}"
-        for block_id, source_id in re.findall(r"BLOCK E(\d+)\nSource: \[S(\d+)\]", source)
-    }
+    block_sources = _block_source_ids(source)
     section_pattern = re.compile(
         r"^(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?"
         r"(Source states|Model inference|Sources)\s*:\s*(?:\*\*)?\s*(.*)$",
@@ -2756,15 +2790,7 @@ def _answer_contract_warnings(
         if section_state not in {"source", "inference"}:
             invalid_provenance_structure = True
         for claim in _claim_sentences(plain):
-            citation_groups = re.findall(
-                r"\[\[?((?:[SE]\d+)(?:\s*,\s*[SE]\d+)*)\]\]?",
-                claim,
-            )
-            cited_ids = {
-                identifier
-                for group in citation_groups
-                for identifier in re.findall(r"[SE]\d+", group)
-            }
+            cited_ids = _citation_identifiers(claim)
             cited_paths = {
                 path for path in re.findall(r"\[\[([^\]]+)\]\]", claim)
                 if not re.fullmatch(r"(?:[SE]\d+)(?:\s*,\s*(?:[SE]\d+))*", path)

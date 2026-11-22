@@ -181,9 +181,9 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 | 7 | DONE / NATIVE PASS | [ANSWER-02-R1](#test-answer-02-r1) | OpenAI、Claude 与修复后的 DeepSeek Flash 均用单篇 `amber lighthouse checklist` 完成事实／推论分离、逐项 citation 与安全 preview／Cancel／Send 合同 | Q6 已关闭；不重发 hosted 固定题 |
 | 8 | DONE / NATIVE PASS | [CAL-03 E.14–16](#test-cal-03) | Recreate、Detach、Calendar 取消选择／恢复与 Destination 显示都保留 PASS，不重跑 | release owner 原生结果 |
 | 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补同一动作重复点击与 active 请求期间 disable/reload＋Console。provider/model controls 在 active 时禁用，tuple 失效由自动回归覆盖 | synthetic smoke prompts |
-| 10 | REQUIRED / FIRST PASS | [AI-08](#test-ai-08) | 三篇 Phase 2 fixtures 已导入，hard preflight 三行 READY 且 Home 已索引；执行 P01–P06，每题三次 | `test-vault/Sources/Benchmark/` |
-| 11 | REQUIRED AI-09 / POST-RELEASE AI-10 | AI-09／10 | 完成 `all-minilm:22m` 与 `bge-m3` 两轮质量矩阵；AI-10 destructive model removal 留发布后维护 | AI-08 fixtures 保留；完成后保留 `bge-m3` |
-| 12 | TARGETED NATIVE DELTA | [AI-11](#test-ai-11) | 自动回归已覆盖 unload 与 Recognition defaults 核心边界；只补原生 disable/quit、Console 和下一次 Capture 使用新默认值 | 固定本地 fixture 问题 |
+| 10 | DONE / NATIVE PASS | [AI-08](#test-ai-08) | P01–P06 全部达到门槛；P04、P06 source hygiene 修复后各连续 3 次为 4／4 | `test-vault/Sources/Benchmark/` |
+| 11 | DONE / NATIVE PASS；POST-RELEASE AI-10 | AI-09／10 | release owner 已完成 `all-minilm:22m` 与 `bge-m3` 两轮质量矩阵、cache marker 与持久化边界；AI-10 destructive model removal 留发布后维护 | `bge-m3` 保留，不重测 |
+| 12 | DONE / NATIVE PASS | [AI-11](#test-ai-11) | release owner 已确认 pending preview disable/quit 生命周期与 Recognition defaults 只影响下一次 Capture | 不重测 |
 | 13 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
 
 ### 1.3C 现在从这里继续：最短人工队列（2026-11-15）
@@ -191,7 +191,7 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 Q0–Q2 已由 release owner 完成并确认，不再安排重测；CAL-03 E.14–E.16 与 Destination 显示也保留 PASS。
 不要重跑 fault injection、长音频、Answer model catalog 或旧 v2 helper。当前首发范围明确包含
 section-aware answer quality、semantic rerank 与多语言检索，因此 Q8、Q9 都是必做质量门禁；AI-10 的
-destructive model removal 仍留到发布后维护测试。Q3、Q11 已通过并关闭；继续按 Q4 → Q10 执行，全部通过后
+destructive model removal 仍留到发布后维护测试。Q3、Q9、Q10、Q11 已通过并关闭；只继续核对 Q4、Q5、Q7，全部通过后
 才执行 Q12。每完成一行
 就在本节后面的结果表写一行结论。
 
@@ -205,9 +205,9 @@ destructive model removal 仍留到发布后维护测试。Q3、Q11 已通过并
 | Q5 | **真实平台 RETEST / FIRST PASS** | 依素材长度 | [CAP-07 C／D](#test-cap-07) | Douyin 成功路径；Rednote output 对账与非空 transcript；wrapper failure／Retry；Cancel／unload／隐私 | Douyin tag `cap-07-douyin-retest`；Rednote tag `cap-07-xhs-video-retest`；没有可安全使用的公开素材或过期 cookies fixture 就记 NOT RUN，不伪造 PASS |
 | Q6 | **DONE / NATIVE PASS** | 0 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05)、[ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答) | OpenAI、Claude、DeepSeek Flash 固定题以及 zero-evidence、secret scan、provider memory／reload 均通过；DeepSeek preview 的 disclosure、Cancel 零发送与新 preview 后 Send 也已通过 | 2026-11-21 DeepSeek 结果为 1 retrieved note；事实、审慎推论和每项 citation 均合格，无 `[S#]`／`[E#]`；不重测 |
 | Q7 | **发布安全门禁／Local AI PARTIAL 补齐** | 5–10 分钟 | [AI-06](#test-ai-06) | AI-06 通常属于 Extended；本候选把重复点击与 active 请求期间 disable／reload＋Console 两项提升为必做发布安全门禁 | active 时 provider/model controls 本来就禁用，tuple 失效由自动回归覆盖；不重复 Refresh models、三项 smoke 与 embedding 459ms 基线 |
-| Q8 | **REQUIRED / FIRST PASS** | 20–30 分钟 | [AI-08](#test-ai-08) | 执行 P01–P06，每题三次；P01／02／03／04／06 必须 4/4，P05 至少 3/4 | hard preflight 已三行 READY；不得引用 release-checklist distractor 或泄漏 `[S#]`／`[E#]` |
-| Q9 | **REQUIRED / FIRST PASS** | 30–45 分钟 | [AI-09](#test-ai-09) | 先用 `all-minilm:22m` 完成 AI-09A，再安装并保留 `bge-m3` 完成 AI-09B；AI-10 留发布后 | D01／B04 必须 4/4，M01 至少 3/4；不要执行 `ollama rm` |
-| Q10 | **Lifecycle TARGETED RETEST** | 10–15 分钟 | [AI-11](#test-ai-11) | 只补 pending preview 时 disable／reload 与完全退出 Obsidian，以及改变 OCR／ASR 后确认下一次真实 Capture 使用新默认值 | 每次重新启用后必须出现新的 preview；Console 无 orphan／unhandled rejection。内部 race 和 Recognition isolation core 已自动通过 |
+| Q8 | **DONE / NATIVE PASS** | 0 | [AI-08](#test-ai-08) | P01–P04、P06 均为 3／3 × 4／4；P05 为 3／3 × 3／4，达到其门槛 | P04 只列 Rules primary note；P06 在全新会话及前序查询后都只列 Cloud Setup primary note；无 distractor 或 placeholder 泄漏 |
+| Q9 | **DONE / NATIVE PASS** | 0 | [AI-09](#test-ai-09) | `all-minilm:22m` 与 `bge-m3` 两轮 D01／M01／B04、rerank、keyword-only、cache marker 与持久化边界均已完成 | release owner 2026-11-22 确认；AI-10 留发布后，不重测 |
+| Q10 | **DONE / NATIVE PASS** | 0 | [AI-11](#test-ai-11) | pending preview disable/reload／完全退出与 Recognition defaults 下一次 Capture 边界已完成 | release owner 2026-11-22 确认，不重测 |
 | Q11 | **DONE / NATIVE PASS** | 0 | [CALENDAR-05](ui-backlog.md#backlog-calendar-05) | release owner 已确认最后一条 linked recovery note 删除后 summary 消失且 Calendar 主体保持可用 | Month／Week／Day／List 与日期导航已通过；不重测 |
 | Q12 | **最终发布 FIRST PASS** | 10–15 分钟 | [REL-01](#test-rel-01) | 在 disposable clean vault 只安装三项 Marketplace 资产，完成 enable、disable／enable 与 cold restart；仅在 dependency-free host／隔离 profile 可用时验证无依赖状态，否则该子项记 `NOT RUN` | 必须最后执行；不要把当前有历史数据的 test-vault 当 clean-vault 证据，也不要卸载日常依赖来模拟缺失 |
 
@@ -417,16 +417,16 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
 | CAL-03 safety shell | HISTORICAL SNAPSHOT / SUPERSEDED | 2026-10-05 | 原生 Obsidian | 当时只验证 Pending sync shell；后续 A–E、跨 Calendar、Recreate／Detach、F.17／F.18 与 Q0–Q2 已有 release owner 证据，不再重做 |
 | CAL-01 UI validation preview 清理 | OPTIONAL CLEANUP | 2026-10-05 | 原生 Obsidian | 原生控件自动化试验误建一条 Vault-only 临时记录；这不是产品缺陷，不阻塞 Q0–Q12。Q1 删除路径通过后可由界面单独清理，不要触及其他 fixture |
 | AI-06 | PARTIAL；native baseline PASS；本候选的 steps 4／6 已提升为发布安全门禁 | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running；tuple 失效自动 PASS，只剩重复点击及 disable/reload 原生差额 |
-| AI-08 Phase 2 benchmark | PREP PASS / REQUIRED QUALITY GATE | 2026-11-15 | hard preflight 三行 READY；Home Recent 原生显示三篇 fixture | 三篇 Phase 2 fixtures 已导入并被 Obsidian 索引；P01–P06 每题三次尚未执行，不能用 2026-10-05 的 INVALID SETUP 结果代替 |
-| AI-11.8 pending consent unload | automated core PASS；native delta NOT RUN | 2026-10-05 | `tests/main-runtime-regressions.test.ts` | 自动回归确认 unload 关闭 consent、排队中的批准也不能发送；仍需原生 disable/reload 与完全退出 Obsidian smoke，确认无 Console orphan/rejection |
-| AI-11.10 Recognition defaults isolation | automated PASS；native delta NOT RUN | 2026-10-05 | 109/109 定向回归 | 本地 Ask 运行中修改 OCR／ASR 不取消问答；旧 OMD 无 recognition override 仍可 Q&A；Capture request 固定创建时语言快照。原生仍需观察更改只作用于下一次 Capture |
-| AI-09 | REQUIRED QUALITY GATE / NOT RUN | 2026-11-15 | release scope decision | `all-minilm:22m` 与 `bge-m3` 两轮矩阵均为首发门禁；完成后保留模型。AI-10 destructive model removal 留发布后 |
+| AI-08 Phase 2 benchmark | DONE / NATIVE PASS | 2026-11-22 | P01–P04、P06 均 3／3 × 4／4；P05 三次均 3／4，达到门槛 | P04／P06 的历史 3／4 结果保留在证据块；修复后最终 Sources 只保留本次回答实际引用的 primary note，全套 P01–P06 门禁关闭 |
+| AI-11.8 pending consent unload | PASS / CLOSED | 2026-11-22 | 自动回归＋release owner 原生确认 | pending preview 时 disable/reload 与完全退出均结束旧 consent；重新启用建立新 preview，无旧批准复用、orphan 或 unhandled rejection |
+| AI-11.10 Recognition defaults isolation | PASS / CLOSED | 2026-11-22 | 自动回归＋release owner 原生确认 | 本地 Ask 继续完成；OCR／ASR 变更只作用于下一次 Capture，恢复默认后后续 Capture 使用恢复值 |
+| AI-09 | PASS / CLOSED | 2026-11-22 | release owner 原生质量矩阵＋自动持久化边界 | `all-minilm:22m` 与 `bge-m3` 的 D01／M01／B04、rerank 与 keyword-only 均达门槛；cache marker 可更新并在撤销后失效，fixtures 未持久化 embedding/query/cache 数据；AI-10 留发布后 |
 | CALENDAR-05 persistent recovery summary | PASS / CLOSED | 2026-11-16 | 自动 selector／UI contract 回归＋release owner 原生复测 | 持久 summary 显示问题 note 与 **Review event**；删除最后一条 recovery note 后 summary 消失，Calendar 日期主体保持可见，Month／Week／Day／List 与日期导航仍可用 |
 | REL-01 |  |  |  |  |
 
 **下一步：** 只按上方收敛后的队列执行。ANSWER-02-R1 的非 OpenAI matrix、E.14–E.16、Destination 与
-F.19–21 与 Q0–Q2 不重复；OpenAI exact model 只随 Q6 的同一次固定题补录。Q8／Q9 都是首发质量门禁，
-Q3、Q11 已通过并关闭；REL-01 始终最后执行。每完成一项，立即写
+F.19–21 与 Q0–Q2 不重复；Q8／Q9 的首发质量门禁和 Q10 lifecycle 已通过并关闭。
+只核对 Q4、Q5、Q7；REL-01 始终最后执行。每完成一项，立即写
 PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
 
 
@@ -2475,6 +2475,228 @@ Model inference:
 Sources:
 - [[Sources/Documents/Plain web text fixture.raw.md]]
 - [[Manual Test Notes/Synthetic OMD Inbox Capture.md]]
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P01 PASS（3／3，均为 4／4）</summary>
+
+原问题：
+`@What stays local in the Phase 2 answer flow, even for cloud providers?`
+
+三次回答正文与 sources 完全一致：
+
+> Based on 2 retrieved notes.
+>
+> Source states:
+> - Local Ollama remains the default answer path. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - Retrieval and source selection stay local. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - The selected provider and model stay fixed for the request. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - Cloud answers require a preview and explicit approval before any bounded evidence excerpts leave the device. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - OMD Home does not silently switch to another provider. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+>
+> Model inference:
+> - None.
+>
+> Sources:
+> - [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+
+评分：
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+判定依据：三次均覆盖 local default、local retrieval／source selection、固定 provider／model、cloud
+preview／explicit approval 与 no provider fallback；只引用 Phase 2 的两篇 primary notes，没有引用
+`OMD Home Release Checklist.md` distractor，没有编造发送路径，也没有泄漏 `[S#]`／`[E#]`。
+
+**结论：P01 原生质量门禁通过；P02 结果见下一证据块，AI-08 整体仍需完成 P03–P06。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P02 PASS（3／3，均为 4／4）</summary>
+
+原问题：
+`@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?`
+
+三次回答正文与 sources 完全一致：
+
+> Based on 1 retrieved note.
+>
+> Source states:
+> - Install and start Ollama. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Sign in with ollama signin. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Pull a cloud-backed model such as gpt-oss:120b-cloud. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Run the cloud model once so Ollama exposes metadata. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - In OMD Home, choose Ollama Cloud, select the model, and press Check setup. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Turn on Allow cloud answers before sending a vault question. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Review the preview modal and approve or cancel the request. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+>
+> Model inference:
+> - None.
+>
+> Sources:
+> - [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+
+评分：
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+判定依据：三次均按 primary Cloud setup note 的原始顺序完整给出 install／start、sign-in、pull、
+首次运行以暴露 metadata、在 OMD Home 选择模型并 Check setup、启用 cloud answers，以及逐请求
+preview approve／cancel 七步；只引用唯一所需的 primary note，没有引用
+`OMD Home Release Checklist.md` distractor，没有编造额外发送路径，也没有泄漏 `[S#]`／`[E#]`。
+
+**结论：P02 原生质量门禁通过；P03–P06 的后续结果见下方证据块。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P03 PASS（3／3，均为 4／4）</summary>
+
+原问题：
+`@Which actions share the local writing model, and how are they different?`
+
+三次回答完全一致，均说明 links／tags 与 capture polish 共用一个 local writing model；前者为
+review-first，后者为 per-capture optional，并补充 polish 关闭时 raw Markdown path 不变。三次都只引用
+`OMD Home Phase 2 Answer Rules.md`，无 distractor、编造或 placeholder 泄漏。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+**结论：P03 原生质量门禁通过。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P04 RETEST（3／3 均为 3／4）</summary>
+
+原问题：
+`@What should the recording command surface say, and what should it avoid guessing?`
+
+三次正文均正确回答 wrapper 应名为 **Start or stop recording**、不应创建第二个 recorder，并且只存在
+Start／Stop commands 时 UI 不应猜测状态；相应 claims 也都邻近引用正确的 Rules primary note。
+
+但是三次 `Sources` 都额外列出四篇无关笔记：
+
+- `Sources/Audio/Recording 20260909203142.md`
+- `Sources/Benchmark/8 Balcony Tomato Tips for Small-Space Beginners.md`
+- `Sources/Web/example.com.raw.md`
+- `Sources/Web/example.com.md`
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 2 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 3 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+
+题目被重复粘贴了一份相同的 `3rd`，本轮按测试计划只计前三次。P04 发布门槛为 4／4，因此不能以
+正文正确替代 source hygiene；重测时 `Sources` 只能保留 Rules primary note。
+
+**结论：P04 未达到发布门槛，需要定向重测。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P05 PASS（3／3，均为 3／4）</summary>
+
+原问题：
+`@Summarise the phase 2 answer flow in one paragraph, using only the two primary notes.`
+
+三次均覆盖 local Ollama default、local retrieval／source selection、cloud preview／explicit approval、
+共享 local writing model、capture polish per-capture optional 与 no provider fallback；只引用两篇 primary
+notes，无 distractor、编造或 placeholder 泄漏。三次结果仍采用多条 `Source states`，没有遵循
+“one paragraph”的答案形状，因此 correctness 保守扣 1 分；P05 发布门槛为至少 3／4，仍通过。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 1／2 | 1／1 | 1／1 | **3／4** | PASS |
+| 2 | 1／2 | 1／1 | 1／1 | **3／4** | PASS |
+| 3 | 1／2 | 1／1 | 1／1 | **3／4** | PASS |
+
+**结论：P05 达到发布门槛。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P06 RETEST（3／3 均为 3／4）</summary>
+
+原问题：
+`@Does the release checklist explain cloud answer routing?`
+
+三次正文均正确回答 Release Checklist 不解释 cloud answer routing，并把 routing 事实重定向到
+`OMD Home Cloud Setup Checklist.md`；没有从 distractor 提取 routing claim，也没有 placeholder 泄漏。
+但是三次的 `Sources` 都仍列出 `OMD Home Release Checklist.md` distractor。Q8 的全局门禁明确要求
+不得引用该 distractor，P06 又要求 4／4，因此 source hygiene 不能计分。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 2 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 3 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+
+**结论：P06 未达到发布门槛；重测时应 abstain／redirect，并且 Sources 不应列出 Release Checklist。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 source hygiene 修复后原生重测：P04 PASS（3／3，均为 4／4）</summary>
+
+使用相同 test-vault、`qwen3:4b-instruct`、Keyword search 和原始 P04 输入连续运行三次。三次正文均
+保留正确的 **Start or stop recording** wrapper 与“不猜测只有 Start／Stop commands 时的 recorder
+状态”；header 均为 `1 source`，最终 Sources 只显示：
+
+- `Sources/Benchmark/OMD Home Phase 2 Answer Rules.md`
+
+修复前可见的 Audio、Tomato 与两篇 Web 候选均不再作为回答来源展示；正文没有 `[S#]`／`[E#]`
+placeholder。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+**结论：P04 原生质量门禁通过。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 source hygiene 修复后原生重测：P06 PASS（3／3，均为 4／4）</summary>
+
+使用相同环境与原始 P06 输入运行三次：第一次关闭并重新打开 OMD Home 后直接提问；第二次先完成
+一条会显示 Sources 的正常 Cloud Setup 查询，再提问 P06；第三次连续重跑 P06。三次均正确说明
+Release Checklist 不解释 cloud routing，并重定向到 Cloud Setup；header 均为 `1 source`，最终 Sources
+只显示：
+
+- `Sources/Benchmark/OMD Home Cloud Setup Checklist.md`
+
+`OMD Home Release Checklist.md` 三次都没有显示。全新会话与前序查询后的结果相同，排除了沿用上一条
+查询 Sources 状态的假设。原始验收标准要求 abstain／redirect 和不使用 distractor，并不要求 Sources
+为空；本回答依赖 Cloud Setup 中的 routing 事实，因此只显示 Cloud Setup 是正确结果。
+
+| Run | 场景 | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---|---:|---:|---:|---:|---|
+| 1 | 全新 Home 会话直接 P06 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 正常 source-bearing 查询后 P06 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 连续重跑 P06 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+正常对照题 `@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?` 仍显示
+`1 source` 与 `OMD Home Cloud Setup Checklist.md`，证明修复没有误删有效来源。
+
+**结论：P06 原生质量门禁通过；AI-08 的 P01–P06 全部达到发布门槛。**
 
 </details>
 
