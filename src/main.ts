@@ -406,19 +406,23 @@ export default class OmdHomePlugin extends Plugin {
       menu.addItem((item) => item
         .setTitle(pinned ? "Unpin from OMD Home" : "Pin to OMD Home")
         .setIcon("pin")
+        .setSection("omd-home")
         .onClick(() => void this.toggleNotePinned(file.path)));
       if (file.extension === "md") {
         menu.addItem((item) => item
           .setTitle("Review in OMD Home")
           .setIcon("list-checks")
+          .setSection("omd-home")
           .onClick(() => void this.reviewNote(file)));
         menu.addItem((item) => item
           .setTitle("Improve formatting")
           .setIcon("text")
+          .setSection("omd-home")
           .onClick(() => void this.improveNoteFormatting(file)));
         menu.addItem((item) => item
           .setTitle("Generate suggestions · summary, links, tags")
           .setIcon("sparkles")
+          .setSection("omd-home")
           .onClick(() => void this.suggestLinksAndTags(file)));
       }
     }));

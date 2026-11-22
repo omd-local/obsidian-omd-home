@@ -749,6 +749,20 @@ test("OMD setup makes automatic discovery primary and keeps path overrides advan
   assert.doesNotMatch(source, /this\.pathSetting\(containerEl, "OMD executable"/u);
 });
 
+test("settings explain the product and put core setup before optional Home behavior", () => {
+  const display = extractFunctionBody(source, "display(): void");
+  assert.match(display, /new Setting\(intro\)[\s\S]*?\.setName\("Capture, review, and sync"\)[\s\S]*?\.setHeading\(\)/u);
+  assert.match(display, /Capture links and files as Markdown, review notes with local AI/u);
+  const captureHeading = display.indexOf('setName("Capture and processing")');
+  const setup = display.indexOf("this.renderOmdSetup(containerEl)");
+  const homeHeading = display.indexOf('setName("Home")');
+  const startupToggle = display.indexOf('setName("Open OMD Home on launch")');
+  assert.ok(captureHeading >= 0 && captureHeading < setup);
+  assert.ok(setup < homeHeading && homeHeading < startupToggle);
+  assert.doesNotMatch(display, /setName\("Startup"\)/u);
+  assert.match(stylesSource, /\.omd-settings-intro\s*\{[^}]*border-bottom:\s*1px solid var\(--omd-line\)/su);
+});
+
 test("social access feedback uses the shared status-card hierarchy", () => {
   assert.match(stylesSource, /\.omd-capture-access-status\s*\{[^}]*border-left:\s*3px[^}]*background:\s*var\(--omd-panel-alt\)[^}]*color:\s*var\(--omd-ink\)/su);
   assert.match(stylesSource, /\.omd-capture-access-status\.is-warning/u);

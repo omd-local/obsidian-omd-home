@@ -94,7 +94,7 @@ Function("require", "module", "exports", compiled)((id: string) => {
       registerEvent() {}
     },
     Modal: ModalStub,
-    Notice: class {}, setIcon() {},
+    Notice: class {}, TFile: class {}, setIcon() {},
   };
   if (id === "./layout") return layout;
   if (id === "./calendar-ui") return calendarUi;
@@ -227,7 +227,7 @@ test("Home clock refreshes date-relative events across midnight and stops when c
     assert.deepEqual(titles(today), ["Earlier today", "Yesterday's event"]);
     assert.deepEqual(titles(upcoming), ["Yesterday's event", "Today's event"]);
     const heading = home.contentEl.descendants().find((element) => element.tagName === "h1");
-    const date = home.contentEl.descendants().find((element) => element.tagName === "p");
+    const date = home.contentEl.querySelector(".omd-home-date");
     assert.ok(heading && date);
     assert.equal(heading.textContent, "Good evening");
     const previousDate = date.textContent;

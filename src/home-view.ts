@@ -1,4 +1,4 @@
-import { ItemView, Menu, Modal, Notice, WorkspaceLeaf, getAllTags, setIcon, type App, type TFile } from "obsidian";
+import { ItemView, Menu, Modal, Notice, TFile, WorkspaceLeaf, getAllTags, setIcon, type App } from "obsidian";
 import { aiProviderLabel } from "./ai-provider.ts";
 import type { CaptureFailureRecord } from "./capture-request";
 import { omdHomeStatus } from "./inbox.ts";
@@ -101,28 +101,23 @@ export class OmdHomeView extends ItemView {
     const title = header.createDiv({ cls: "omd-home-title" });
     title.createSpan({ cls: "omd-home-mark", text: "OMD" });
     this.greetingEl = title.createEl("h1", { text: greeting() });
-    this.dateEl = title.createEl("p", { text: longDate() });
+    title.createEl("p", {
+      cls: "omd-home-purpose",
+      text: "Capture links and files, review notes, and keep events in sync.",
+    });
+    this.dateEl = title.createEl("p", { cls: "omd-home-date", text: longDate() });
     const controls = header.createDiv({ cls: "omd-home-controls" });
-    const capture = controls.createEl("button", { cls: "omd-action-button", type: "button", text: "Capture URL or file" });
-    capture.addEventListener("click", () => this.plugin.openCaptureModal());
-    const event = controls.createEl("button", { cls: "omd-action-button mod-cta", type: "button", text: "Create event" });
-    event.addEventListener("click", () => void this.plugin.createCalendarEvent());
     this.manageWidgetsButton = controls.createEl("button", {
       cls: "omd-action-button omd-widget-manager",
       type: "button",
-      attr: { "aria-label": "Manage widgets" },
+      attr: {
+        "aria-label": "Customize OMD Home widgets",
+        title: "Show, hide, or reset home widgets",
+      },
     });
-    this.manageWidgetsButton.createSpan({ text: "Widgets" });
+    this.manageWidgetsButton.createSpan({ text: "Customize" });
     this.manageWidgetsBadge = this.manageWidgetsButton.createSpan({ cls: "omd-widget-manager-badge" });
     this.manageWidgetsButton.addEventListener("click", (event) => this.openWidgetManagerMenu(event));
-    const reset = controls.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Reset widget layout" } });
-    setIcon(reset, "rotate-ccw");
-    reset.addEventListener("click", () => {
-      void this.plugin.saveDeviceLayout(DEFAULT_LAYOUT.map((item) => ({ ...item }))).then(() => {
-        this.render();
-        new Notice("OMD Home layout reset");
-      });
-    });
 
     this.grid = contentEl.createDiv({ cls: "omd-widget-grid" });
   }
@@ -714,7 +709,6 @@ export class OmdHomeView extends ItemView {
       },
     });
     setIcon(button, "pin");
-    button.createSpan({ text: label });
     button.addEventListener("click", () => void this.plugin.toggleNotePinned(file.path));
     return button;
   }
@@ -938,13 +932,31 @@ export class OmdHomeView extends ItemView {
     }
     item.createDiv({ cls: "omd-attention-detail", text: this.plugin.lastError });
     const failure = this.plugin.captureFailureForCurrentIssue();
+    const canOpenSourceNote = this.plugin.lastErrorContext === "inbox" || this.plugin.lastErrorContext === "ai";
+    const sourceFile = canOpenSourceNote && this.plugin.lastErrorSource
+      ? this.app.vault.getAbstractFileByPath(this.plugin.lastErrorSource)
+      : null;
+    const sourcePath = sourceFile instanceof TFile ? sourceFile.path : "";
+    const canCheckLocalAi = this.plugin.lastErrorContext === "ai";
+    if (!failure && !sourcePath && !canCheckLocalAi) return;
+
+    const controls = item.createDiv({ cls: "omd-process-actions" });
     if (failure) {
-      const retry = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
+      const retry = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
       retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
     }
-    if (this.plugin.lastErrorContext === "inbox" && this.plugin.lastErrorSource) {
-      const open = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Open note" });
-      open.addEventListener("click", () => void this.app.workspace.openLinkText(this.plugin.lastErrorSource, "", false));
+    if (sourcePath) {
+      const open = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Open note" });
+      open.addEventListener("click", () => void this.app.workspace.openLinkText(sourcePath, "", false));
+    }
+    if (canCheckLocalAi) {
+      const check = controls.createEl("button", {
+        cls: "omd-inline-action",
+        type: "button",
+        text: this.plugin.aiSetupBusy() ? "Checking…" : "Check local AI",
+      });
+      check.disabled = this.plugin.aiSetupBusy();
+      check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
     }
   }
 

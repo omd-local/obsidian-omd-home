@@ -164,8 +164,17 @@ export class Omnibox {
     this.schedulePreview();
   }
 
-  private quickAction(container: HTMLElement, iconName: string, label: string, action: () => void): void {
-    const button = container.createEl("button", { cls: "omd-quick-action", type: "button" });
+  private quickAction(
+    container: HTMLElement,
+    iconName: string,
+    label: string,
+    action: () => void,
+    primary = false,
+  ): void {
+    const button = container.createEl("button", {
+      cls: `omd-quick-action${primary ? " mod-cta" : ""}`,
+      type: "button",
+    });
     const icon = button.createSpan();
     setIcon(icon, iconName);
     button.createSpan({ text: label });
@@ -180,7 +189,7 @@ export class Omnibox {
     if (this.actionBar.childElementCount && signature === this.quickActionSignature) return;
     this.quickActionSignature = signature;
     this.actionBar.empty();
-    this.quickAction(this.actionBar, "link", "Capture URL or file", () => this.plugin.openCaptureModal());
+    this.quickAction(this.actionBar, "link", "Capture URL or file", () => this.plugin.openCaptureModal(), true);
     this.quickAction(this.actionBar, "calendar-plus", "New event", () => void this.plugin.createCalendarEvent());
     this.quickAction(this.actionBar, "terminal-square", "Commands", () => this.usePrefix(">"));
     this.quickAction(this.actionBar, "sparkles", "Ask vault", () => this.usePrefix("@"));

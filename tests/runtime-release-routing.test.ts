@@ -123,12 +123,14 @@ test("omnibox offers working start and stop controls for the native recorder wit
     { id: "audio-recorder:stop", name: "停止录音" },
   ];
   const clicks: string[] = [];
-  const actions: { label: string; run: () => void }[] = [];
+  const actions: { label: string; run: () => void; primary: boolean }[] = [];
   const box = loadMethods("src/omnibox.ts", ["renderQuickActions"], { recordingQuickActions, isPluginRecordingWrapperCommand });
   Object.assign(box, {
     commands: { listCommands: () => commands },
     actionBar: { empty() { actions.length = 0; } },
-    quickAction(_container: unknown, _icon: string, label: string, run: () => void) { actions.push({ label, run }); },
+    quickAction(_container: unknown, _icon: string, label: string, run: () => void, primary = false) {
+      actions.push({ label, run, primary });
+    },
     plugin: {
       manifest: { id: "omd-home" },
       startRecording: () => clicks.push("start"),
@@ -141,6 +143,7 @@ test("omnibox offers working start and stop controls for the native recorder wit
   actions.find((action) => action.label === "Stop recording")?.run();
   assert.deepEqual(clicks, ["start", "stop"]);
   assert.equal(actions.some((action) => action.label === "Recording"), false);
+  assert.deepEqual(actions.filter((action) => action.primary).map((action) => action.label), ["Capture URL or file"]);
 });
 
 test("search displays pending work and keeps an actionable failure in its result panel", async () => {

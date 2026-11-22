@@ -116,7 +116,20 @@ test("Current task and Needs attention do not render the same terminal capture e
   assert.match(homeSource, /if \(context === "inbox"\) return "Inbox update failed";/);
   assert.match(homeSource, /const failure = this\.plugin\.captureFailureForCurrentIssue\(\)/u);
   assert.match(homeSource, /retryFailedCapture\(failure\.id\)/u);
-  assert.match(homeSource, /if \(this\.plugin\.lastErrorContext === "inbox" && this\.plugin\.lastErrorSource\)/);
+  assert.match(homeSource, /this\.app\.vault\.getAbstractFileByPath\(this\.plugin\.lastErrorSource\)/u);
+  assert.match(homeSource, /sourceFile instanceof TFile/u);
+  assert.match(homeSource, /text: "Open note"/u);
+  assert.match(homeSource, /text: this\.plugin\.aiSetupBusy\(\) \? "Checking…" : "Check local AI"/u);
+});
+
+test("Home introduces the workflow once and reserves the primary treatment for Capture", () => {
+  const shell = extractMethodBody(homeSource, "private buildShell()");
+  assert.match(shell, /Capture links and files, review notes, and keep events in sync\./u);
+  assert.match(shell, /text: "Customize"/u);
+  assert.match(shell, /"aria-label": "Customize OMD Home widgets"/u);
+  assert.doesNotMatch(shell, /text: "Capture URL or file"|text: "Create event"/u);
+  assert.match(omniboxSource, /"Capture URL or file", \(\) => this\.plugin\.openCaptureModal\(\), true/u);
+  assert.match(omniboxSource, /cls: `omd-quick-action\$\{primary \? " mod-cta" : ""\}`/u);
 });
 
 test("Home exposes unchecked Local AI recovery without duplicating owned AI failures", () => {
@@ -176,9 +189,25 @@ test("Home note surfaces and vault search results expose the shared pin action",
   assert.match(omniboxSource, /action: \(\) => void this\.app\.workspace\.openLinkText\(file\.path,[\s\S]{0,100}file,/u);
   assert.match(extractMethodBody(omniboxSource, "private showRows("), /if \(row\.file\) this\.createPinButton\(parent, row\.file\)/u);
   assert.match(mainSource, /onClick\(\(\) => void this\.toggleNotePinned\(file\.path\)\)/u);
+  const pinButton = extractMethodBody(homeSource, "private createPinButton(");
+  assert.match(pinButton, /"aria-label": `\$\{label\} \$\{file\.basename\}/u);
+  assert.match(pinButton, /"aria-pressed": String\(pinned\)/u);
+  assert.doesNotMatch(pinButton, /createSpan\(\{ text: label \}\)/u);
   assert.match(stylesSource, /\.omd-note-list-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/su);
   assert.match(stylesSource, /\.omd-pin-action\s*\{[^}]*border-left:\s*1px solid var\(--omd-line\)/su);
   assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
+});
+
+test("file-menu actions stay grouped without changing their command paths", () => {
+  const fileMenu = mainSource.slice(
+    mainSource.indexOf('this.registerEvent(this.app.workspace.on("file-menu"'),
+    mainSource.indexOf("this.app.workspace.onLayoutReady", mainSource.indexOf('this.registerEvent(this.app.workspace.on("file-menu"')),
+  );
+  assert.equal(fileMenu.match(/\.setSection\("omd-home"\)/gu)?.length, 4);
+  assert.match(fileMenu, /setTitle\(pinned \? "Unpin from OMD Home" : "Pin to OMD Home"\)/u);
+  assert.match(fileMenu, /setTitle\("Review in OMD Home"\)/u);
+  assert.match(fileMenu, /setTitle\("Improve formatting"\)/u);
+  assert.match(fileMenu, /setTitle\("Generate suggestions · summary, links, tags"\)/u);
 });
 
 test("event source meaning opens from a normal calendar widget menu action without a permanent legend", () => {
