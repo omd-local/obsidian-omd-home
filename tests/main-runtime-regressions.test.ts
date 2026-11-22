@@ -158,6 +158,7 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     hostedCredentialMutation: null,
     cloudAnswerConsentGeneration: 0,
     cloudAnswerConsentModals: new Set(),
+    captureModals: new Set(),
     localAiState: { activeAction: "" },
     hostedAiState: null,
     enrichmentCapability: {
@@ -5171,6 +5172,7 @@ test("unload closes cloud consent and blocks even an approval queued just before
   const decision = deferred<boolean>();
   const opened = deferred<void>();
   let closed = 0;
+  let captureClosed = 0;
   let formattingClosed = 0;
   let calendarClosed = 0;
   let calendarCleanup = 0;
@@ -5185,6 +5187,7 @@ test("unload closes cloud consent and blocks even an approval queued just before
   });
   Object.assign(plugin, {
     cloudAnswerConsentModals: new Set(),
+    captureModals: new Set([{ close() { captureClosed += 1; } }]),
     markdownFormattingModals: new Set([{ close() { formattingClosed += 1; } }]),
     calendarModals: new Set(),
     calendarRefreshTimer: null,
@@ -5226,14 +5229,50 @@ test("unload closes cloud consent and blocks even an approval queued just before
   plugin.onunload();
   await answer;
   assert.equal(closed, 1);
+  assert.equal(captureClosed, 1);
   assert.equal(formattingClosed, 1);
   assert.equal(calendarClosed, 1);
   assert.equal(calendarCleanup, 2);
   assert.equal(calendarGuards.get(unloadClosed)?.(), false, "tracked actions remain blocked after unload");
   assert.equal(plugin.calendarModals.size, 0);
+  assert.equal(plugin.captureModals.size, 0);
   assert.equal(plugin.markdownFormattingModals.size, 0);
   assert.equal(plugin.cloudAnswerConsentModals.size, 0);
   assert.deepEqual(plugin.issues, []);
+});
+
+test("capture modal ownership survives a retry reopen and blocks stale reopen after unload", () => {
+  const plugin = mainHarness(["trackCaptureModal"]);
+  Object.assign(plugin, { captureModals: new Set(), unloaded: false });
+  let opened = 0;
+  let closed = 0;
+  let cleaned = 0;
+  const modal = {
+    open() { opened += 1; },
+    close() { closed += 1; this.onClose(); },
+    onClose() { cleaned += 1; },
+  };
+
+  const tracked = plugin.trackCaptureModal(modal);
+  assert.equal(tracked, modal);
+  assert.equal(plugin.captureModals.size, 1);
+
+  tracked.open();
+  assert.equal(opened, 1);
+  modal.close();
+  assert.equal(closed, 1);
+  assert.equal(cleaned, 1);
+  assert.equal(plugin.captureModals.size, 0);
+
+  modal.open();
+  assert.equal(opened, 2, "the same modal can reopen after a recoverable capture error");
+  assert.equal(plugin.captureModals.size, 1);
+
+  plugin.unloaded = true;
+  modal.close();
+  modal.open();
+  assert.equal(opened, 2, "an async completion cannot reopen a modal after plugin unload");
+  assert.equal(plugin.captureModals.size, 0);
 });
 
 test("unload aborts a pending cloud preview before consent or evidence send", async () => {

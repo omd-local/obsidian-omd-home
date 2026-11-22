@@ -141,6 +141,7 @@ test("retry survives unrelated issue replacement and only clears the issue owned
 
 test("modal and omnibox build requests from vault defaults while capture choices have one clear owner", () => {
   const openModalBody = extractMethodBody(mainSource, "openCaptureModal(initialSource:");
+  assert.match(openModalBody, /this\.trackCaptureModal\(\s*new CaptureModal\(/u);
   assert.match(mainSource, /captureRequestFromSettings\(initialSource, this\.settings\)/u);
   assert.match(omniboxSource, /captureRequestFromSettings\(query, this\.plugin\.settings\)/u);
   assert.match(modalSource, /this\.modalEl\.addClass\("omd-capture-modal"\)/u);

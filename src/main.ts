@@ -261,6 +261,7 @@ export default class OmdHomePlugin extends Plugin {
   private hostedCredentialHydration: Promise<void> | null = null;
   private hostedCredentialHydrationProvider: HostedAiProvider | null = null;
   private hostedCredentialHydrationActionToken: number | null = null;
+  private readonly captureModals = new Set<CaptureModal>();
   private readonly cloudAnswerConsentModals = new Set<CloudAnswerConsentModal>();
   private readonly markdownFormattingModals = new Set<MarkdownFormattingModal>();
   private readonly transcriptRepairModals = new Set<TranscriptRepairModal>();
@@ -452,6 +453,8 @@ export default class OmdHomePlugin extends Plugin {
     this.omdCapabilityGeneration += 1;
     this.invalidateCloudAnswerConsent();
     this.cancelHostedAiAction();
+    for (const modal of [...this.captureModals]) modal.close();
+    this.captureModals.clear();
     for (const modal of this.markdownFormattingModals) modal.close();
     this.markdownFormattingModals.clear();
     for (const modal of [...(this.transcriptRepairModals ?? [])]) modal.close();
@@ -517,6 +520,23 @@ export default class OmdHomePlugin extends Plugin {
     };
     setCalendarModalActionGuard(modal, () => !this.unloaded && ownerIsActive());
     this.calendarModals.add(modal);
+    return modal;
+  }
+
+  private trackCaptureModal(modal: CaptureModal): CaptureModal | null {
+    if (this.unloaded) return null;
+    const originalOpen = modal.open.bind(modal);
+    const originalOnClose = modal.onClose.bind(modal);
+    modal.open = (): void => {
+      if (this.unloaded) return;
+      this.captureModals.add(modal);
+      originalOpen();
+    };
+    modal.onClose = (): void => {
+      this.captureModals.delete(modal);
+      originalOnClose();
+    };
+    this.captureModals.add(modal);
     return modal;
   }
 
@@ -1096,7 +1116,7 @@ export default class OmdHomePlugin extends Plugin {
     const initialRequest = typeof initialSource === "string"
       ? captureRequestFromSettings(initialSource, this.settings)
       : createCaptureRequest(initialSource);
-    new CaptureModal(
+    this.trackCaptureModal(new CaptureModal(
       this.app,
       initialRequest,
       {
@@ -1139,7 +1159,7 @@ export default class OmdHomePlugin extends Plugin {
           }
         }
       },
-    ).open();
+    ))?.open();
   }
 
   currentCaptureFailure(): CaptureFailureRecord | null {
