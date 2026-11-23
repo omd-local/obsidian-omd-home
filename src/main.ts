@@ -100,9 +100,9 @@ import {
   FORMATTING_TRANSCRIPT_QUALITY_MESSAGE,
   FORMATTING_UNSAFE_OUTPUT_MESSAGE,
   markdownFormattingBlockedReason,
-  markdownFormattingMode,
-  markdownBodyForFormatting,
-  preserveMarkdownFrontmatter,
+  markdownFormattingScopeDescription,
+  markdownFormattingTarget,
+  mergeMarkdownFormattingTarget,
 } from "./markdown-formatting.ts";
 import { omdCapabilityIdentityLabel, OmdCapabilityService } from "./enrichment/capability";
 import type { OmdCapabilities } from "./enrichment/contract.ts";
@@ -1972,12 +1972,11 @@ export default class OmdHomePlugin extends Plugin {
       return;
     }
     const transcriptRepairIssue = await this.inspectTranscriptRepairForFile(file, baseline);
-    if (transcriptRepairIssue) {
-      this.openTranscriptRepairModal(file, baseline, transcriptRepairIssue);
-      return;
-    }
-    const formattingMode = markdownFormattingMode(baseline);
-    const blockedReason = markdownFormattingBlockedReason(baseline);
+    const formattingTarget = markdownFormattingTarget(baseline);
+    const formattingMode = formattingTarget.mode;
+    const blockedReason = transcriptRepairIssue
+      ? FORMATTING_TRANSCRIPT_QUALITY_MESSAGE
+      : markdownFormattingBlockedReason(baseline);
 
     const controller = new AbortController();
     this.captureActive = true;
@@ -1994,14 +1993,22 @@ export default class OmdHomePlugin extends Plugin {
     this.refreshHomeViews();
 
     let modal: MarkdownFormattingModal;
-    modal = new MarkdownFormattingModal(this.app, file.basename, formattingMode, () => {
+    modal = new MarkdownFormattingModal(
+      this.app,
+      file.basename,
+      formattingMode,
+      markdownFormattingScopeDescription(formattingTarget.scope),
+      () => {
       if (this.captureController !== controller || !this.captureCancelable) return;
       controller.abort();
       this.captureCancelable = false;
       this.refreshHomeViews();
-    }, () => {
-      this.markdownFormattingModals.delete(modal);
-    }, () => this.openLocalWritingSettings());
+      },
+      () => {
+        this.markdownFormattingModals.delete(modal);
+      },
+      () => this.openLocalWritingSettings(),
+    );
     const generateAgain = () => {
       modal.close();
       if (this.unloaded) return;
@@ -2019,13 +2026,12 @@ export default class OmdHomePlugin extends Plugin {
       const executable = await this.requireReadyOmdExecutable();
       controller.signal.throwIfAborted();
       const snapshot = createWorkflowSnapshot("capture", this.settings, true);
-      const body = markdownBodyForFormatting(baseline);
       const formatted = await this.runLocalAiGated(
         snapshot,
         () => createWorkflowSnapshot("capture", this.settings, true),
         async (gatedSnapshot, signal) => await this.omdBridge.previewMarkdownFormatting(
           executable,
-          body,
+          formattingTarget.source,
           gatedSnapshot.model,
           gatedSnapshot.host,
           signal,
@@ -2034,7 +2040,7 @@ export default class OmdHomePlugin extends Plugin {
         controller.signal,
       );
       controller.signal.throwIfAborted();
-      preview = preserveMarkdownFrontmatter(baseline, formatted);
+      preview = mergeMarkdownFormattingTarget(baseline, formattingTarget, formatted);
       if (preview === baseline) {
         modal.showNoChanges(FORMATTING_NO_CHANGES_MESSAGE);
         this.processingEvents.push({
@@ -2047,7 +2053,7 @@ export default class OmdHomePlugin extends Plugin {
         return;
       }
       previewReady = true;
-      modal.showPreview(preview);
+      modal.showPreview(formatted);
       this.processingEvents.push({
         v: 1,
         event: "done",
@@ -2067,12 +2073,22 @@ export default class OmdHomePlugin extends Plugin {
       });
       if (!cancelled) {
         const detail = noteFormattingFailureMessage(error);
-        modal.showFailure(
-          detail,
-          detail === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE ? undefined : generateAgain,
-          detail === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
-        );
-        this.reportLocalAiWorkflowIssue(error instanceof LocalAiError ? error : new Error(detail), file.path);
+        if (detail === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE && transcriptRepairIssue) {
+          modal.showTranscriptReviewRequired(detail, () => {
+            modal.close();
+            if (this.unloaded) return;
+            this.openTranscriptRepairModal(file, baseline, transcriptRepairIssue);
+          });
+        } else {
+          modal.showFailure(
+            detail,
+            detail === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE ? undefined : generateAgain,
+            detail === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
+          );
+        }
+        if (detail !== FORMATTING_TRANSCRIPT_QUALITY_MESSAGE) {
+          this.reportLocalAiWorkflowIssue(error instanceof LocalAiError ? error : new Error(detail), file.path);
+        }
       }
       return;
     } finally {

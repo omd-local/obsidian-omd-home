@@ -10,6 +10,9 @@ import {
   markdownFormattingBlockedReason,
   markdownFormattingMode,
   markdownBodyForFormatting,
+  markdownFormattingScopeDescription,
+  markdownFormattingTarget,
+  mergeMarkdownFormattingTarget,
   preserveMarkdownFrontmatter,
 } from "../src/markdown-formatting.ts";
 
@@ -17,6 +20,7 @@ const bridgeSource = readFileSync(resolve("src/omd-bridge.ts"), "utf8");
 
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
 const modalSource = readFileSync(resolve("src/markdown-formatting-modal.ts"), "utf8");
+const formattingSource = readFileSync(resolve("src/markdown-formatting.ts"), "utf8");
 const settingsSource = readFileSync(resolve("src/settings.ts"), "utf8");
 const styleSource = readFileSync(resolve("src/styles.css"), "utf8");
 
@@ -51,13 +55,175 @@ test("formatting sends only the note body to the local model", () => {
   assert.equal(markdownBodyForFormatting("# Ordinary\n\nraw\n"), "# Ordinary\n\nraw\n");
 });
 
+test("rich captures send only editable Body text and preserve media scaffolding byte-for-byte", () => {
+  const baseline = [
+    "---",
+    "omd_home_status: inbox",
+    "source: https://www.rednote.com/item/826",
+    "---",
+    "# Bouldering for beginners",
+    "",
+    "> [Source](https://www.rednote.com/item/826)",
+    "",
+    "## Full Content",
+    "",
+    "Bouldering for beginners",
+    "",
+    "## Metadata",
+    "",
+    "- **Note ID**: 826",
+    "",
+    "## Body",
+    "",
+    "Muscles take 4 weeks. Tendons take up to 2 years.",
+    "",
+    "## Images",
+    "",
+    "![image 1](image_01.jpg)",
+    "",
+    "**OCR text:**",
+    "",
+    "```text",
+    "## Body",
+    "- **Transcript status**: Needs review",
+    "```",
+    "",
+  ].join("\n");
+  const target = markdownFormattingTarget(baseline);
+  assert.equal(target.scope, "body-section");
+  assert.equal(target.mode, "layout-only");
+  assert.equal(target.source, "## Body\n\nMuscles take 4 weeks. Tendons take up to 2 years.\n\n");
+  assert.doesNotMatch(target.source, /Metadata|image_01|OCR text|rednote/u);
+
+  const formatted = "## Body\n\nMuscles take 4 weeks.\n\nTendons take up to 2 years.\n\n";
+  const merged = mergeMarkdownFormattingTarget(baseline, target, formatted);
+  assert.equal(merged, baseline.replace(target.source, formatted));
+  assert.match(merged, /!\[image 1\]\(image_01\.jpg\)[\s\S]*```text\n## Body\n- \*\*Transcript status\*\*: Needs review\n```/u);
+  assert.equal(markdownFormattingBlockedReason(baseline), null, "fenced OCR examples are not live transcript warnings");
+});
+
+test("fenced capture examples cannot replace the real Body target", () => {
+  const baseline = [
+    "# Capture",
+    "",
+    "## Images",
+    "",
+    "~~~text",
+    "## Body",
+    "fenced decoy",
+    "~~~",
+    "",
+    "## Body",
+    "",
+    "Real editable prose.",
+    "",
+    "## Images continued",
+    "",
+    "![kept](kept.png)",
+    "",
+  ].join("\r\n");
+  const target = markdownFormattingTarget(baseline);
+  assert.equal(target.scope, "body-section");
+  assert.equal(target.source, "## Body\r\n\r\nReal editable prose.\r\n\r\n");
+
+  const formatted = "## Body\r\n\r\nReal editable prose.\r\n\r\n";
+  assert.equal(mergeMarkdownFormattingTarget(baseline, target, formatted), baseline);
+});
+
+test("fenced astral text preserves UTF-16 offsets for the real Body target", () => {
+  const baseline = [
+    "# Capture",
+    "",
+    "```text",
+    "🧗🏽‍♀️ ## Body decoy",
+    "```",
+    "",
+    "## Body",
+    "",
+    "Real editable prose after emoji.",
+    "",
+    "## Images",
+    "",
+    "![kept](kept.png)",
+    "",
+  ].join("\n");
+  const target = markdownFormattingTarget(baseline);
+  assert.equal(target.source, "## Body\n\nReal editable prose after emoji.\n\n");
+  assert.equal(
+    mergeMarkdownFormattingTarget(baseline, target, "## Body\n\nReal editable prose after emoji.\n\n"),
+    baseline,
+  );
+});
+
+test("inline backtick code does not hide a following transcript warning", () => {
+  const baseline = [
+    "# Capture",
+    "",
+    "```example```",
+    "",
+    "## Transcript quality warning",
+    "",
+    "- **Transcript warning**:\tincomplete",
+    "",
+    "## Transcript",
+    "",
+    "Partial text.",
+  ].join("\n");
+  assert.equal(markdownFormattingBlockedReason(baseline), FORMATTING_TRANSCRIPT_QUALITY_MESSAGE);
+});
+
+test("tilde fence info may contain tildes without exposing fenced markers", () => {
+  const baseline = [
+    "# Capture",
+    "",
+    "~~~text~format",
+    "## Transcript quality warning",
+    "- **Transcript status**: Needs review",
+    "## Body",
+    "fenced decoy",
+    "~~~",
+    "",
+    "## Body",
+    "",
+    "Real editable prose.",
+    "",
+    "## Images",
+    "",
+  ].join("\n");
+  assert.equal(markdownFormattingBlockedReason(baseline), null);
+  assert.equal(markdownFormattingTarget(baseline).source, "## Body\n\nReal editable prose.\n\n");
+});
+
+test("Body targets stop before H1 and indented H2 section boundaries", () => {
+  const beforeH1 = "# Capture\n\n## Body\n\nEditable.\n\n# Appendix\n\nProtected.\n";
+  assert.equal(markdownFormattingTarget(beforeH1).source, "## Body\n\nEditable.\n\n");
+
+  const beforeIndentedH2 = "# Capture\n\n ## Body\n\nEditable.\n\n   ## Images\n\n![kept](kept.png)\n";
+  assert.equal(markdownFormattingTarget(beforeIndentedH2).source, " ## Body\n\nEditable.\n\n");
+});
+
+test("transcript cleanup targets only the live Transcript section", () => {
+  const baseline = "---\nstatus: inbox\n---\n# Audio\n\n## Metadata\n\n- **Duration**: 42\n\n## Transcript\n\nraw words\n\n### Detail\n\nkept with transcript\n\n## Images\n\n![wave](wave.png)\n";
+  const target = markdownFormattingTarget(baseline);
+  assert.equal(target.scope, "transcript-section");
+  assert.equal(target.mode, "transcript-cleanup");
+  assert.equal(target.source, "## Transcript\n\nraw words\n\n### Detail\n\nkept with transcript\n\n");
+  const merged = mergeMarkdownFormattingTarget(
+    baseline,
+    target,
+    "## Transcript\n\nRaw words.\n\n### Detail\n\nkept with transcript\n\n",
+  );
+  assert.ok(merged.endsWith("- **Duration**: 42\n\n## Transcript\n\nRaw words.\n\n### Detail\n\nkept with transcript\n\n## Images\n\n![wave](wave.png)\n"));
+  assert.match(markdownFormattingScopeDescription(target.scope), /Transcript section[\s\S]*images[\s\S]*timestamps/u);
+});
+
 test("an ASR transcript selects punctuation-aware cleanup without changing ordinary notes", () => {
   const transcript = `# Capture\n\n## Transcript\n\n${"中文转录没有标点也没有空格".repeat(30)}\n\n### Timestamped\n\n00:00 中文转录\n`;
   assert.equal(markdownFormattingMode(transcript), "transcript-cleanup");
   assert.equal(markdownFormattingMode("# Ordinary note\n\nA compact paragraph.\n"), "layout-only");
   assert.match(bridgeSource, /mode === "transcript-cleanup"[\s\S]*--polish-md-transcript-cleanup/u);
   assert.match(modalSource, /Clean transcript/u);
-  assert.match(modalSource, /punctuation and paragraph breaks/u);
+  assert.match(formattingSource, /punctuation and paragraph breaks/u);
 });
 
 test("a transcript quality warning blocks formatting before the local model runs", () => {
@@ -73,6 +239,18 @@ test("a transcript quality warning blocks formatting before the local model runs
     "repeated repeated repeated",
   ].join("\n");
   assert.equal(markdownFormattingBlockedReason(unreliable), FORMATTING_TRANSCRIPT_QUALITY_MESSAGE);
+  assert.equal(
+    markdownFormattingBlockedReason("# Capture\n\n## Metadata\n\n- **Transcript warning**: incomplete\n\n## Transcript\n\nPartial"),
+    FORMATTING_TRANSCRIPT_QUALITY_MESSAGE,
+  );
+  assert.equal(
+    markdownFormattingBlockedReason("# Capture\n\n## Metadata\n\n- **Transcript status**: Needs review\n\n## Transcript\n\nPartial"),
+    FORMATTING_TRANSCRIPT_QUALITY_MESSAGE,
+  );
+  assert.equal(
+    markdownFormattingBlockedReason("# Capture\n\n## Metadata\n\n- **Transcript status** \t:\t Needs review\n\n## Transcript\n\nPartial"),
+    FORMATTING_TRANSCRIPT_QUALITY_MESSAGE,
+  );
   assert.equal(
     markdownFormattingBlockedReason("# Capture\n\n## Transcript\n\nA verified transcript.\n"),
     null,
@@ -177,7 +355,10 @@ test("formatting UI is review-first, cancellable, and announces generation", () 
   assert.match(modalSource, /this\.applyButton\.setDisabled\(false\)/u);
   assert.doesNotMatch(modalSource, /this\.applyButton\.disabled\s*=\s*false/u);
   assert.match(mainSource, /decision = modal\.openAndWait\(\)[\s\S]*previewMarkdownFormatting/u);
-  assert.match(mainSource, /const body = markdownBodyForFormatting\(baseline\)[\s\S]*previewMarkdownFormatting\([\s\S]*executable,[\s\S]*body,/u);
+  assert.match(mainSource, /const formattingTarget = markdownFormattingTarget\(baseline\)[\s\S]*previewMarkdownFormatting\([\s\S]*executable,[\s\S]*formattingTarget\.source,/u);
+  assert.match(mainSource, /mergeMarkdownFormattingTarget\(baseline, formattingTarget, formatted\)/u);
+  assert.match(mainSource, /modal\.showPreview\(formatted\)/u, "the preview stays focused on the selected text");
+  assert.doesNotMatch(mainSource, /modal\.showPreview\(preview\)/u, "rich media outside the target must not clutter the preview");
   assert.match(mainSource, /applyMarkdownFormattingPreview\(this\.app\.vault, file, baseline, preview\)/u);
   assert.match(mainSource, /this\.captureActive = true[\s\S]*this\.captureController = controller/u);
   assert.match(mainSource, /event: cancelled \? "cancelled" : "error"/u);
@@ -200,7 +381,11 @@ test("formatting UI is review-first, cancellable, and announces generation", () 
     formattingMethod.indexOf("} finally {"),
   );
   assert.match(failureBranch, /modal\.finishGeneration\(\);[\s\S]*modal\.showFailure\(\s*detail/u);
-  assert.doesNotMatch(failureBranch, /modal\.close\(\);/u, "a failure must remain readable in the modal");
+  assert.doesNotMatch(
+    failureBranch,
+    /if \(!cancelled\) \{\s*modal\.close\(\);/u,
+    "a failure must remain readable until the user chooses an action",
+  );
   assert.doesNotMatch(failureBranch, /new Notice\(detail\)/u, "a persistent modal replaces the short error Notice");
   const applyBranch = formattingMethod.slice(formattingMethod.indexOf("applyMarkdownFormattingPreview"));
   assert.doesNotMatch(applyBranch, /clearIssue\("ai"\)/u, "an old preview must not clear a newer AI failure");
@@ -216,9 +401,16 @@ test("formatting terminal states stay readable until the user closes them", () =
     mainSource.indexOf("async improveNoteFormatting("),
     mainSource.indexOf("async reviewNote("),
   );
+  assert.doesNotMatch(
+    formattingMethod,
+    /if \(transcriptRepairIssue\) \{[\s\S]{0,180}openTranscriptRepairModal/u,
+    "Improve formatting must not silently switch tools",
+  );
+  assert.match(formattingMethod, /modal\.showTranscriptReviewRequired\([\s\S]*this\.openTranscriptRepairModal/u);
+  assert.match(modalSource, /showTranscriptReviewRequired[\s\S]*setButtonText\("Review transcript"\)/u);
   assert.match(
     formattingMethod,
-    /const blockedReason = markdownFormattingBlockedReason\(baseline\)[\s\S]*if \(blockedReason\) throw new Error\(blockedReason\)/u,
+    /const blockedReason = transcriptRepairIssue[\s\S]*markdownFormattingBlockedReason\(baseline\)[\s\S]*if \(blockedReason\) throw new Error\(blockedReason\)/u,
   );
   assert.match(formattingMethod, /preview === baseline[\s\S]*modal\.showNoChanges\(FORMATTING_NO_CHANGES_MESSAGE\)/u);
   assert.doesNotMatch(

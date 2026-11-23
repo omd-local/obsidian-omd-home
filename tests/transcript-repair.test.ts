@@ -341,6 +341,47 @@ test("verified transcripts do not expose repair controls", () => {
   );
 });
 
+test("warning-like text inside fenced OCR does not expose transcript repair", () => {
+  const markdown = [
+    "# Verified capture",
+    "",
+    "## Metadata",
+    "",
+    "- **Transcript status**: Repaired after review",
+    "",
+    "## Transcript",
+    "",
+    "Verified text.",
+    "",
+    "## Images",
+    "",
+    "```text",
+    "## Transcript quality warning",
+    "- **Transcript warning**: Needs review",
+    "- **Transcript status**: Needs review",
+    "```",
+  ].join("\n");
+  assert.equal(inspectTranscriptRepair(markdown, { requested: "auto", detected: "en" }), null);
+});
+
+test("spacing around transcript warning metadata keeps formatting and repair in sync", () => {
+  const markdown = [
+    "# Capture",
+    "",
+    "## Metadata",
+    "",
+    "- **Transcript warning** \t:\t Review this range",
+    "- **Transcript status**  :\tNeeds review",
+    "",
+    "## Transcript",
+    "",
+    "Partial text.",
+  ].join("\n");
+  const issue = inspectTranscriptRepair(markdown, { requested: "auto", detected: "en" });
+  assert.equal(issue?.kind, "quality-warning");
+  assert.deepEqual(issue?.warnings, ["Review this range"]);
+});
+
 test("standalone note views expose AI tools and conditionally add transcript repair", () => {
   const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
   const modalSource = readFileSync(resolve("src/transcript-repair-modal.ts"), "utf8");

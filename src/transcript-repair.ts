@@ -1,3 +1,10 @@
+import {
+  inspectTranscriptReviewMarkers,
+  isTranscriptQualityWarningHeading,
+  isTranscriptStatusLine,
+  transcriptWarningLineValue,
+} from "./markdown-structure.ts";
+
 export interface TranscriptRecognitionContext {
   readonly requested?: string | null;
   readonly detected?: string | null;
@@ -49,8 +56,6 @@ export interface ReplacementTranscriptSegment {
   readonly text: string;
 }
 
-const TRANSCRIPT_WARNING_HEADING = /^## Transcript quality warning[ \t]*$/mu;
-const TRANSCRIPT_WARNING_LINE = /^- \*\*Transcript warning\*\*: (.+)$/gmu;
 const RESOLVED_BY_TAIL_REPAIR = /(?:unstable repeated-text segments|unusually repeated phrases|extends well beyond the source duration)/iu;
 
 /**
@@ -62,11 +67,9 @@ export function inspectTranscriptRepair(
   markdown: string,
   recognition: TranscriptRecognitionContext = {},
 ): TranscriptRepairIssue | null {
-  const warnings = [...markdown.matchAll(TRANSCRIPT_WARNING_LINE)]
-    .map((match) => (match[1] ?? "").trim())
-    .filter(Boolean);
-  const needsReview = /^- \*\*Transcript status\*\*: Needs review[ \t]*$/imu.test(markdown);
-  if (!TRANSCRIPT_WARNING_HEADING.test(markdown) && !warnings.length && !needsReview) return null;
+  const markers = inspectTranscriptReviewMarkers(markdown);
+  const warnings = [...markers.warnings];
+  if (!markers.hasHeading && !warnings.length && !markers.needsReview) return null;
   const sourceDurationSeconds = metadataNumber(markdown, "Duration");
   const segments = timestampedSegments(markdown);
   const transcriptEndSeconds = segments.reduce((maximum, segment) => Math.max(maximum, segment.end), 0) || null;
@@ -204,16 +207,16 @@ export function repairInvalidTranscriptTail(markdown: string, tail: InvalidTrans
   removeTranscriptTextSuffix(lines, tail.segmentTexts);
   const repairRecord = `- **Transcript repair**: Removed ${tail.segmentCount} invalid tail segments beyond the ${formatSeconds(tail.sourceDurationSeconds)}s source duration.`;
   const remainingWarnings = lines.filter((line) => {
-    const warning = /^- \*\*Transcript warning\*\*: (.+)$/u.exec(line)?.[1];
+    const warning = transcriptWarningLineValue(line);
     return warning && !RESOLVED_BY_TAIL_REPAIR.test(warning);
   });
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const warning = /^- \*\*Transcript warning\*\*: (.+)$/u.exec(lines[index] ?? "")?.[1];
+    const warning = transcriptWarningLineValue(lines[index] ?? "");
     if (warning && RESOLVED_BY_TAIL_REPAIR.test(warning)) lines.splice(index, 1);
   }
 
-  const statusIndex = lines.findIndex((line) => /^- \*\*Transcript status\*\*:/u.test(line));
+  const statusIndex = lines.findIndex(isTranscriptStatusLine);
   if (statusIndex >= 0) {
     lines[statusIndex] = remainingWarnings.length
       ? "- **Transcript status**: Needs review"
@@ -467,15 +470,15 @@ function recordRangeRepair(
   resolveIncompleteWarning: boolean,
 ): void {
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const warning = /^- \*\*Transcript warning\*\*: (.+)$/u.exec(lines[index] ?? "")?.[1] ?? "";
+    const warning = transcriptWarningLineValue(lines[index] ?? "") ?? "";
     if (resolveIncompleteWarning
       && /(?:much less time|may be incomplete|captured speech may be incomplete)/iu.test(warning)) {
       lines.splice(index, 1);
     }
   }
-  const remainingWarnings = lines.some((line) => /^- \*\*Transcript warning\*\*:/u.test(line));
+  const remainingWarnings = lines.some((line) => transcriptWarningLineValue(line) !== null);
   const repairRecord = `- **Transcript repair**: Re-transcribed ${formatTimestamp(range.startSeconds)}–${formatTimestamp(range.endSeconds)} locally and replaced only the reviewed range (${replacementSegments.length} segment${replacementSegments.length === 1 ? "" : "s"}).`;
-  const statusIndex = lines.findIndex((line) => /^- \*\*Transcript status\*\*:/u.test(line));
+  const statusIndex = lines.findIndex(isTranscriptStatusLine);
   if (statusIndex >= 0) {
     lines[statusIndex] = remainingWarnings
       ? "- **Transcript status**: Needs review"
@@ -490,9 +493,7 @@ function recordRangeRepair(
 
 function incompleteWarningIsResolved(lines: readonly string[]): boolean {
   const markdown = lines.join("\n");
-  const warnings = [...markdown.matchAll(TRANSCRIPT_WARNING_LINE)]
-    .map((match) => (match[1] ?? "").trim())
-    .filter(Boolean);
+  const warnings = [...inspectTranscriptReviewMarkers(markdown).warnings];
   if (!warnings.some((warning) => /(?:much less time|may be incomplete|captured speech may be incomplete)/iu.test(warning))) {
     return false;
   }
@@ -537,7 +538,7 @@ function removeTranscriptTextSuffix(lines: string[], segmentTexts: readonly stri
 }
 
 function removeQualityWarningSection(lines: string[]): void {
-  const start = lines.findIndex((line) => /^## Transcript quality warning[ \t]*$/u.test(line));
+  const start = lines.findIndex(isTranscriptQualityWarningHeading);
   if (start < 0) return;
   let end = start + 1;
   while (end < lines.length && !/^## [^#]/u.test(lines[end] ?? "")) end += 1;

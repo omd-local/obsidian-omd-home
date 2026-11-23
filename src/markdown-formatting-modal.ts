@@ -25,6 +25,7 @@ export class MarkdownFormattingModal extends Modal {
     app: App,
     private readonly noteName: string,
     private readonly mode: MarkdownFormattingMode,
+    private readonly scopeDescription: string,
     private readonly onCancelGeneration: () => void,
     private readonly onClosed: () => void,
     private readonly onOpenLocalWritingSettings: () => void,
@@ -41,9 +42,7 @@ export class MarkdownFormattingModal extends Modal {
     this.titleEl.setText(transcriptCleanup ? "Clean transcript" : "Improve formatting");
     this.introEl = this.contentEl.createEl("p", {
       cls: "omd-modal-intro",
-      text: transcriptCleanup
-        ? "Add punctuation and paragraph breaks while preserving every original word, number, URL, timestamp, and language."
-        : "Add paragraphs and Markdown structure while preserving the wording and language.",
+      text: this.scopeDescription,
     });
     this.statusEl = this.contentEl.createDiv({
       cls: "omd-formatting-status is-active",
@@ -107,7 +106,7 @@ export class MarkdownFormattingModal extends Modal {
   showPreview(markdown: string): void {
     this.finishGeneration();
     this.titleEl.setText("Review formatting");
-    this.introEl?.setText("Only Markdown structure and spacing may change. Your wording and protected source details stay intact.");
+    this.introEl?.setText("Review the suggested structure for the selected text. Metadata, images, links, and other protected source details stay unchanged.");
     if (this.statusEl) {
       this.statusEl.removeClass("is-active");
       this.statusEl.removeClass("is-conflict");
@@ -158,6 +157,7 @@ export class MarkdownFormattingModal extends Modal {
   ): void {
     this.finishGeneration();
     this.generateAgain = onGenerateAgain;
+    this.generateAgainButton?.setButtonText("Try again");
     this.titleEl.setText(phase === "apply" ? "Formatting couldn’t be applied" : "Formatting couldn’t be generated");
     this.introEl?.setText(phase === "apply" ? "Your note is unchanged." : "OMD kept the original note safe.");
     if (this.statusEl) {
@@ -183,6 +183,19 @@ export class MarkdownFormattingModal extends Modal {
       : offerLocalModelSettings
         ? this.localModelButton
         : this.closeButton)?.buttonEl.focus();
+  }
+
+  showTranscriptReviewRequired(message: string, onReviewTranscript: () => void): void {
+    this.showFailure(message);
+    this.titleEl.setText("Review transcript first");
+    this.introEl?.setText("Formatting has not started. Resolve the transcript warning, then return to improve formatting.");
+    this.generateAgain = onReviewTranscript;
+    if (this.generateAgainButton) {
+      this.generateAgainButton.setButtonText("Review transcript");
+      this.setButtonVisible(this.generateAgainButton, true);
+      this.generateAgainButton.setDisabled(false);
+      this.generateAgainButton.buttonEl.focus();
+    }
   }
 
   showNoChanges(message: string): void {
