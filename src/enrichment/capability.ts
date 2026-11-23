@@ -14,6 +14,7 @@ import type { SocialCaptureProvider } from "../omnibox-utils.ts";
 
 const CAPABILITY_TIMEOUT_MS = 5_000;
 const CAPABILITY_OUTPUT_LIMIT_BYTES = 16 * 1024;
+const REQUIRED_LOCAL_OLLAMA_TRANSPORT_VERSION = 1;
 
 export type EnrichmentProcessExecutor = (
   command: string,
@@ -86,6 +87,31 @@ export class OmdCapabilityService {
       throw new OmdEnrichmentError(
         "unsupported_capability",
         "The configured OMD build does not advertise capture language options.",
+      );
+    }
+    return capability;
+  }
+
+  async requireLocalOllamaTransport(executable: string, signal?: AbortSignal): Promise<OmdCapabilities> {
+    // This gate protects note content. Probe the executable that will receive
+    // the request instead of trusting a capability cached before an in-place
+    // OMD upgrade or downgrade at the same path.
+    const fingerprint = executable.trim();
+    if (!fingerprint) {
+      throw new OmdEnrichmentError("missing_executable", "Set the OMD executable path before using note enrichment.");
+    }
+    if (signal?.aborted) throw cancelledCapabilityError();
+    const capability = await this.probe(fingerprint, signal ?? new AbortController().signal);
+    if (!capability.enrich_note.supported) {
+      throw new OmdEnrichmentError("unsupported_capability", "The configured OMD build does not support note enrichment.");
+    }
+    if (!capability.enrich_note.schema_versions.includes(ENRICH_NOTE_SCHEMA_VERSION)) {
+      throw new OmdEnrichmentError("unsupported_schema", "The configured OMD build does not support enrich-note schema v1.");
+    }
+    if ((capability.local_ollama_transport?.version ?? 0) < REQUIRED_LOCAL_OLLAMA_TRANSPORT_VERSION) {
+      throw new OmdEnrichmentError(
+        "unsupported_capability",
+        "This OMD version cannot prove hardened local Ollama transport. Update OMD, run Check setup, then retry. No note content was sent.",
       );
     }
     return capability;

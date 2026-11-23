@@ -147,7 +147,7 @@ export class EnrichmentWorkflowController {
 
     try {
       const executable = await this.plugin.requireReadyOmdExecutable();
-      await this.plugin.omdCapabilityService.requireEnrichNote(executable, abortController.signal);
+      await this.plugin.omdCapabilityService.requireLocalOllamaTransport(executable, abortController.signal);
       if (!this.isCurrent(active)) return;
 
       const snapshot = createWorkflowSnapshot("enrichment", this.plugin.settings);

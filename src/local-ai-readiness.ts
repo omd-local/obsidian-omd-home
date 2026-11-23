@@ -6,6 +6,7 @@ import {
   type LocalAiCheckedModel,
   type LocalAiConnectionSummary,
   type LocalAiDisplayState,
+  type LocalAiEmbeddingProbe,
   type LocalAiModelEntry,
   type LocalAiModelInfo,
   type LocalAiProviderMode,
@@ -40,13 +41,132 @@ export function localModelNamesMatch(left: string, right: string): boolean {
 }
 
 export function normalizeLocalOllamaHost(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/u, "");
-  if (LOCAL_OLLAMA_HOSTS.includes(trimmed as (typeof LOCAL_OLLAMA_HOSTS)[number])) return trimmed;
+  const trimmed = input.trim();
+  // Check the original spelling because URL parsing normalizes alternate IP spellings,
+  // strips empty credentials, and omits explicit default ports.
+  const match = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):([0-9]+)$/u.exec(trimmed);
+  const port = Number(match?.[1]);
+  if (match && port >= 1 && port <= 65_535) {
+    const url = new URL(trimmed);
+    return `${url.protocol}//${url.hostname}:${port}`;
+  }
   throw new LocalAiError(
     "invalid_host",
-    "OMD Home local mode accepts only http://localhost:11434 or http://127.0.0.1:11434.",
-    "Use http://localhost:11434 or http://127.0.0.1:11434, then retry.",
+    "Use an HTTP loopback Ollama endpoint with localhost, 127.0.0.1, or [::1] and an explicit port from 1 to 65535.",
+    "Enter a base endpoint such as http://localhost:11434, without credentials, a path, a query, or a fragment.",
   );
+}
+
+export function embeddingModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
+  const model = value.trim();
+  const id = /^(?:[A-Za-z0-9][A-Za-z0-9_-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$/u;
+  if (model.length > 256 || !id.test(model) || modelIsCloudBacked({ name: model })) return null;
+  let host: string;
+  try {
+    host = normalizeLocalOllamaHost(endpoint);
+  } catch {
+    return null;
+  }
+  return windows
+    ? `cmd.exe /d /c "set OLLAMA_HOST=${host}&& ollama pull ${model}"`
+    : `OLLAMA_HOST='${host}' ollama pull ${model}`;
+}
+
+export interface EmbeddingSetupPresentation {
+  kind: "unchecked" | "daemon-unreachable" | "connection-failed"
+    | "no-local-models" | "model-not-selected" | "model-missing" | "model-incompatible"
+    | "model-cloud-backed" | "embedding-only" | "test-failed" | "ready" | "verified";
+  title: string;
+  detail: string;
+  action: "check-setup" | "open-ollama" | "start-ollama" | "install-model" | "copy-pull-command"
+    | "refresh-models" | "choose-model" | "test-embeddings";
+  needsTextModel: boolean;
+  installableModel: string | null;
+  pullCommand: string | null;
+}
+
+export function classifyEmbeddingSetup(input: {
+  model: string;
+  models?: readonly LocalAiModelEntry[];
+  host: string;
+  windows?: boolean;
+  connectionCode?: LocalAiReadinessCode;
+  probe?: LocalAiEmbeddingProbe | null;
+  localAnswer?: boolean;
+}): EmbeddingSetupPresentation {
+  const model = input.model.trim();
+  const probe = input.probe?.host === input.host && localModelNamesMatch(input.probe.model, model)
+    ? input.probe
+    : null;
+  const localModels = input.models?.filter((entry) => !modelIsCloudBacked(entry));
+  const needsTextModel = Boolean(input.localAnswer && (
+    input.connectionCode === "no_models_installed" || (localModels && !localModels.some(localWritingModelIsSelectable))
+  ));
+  const present = (
+    kind: EmbeddingSetupPresentation["kind"],
+    title: string,
+    detail: string,
+    action: EmbeddingSetupPresentation["action"],
+  ): EmbeddingSetupPresentation => ({ kind, title, detail, action, needsTextModel, installableModel: null, pullCommand: null });
+
+  switch (input.connectionCode) {
+    case "invalid_host":
+      return present("connection-failed", "Check the Ollama endpoint", "Enter an HTTP loopback endpoint with a port, then run Check setup.", "check-setup");
+    case "version_unavailable":
+    case "status_unavailable":
+    case "provider_catalog_unavailable":
+    case "provider_unreachable":
+      return present("connection-failed", "Ollama setup check failed", "Check that the configured endpoint serves the Ollama API, then run Check setup.", "check-setup");
+    case "daemon_unreachable":
+      return present("daemon-unreachable", "Ollama is not responding", "If Ollama is installed, open it or start its local service. Otherwise install it first. Then run Check setup.", "start-ollama");
+  }
+  if (!model) {
+    return present("model-not-selected", "Choose an embedding model", "Select a local embedding model for Vault retrieval, then run Test semantic search.", "choose-model");
+  }
+
+  const selected = input.models?.find((entry) => localModelNamesMatch(entry.name, model));
+  const selectedRevision = selected?.digest?.trim();
+  const verifiedProbe = probe?.code === "ready"
+    && Boolean(selectedRevision)
+    && probe.revision === selectedRevision;
+  if (probe?.code === "selected_model_remote_blocked" || modelIsCloudBacked(selected ?? { name: model })) {
+    return present("model-cloud-backed", "Cloud-backed model blocked", "Choose a local embedding model for Vault retrieval, then run Test semantic search.", "choose-model");
+  }
+  if (probe?.code === "selected_model_incompatible") {
+    return present("model-incompatible", "Embedding support unavailable", `${model} could not be used for embeddings. Choose an embedding-capable local model, then run Test semantic search.`, "choose-model");
+  }
+  if (probe?.code === "smoke_failed" || probe?.code === "model_unavailable") {
+    return present("test-failed", "Embedding check failed", `Ollama could not verify embeddings with ${model}. Run Test semantic search again after checking the model in Ollama.`, "test-embeddings");
+  }
+
+  const noLocalModels = input.connectionCode === "no_models_installed" || localModels?.length === 0;
+  const missing = probe?.code === "selected_model_missing" || (input.models && !selected);
+  if (noLocalModels || missing) {
+    const installableModel = oneClickInstallableEmbeddingModel(model);
+    const pullCommand = installableModel ? null : embeddingModelPullCommand(model, input.host, input.windows ?? false);
+    const kind = noLocalModels ? "no-local-models" : "model-missing";
+    const title = noLocalModels ? "No local models installed" : "Embedding model missing";
+    const action = installableModel ? "install-model" : pullCommand ? "copy-pull-command" : "refresh-models";
+    const detail = installableModel
+      ? `Install ${installableModel} for local retrieval, then run Test semantic search. Download size and time depend on the model.`
+      : pullCommand
+        ? "Copy the install command and run it in a terminal. After it finishes, choose Refresh models, then Test semantic search."
+        : "Install an embedding-capable model from the Ollama model library, then refresh the catalog, select it, and run Test semantic search.";
+    return { ...present(kind, title, detail, action), installableModel, pullCommand };
+  }
+  // Catalog entries can omit capabilities. Test semantic search inspects the selected model directly.
+  if (selected?.capabilities.length && !modelSupportsEmbedding(selected) && !verifiedProbe) {
+    return present("model-incompatible", "Embedding support unavailable", `${model} does not advertise embedding support. Choose an embedding-capable local model, then run Test semantic search.`, "choose-model");
+  }
+  if (verifiedProbe) {
+    const vectors = probe.vectorCount && probe.dimensions ? ` (${probe.vectorCount} vectors × ${probe.dimensions} dimensions)` : "";
+    return present("verified", "Embeddings verified", `${model} passed the local embedding test for Vault retrieval${vectors}.`, "test-embeddings");
+  }
+  if (selected) {
+    const embeddingOnly = needsTextModel && localModels?.every((entry) => modelSupportsEmbedding(entry) && !modelSupportsCompletion(entry));
+    return present(embeddingOnly ? "embedding-only" : "ready", "Test the local embedding model", `Run Test semantic search to verify ${model} for Vault retrieval.`, "test-embeddings");
+  }
+  return present("unchecked", "Check local embedding setup", "Run Check setup to load the Ollama catalog, then run Test semantic search.", "check-setup");
 }
 
 export function providerMode(provider: OmdHomeSettings["aiProvider"]): LocalAiProviderMode {
@@ -97,7 +217,7 @@ export function modelSupportsCompletion(model: Pick<LocalAiModelEntry, "capabili
 }
 
 export function modelSupportsEmbedding(model: Pick<LocalAiModelEntry, "name" | "capabilities">): boolean {
-  if (model.capabilities.includes("embedding")) return true;
+  if (model.capabilities.length) return model.capabilities.includes("embedding");
   const normalized = model.name.trim().toLowerCase().replace(/:latest$/u, "");
   return normalized === "bge-m3" || normalized.includes("embed") || normalized.includes("embedding");
 }
@@ -411,6 +531,7 @@ export function aggregateLocalAiState(
   return {
     providerMode: currentProviderMode,
     providerValue: settings.aiProvider,
+    connectionCode: activeSummary?.daemonCode ?? "unchecked",
     normalizedHost: activeSummary?.host,
     catalogHost: activeSummary?.host,
     catalogCheckedAt: activeSummary?.checkedAt,

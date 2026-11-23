@@ -9,7 +9,7 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] `manifest.json`, `package.json`, the lockfile, and `versions.json` contain the same exact semantic version.
 - [ ] `node scripts/sync-omd-contract-fixtures.mjs /path/to/omd` reports that fixtures are current.
 - [ ] Any fixture update was reviewed against OMD's v1 contract before using `--accept`.
-- [ ] The OMD executable resolved by automatic discovery reports `enrich_note.supported: true` and schema version `1` from `capabilities --json`.
+- [ ] The OMD executable resolved by automatic discovery reports `enrich_note.supported: true`, schema version `1`, and `local_ollama_transport.version: 1` from `capabilities --json`; content-bearing local-AI actions fail closed when the transport capability is absent.
 
 ## Automated gates
 
@@ -34,16 +34,16 @@ Obsidian Community Plugins. A checked code gate does not replace the hands-on de
 - [ ] `OMD Home: Refresh local AI models` repopulates local Ollama catalogs without rewriting an unknown or stale saved selection behind the user's back.
 - [ ] **Check setup** distinguishes invalid host, unreachable daemon, missing `/api/status`, cloud-enabled Ollama, no installed models, missing credentials, provider catalog failures, and missing/incompatible selected models.
 - [ ] Local answer and writing dropdowns show every downloaded local model; incompatible entries stay visible, disabled, and labelled with a reason. Unchecked uses a neutral adjacent status rail; Ready and actual errors have distinct prominent rails with text labels.
-- [ ] Invalid endpoint input immediately lists `http://localhost:11434` and `http://127.0.0.1:11434` beside the field, preserves the last valid setting, and clears its error when corrected.
-- [ ] **Test embeddings** validates the selected local embedding model with English and Chinese probes, reports vector dimensions, and rejects remote, malformed, or dimension-mismatched responses.
-- [ ] Missing `bge-m3` offers a copyable `ollama pull bge-m3` command without running it; **Test embeddings** keeps **Advanced AI controls** open through success and failure.
+- [ ] Invalid endpoint input lists the accepted `localhost`, `127.0.0.1`, and `[::1]` forms beside the field, preserves the last valid setting, and clears its error when corrected; a valid draft changes the active endpoint only after **Save endpoint**.
+- [ ] **Test semantic search** validates the selected local embedding model with English and Chinese probes, reports vector dimensions, and rejects remote, malformed, or dimension-mismatched responses.
+- [ ] Missing `bge-m3` offers an explicit **Install bge-m3** action that never runs without a click; other safe model IDs offer a copyable command. **Test semantic search** keeps **Advanced AI controls** open through success and failure.
 - [ ] Hybrid retrieval can be disabled without making an embedding request; when enabled it labels answers as Hybrid or Sparse and exposes any fallback warning.
 - [ ] First-use hybrid indexing has a longer bounded timeout, remains cancellable, and namespaces cached vectors by the installed Ollama model digest when available.
 - [ ] D01 (`这些阳台番茄笔记给新手哪些建议？`) recalls both benchmark fixture notes with `bge-m3`, excludes distractors, and fails closed in the sparse-only control.
 - [ ] Optional semantic reranking uses the selected loopback embedding model, stays off by default, and cannot hide a fallback or change an evidence-grounded abstention into an unsupported answer.
 - [ ] Blank Python and bridge overrides resolve OMD's embedded interpreter and the bridge bundled in `main.js`; on Windows, environment-local Python discovery stops immediately on cancellation and missing Python guidance points to the advanced override.
 - [ ] A blank EventKit helper override resolves only an executable regular file beside OMD Home; missing helpers and Calendar permission failures remain actionable.
-- [ ] Local Ollama mode rejects any host outside `http://localhost:11434` and `http://127.0.0.1:11434`. Hosted answer providers never inherit an arbitrary loopback override.
+- [ ] Local Ollama mode accepts only `http://localhost:<port>`, `http://127.0.0.1:<port>`, or `http://[::1]:<port>` with an explicit port from 1–65535; credentials, paths, queries, fragments, redirects, proxy routing, LAN and remote hosts are rejected. Hosted answer providers never inherit an arbitrary loopback override.
 - [ ] Ollama Cloud and hosted APIs can validate model availability, and real hosted Vault Q&A only proceeds after per-request preview approval; cancel sends nothing, no fallback occurs, and no full vault leaves the device.
 - [ ] On macOS, the password field accepts the actual developer API key, saves it to macOS Keychain, and clears after success; it never treats the input as an Obsidian SecretStorage name. On Windows/Linux, Settings shows the exact provider environment variable and no unsupported Save/Remove action.
 - [ ] Credential hydration settles without an automatic request/render loop, including missing-key and failed-check states; provider switches and aborted older work cannot overwrite a newer provider's state or task.

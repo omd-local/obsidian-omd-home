@@ -6,11 +6,13 @@ import {
   buildConnectionSummary,
   buildModelEntry,
   buildModelSelectorState,
+  classifyEmbeddingSetup,
   createWorkflowSnapshot,
   deriveLocalAiDaemonCode,
   deriveLocalAiModelCode,
   describeLocalCompletionCatalog,
   describeModelReadiness,
+  embeddingModelPullCommand,
   localModelNamesMatch,
   localWritingModelIsSelectable,
   localWritingModelOptionLabel,
@@ -66,12 +68,108 @@ const remoteModel = buildModelEntry({ name: "cloudy", capabilities: ["completion
 const boundedAnswerIncompatibleModel = buildModelEntry({ name: "qwen3:4b", capabilities: ["completion", "thinking", "tools"] });
 
 test("normalizeLocalOllamaHost enforces the loopback host contract", () => {
-  assert.equal(normalizeLocalOllamaHost("http://localhost:11434/"), "http://localhost:11434");
-  assert.equal(normalizeLocalOllamaHost("http://127.0.0.1:11434"), "http://127.0.0.1:11434");
-  assert.throws(
-    () => normalizeLocalOllamaHost("http://localhost:9999"),
-    (error: unknown) => error instanceof LocalAiError && error.code === "invalid_host",
-  );
+  for (const [input, expected] of [
+    ["http://localhost:11434", "http://localhost:11434"],
+    [" http://localhost:9999 ", "http://localhost:9999"],
+    ["http://127.0.0.1:00080", "http://127.0.0.1:80"],
+    ["http://[::1]:65535", "http://[::1]:65535"],
+    ["http://[::1]:1", "http://[::1]:1"],
+  ]) {
+    assert.equal(normalizeLocalOllamaHost(input!), expected, input);
+  }
+  for (const host of [
+    "http://localhost", "http://localhost:", "http://localhost:0", "http://localhost:65536",
+    "http://localhost:+80", "http://localhost:0x50", "http://localhost:８０", "https://localhost:80",
+    "http://localhost:80/", "http://localhost:80/.", "http://localhost:80/API", "http://localhost:80?",
+    "http://localhost:80#", "http://localhost:80?q=yes", "http://localhost:80#fragment",
+    "http://localhost:80\\evil", "http://@localhost:80", "http://user:password@localhost:80",
+    "http://localhost:80@example.com:80", "http://localhost.example.com:80", "http://sub.localhost:80",
+    "http://local\thost:80", "http://%6cocalhost:80", "http://localhost.:80", "http://0.0.0.0:80",
+    "http://127.1:80", "http://127.0.0.2:80", "http://2130706433:80", "http://0177.0.0.1:80",
+    "http://192.168.0.2:80", "http://[0:0:0:0:0:0:0:1]:80", "http://[::ffff:127.0.0.1]:80",
+  ]) {
+    assert.throws(
+      () => normalizeLocalOllamaHost(host),
+      (error: unknown) => error instanceof LocalAiError && error.code === "invalid_host",
+      host,
+    );
+  }
+});
+
+const host = "http://localhost:11434";
+const probeResult = { host, model: "bge-m3", checkedAt: 1, detail: "test result" };
+
+test("embedding pull suggestions contain only a conservative local model identifier", () => {
+  for (const model of ["bge-m3", "all-minilm:22m", "author/Embed_1:v1.2"]) {
+    assert.equal(embeddingModelPullCommand(` ${model} `, host, false), `OLLAMA_HOST='${host}' ollama pull ${model}`);
+  }
+  assert.equal(embeddingModelPullCommand("author/custom", "http://[::1]:12000", true),
+    'cmd.exe /d /c "set OLLAMA_HOST=http://[::1]:12000&& ollama pull author/custom"');
+  assert.equal(embeddingModelPullCommand("bge-m3", "http://localhost:22/&& echo", false), null);
+  for (const model of [
+    "", "-help", "--help", "author/-model", "author/../model", "x:latest:again", "x:",
+    "host.test/author/model", "https://example.com/m", "${MODEL}", "$(touch x)", "x`whoami`",
+    "x;echo y", "x && y", "a\nb", "a\tb", "x#y", "x*y", "a\\b", "Kelvin", "x:cloud", "a".repeat(257),
+  ]) {
+    assert.equal(embeddingModelPullCommand(model, host, true), null, model);
+  }
+});
+
+test("embedding setup distinguishes the daemon and model first-use states", () => {
+  const model = "bge-m3";
+  const embedding = buildModelEntry({ name: "bge-m3:latest", digest: "sha256:tested", capabilities: ["embedding"] });
+  assert.equal(classifyEmbeddingSetup({ host, model }).action, "check-setup");
+  assert.equal(classifyEmbeddingSetup({ host, model, connectionCode: "daemon_unreachable" }).action, "start-ollama");
+  assert.match(classifyEmbeddingSetup({ host, model, connectionCode: "daemon_unreachable" }).detail, /install.*open|open.*install/iu);
+  const empty = classifyEmbeddingSetup({ host, model, models: [] });
+  assert.equal(empty.kind, "no-local-models");
+  assert.equal(empty.action, "install-model");
+  assert.equal(empty.installableModel, "bge-m3");
+  assert.equal(classifyEmbeddingSetup({ host, model, connectionCode: "no_models_installed", localAnswer: true }).needsTextModel, true);
+  const missing = classifyEmbeddingSetup({ host, model: "all-minilm:22m", models: [localModel] });
+  assert.equal(missing.kind, "model-missing");
+  assert.equal(missing.action, "copy-pull-command");
+  assert.equal(missing.pullCommand, `OLLAMA_HOST='${host}' ollama pull all-minilm:22m`);
+  assert.equal(missing.installableModel, null);
+  const unsafe = classifyEmbeddingSetup({ host, model: "x;echo y", models: [localModel] });
+  assert.equal(unsafe.action, "refresh-models");
+  assert.equal(unsafe.pullCommand, null);
+  const embeddingOnly = classifyEmbeddingSetup({ host, model, models: [embedding], localAnswer: true });
+  assert.equal(embeddingOnly.kind, "embedding-only");
+  assert.equal(embeddingOnly.needsTextModel, true);
+  assert.equal(embeddingOnly.action, "test-embeddings");
+  assert.equal(classifyEmbeddingSetup({ host, model, models: [embedding] }).needsTextModel, false);
+  const ready = classifyEmbeddingSetup({ host, model, models: [embedding, localModel], localAnswer: true });
+  assert.equal(ready.kind, "ready");
+  assert.equal(ready.needsTextModel, false);
+  const verified = classifyEmbeddingSetup({ host, model, models: [embedding], probe: { ...probeResult, revision: "sha256:tested", code: "ready" } });
+  assert.equal(verified.kind, "verified");
+  assert.match(verified.detail, /bge-m3/u);
+  assert.equal(classifyEmbeddingSetup({ host, model, models: [embedding], probe: { ...probeResult, code: "ready" } }).kind, "ready");
+  assert.equal(classifyEmbeddingSetup({ host, model, models: [embedding], probe: { ...probeResult, revision: "sha256:old", code: "ready" } }).kind, "ready");
+});
+
+test("embedding verification is scoped to the selected endpoint and model", () => {
+  const probe = { ...probeResult, code: "ready" as const, vectorCount: 2, dimensions: 1024 };
+  const model = buildModelEntry({ name: "bge-m3:latest", digest: "sha256:tested", capabilities: ["embedding"] });
+  const input = { host, model: model.name, models: [model], probe: { ...probe, revision: "sha256:tested" } };
+  assert.match(classifyEmbeddingSetup(input).detail, /2 vectors × 1024 dimensions/u);
+  assert.equal(classifyEmbeddingSetup({ ...input, host: "http://localhost:12000" }).kind, "ready");
+  assert.equal(classifyEmbeddingSetup({ ...input, probe: { ...probe, model: "custom" } }).kind, "ready");
+});
+
+test("embedding setup keeps failure reasons and next actions distinct", () => {
+  const model = "bge-m3";
+  const embedded = buildModelEntry({ name: model, capabilities: ["embedding"] });
+  assert.equal(classifyEmbeddingSetup({ host, model, connectionCode: "invalid_host" }).kind, "connection-failed");
+  assert.equal(classifyEmbeddingSetup({ host, model, connectionCode: "status_unavailable" }).kind, "connection-failed");
+  assert.equal(classifyEmbeddingSetup({ host, model, probe: { ...probeResult, code: "selected_model_missing" } }).kind, "model-missing");
+  assert.equal(classifyEmbeddingSetup({ host, model, probe: { ...probeResult, code: "selected_model_incompatible" }, models: [embedded] }).kind, "model-incompatible");
+  assert.equal(classifyEmbeddingSetup({ host, model, probe: { ...probeResult, code: "selected_model_remote_blocked" } }).kind, "model-cloud-backed");
+  assert.equal(classifyEmbeddingSetup({ host, model: "custom:cloud", models: [localModel] }).pullCommand, null);
+  assert.equal(classifyEmbeddingSetup({ host, model, probe: { ...probeResult, code: "smoke_failed" } }).kind, "test-failed");
+  assert.equal(classifyEmbeddingSetup({ host, model: "qwen3:4b-instruct", models: [localModel] }).kind, "model-incompatible");
+  assert.equal(classifyEmbeddingSetup({ host, model: "author/custom", models: [buildModelEntry({ name: "author/custom" })] }).action, "test-embeddings");
 });
 
 test("providerMode separates local Ollama from cloud answer providers", () => {
@@ -168,6 +266,7 @@ test("bge-m3 latest aliases resolve consistently for catalog matching and one-cl
 
   assert.equal(localModelNamesMatch(" BGE-M3 ", installed.name), true);
   assert.equal(modelSupportsEmbedding(installed), true);
+  assert.equal(modelSupportsEmbedding({ ...installed, capabilities: ["completion"] }), false);
   assert.equal(resolveEmbeddingModelRevision("BGE-M3", [installed]), "sha256:latest");
   assert.equal(oneClickInstallableEmbeddingModel(" bge-m3 "), "bge-m3");
   assert.equal(oneClickInstallableEmbeddingModel("BGE-M3:latest"), "bge-m3");
@@ -212,6 +311,7 @@ test("aggregateLocalAiState surfaces partial readiness without blocking on daemo
     localWritingModel: embedModel.name,
   }, partial, [localModel, embedModel], "");
   assert.equal(partialState.daemonCode, "partial");
+  assert.equal(partialState.connectionCode, "ready");
   assert.equal(partialState.workflows.enrichment.code, "selected_model_incompatible");
 });
 

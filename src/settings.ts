@@ -20,13 +20,13 @@ import type OmdHomePlugin from "./main";
 import type { ExternalCalendarDescriptor } from "./model";
 import {
   buildModelSelectorState,
+  classifyEmbeddingSetup,
   describeLocalCompletionCatalog,
   localModelNamesMatch,
   localWritingModelIsSelectable,
   localWritingModelOptionLabel,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
-  oneClickInstallableEmbeddingModel,
 } from "./local-ai-readiness";
 import type {
   HostedAiProvider,
@@ -136,6 +136,8 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   private settingsSaveQueue: Promise<void> = Promise.resolve();
   private localAiAdvancedExpanded = false;
   private recognitionDefaultsExpanded = false;
+  private pendingLocalAiFocusKey: string | null = null;
+  private localAiBusyFocusMoved = false;
 
   constructor(app: App, plugin: OmdHomePlugin) {
     super(app, plugin);
@@ -359,7 +361,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     updateHelperDisplay(false);
   }
 
-  private renderLocalAiSection(container: HTMLElement): void {
+  private renderLocalAiSection(section: HTMLElement): void {
+    const container = section.querySelector<HTMLElement>(":scope > .omd-settings-ai-controls")
+      ?? section.createDiv({ cls: "omd-settings-ai-controls" });
     container.empty();
     new Setting(container).setName("AI answers").setHeading().settingEl.addClass("omd-settings-heading");
 
@@ -407,14 +411,24 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       });
     }
 
-    if (this.plugin.localAiFeedback) {
-      const feedback = container.createDiv({ cls: `omd-settings-feedback is-${this.plugin.localAiFeedback.tone}` });
-      feedback.createEl("strong", { text: this.plugin.localAiFeedback.message });
-      feedback.createSpan({ text: new Date(this.plugin.localAiFeedback.at).toLocaleTimeString() });
-    }
-
+    // Keep the live region mounted so assistive technology can announce later action results.
+    const feedback = section.querySelector<HTMLElement>(":scope > .omd-settings-ai-feedback")
+      ?? section.createDiv({ cls: "omd-settings-ai-feedback" });
+    feedback.setAttribute("role", "status");
+    feedback.setAttribute("aria-live", "polite");
+    feedback.setAttribute("aria-atomic", "true");
+    const updateFeedback = (): void => {
+      const action = this.plugin.localAiFeedback;
+      feedback.empty();
+      feedback.className = "omd-settings-ai-feedback";
+      if (!action) return;
+      feedback.addClass("omd-settings-feedback", `is-${action.tone}`);
+      feedback.createEl("strong", { text: action.message });
+      feedback.createSpan({ text: new Date(action.at).toLocaleTimeString() });
+    };
+    section.querySelector(":scope > .omd-settings-advanced")?.remove();
     const advanced = this.settingsDisclosure(
-      container,
+      section,
       "Advanced AI controls",
       "Configure vault retrieval, the local writing model, and Ollama troubleshooting.",
     );
@@ -424,7 +438,13 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     });
     new Setting(advanced).setName("Vault retrieval").setHeading().settingEl.addClass("omd-settings-subheading");
     this.hybridRetrievalSetting(advanced);
-    this.embeddingModelSetting(advanced);
+    const embeddingSettings = advanced.createDiv();
+    const updateEmbeddingSettings = (): void => {
+      updateFeedback();
+      embeddingSettings.empty();
+      this.embeddingModelSetting(embeddingSettings);
+    };
+    updateEmbeddingSettings();
     new Setting(advanced)
       .setName("Semantic rerank")
       .setDesc("Reorder selected evidence with the local embedding model. Keyword search order is kept if reranking fails.")
@@ -449,41 +469,91 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       "enrichment",
     );
     new Setting(advanced).setName("Ollama troubleshooting").setHeading().settingEl.addClass("omd-settings-subheading");
-    let endpointValidation: ((value: string) => boolean) | undefined;
-    let endpointInput!: TextComponent;
+    this.ollamaEndpointSetting(advanced, updateEmbeddingSettings);
+  }
+
+  private ollamaEndpointSetting(container: HTMLElement, updateEmbeddingSettings: () => void): void {
+    const aiSetupBusy = this.plugin.aiSetupBusy();
+    let endpointValidation: ((value: string, announceInvalid?: boolean) => boolean) | undefined;
+    let saveEndpointButton!: ButtonComponent;
     let useAutomaticButton!: ButtonComponent;
     let validation: HTMLElement | null = null;
+    let endpointDraft = this.plugin.settings.ollamaHost;
+    let endpointValid = true;
+    let endpointDirty = false;
     const updateAutomaticVisibility = (value: string): void => {
       useAutomaticButton?.buttonEl.toggleAttribute("hidden", value.trim() === DEFAULT_SETTINGS.ollamaHost);
     };
-    const endpoint = new Setting(advanced)
+    const updateButtonState = (): void => {
+      saveEndpointButton?.setDisabled(aiSetupBusy || !endpointValid || !endpointDirty);
+    };
+    const setValidationText = (value: string, reannounce = false): void => {
+      if (!validation || (!reannounce && validation.textContent === value)) return;
+      if (reannounce) validation.setText("");
+      validation.setText(value);
+    };
+    const endpoint = new Setting(container)
       .setName("Ollama endpoint")
-      .setDesc("Automatic uses http://localhost:11434. For security, the only manual alternative is http://127.0.0.1:11434.")
+      .setDesc("Automatic uses http://localhost:11434. Manual endpoints may use localhost, 127.0.0.1, or [::1] with a custom port. Only Ollama addresses on this computer are allowed.")
       .addText((text) => {
-        endpointInput = text;
-        const updateValidation = (value: string): boolean => {
+        const updateValidation = (value: string, announceInvalid = false): boolean => {
           const candidate = value.trim();
           updateAutomaticVisibility(candidate);
           try {
-            normalizeLocalOllamaHost(candidate);
+            const normalized = normalizeLocalOllamaHost(candidate);
+            endpointDraft = normalized;
+            endpointValid = true;
+            endpointDirty = normalized !== this.plugin.settings.ollamaHost;
             endpoint.settingEl.removeClass("is-invalid");
             text.inputEl.removeAttribute("aria-invalid");
-            validation?.empty();
+            validation?.setAttribute("role", "status");
+            validation?.setAttribute("aria-live", "polite");
+            setValidationText(endpointDirty ? "Valid local endpoint. Select Save endpoint to apply it." : "");
+            updateButtonState();
             return true;
           } catch {
+            endpointDraft = candidate;
+            endpointValid = false;
+            endpointDirty = false;
             endpoint.settingEl.addClass("is-invalid");
             text.inputEl.setAttribute("aria-invalid", "true");
-            validation?.setText("Use http://localhost:11434 or http://127.0.0.1:11434. The last valid endpoint remains saved.");
+            if (announceInvalid) {
+              validation?.setAttribute("role", "alert");
+              validation?.removeAttribute("aria-live");
+            } else {
+              validation?.removeAttribute("role");
+              validation?.setAttribute("aria-live", "off");
+            }
+            setValidationText("Use http://localhost, http://127.0.0.1, or http://[::1] with an explicit port. Do not add credentials, a path, query, or fragment. The last valid endpoint remains saved.", announceInvalid);
+            updateButtonState();
             return false;
           }
         };
         endpointValidation = updateValidation;
-        text.setValue(this.plugin.settings.ollamaHost).setDisabled(aiSetupBusy).onChange(async (value) => {
-          if (!updateValidation(value)) return;
-          this.plugin.settings.ollamaHost = value.trim();
-          this.plugin.invalidateLocalAiState("host");
-          await this.saveSettingsInOrder();
+        text.inputEl.setAttribute("data-omd-ai-action", "ollama-endpoint-input");
+        text.setValue(this.plugin.settings.ollamaHost).setDisabled(aiSetupBusy).onChange((value) => {
+          updateValidation(value);
         });
+        text.inputEl.addEventListener("blur", () => {
+          if (!endpointValid) updateValidation(text.inputEl.value, true);
+        });
+      })
+      .addButton((button) => {
+        saveEndpointButton = button;
+        button
+          .setButtonText("Save endpoint")
+          .setDisabled(true)
+          .onClick(async () => {
+            if (!endpointValidation?.(endpointDraft) || !endpointDirty) return;
+            this.plugin.settings.ollamaHost = normalizeLocalOllamaHost(endpointDraft);
+            this.plugin.invalidateLocalAiState("host", false);
+            updateEmbeddingSettings();
+            await this.saveSettingsInOrder();
+            if (container.isConnected) {
+              this.pendingLocalAiFocusKey = "ollama-endpoint-input";
+              this.rerenderLocalAiSection();
+            }
+          });
       })
       .addButton((button) => {
         useAutomaticButton = button;
@@ -491,27 +561,53 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           .setButtonText("Use automatic")
           .setDisabled(aiSetupBusy)
           .onClick(async () => {
-            endpointInput.setValue(DEFAULT_SETTINGS.ollamaHost);
-            endpointValidation?.(DEFAULT_SETTINGS.ollamaHost);
             this.plugin.settings.ollamaHost = DEFAULT_SETTINGS.ollamaHost;
-            this.plugin.invalidateLocalAiState("host");
-            updateAutomaticVisibility(DEFAULT_SETTINGS.ollamaHost);
-            endpointInput.inputEl.focus();
+            this.plugin.invalidateLocalAiState("host", false);
+            updateEmbeddingSettings();
             await this.saveSettingsInOrder();
+            if (container.isConnected) {
+              this.pendingLocalAiFocusKey = "ollama-endpoint-input";
+              this.rerenderLocalAiSection();
+            }
           });
       });
     validation = endpoint.settingEl.createDiv({ cls: "omd-settings-endpoint-validation" });
     validation.id = "omd-settings-endpoint-validation";
-    validation.setAttribute("role", "alert");
+    validation.setAttribute("role", "status");
     endpoint.controlEl.querySelector<HTMLInputElement>("input")?.setAttribute("aria-describedby", validation.id);
     endpoint.settingEl.addClass("omd-settings-model", "omd-settings-endpoint");
     endpointValidation?.(this.plugin.settings.ollamaHost);
     updateAutomaticVisibility(this.plugin.settings.ollamaHost);
+    updateButtonState();
   }
 
   private rerenderLocalAiSection(): void {
+    this.refreshLocalAiSection();
+  }
+
+  refreshLocalAiSection(): void {
     const section = this.containerEl.querySelector<HTMLElement>(".omd-settings-local-ai");
-    if (section?.isConnected) this.renderLocalAiSection(section);
+    if (!section?.isConnected) return;
+    this.renderLocalAiSection(section);
+    const focusKey = this.pendingLocalAiFocusKey;
+    const view = section.ownerDocument.defaultView;
+    if (!focusKey || !view) return;
+    view.setTimeout(() => {
+      if (!section.isConnected || this.pendingLocalAiFocusKey !== focusKey) return;
+      if (this.plugin.aiSetupBusy()) {
+        if (this.localAiBusyFocusMoved) return;
+        const status = section.querySelector<HTMLElement>(".omd-settings-ai-feedback");
+        status?.setAttribute("tabindex", "-1");
+        status?.focus({ preventScroll: true });
+        this.localAiBusyFocusMoved = true;
+        return;
+      }
+      const target = Array.from(section.querySelectorAll<HTMLElement>("[data-omd-ai-action]"))
+        .find((element) => element.dataset.omdAiAction === focusKey && !element.hasAttribute("disabled"));
+      target?.focus({ preventScroll: true });
+      this.pendingLocalAiFocusKey = null;
+      this.localAiBusyFocusMoved = false;
+    }, 0);
   }
 
   private saveSettingsInOrder(): Promise<void> {
@@ -567,7 +663,8 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     this.localAiAdvancedExpanded = true;
     this.display();
     const target = this.containerEl.querySelector<HTMLElement>(".omd-settings-embedding-model");
-    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    target?.scrollIntoView({ block: "center" });
+    (target?.querySelector<HTMLElement>("select:enabled, button:enabled") ?? target)?.focus({ preventScroll: true });
   }
 
   showLocalWritingSettings(): void {
@@ -586,7 +683,11 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     target?.querySelector<HTMLSelectElement>("select")?.focus();
   }
 
-  private async runAiSetupAction<T>(action: () => Promise<T>): Promise<T> {
+  private async runAiSetupAction<T>(action: () => Promise<T>, focusKey?: string): Promise<T> {
+    const active = this.containerEl?.ownerDocument?.activeElement
+      ?.closest<HTMLElement>("[data-omd-ai-action]") ?? null;
+    this.pendingLocalAiFocusKey = focusKey ?? active?.dataset.omdAiAction ?? null;
+    this.localAiBusyFocusMoved = false;
     const pending = action();
     this.rerenderLocalAiSection();
     try {
@@ -630,8 +731,9 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       });
     secret.inputEl.type = "password";
     secret.inputEl.autocomplete = "off";
-    setting.addButton((button) => button
-      .setButtonText(state?.activeAction === "save-key"
+    setting.addButton((button) => {
+      button.buttonEl?.setAttribute("data-omd-ai-action", "hosted-key-save");
+      return button.setButtonText(state?.activeAction === "save-key"
         ? "Saving…"
         : state?.activeAction === "check-connection"
           ? "Checking…"
@@ -642,7 +744,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         if (!submittedDraft.trim()) return void new Notice("Paste a developer key first.");
         let saved = false;
         try {
-          saved = await this.runAiSetupAction(() => this.plugin.saveHostedApiKey(submittedDraft));
+          saved = await this.runAiSetupAction(() => this.plugin.saveHostedApiKey(submittedDraft), "hosted-key-save");
         } catch {
           // The plugin records and surfaces the safe provider error.
         }
@@ -651,17 +753,20 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           this.rerenderLocalAiSection();
         }
         if (saved) {
-          await this.runAiSetupAction(() => this.plugin.checkHostedAiConnection());
+          await this.runAiSetupAction(() => this.plugin.checkHostedAiConnection(), "check-setup");
         }
-      }));
+      });
+    });
     if (credential?.keychainPresent) {
-      setting.addButton((button) => button
-        .setButtonText(credential.source === "env" ? "Remove stored key" : "Remove key")
+      setting.addButton((button) => {
+        button.buttonEl?.setAttribute("data-omd-ai-action", "hosted-key-delete");
+        return button.setButtonText(credential.source === "env" ? "Remove stored key" : "Remove key")
         .setWarning()
         .setDisabled(aiSetupBusy)
         .onClick(async () => {
-          await this.runAiSetupAction(() => this.plugin.deleteHostedApiKey());
-        }));
+          await this.runAiSetupAction(() => this.plugin.deleteHostedApiKey(), "hosted-key-delete");
+        });
+      });
     }
     setting.settingEl.addClass("omd-settings-model", "omd-settings-secret");
   }
@@ -843,21 +948,25 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       && canOpenOllamaDesktopApp()
       && this.plugin.localAiState.daemonCode === "daemon_unreachable";
     if (canOpenOllama) {
-      status.addButton((button) => button.setButtonText("Open Ollama app").setCta().onClick(async () => {
-        await this.plugin.openOllamaApp();
-        if (container.isConnected) this.rerenderLocalAiSection();
-      }));
+      status.addButton((button) => {
+        button.buttonEl?.setAttribute("data-omd-ai-action", "ollama-open");
+        return button.setButtonText("Open Ollama app").setCta().onClick(async () => {
+          await this.runAiSetupAction(() => this.plugin.openOllamaApp(), "ollama-open");
+        });
+      });
     }
-    status.addButton((button) => button
-      .setButtonText(activeAction === "check-connection" ? "Checking…" : "Check setup")
+    status.addButton((button) => {
+      button.buttonEl?.setAttribute("data-omd-ai-action", "check-setup");
+      return button.setButtonText(activeAction === "check-connection" ? "Checking…" : "Check setup")
       .setDisabled(aiSetupBusy)
       .onClick(async () => {
         await this.runAiSetupAction(async () => {
           if (provider === "ollama") return await this.plugin.checkLocalAiConnection();
           if (provider === "ollama-cloud") return await this.plugin.checkOllamaCloudConnection();
           return await this.plugin.checkHostedAiConnection();
-        });
-      }));
+        }, "check-setup");
+      });
+    });
   }
 
   private modelReadinessRail(
@@ -1407,19 +1516,27 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   private embeddingModelSetting(container: HTMLElement): void {
     const aiSetupBusy = this.plugin.aiSetupBusy();
     const catalogChecked = typeof this.plugin.localAiState.catalogCheckedAt === "number";
+    const savedHost = this.plugin.settings.ollamaHost;
     const savedModel = this.plugin.settings.embeddingModel.trim();
     const catalogModel = this.plugin.localAiState.models.find((model) => localModelNamesMatch(model.name, savedModel));
     const embeddingModels = this.plugin.localAiState.models
-      .filter((model) => modelSupportsEmbedding(model) && !modelIsCloudBacked(model));
-    const options = embeddingModels.reduce<Record<string, string>>((result, model) => {
-      result[model.name] = model.name;
-      return result;
-    }, {});
-    const savedMissing = catalogChecked && Boolean(savedModel) && !catalogModel;
-    const savedRemote = catalogChecked && Boolean(catalogModel) && modelIsCloudBacked(catalogModel!);
-    const savedUnsupported = catalogChecked && Boolean(catalogModel)
-      && !savedRemote
-      && !modelSupportsEmbedding(catalogModel!);
+      .filter((model) => !modelIsCloudBacked(model) && (!model.capabilities.length || modelSupportsEmbedding(model)));
+    const options: Record<string, string> = Object.fromEntries(embeddingModels.map((model) => [
+      model.name,
+      modelSupportsEmbedding(model) ? model.name : `${model.name} (embedding support unverified)`,
+    ]));
+    const presentation = classifyEmbeddingSetup({
+      model: savedModel,
+      models: catalogChecked ? this.plugin.localAiState.models : undefined,
+      host: savedHost,
+      windows: Platform.isWin,
+      connectionCode: this.plugin.localAiState.connectionCode,
+      probe: this.plugin.localAiEmbeddingProbe,
+      localAnswer: this.plugin.settings.aiProvider === "ollama",
+    });
+    const savedMissing = presentation.kind === "model-missing" || presentation.kind === "no-local-models";
+    const savedRemote = presentation.kind === "model-cloud-backed";
+    const savedUnsupported = presentation.kind === "model-incompatible";
     const savedUnavailable = savedMissing || savedRemote || savedUnsupported;
     const savedUnavailableLabel = savedRemote
       ? `${savedModel} (cloud-backed; unavailable for local retrieval)`
@@ -1436,15 +1553,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       : options[savedModel] ? savedModel : "__saved__";
     const setting = new Setting(container)
       .setName("Embedding model")
-      .setDesc(!catalogChecked
-        ? "Adds semantic search and optional reranking to keyword search. Run Check setup to load installed models."
-        : savedUnavailable
-          ? savedMissing
-            ? "The saved embedding model is not installed. Keyword search still works; OMD Home will not download or switch models automatically."
-            : savedRemote
-              ? "The saved model is cloud-backed and cannot be used for local Vault retrieval."
-              : "The saved model is installed but does not advertise embedding support."
-          : "Adds semantic search and optional reranking to keyword search during vault questions.")
+      .setDesc("Adds related-meaning search and optional reranking to keyword search. It is separate from the text model used to write answers or edit notes.")
       .addDropdown((dropdown) => {
         if (!Object.keys(options).length) dropdown.addOption("__saved__", this.plugin.settings.embeddingModel || "No local embedding model found");
         else dropdown.addOptions(options);
@@ -1453,49 +1562,104 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         dropdown.onChange(async (value) => {
           if (value === "__saved__") return;
           this.plugin.settings.embeddingModel = value;
-          this.plugin.invalidateLocalAiState("retrieval");
+          this.plugin.invalidateLocalAiState("embedding-model");
           await this.saveSettingsInOrder();
           this.rerenderLocalAiSection();
         });
-      })
-      .addButton((button) => button
-        .setButtonText(this.plugin.localAiState.activeAction === "test-embeddings" ? "Testing…" : "Test embeddings")
-        .setDisabled(aiSetupBusy || !this.plugin.settings.embeddingModel.trim())
+      });
+    if (presentation.action === "test-embeddings") {
+      setting.addButton((button) => {
+        button.buttonEl?.setAttribute("data-omd-ai-action", "embedding-test");
+        return button.setButtonText(this.plugin.localAiState.activeAction === "test-embeddings" ? "Testing…" : "Test semantic search")
+        .setDisabled(aiSetupBusy || !savedModel)
         .onClick(async () => {
-          await this.runAiSetupAction(() => this.plugin.testLocalEmbeddings());
-        }));
-    const installableModel = savedMissing ? oneClickInstallableEmbeddingModel(savedModel) : null;
-    if (installableModel) {
-      setting.addButton((button) => button
-        .setButtonText(this.plugin.localAiState.activeAction === "install-embedding" ? "Installing…" : "Install model")
+          await this.runAiSetupAction(() => this.plugin.testLocalEmbeddings(), "embedding-test");
+        });
+      });
+    } else if (presentation.action === "install-model" && presentation.installableModel) {
+      setting.addButton((button) => {
+        button.buttonEl?.setAttribute("data-omd-ai-action", "embedding-install");
+        return button.setButtonText(this.plugin.localAiState.activeAction === "install-embedding" ? "Installing…" : `Install ${presentation.installableModel}`)
         .setDisabled(aiSetupBusy)
         .onClick(async () => {
-          await this.runAiSetupAction(() => this.plugin.installEmbeddingModel(installableModel));
+          await this.runAiSetupAction(() => this.plugin.installEmbeddingModel(presentation.installableModel!, savedHost), "embedding-install");
+        });
+      });
+    } else if (presentation.action === "copy-pull-command" && presentation.pullCommand) {
+      const command = presentation.pullCommand;
+      setting.descEl.createEl("pre").createEl("code", { text: command });
+      setting.addButton((button) => button
+        .setButtonText("Copy install command")
+        .setDisabled(aiSetupBusy)
+        .onClick(async () => {
+          try {
+            await navigator.clipboard.writeText(command);
+            button.setButtonText("Copied");
+            new Notice("Ollama install command copied. Run it in terminal, then refresh models.");
+          } catch {
+            new Notice("Copy failed. Select and copy the displayed install command.");
+          }
+        }));
+    } else if (presentation.action === "check-setup" || presentation.action === "start-ollama" || presentation.action === "open-ollama") {
+      if (presentation.action !== "check-setup") {
+        setting.descEl.createEl("p").createEl("a", {
+          text: "Download Ollama",
+          href: "https://ollama.com/download",
+        });
+        if (presentation.action === "start-ollama" && canOpenOllamaDesktopApp()) {
+          setting.addButton((button) => {
+            button.buttonEl?.setAttribute("data-omd-ai-action", "ollama-open");
+            return button.setButtonText("Open Ollama app").setDisabled(aiSetupBusy)
+              .onClick(async () => { await this.runAiSetupAction(() => this.plugin.openOllamaApp(), "ollama-open"); });
+          });
+        }
+      }
+      setting.addButton((button) => {
+        button.buttonEl?.setAttribute("data-omd-ai-action", "embedding-check");
+        return button.setButtonText("Check setup")
+        .setDisabled(aiSetupBusy)
+        .onClick(async () => {
+          await this.runAiSetupAction(() => this.plugin.checkLocalAiConnection(), "embedding-check");
+        });
+      });
+    }
+    if (presentation.action === "choose-model" && this.plugin.settings.hybridRetrievalEnabled) {
+      setting.addButton((button) => button
+        .setButtonText("Use keyword search")
+        .setDisabled(aiSetupBusy)
+        .onClick(async () => {
+          const selected = await this.plugin.useSparseRetrieval();
+          if (selected && container.isConnected) this.rerenderLocalAiSection();
         }));
     }
+    if (presentation.action === "copy-pull-command" || presentation.action === "refresh-models") {
+      setting.addButton((button) => {
+        button.buttonEl?.setAttribute("data-omd-ai-action", "embedding-refresh");
+        return button.setButtonText(this.plugin.localAiState.activeAction === "refresh-models" ? "Refreshing…" : "Refresh models")
+        .setDisabled(aiSetupBusy)
+        .onClick(async () => {
+          await this.runAiSetupAction(() => this.plugin.refreshLocalAiCatalog(true), "embedding-refresh");
+        });
+      });
+    }
     setting.settingEl.addClass("omd-settings-model");
+    const textModelHint = presentation.needsTextModel
+      ? " Semantic search can work with this model, but local answers and writing tools still need a separate text model."
+      : "";
+    const keywordHint = presentation.kind === "ready" || presentation.kind === "verified" || presentation.kind === "embedding-only"
+      ? ""
+      : " Keyword search remains available if you turn off Keyword + semantic search.";
     const embeddingStatus = new Setting(container)
-      .setName(!catalogChecked
-        ? "Verify embedding model"
-        : savedUnavailable
-          ? "Embedding model needs attention"
-          : "Embedding model installed")
-      .setDesc(!catalogChecked
-        ? "Run Check setup to load the local model catalog, then run Test embeddings."
-        : savedUnavailable
-        ? savedMissing
-          ? installableModel
-            ? `The saved model is not installed. Install ${installableModel} through the local Ollama service, or choose another installed embedding model. Download size and time depend on the model.`
-            : "The saved model is not installed. Install it manually in Ollama or choose another installed embedding model."
-          : savedRemote
-            ? "Choose a locally installed embedding model. Cloud-backed models are never used for Vault retrieval."
-            : "Choose a model that supports embeddings, then run Test embeddings."
-        : "Installed locally and available for keyword + semantic search. Run Test embeddings to verify it before relying on semantic reranking.");
+      .setName(presentation.title)
+      .setDesc(`${presentation.detail}${textModelHint}${keywordHint}`);
+    const ready = presentation.kind === "verified";
+    const neutral = presentation.kind === "unchecked" || presentation.kind === "ready" || presentation.kind === "embedding-only";
     embeddingStatus.settingEl.addClass(
       "omd-settings-model-status",
-      !catalogChecked ? "is-neutral" : savedUnavailable ? "is-unavailable" : "is-ready",
+      ready ? "is-ready" : neutral ? "is-neutral" : "is-unavailable",
     );
     setting.settingEl.addClass("omd-settings-embedding-model");
+    setting.settingEl.tabIndex = -1;
   }
 }
 
@@ -1658,7 +1822,7 @@ export function normalizeOmdHomeSettings(raw: unknown): OmdHomeSettings {
       : DEFAULT_SETTINGS.semanticRerankEnabled,
     localWritingModel: cleanString(input.localWritingModel, legacyWritingModel || DEFAULT_SETTINGS.localWritingModel)
       || DEFAULT_SETTINGS.localWritingModel,
-    ollamaHost: cleanString(input.ollamaHost, DEFAULT_SETTINGS.ollamaHost),
+    ollamaHost: normalizeSavedOllamaHost(input.ollamaHost),
     capturePolish: typeof input.capturePolish === "boolean" ? input.capturePolish : DEFAULT_SETTINGS.capturePolish,
     captureSuggestLinksAndTags: typeof input.captureSuggestLinksAndTags === "boolean"
       ? input.captureSuggestLinksAndTags
@@ -1705,6 +1869,15 @@ export function normalizeDefaultExternalCalendarId(
 
 function cleanString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalizeSavedOllamaHost(value: unknown): string {
+  const candidate = cleanString(value, DEFAULT_SETTINGS.ollamaHost).replace(/\/+$/u, "");
+  try {
+    return normalizeLocalOllamaHost(candidate);
+  } catch {
+    return DEFAULT_SETTINGS.ollamaHost;
+  }
 }
 
 function uniqueStrings(value: unknown): string[] {

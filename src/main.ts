@@ -151,6 +151,7 @@ import {
   describeDaemonReadiness,
   describeLocalCompletionCatalog,
   describeModelReadiness,
+  embeddingModelPullCommand,
   getActiveWorkflowModels,
   isFresh,
   localModelNamesMatch,
@@ -169,6 +170,7 @@ import {
   type HostedAiRuntimeState,
   type HostedAiProvider,
   type LocalAiConnectionSummary,
+  type LocalAiEmbeddingProbe,
   type LocalAiModelEntry,
   type LocalAiModelInfo,
   type LocalAiRuntimeState,
@@ -246,6 +248,7 @@ export default class OmdHomePlugin extends Plugin {
   };
   localAiState: LocalAiRuntimeState = aggregateLocalAiState(this.settings, null, [], "");
   hostedAiState: HostedAiRuntimeState | null = null;
+  localAiEmbeddingProbe: LocalAiEmbeddingProbe | null = null;
   localAiFeedback: LocalAiActionFeedback | null = null;
   calendarFeedback: LocalAiActionFeedback | null = null;
   calendarHelperProtocolStatus: "unchecked" | "compatible" | "incompatible" = "unchecked";
@@ -494,6 +497,7 @@ export default class OmdHomePlugin extends Plugin {
     this.eventKitBridge?.dispose();
     this.omdBridge?.dispose?.();
     this.localAiSummaries.clear();
+    this.localAiEmbeddingProbe = null;
   }
 
   async loadSettings(): Promise<void> {
@@ -814,6 +818,7 @@ export default class OmdHomePlugin extends Plugin {
         models,
         modelChecks: this.localAiSummaries.get(host)?.modelChecks ?? {},
       }));
+      this.reconcileEmbeddingProbe(host, models);
       this.localAiFailure = null;
       this.syncLocalAiState(this.localAiState.activeAction);
     };
@@ -825,28 +830,54 @@ export default class OmdHomePlugin extends Plugin {
         const version = await this.ollamaLocalClient.version(host, signal);
         const status = await this.ollamaLocalClient.status(host, signal);
         const catalog = await this.ollamaLocalClient.tags(host, signal);
-        publishCatalog(host, checkedAt, version.version, catalog);
         if (status.cloud?.disabled !== false) {
-          throw new LocalAiError(
-            "cloud_features_unknown",
-            "Ollama Cloud is not available. Sign in to the Ollama app and enable Cloud, then check setup again.",
-          );
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+            selectedModelError: new LocalAiError(
+              "cloud_features_unknown",
+              "Ollama Cloud is not available. Sign in to the Ollama app and enable Cloud, then check setup again.",
+            ),
+          };
         }
         const cloudModels = catalog.filter(modelIsVerifiedOllamaCloud);
         if (!cloudModels.length) {
-          throw new LocalAiError(
-            "no_models_installed",
-            "No Ollama Cloud model was detected. Run a cloud model once in Ollama, then check setup again.",
-          );
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+            selectedModelError: new LocalAiError(
+              "no_models_installed",
+              "No Ollama Cloud model was detected. Run a cloud model once in Ollama, then check setup again.",
+            ),
+          };
         }
         if (!model) {
           return {
             version,
             models: catalog,
             selectedModelReady: false,
+            selectedModelError: null,
           };
         }
-        const info = await this.ollamaLocalClient.show(host, model, signal);
+        let info: LocalAiModelInfo;
+        try {
+          info = await this.ollamaLocalClient.show(host, model, signal);
+        } catch (error) {
+          if (error instanceof LocalAiError && (
+            error.code === "selected_model_missing"
+            || error.code === "model_unavailable"
+          )) {
+            return {
+              version,
+              models: catalog,
+              selectedModelReady: false,
+              selectedModelError: error,
+            };
+          }
+          throw error;
+        }
         const catalogEntry = catalog.find((entry) => localModelNamesMatch(entry.name, model));
         const inspectedEntry = buildModelEntry(info);
         const entryName = catalogEntry?.name || inspectedEntry.name || model;
@@ -856,10 +887,15 @@ export default class OmdHomePlugin extends Plugin {
           entryName,
         );
         if (!modelIsVerifiedOllamaCloud(inspected)) {
-          throw new LocalAiError(
-            "selected_model_incompatible",
-            `${model} is not verified as an Ollama Cloud model routed to https://ollama.com.`,
-          );
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+            selectedModelError: new LocalAiError(
+              "selected_model_incompatible",
+              `${model} is not verified as an Ollama Cloud model routed to https://ollama.com.`,
+            ),
+          };
         }
         const merged = new Map(catalog.map((entry) => [entry.name, entry]));
         merged.set(entryName, inspected);
@@ -867,9 +903,12 @@ export default class OmdHomePlugin extends Plugin {
           version,
           models: [...merged.values()].sort((left, right) => left.name.localeCompare(right.name)),
           selectedModelReady: true,
+          selectedModelError: null,
         };
       });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return false;
       publishCatalog(host, checkedAt, checked.version.version, checked.models);
+      if (checked.selectedModelError) throw checked.selectedModelError;
       if (!checked.selectedModelReady) {
         const feedback = "Ollama Cloud models loaded. Choose an answer model, then check setup again.";
         this.setLocalAiFeedback("neutral", feedback);
@@ -881,7 +920,7 @@ export default class OmdHomePlugin extends Plugin {
       new Notice(feedback);
       return true;
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         if (error instanceof LocalAiError && (
           error.code === "cloud_features_unknown"
           || error.code === "no_models_installed"
@@ -1070,6 +1109,9 @@ export default class OmdHomePlugin extends Plugin {
         virtualEnvironment: process.env.VIRTUAL_ENV,
       },
       async (executable) => {
+        if (request.polish) {
+          await this.omdCapabilityService.requireLocalOllamaTransport(executable, signal);
+        }
         const socialProvider = socialCaptureProvider(request.source);
         if (socialProvider) {
           await this.omdCapabilityService.requireSocialCaptureAuth(executable, socialProvider, signal);
@@ -1571,10 +1613,12 @@ export default class OmdHomePlugin extends Plugin {
     const startedAt = performance.now();
     try {
       let answer: AiAnswer;
+      let retrievalEndpoint: string;
       if (provider === "ollama") {
         await this.requireReadyOmdExecutable();
         requestSignal?.throwIfAborted();
         const preview = await this.previewLocalAnswer(query, requestSignal);
+        retrievalEndpoint = preview.endpoint;
         if (preview.preview.noEvidence || !preview.preview.evidence.length) {
           const detail = "No relevant vault evidence was found. No model request was sent.";
           this.clearIssue("ai");
@@ -1585,6 +1629,7 @@ export default class OmdHomePlugin extends Plugin {
             output,
             preview.preview.warnings ?? [],
             preview.embeddingFallbackModel,
+            retrievalEndpoint,
             "evidence-check",
           );
           return;
@@ -1604,6 +1649,7 @@ export default class OmdHomePlugin extends Plugin {
         await this.requireReadyOmdExecutable(true);
         requestSignal?.throwIfAborted();
         const preview = await this.previewCloudAnswer(query, provider, model, requestSignal);
+        retrievalEndpoint = preview.endpoint;
         if (this.unloaded || requestSignal?.aborted) return;
         if (preview.preview.noEvidence || !preview.preview.evidence.length) {
           const detail = "No relevant vault evidence was found. No model request was sent.";
@@ -1615,6 +1661,7 @@ export default class OmdHomePlugin extends Plugin {
             output,
             preview.preview.warnings ?? [],
             preview.embeddingFallbackModel,
+            retrievalEndpoint,
             "evidence-check",
           );
           return;
@@ -1664,7 +1711,7 @@ export default class OmdHomePlugin extends Plugin {
       }
       requestSignal?.throwIfAborted();
       this.clearIssue("ai");
-      this.renderAiAnswer(output, answer, performance.now() - startedAt);
+      this.renderAiAnswer(output, answer, performance.now() - startedAt, retrievalEndpoint);
     } catch (error) {
       if (this.unloaded || requestSignal?.aborted || isAbortError(error)) return;
       this.reportLocalAiWorkflowIssue(error);
@@ -2024,6 +2071,7 @@ export default class OmdHomePlugin extends Plugin {
       controller.signal.throwIfAborted();
       if (blockedReason) throw new Error(blockedReason);
       const executable = await this.requireReadyOmdExecutable();
+      await this.omdCapabilityService.requireLocalOllamaTransport(executable, controller.signal);
       controller.signal.throwIfAborted();
       const snapshot = createWorkflowSnapshot("capture", this.settings, true);
       const formatted = await this.runLocalAiGated(
@@ -2252,14 +2300,16 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   invalidateLocalAiState(
-    reason: "provider" | "host" | "answer-model" | "model" | "capture-polish" | "retrieval" = "model",
+    reason: "provider" | "host" | "answer-model" | "model" | "capture-polish" | "retrieval" | "embedding-model" = "model",
+    refreshSettings = true,
   ): void {
     this.localAiActionToken += 1;
     this.cancelHostedAiAction();
     this.invalidateCloudAnswerConsent();
     this.cancelLocalAiRequests();
+    if (reason === "host" || reason === "retrieval" || reason === "embedding-model") this.localAiEmbeddingProbe = null;
     this.localAiFailure = null;
-    if (reason === "provider" || reason === "answer-model") {
+    if (reason === "provider" || reason === "answer-model" || reason === "host" || reason === "embedding-model") {
       this.localAiFeedback = null;
       this.clearIssue("ai");
     }
@@ -2283,8 +2333,8 @@ export default class OmdHomePlugin extends Plugin {
         modelChecks: {},
       });
     }
-    this.syncLocalAiState("");
-    this.syncHostedAiState("");
+    this.syncLocalAiState("", refreshSettings);
+    this.syncHostedAiState("", refreshSettings);
   }
 
   cancelLocalAiRequests(): void {
@@ -2317,13 +2367,16 @@ export default class OmdHomePlugin extends Plugin {
         version: await this.ollamaLocalClient.version(host, signal),
         models: await this.ollamaLocalClient.tags(host, signal),
       }));
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
+      this.reconcileEmbeddingProbe(host, models);
       const previous = !force ? this.localAiSummaries.get(host) : null;
+      const daemonCode = models.length ? "ready" : "no_models_installed";
       this.localAiSummaries.set(host, buildConnectionSummary({
         host,
         checkedAt,
         version: version.version,
-        daemonCode: previous?.daemonCode ?? "unchecked",
-        daemonDetail: previous?.daemonDetail ?? "Run Check setup to validate the local daemon and selected models.",
+        daemonCode,
+        daemonDetail: describeDaemonReadiness(daemonCode),
         models,
         modelChecks: previous?.modelChecks ?? {},
       }));
@@ -2334,7 +2387,7 @@ export default class OmdHomePlugin extends Plugin {
       this.setLocalAiFeedback("success", feedback);
       if (force) new Notice(feedback);
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         this.setLocalAiFailure(error);
         this.setLocalAiFeedback("error", `Model refresh failed. ${message(error)}`);
         if (force) new Notice(message(error));
@@ -2408,6 +2461,7 @@ export default class OmdHomePlugin extends Plugin {
           modelChecks,
         };
       });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return false;
       this.localAiSummaries.set(host, buildConnectionSummary({
         host,
         checkedAt,
@@ -2417,6 +2471,7 @@ export default class OmdHomePlugin extends Plugin {
         models: checked.models,
         modelChecks: checked.modelChecks,
       }));
+      this.reconcileEmbeddingProbe(host, checked.models);
       this.localAiFailure = null;
       this.clearIssue("ai");
       this.syncLocalAiState(this.localAiState.activeAction);
@@ -2428,7 +2483,7 @@ export default class OmdHomePlugin extends Plugin {
       new Notice(feedback);
       return ready;
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         this.setLocalAiFailure(error);
         this.setLocalAiFeedback("error", `Connection failed. ${message(error)}`);
         new Notice(message(error));
@@ -2464,11 +2519,12 @@ export default class OmdHomePlugin extends Plugin {
           return smoke;
         },
       );
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
       const feedback = `${localAiWorkflowLabel(workflow)} smoke passed in ${result.latencyMs}ms: ${summarizeSmokeResponse(result.responseText)}`;
       this.setLocalAiFeedback("success", feedback);
       new Notice(feedback);
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         this.reportLocalAiWorkflowIssue(error);
         this.setLocalAiFeedback("error", `${localAiWorkflowLabel(workflow)} smoke failed. ${message(error)}`);
         new Notice(message(error));
@@ -2483,9 +2539,10 @@ export default class OmdHomePlugin extends Plugin {
     this.clearIssue("ai");
     this.setLocalAiFeedback("neutral", "Testing local embedding retrieval model…");
     const actionToken = this.beginLocalAiAction("test-embeddings");
+    const model = this.settings.embeddingModel.trim();
+    let host = this.settings.ollamaHost.trim();
     try {
-      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
-      const model = this.settings.embeddingModel.trim();
+      host = normalizeLocalOllamaHost(host);
       if (!model) throw new LocalAiError("selected_model_missing", "Choose a local embedding model before testing embeddings.");
       const result = await this.withLocalAiSignal(async (signal) => {
         const version = await this.ollamaLocalClient.version(host, signal);
@@ -2497,6 +2554,7 @@ export default class OmdHomePlugin extends Plugin {
         const daemonCode = deriveLocalAiDaemonCode(status, models);
         if (daemonCode !== "ready") throw new LocalAiError(daemonCode, describeDaemonReadiness(daemonCode));
         const selected = await this.safeShowModel(host, model, signal);
+        signal.throwIfAborted();
         const mergedModels = new Map(models.map((entry) => [entry.name, entry]));
         const catalogEntry = models.find((entry) => localModelNamesMatch(entry.name, model));
         const entryName = catalogEntry?.name ?? model;
@@ -2517,16 +2575,26 @@ export default class OmdHomePlugin extends Plugin {
         if (!modelSupportsEmbedding(selectedEntry)) {
           throw new LocalAiError("selected_model_incompatible", `${model} does not advertise embedding support. Choose a local embedding-capable model.`);
         }
-        return await this.ollamaLocalClient.embed(host, model, ["vault retrieval probe", "多语言检索探针"], signal);
+        const embedded = await this.ollamaLocalClient.embed(host, model, ["vault retrieval probe", "多语言检索探针"], signal);
+        return { ...embedded, revision: selectedEntry.digest };
       });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
+      const feedback = `Embedding test passed for ${model} in ${result.latencyMs}ms: ${result.vectorCount} vectors × ${result.dimensions} dims.`;
+      this.localAiEmbeddingProbe = {
+        host, model, revision: result.revision, code: "ready", detail: feedback, checkedAt: Date.now(),
+        vectorCount: result.vectorCount, dimensions: result.dimensions,
+      };
       this.syncLocalAiState(this.localAiState.activeAction);
-      const feedback = `Embedding test passed in ${result.latencyMs}ms: ${result.vectorCount} vectors × ${result.dimensions} dims.`;
       this.setLocalAiFeedback("success", feedback);
       new Notice(feedback);
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
+        const detail = `Embedding test failed. ${message(error)}`;
+        this.localAiEmbeddingProbe = {
+          host, model, code: error instanceof LocalAiError ? error.code : "smoke_failed", detail, checkedAt: Date.now(),
+        };
         this.reportLocalAiWorkflowIssue(error);
-        this.setLocalAiFeedback("error", `Embedding test failed. ${message(error)}`);
+        this.setLocalAiFeedback("error", detail);
         new Notice(message(error));
       }
     } finally {
@@ -2534,7 +2602,7 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
-  async installEmbeddingModel(expectedModel: string): Promise<boolean> {
+  async installEmbeddingModel(expectedModel: string, expectedHost?: string): Promise<boolean> {
     if (!this.canStartAiSetupAction()) return false;
     this.clearIssue("ai");
     const model = oneClickInstallableEmbeddingModel(expectedModel);
@@ -2555,8 +2623,12 @@ export default class OmdHomePlugin extends Plugin {
         );
       }
       const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      if (expectedHost !== undefined && host !== expectedHost) {
+        throw new LocalAiError("snapshot_mismatch", "The Ollama endpoint changed. Open retrieval settings to review the current endpoint.");
+      }
       await this.withLocalAiSignal(async (signal) => {
         const catalog = await this.ollamaLocalClient.tags(host, signal);
+        signal.throwIfAborted();
         const existing = catalog.find((entry) => localModelNamesMatch(entry.name, model));
         if (!existing) {
           await this.ollamaLocalClient.pull(host, model, signal);
@@ -2573,13 +2645,18 @@ export default class OmdHomePlugin extends Plugin {
           throw new LocalAiError("selected_model_incompatible", `${model} does not advertise embedding support.`);
         }
       });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return false;
       installed = true;
+      const probe = this.localAiEmbeddingProbe;
+      if (probe?.host === host && localModelNamesMatch(probe.model, model) && probe.code !== "ready") {
+        this.localAiEmbeddingProbe = null;
+      }
       this.clearIssue("ai");
       const feedback = `${model} is installed and supports local embeddings. Refreshing the local model catalog…`;
       this.setLocalAiFeedback("success", feedback);
       new Notice(feedback);
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         this.reportLocalAiWorkflowIssue(error);
         this.setLocalAiFeedback("error", `Embedding model installation failed. ${message(error)}`);
         new Notice(message(error));
@@ -2587,7 +2664,9 @@ export default class OmdHomePlugin extends Plugin {
     } finally {
       this.finishLocalAiAction(actionToken);
     }
-    if (installed) await this.refreshLocalAiCatalog(false);
+    if (installed && !this.unloaded && actionToken === this.localAiActionToken) {
+      await this.refreshLocalAiCatalog(false);
+    }
     return installed;
   }
 
@@ -4191,7 +4270,7 @@ export default class OmdHomePlugin extends Plugin {
     this.clearIssue("inbox");
   }
 
-  private renderAiAnswer(output: HTMLElement, answer: AiAnswer, elapsedMs: number): void {
+  private renderAiAnswer(output: HTMLElement, answer: AiAnswer, elapsedMs: number, retrievalEndpoint: string): void {
     output.empty();
     output.hidden = false;
     const header = output.createDiv({ cls: "omd-answer-meta" });
@@ -4219,9 +4298,12 @@ export default class OmdHomePlugin extends Plugin {
       attr: { "aria-label": "Copy OMD result and source links" },
     });
     copy.addEventListener("click", () => void this.copyAiAnswer(copy, answer));
-    this.renderRetrievalDiagnostics(output, answer.warnings ?? [], answer.embeddingFallbackModel ?? null);
+    this.renderRetrievalDiagnostics(output, answer.warnings ?? [], answer.embeddingFallbackModel ?? null, retrievalEndpoint);
     output.createEl("p", { cls: "omd-answer-text", text: scopedAiAnswerText(answer) });
-    const sources = output.createDiv({ cls: "omd-answer-sources" });
+    const sources = output.createDiv({
+      cls: "omd-answer-sources",
+      attr: { role: "group", "aria-label": "Sources for this answer" },
+    });
     for (const hit of answer.evidence) {
       const link = sources.createEl("button", { cls: "omd-source-link", type: "button", text: hit.path });
       link.addEventListener("click", () => void this.app.workspace.openLinkText(hit.path, "", false));
@@ -4232,6 +4314,7 @@ export default class OmdHomePlugin extends Plugin {
     output: HTMLElement,
     warnings: string[],
     embeddingFallbackModel: string | null,
+    retrievalEndpoint: string,
     context: "answer" | "evidence-check" = "answer",
   ): void {
     if (!warnings.length) return;
@@ -4240,17 +4323,50 @@ export default class OmdHomePlugin extends Plugin {
       const diagnostic = diagnostics.createDiv({ cls: "omd-answer-warning" });
       diagnostic.createSpan({ text: humanizeRetrievalWarning(warning, context) });
       if (!isEmbeddingRetrievalWarning(warning)) continue;
-      const warningActions = diagnostic.createDiv({ cls: "omd-answer-warning-actions" });
       const installableModel = warning === "hybrid_retrieval_model_not_installed"
         ? oneClickInstallableEmbeddingModel(embeddingFallbackModel ?? "")
         : null;
+      const pullCommand = warning === "hybrid_retrieval_model_not_installed" && !installableModel
+        ? embeddingModelPullCommand(embeddingFallbackModel ?? "", retrievalEndpoint, Platform.isWin)
+        : null;
       if (installableModel) {
-        const install = warningActions.createEl("button", { type: "button", text: "Install model" });
-        install.title = `Install ${installableModel} with the configured local Ollama service`;
+        diagnostic.createDiv({
+          cls: "omd-answer-warning-detail",
+          text: `Installing ${installableModel} downloads model data to Ollama and may take several minutes.`,
+        });
+      }
+      const warningActions = diagnostic.createDiv({ cls: "omd-answer-warning-actions" });
+      if (installableModel) {
+        const install = warningActions.createEl("button", { type: "button", text: `Install ${installableModel}` });
+        install.title = `Install ${installableModel} with Ollama at ${retrievalEndpoint}`;
         install.disabled = this.aiSetupBusy();
-        install.addEventListener("click", () => void this.installEmbeddingModel(installableModel).then((installed) => {
+        install.addEventListener("click", () => void this.installEmbeddingModel(installableModel, retrievalEndpoint).then((installed) => {
           if (installed && install.isConnected) install.textContent = "Installed";
         }));
+      } else if (pullCommand) {
+        const copyCommand = warningActions.createEl("button", { type: "button", text: "Copy install command" });
+        copyCommand.title = `Copy ${pullCommand}`;
+        copyCommand.addEventListener("click", () => {
+          if (this.currentLocalAiHost() !== retrievalEndpoint
+            || !localModelNamesMatch(this.settings.embeddingModel, embeddingFallbackModel ?? "")) {
+            new Notice("Retrieval settings changed. Review the current Ollama endpoint and embedding model.");
+            this.openRetrievalSettings();
+            return;
+          }
+          void navigator.clipboard.writeText(pullCommand).then(() => {
+            if (copyCommand.isConnected) copyCommand.textContent = "Copied";
+            new Notice("Ollama install command copied. Run it in terminal, then refresh models.");
+          }).catch(() => {
+            new Notice(`Copy failed. Run this in Terminal: ${pullCommand}`);
+          });
+        });
+      } else {
+        const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
+        settings.addEventListener("click", () => this.openRetrievalSettings());
+      }
+      if (installableModel || pullCommand) {
+        const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
+        settings.addEventListener("click", () => this.openRetrievalSettings());
       }
       if (this.settings.hybridRetrievalEnabled) {
         const sparse = warningActions.createEl("button", { type: "button", text: "Use keyword search by default" });
@@ -4263,8 +4379,6 @@ export default class OmdHomePlugin extends Plugin {
           }
         }));
       }
-      const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
-      settings.addEventListener("click", () => this.openRetrievalSettings());
     }
   }
 
@@ -4477,6 +4591,7 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   private async previewLocalAnswer(query: string, requestSignal?: AbortSignal): Promise<{
+    endpoint: string;
     preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
     retrieval: HybridRetrievalOptions;
     embeddingFallbackModel: string | null;
@@ -4506,6 +4621,7 @@ export default class OmdHomePlugin extends Plugin {
       requestSignal,
     );
     return {
+      endpoint: snapshot.host,
       preview: retrievalWarning ? mergeRetrievalWarnings(preview, [retrievalWarning]) : preview,
       retrieval,
       embeddingFallbackModel,
@@ -4709,11 +4825,12 @@ export default class OmdHomePlugin extends Plugin {
     this.assertCloudPreviewStillCurrent(preview);
   }
 
-  private syncLocalAiState(activeAction: LocalAiRuntimeState["activeAction"]): void {
+  private syncLocalAiState(activeAction: LocalAiRuntimeState["activeAction"], refreshSettings = true): void {
     const summary = this.currentLocalAiSummary();
     const models = summary?.models ?? [];
     this.localAiState = aggregateLocalAiState(this.settings, summary, models, activeAction);
     this.refreshHomeViews();
+    if (refreshSettings) this.settingTab?.refreshLocalAiSection();
   }
 
   private async runLocalAiSafetyGate(snapshot: LocalAiSnapshot, signal?: AbortSignal): Promise<void> {
@@ -4723,7 +4840,9 @@ export default class OmdHomePlugin extends Plugin {
         .catch((error) => {
           throw remapLocalAiError(error, "status_unavailable", "OMD Home could not verify /api/status from the local Ollama daemon.");
         });
+      signal?.throwIfAborted();
       const models = await this.ollamaLocalClient.tags(snapshot.host, signal);
+      signal?.throwIfAborted();
       const daemonCode = deriveLocalAiDaemonCode(status, models);
       const checkedAt = Date.now();
       const previous = this.localAiSummaries.get(snapshot.host);
@@ -4744,7 +4863,9 @@ export default class OmdHomePlugin extends Plugin {
       let selectedModelShow: LocalAiModelInfo;
       try {
         selectedModelShow = await this.safeShowModel(snapshot.host, snapshot.model, signal);
+        signal?.throwIfAborted();
       } catch (error) {
+        signal?.throwIfAborted();
         if (error instanceof LocalAiError && error.code === "selected_model_missing") {
           this.storeLiveGateModelResult(snapshot, models, {
             model: snapshot.model,
@@ -4774,6 +4895,7 @@ export default class OmdHomePlugin extends Plugin {
         throw new LocalAiError(modelCode, describeModelReadiness(snapshot.model, modelEntry));
       }
     } catch (error) {
+      signal?.throwIfAborted();
       if (!isAbortError(error) && !(error instanceof LocalAiError && isModelReadinessCode(error.code))) {
         this.setLocalAiFailure(error, snapshot.host);
       }
@@ -4807,6 +4929,9 @@ export default class OmdHomePlugin extends Plugin {
       const result = await task(controller.signal);
       controller.signal.throwIfAborted();
       return result;
+    } catch (error) {
+      controller.signal.throwIfAborted();
+      throw error;
     } finally {
       parentSignal?.removeEventListener("abort", relayAbort);
       this.localAiControllers.delete(controller);
@@ -4850,6 +4975,7 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   private canStartAiSetupAction(notify = true): boolean {
+    if (this.unloaded) return false;
     if (!this.aiSetupBusy()) return true;
     if (notify) new Notice("Another AI setup action is already running. Wait for it to finish before starting a new one.");
     return false;
@@ -4872,6 +4998,19 @@ export default class OmdHomePlugin extends Plugin {
     const host = this.currentLocalAiHost();
     if (!host) return this.localAiFailure;
     return this.localAiSummaries.get(host) ?? this.localAiFailure;
+  }
+
+  private reconcileEmbeddingProbe(host: string, models: LocalAiModelEntry[]): void {
+    const probe = this.localAiEmbeddingProbe;
+    if (!probe || probe.host !== host) return;
+    if (probe.code !== "ready") {
+      this.localAiEmbeddingProbe = null;
+      return;
+    }
+    const revision = resolveEmbeddingModelRevision(probe.model, models);
+    if (!probe.revision || !revision || revision !== probe.revision) {
+      this.localAiEmbeddingProbe = null;
+    }
   }
 
   private setLocalAiFailure(error: unknown, knownHost?: string): number {
@@ -4898,6 +5037,7 @@ export default class OmdHomePlugin extends Plugin {
   private setLocalAiFeedback(tone: LocalAiActionFeedback["tone"], messageText: string): void {
     this.localAiFeedback = { tone, message: messageText, at: Date.now() };
     this.refreshHomeViews();
+    this.settingTab?.refreshLocalAiSection();
   }
 
   private setCalendarFeedback(tone: LocalAiActionFeedback["tone"], messageText: string): void {
@@ -4928,13 +5068,15 @@ export default class OmdHomePlugin extends Plugin {
       const entryName = catalogEntry?.name ?? snapshot.model;
       catalog.set(entryName, mergeInspectedModelEntry(catalogEntry, modelEntry, entryName));
     }
+    const refreshedModels = [...catalog.values()].sort((left, right) => left.name.localeCompare(right.name));
+    this.reconcileEmbeddingProbe(snapshot.host, refreshedModels);
     this.localAiSummaries.set(snapshot.host, buildConnectionSummary({
       host: snapshot.host,
       checkedAt: checkedModel.checkedAt,
       version: previous?.version,
       daemonCode: "ready",
       daemonDetail: describeDaemonReadiness("ready"),
-      models: [...catalog.values()].sort((left, right) => left.name.localeCompare(right.name)),
+      models: refreshedModels,
       modelChecks: {
         ...(previous?.modelChecks ?? {}),
         [snapshot.model]: checkedModel,
@@ -5021,20 +5163,23 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
-  private syncHostedAiState(activeAction: HostedAiRuntimeState["activeAction"]): void {
+  private syncHostedAiState(activeAction: HostedAiRuntimeState["activeAction"], refreshSettings = true): void {
     const provider = this.currentHostedProvider();
     if (!provider) {
       this.hostedAiState = null;
       this.refreshHomeViews();
+      if (refreshSettings) this.settingTab?.refreshLocalAiSection();
       return;
     }
     if (!this.hostedAiState || this.hostedAiState.provider !== provider) {
       this.hostedAiState = { ...buildHostedState(provider), activeAction };
       this.refreshHomeViews();
+      if (refreshSettings) this.settingTab?.refreshLocalAiSection();
       return;
     }
     this.hostedAiState = { ...this.hostedAiState, activeAction };
     this.refreshHomeViews();
+    if (refreshSettings) this.settingTab?.refreshLocalAiSection();
   }
 
   private beginHostedAiAction(action: Exclude<HostedAiRuntimeState["activeAction"], "">): number {

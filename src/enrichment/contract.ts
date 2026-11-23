@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { normalizeLocalOllamaHost } from "../local-ai-readiness.ts";
+import { LocalAiError } from "../ollama-local-types.ts";
 import { EnrichmentError } from "./errors.ts";
 
 export const ENRICHMENT_SCHEMA_VERSION = 1;
@@ -171,6 +173,9 @@ export interface CapabilityResponse {
       xhs?: string;
     };
   };
+  local_ollama_transport?: {
+    version: number;
+  };
   hosted_ai_disclosure?: HostedAiDisclosureCapability;
   enrich_note: {
     schema_versions: number[];
@@ -221,21 +226,12 @@ export function sha256HexUtf8(value: string): string {
 }
 
 export function ensureLoopbackHost(value: string): string {
-  const url = parseHttpUrl(value, "host");
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
-  if (url.username || url.password) {
-    throw new EnrichmentError("remote_host_not_allowed", "OMD enrichment requires an Ollama base URL without embedded credentials.");
+  try {
+    return normalizeLocalOllamaHost(value);
+  } catch (error) {
+    if (!(error instanceof LocalAiError)) throw error;
+    throw new EnrichmentError("remote_host_not_allowed", error.message, { cause: error });
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new EnrichmentError("remote_host_not_allowed", "OMD enrichment requires an HTTP loopback Ollama endpoint.");
-  }
-  if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
-    throw new EnrichmentError("remote_host_not_allowed", "OMD enrichment requires a base URL without a path, query, or fragment.");
-  }
-  if (!isLoopbackHostname(host)) {
-    throw new EnrichmentError("remote_host_not_allowed", "Phase 2 enrichment only allows a loopback Ollama endpoint.");
-  }
-  return url.toString().replace(/\/$/u, "");
 }
 
 export function validateCapabilityResponse(value: unknown): CapabilityResponse {
@@ -279,6 +275,12 @@ export function validateCapabilityResponse(value: unknown): CapabilityResponse {
   }
   if (record.capture_auth_options !== undefined) {
     capability.capture_auth_options = validateCaptureAuthOptions(record.capture_auth_options);
+  }
+  if (record.local_ollama_transport !== undefined) {
+    const transport = expectRecord(record.local_ollama_transport, "capabilities.local_ollama_transport");
+    capability.local_ollama_transport = {
+      version: expectPositiveInteger(transport.version, "capabilities.local_ollama_transport.version"),
+    };
   }
   if (record.hosted_ai_disclosure !== undefined) {
     capability.hosted_ai_disclosure = validateHostedAiDisclosure(record.hosted_ai_disclosure);
@@ -832,21 +834,6 @@ function expectTag(value: unknown, path: string): string {
     throw new EnrichmentError("invalid_response", `Expected ${path} to be a valid tag.`);
   }
   return string;
-}
-
-function parseHttpUrl(value: string, path: string): URL {
-  try {
-    return new URL(value);
-  } catch (error) {
-    throw new EnrichmentError("remote_host_not_allowed", `Expected ${path} to be a valid HTTP URL.`, { cause: error as Error });
-  }
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const host = hostname.replace(/\.$/u, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return true;
-  if (!/^127(?:\.\d{1,3}){3}$/u.test(host)) return false;
-  return host.split(".").every((part) => Number(part) >= 0 && Number(part) <= 255);
 }
 
 function normalizeGeneratedTag(value: string): string {

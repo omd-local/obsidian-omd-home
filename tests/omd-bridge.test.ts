@@ -1185,7 +1185,8 @@ test("maps hosted provider failures to safe actionable messages", () => {
     [{ provider: "openai", code: "disclosure_unavailable" }, /could not prepare the exact evidence disclosure.+Nothing was sent/u],
     [{ provider: "openai", code: "provider_mismatch" }, /no longer matches the approved request.+Nothing was sent/u],
     [{ provider: "openai", code: "answer_schema_unsupported" }, /cannot enforce citation-safe answers.+No vault evidence was sent.+Update OMD/u],
-    [{ provider: "openai", code: "malformed_structured_output" }, /required Source states \/ Model inference structure.+No unverified answer was shown/u],
+    [{ provider: "openai", code: "malformed_structured_output" }, /could not verify the answer format.+No unverified answer was shown/u],
+    [{ provider: "openai", code: "malformed_structured_output", action: "execute_ai" }, /could not verify the answer format.+The approved vault evidence was sent.+No unverified answer was shown/u],
     [{ provider: "openai", code: "cancelled" }, /AI request was cancelled/u],
     [{ provider: "openai", code: "http_error", status_code: 400, action: "discover_provider_models" }, /OpenAI rejected the provider setup request/u],
   ];
@@ -1196,7 +1197,7 @@ test("maps hosted provider failures to safe actionable messages", () => {
       type: "AIServiceError",
     }, "OMD Home bridge failed");
     assert.match(message, expected);
-    assert.doesNotMatch(message, /sk-secret|Authorization|PRIVATE_EVIDENCE/u);
+    assert.doesNotMatch(message, /sk-secret|Authorization|PRIVATE_EVIDENCE|Source states|Model inference/u);
   }
 });
 
@@ -1578,6 +1579,7 @@ test("Ask AI runs through the real Python bridge with bounded evidence blocks", 
     await mkdir(vault, { recursive: true });
     await mkdir(packageRoot, { recursive: true });
     await writeFile(join(packageRoot, "__init__.py"), "");
+    await writeFile(join(packageRoot, "_network_policy.py"), "LOCAL_OLLAMA_TRANSPORT_VERSION = 1\n");
     await writeFile(join(packageRoot, "retrieval.py"), `
 from dataclasses import dataclass
 from pathlib import Path
@@ -2707,7 +2709,7 @@ test("Ask AI validates the local hybrid endpoint before retrieval starts", () =>
     query: "calendar workflows",
     provider: "ollama",
     model: "qwen3:4b-instruct",
-    endpoint: "http://localhost:9999",
+    endpoint: "http://localhost:9999/v1",
     limit: 8,
     hybrid_retrieval_enabled: true,
     embedding_model: "bge-m3",
@@ -2727,6 +2729,7 @@ test("Ask AI keeps hybrid compatibility with OMD builds before model revisions",
     "        self.model = model",
     "        self.rerank = rerank",
     "bridge.SemanticRecallConfig = LegacySemanticRecallConfig",
+    "bridge.HAS_HARDENED_OMD_OLLAMA_TRANSPORT = True",
     "config = bridge._semantic_config({",
     "    'hybrid_retrieval_enabled': True,",
     "    'endpoint': 'http://localhost:11434',",
@@ -2744,6 +2747,49 @@ test("Ask AI keeps hybrid compatibility with OMD builds before model revisions",
     model: "bge-m3",
     rerank: true,
   });
+});
+
+test("older OMD builds use the hardened bridge fallback and keyword retrieval", () => {
+  const code = [
+    "import contextlib, io, json, sys",
+    "import bridge.omd_home_bridge as bridge",
+    "bridge.HAS_OMD_AI_SERVICE = True",
+    "bridge.HAS_HARDENED_OMD_OLLAMA_TRANSPORT = False",
+    "bridge.SemanticRecallConfig = lambda **kwargs: (_ for _ in ()).throw(AssertionError('legacy semantic transport must not run'))",
+    "bridge.execute_text_task = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('legacy OMD local transport must not run'))",
+    "hit = bridge.SearchHit(path='legacy.md', title='Legacy', score=1.0, evidence='Legacy evidence stays local.')",
+    "source = 'QUESTION\\nWhat is safe?\\n\\nSOURCE [S1]\\nBody: Legacy evidence stays local.'",
+    "bridge._answer_material = lambda request: ([hit], source, 'sparse', None, ['hybrid_retrieval_unsupported_by_omd'])",
+    "bridge._ollama_request = lambda endpoint, route, payload: {",
+    "    'model': payload['model'],",
+    "    'message': {'content': json.dumps({'source_states': [{'claim': 'Legacy evidence stays local.', 'citations': ['S1']}], 'model_inference': []})},",
+    "}",
+    "request = {",
+    "    'action': 'execute_ai', 'vault': '.', 'query': 'What is safe?', 'provider': 'ollama',",
+    "    'model': 'qwen3:4b-instruct', 'endpoint': 'http://localhost:11434', 'limit': 8,",
+    "    'hybrid_retrieval_enabled': True, 'embedding_model': 'bge-m3', 'semantic_rerank_enabled': True,",
+    "}",
+    "sys.stdin = io.StringIO(json.dumps(request))",
+    "output = io.StringIO()",
+    "with contextlib.redirect_stdout(output):",
+    "    status = bridge.main()",
+    "semantic = bridge._semantic_config(request)",
+    "print(json.dumps({'status': status, 'response': json.loads(output.getvalue()), 'semantic': semantic}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as {
+    status: number;
+    response: { ok: boolean; text: string; retrieval_mode: string; warnings: string[] };
+    semantic: unknown;
+  };
+  assert.equal(value.status, 0);
+  assert.equal(value.response.ok, true);
+  assert.match(value.response.text, /Legacy evidence stays local\. \[\[legacy\.md\]\]/u);
+  assert.equal(value.response.retrieval_mode, "sparse");
+  assert.deepEqual(value.response.warnings, ["hybrid_retrieval_unsupported_by_omd"]);
+  assert.equal(value.semantic, null);
 });
 
 test("Ask AI reports sparse fallback when the connected OMD build cannot accept semantic retrieval", async () => {
@@ -2963,9 +3009,85 @@ test("fallback bridge keeps Ollama requests loopback-only, no-redirect, and boun
   assert.match(source, /"think": False/u);
   assert.match(source, /"temperature": 0\.0/u);
   assert.match(source, /class _NoRedirectHandler\(urllib\.request\.HTTPRedirectHandler\)/u);
-  assert.match(source, /build_opener\(_NoRedirectHandler\(\)\)/u);
+  assert.match(source, /class _LocalOllamaHTTPConnection\(http\.client\.HTTPConnection\)/u);
+  assert.match(source, /self\._create_connection = _connect_local_ollama/u);
+  assert.match(source, /urllib\.request\.ProxyHandler\(\{\}\)/u);
+  assert.match(source, /socket\.getaddrinfo\(hostname, port, type=socket\.SOCK_STREAM\)/u);
+  assert.match(source, /ipaddress\.ip_address\(sockaddr\[0\]\)\.is_loopback/u);
   assert.match(source, /response\.read\(limit \+ 1\)/u);
   assert.match(source, /Ollama returned too much data/u);
+});
+
+test("fallback bridge fails over only before writing a custom-port request", () => {
+  const code = [
+    "import io, json, urllib.error",
+    "import bridge.omd_home_bridge as bridge",
+    "safe = [(bridge.socket.AF_INET6, bridge.socket.SOCK_STREAM, 6, '', ('::1', 9999, 0, 0)), (bridge.socket.AF_INET, bridge.socket.SOCK_STREAM, 6, '', ('127.0.0.1', 9999))]",
+    "bridge.socket.getaddrinfo = lambda *args, **kwargs: safe",
+    "body = b'{\"version\":\"test\"}'",
+    "reply = b'HTTP/1.1 200 OK\\r\\nContent-Length: ' + str(len(body)).encode() + b'\\r\\n\\r\\n' + body",
+    "created = []",
+    "class FakeSocket:",
+    "    def __init__(self, family, refuse=False, fail_write=False):",
+    "        self.family, self.refuse, self.fail_write = family, refuse, fail_write",
+    "        self.sent = bytearray()",
+    "        self.closed = False",
+    "    def settimeout(self, _timeout): pass",
+    "    def setsockopt(self, *_args): pass",
+    "    def bind(self, _address): pass",
+    "    def connect(self, _address):",
+    "        if self.refuse: raise ConnectionRefusedError('refused')",
+    "    def sendall(self, value):",
+    "        self.sent.extend(value)",
+    "        if self.fail_write: raise BrokenPipeError('write failed')",
+    "    def makefile(self, _mode): return io.BytesIO(reply)",
+    "    def close(self): self.closed = True",
+    "def connect_factory(family, *_args):",
+    "    sock = FakeSocket(family, refuse=family == bridge.socket.AF_INET6)",
+    "    created.append(sock)",
+    "    return sock",
+    "bridge.socket.socket = connect_factory",
+    "value = bridge._ollama_get('http://localhost:9999', '/api/version')",
+    "successful_writes = [bytes(sock.sent) for sock in created if sock.sent]",
+    "replay_sockets = []",
+    "def replay_factory(family, *_args):",
+    "    sock = FakeSocket(family, fail_write=True)",
+    "    replay_sockets.append(sock)",
+    "    return sock",
+    "bridge.socket.getaddrinfo = lambda *args, **kwargs: safe[::-1]",
+    "bridge.socket.socket = replay_factory",
+    "write_error = ''",
+    "try:",
+    "    bridge._open_local_ollama('http://localhost:9999', '/api/chat', data=b'PRIVATE_EVIDENCE', timeout=3)",
+    "except urllib.error.URLError as exc:",
+    "    write_error = type(exc.reason).__name__",
+    "invalid = []",
+    "for endpoint in ['https://localhost:9999', 'http://localhost:9999/path', 'http://user@localhost:9999', 'http://192.168.1.8:9999']:",
+    "    try:",
+    "        bridge._validate_local_endpoint(endpoint)",
+    "    except ValueError:",
+    "        invalid.append(endpoint)",
+    "print(json.dumps({",
+    "    'value': value,",
+    "    'connect_families': ['ipv6' if sock.family == bridge.socket.AF_INET6 else 'ipv4' for sock in created],",
+    "    'successful_writes': [value.decode('latin1') for value in successful_writes],",
+    "    'write_error': write_error,",
+    "    'replay_socket_count': len(replay_sockets),",
+    "    'replay_write_count': sum(bool(sock.sent) for sock in replay_sockets),",
+    "    'invalid': invalid,",
+    "}))",
+  ].join("\n");
+  const result = spawnPython(["-c", code], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout) as Record<string, unknown>;
+  assert.deepEqual(value.value, { version: "test" });
+  assert.deepEqual(value.connect_families, ["ipv6", "ipv4"]);
+  assert.equal((value.successful_writes as string[]).length, 1);
+  assert.match((value.successful_writes as string[])[0], /GET \/api\/version HTTP\/1\.1.+Host: localhost:9999/su);
+  assert.equal(value.write_error, "BrokenPipeError");
+  assert.equal(value.replay_socket_count, 1);
+  assert.equal(value.replay_write_count, 1);
+  assert.deepEqual(value.invalid, ["https://localhost:9999", "http://localhost:9999/path", "http://user@localhost:9999", "http://192.168.1.8:9999"]);
 });
 
 test("bundled bridge includes Ollama Cloud consent and preflight checks", () => {
@@ -3376,20 +3498,18 @@ test("overlap questions require exhaustive paired citations without source label
 
 test("Ask AI scopes exhaustive questions and keeps evidence categories separate", () => {
   const source = readFileSync(bridgeScript, "utf8");
-  assert.match(source, /Return JSON with source_states and model_inference arrays/u);
-  assert.match(source, /Each item has one\s+claim and citations: a non-empty array containing only exact source IDs allowed/u);
-  assert.match(source, /Cite every\s+factual claim; use only those IDs/u);
-  assert.match(source, /Never emit\s+placeholder-removal commentary/u);
-  assert.match(source, /Put directly supported\s+claims in source_states, including cited paraphrases or combinations/u);
-  assert.match(source, /Never\s+repeat\/rephrase them in model_inference/u);
-  assert.match(source, /When the question explicitly asks for an\s+inference and the evidence warrants it, include the requested inference/iu);
-  assert.match(source, /otherwise leave model_inference empty/iu);
-  assert.match(source, /Follow retrieval\s+response rules\/category\/count/u);
-  assert.match(source, /Give each item one supported\s+action\/detail/u);
-  assert.match(source, /compatible explicit actions in both sources/u);
-  assert.match(source, /mentions, negations,\s+or opposites do not count/u);
-  assert.match(source, /Keep each outline item/u);
-  assert.match(source, /never\s+merge\/omit it/u);
+  assert.match(source, /Return only JSON with source_states and model_inference arrays/u);
+  assert.match(source, /one claim and a non-empty citations array of exact schema IDs/u);
+  assert.match(source, /Cite every claim/u);
+  assert.match(source, /State claims directly\. Avoid inference preambles and placeholder commentary/u);
+  assert.match(source, /Never assume identity, roles, or pronouns beyond the evidence/u);
+  assert.match(source, /Put supported facts, paraphrases and combinations in source_states/u);
+  assert.match(source, /Include requested, warranted\s+synthesis in model_inference; otherwise leave it empty\. Never repeat facts/u);
+  assert.match(source, /Follow retrieval rules\/category\/count/u);
+  assert.match(source, /Give one supported action\/detail per item/u);
+  assert.match(source, /compatible explicit actions in both sources; cite both/u);
+  assert.match(source, /Mentions, negations, or opposites do not count/u);
+  assert.match(source, /Keep each outline item separate/u);
   assert.match(source, /infer one corrective action per mistake/u);
   assert.match(source, /Deduplicate\s+only details/u);
   assert.match(source, /Discuss overlap only when asked/u);
@@ -3855,9 +3975,9 @@ test("Ask AI prefers OMD's bounded section-aware answer context without changing
 
 test("fallback bridge documents the exact local endpoint contract", () => {
   const source = readFileSync(bridgeScript, "utf8");
-  assert.match(source, /http:\/\/localhost:11434/u);
-  assert.match(source, /http:\/\/127\.0\.0\.1:11434/u);
-  assert.match(source, /only permits a loopback Ollama endpoint/u);
+  assert.match(source, /localhost\|127\\\.0\\\.0\\\.1\|\\\[::1\\\]/u);
+  assert.match(source, /explicit port/u);
+  assert.match(source, /only permits an HTTP loopback Ollama endpoint with an explicit port/u);
 });
 
 test("OmdBridge rejects a malformed AI preview instead of exposing partial consent data", async () => {
@@ -4058,8 +4178,8 @@ test("OmdBridge rejects malformed or ungrounded AI answers before they reach the
           query,
         );
       }
-      await assert.rejects(execute("provenance"), /did not separate Source states from Model inference.+required format.+No unverified answer was shown/iu);
-      await assert.rejects(execute("both"), /omitted claim citations.+required Source states \/ Model inference format.+No unverified answer was shown/iu);
+      await assert.rejects(execute("provenance"), /did not clearly separate facts from suggestions.+No unverified answer was shown/iu);
+      await assert.rejects(execute("both"), /omitted claim citations.+did not clearly separate facts from suggestions.+No unverified answer was shown/iu);
       await assert.rejects(
         execute("fallback"),
         /No retrieved evidence was attached, so no answer was shown/u,

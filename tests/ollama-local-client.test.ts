@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import type { IncomingMessage } from "node:http";
+import type { LookupAddress, LookupOptions } from "node:dns";
+import { EventEmitter } from "node:events";
+import type { IncomingMessage, RequestOptions } from "node:http";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
@@ -11,9 +13,10 @@ import { LocalAiError } from "../src/ollama-local-types.ts";
 import { normalizeLocalOllamaHost } from "../src/local-ai-readiness.ts";
 
 test("normalizeLocalOllamaHost is shared with the client contract", () => {
-  assert.equal(normalizeLocalOllamaHost("http://localhost:11434/"), "http://localhost:11434");
+  assert.equal(normalizeLocalOllamaHost("http://localhost:1234"), "http://localhost:1234");
+  assert.equal(normalizeLocalOllamaHost("http://[::1]:1234"), "http://[::1]:1234");
   assert.throws(
-    () => normalizeLocalOllamaHost("http://localhost:1234"),
+    () => normalizeLocalOllamaHost("http://localhost:1234/"),
     (error: unknown) => error instanceof LocalAiError && error.code === "invalid_host",
   );
 });
@@ -347,6 +350,78 @@ test("the default response reader rejects redirects and oversized bodies", async
     consumed,
     (error: unknown) => error instanceof LocalAiError && error.message.includes("more than"),
   );
+});
+
+test("the desktop client checks both localhost address families before returning the requested lookup shape", async (t) => {
+  let results: LookupAddress[] = [{ address: "127.0.0.1", family: 4 }, { address: "::1", family: 6 }];
+  let socketOptions: LookupOptions = { all: true };
+  const connections: unknown[] = [];
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      require(id: string): unknown {
+        if (id === "node:url") return { URL };
+        if (id === "node:dns") {
+          return {
+            lookup(hostname: string, options: LookupOptions, callback: (error: null, addresses: LookupAddress[]) => void) {
+              assert.equal(hostname, "localhost");
+              assert.deepEqual(options, { all: true });
+              callback(null, results);
+            },
+          };
+        }
+        if (id === "node:http") {
+          return {
+            request(_url: URL, options: RequestOptions, onResponse: (response: IncomingMessage) => void) {
+              return Object.assign(new EventEmitter(), {
+                setTimeout: () => {},
+                end(this: EventEmitter) {
+                  assert.ok(options.lookup);
+                  options.lookup("localhost", socketOptions, (error, ...answer) => {
+                    if (error) {
+                      this.emit("error", error);
+                      return;
+                    }
+                    connections.push(answer);
+                    const response = fakeResponse(200);
+                    onResponse(response);
+                    response.end('{"version":"test"}');
+                  });
+                },
+              });
+            },
+          };
+        }
+        throw new Error(`Unexpected runtime module ${id}`);
+      },
+    },
+  });
+  t.after(() => {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  });
+
+  const client = new OllamaLocalClient();
+  assert.deepEqual(await client.version("http://localhost:9999"), { version: "test" });
+  socketOptions = {};
+  await client.version("http://localhost:9999");
+  socketOptions = { all: false, family: 6 };
+  await client.version("http://localhost:9999");
+  socketOptions = { all: true, family: 4 };
+  await client.version("http://localhost:9999");
+  const expectedConnections = [[results], ["127.0.0.1", 4], ["::1", 6], [[results[0]]]];
+  assert.deepEqual(connections, expectedConnections);
+  socketOptions = { family: 6 };
+  for (const addresses of [
+    [],
+    [{ address: "192.0.2.2", family: 4 }],
+    [{ address: "::1", family: 6 }, { address: "192.0.2.2", family: 4 }],
+  ]) {
+    results = addresses;
+    await assert.rejects(client.version("http://localhost:9999"), { code: "invalid_host" });
+  }
+  assert.deepEqual(connections, expectedConnections);
 });
 
 test("OllamaLocalClient forwards AbortSignal cancellation to the transport layer", async () => {

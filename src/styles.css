@@ -1326,6 +1326,8 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.omd-settings-endpoint-validation[role="status"] { color: var(--text-muted); }
+.omd-settings-embedding-model pre { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .omd-settings-endpoint-validation:empty,
 .omd-settings-path-validation:empty { display: none; }
 .omd-settings-endpoint.is-invalid .setting-item-control input {

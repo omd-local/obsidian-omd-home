@@ -94,6 +94,23 @@ test("capture executes the exact absolute executable that passed preflight", () 
   assert.match(bridgeBody, /this\.spawnManagedProcess\(\s*executable,/su);
 });
 
+test("capture polish requires hardened local Ollama transport before any capture starts", () => {
+  const requireBody = extractMethodBody(mainSource, "async requireCaptureOmdExecutable(");
+  const transportGateAt = requireBody.indexOf("requireLocalOllamaTransport(executable, signal)");
+  const socialGateAt = requireBody.indexOf("socialCaptureProvider(request.source)");
+  const captureProbeAt = requireBody.indexOf("probeOmdCaptureExecutable(executable, signal)");
+  assert.match(
+    requireBody,
+    /if \(request\.polish\) \{\s*await this\.omdCapabilityService\.requireLocalOllamaTransport\(executable, signal\);\s*\}/u,
+  );
+  assert.ok(transportGateAt >= 0 && transportGateAt < socialGateAt && transportGateAt < captureProbeAt);
+  assert.doesNotMatch(
+    requireBody,
+    /if \(!request\.polish\)[\s\S]*requireLocalOllamaTransport/u,
+    "plain capture must remain compatible while content-bearing polish fails closed",
+  );
+});
+
 test("capture cancellation spans discovery, Local AI gating, and bridge execution", () => {
   const captureBody = extractMethodBody(mainSource, "async captureWithOmd(");
   const requireBody = extractMethodBody(mainSource, "async requireCaptureOmdExecutable(");

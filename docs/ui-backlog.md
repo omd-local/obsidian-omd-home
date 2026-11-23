@@ -46,8 +46,8 @@ provider-scoped 主流程，视觉节奏不一致会让 credential 与显式授�
 **证据与背景：** 在 **Advanced AI controls → Ollama troubleshooting** 中输入不受支持的
 endpoint 时，校验信息当前与输入框并排显示。较窄的 Settings 面板里，长提示会紧贴输入框并在
 右侧狭窄空间中多行换行，挤压卡片原有留白，削弱错误与字段之间的视觉层级。此项只调整错误信息
-的布局、间距与响应式呈现；不改变仅允许 `http://localhost:11434` 和
-`http://127.0.0.1:11434`、且无效值不覆盖最后有效设置的校验行为。
+的布局、间距与响应式呈现；当时不改变仅允许默认 loopback 地址、且无效值不覆盖最后有效设置的
+校验行为。后续 ANSWER-06 已在相同安全边界内扩展为三个 loopback host 的任意有效显式端口。
 
 2026-10-31 原生复测确认：输入 `http://example.invalid:11434` 后字段即时标红，独立错误行准确说明
 允许地址与保留最后有效值；无效值未保存，因此不产生 Needs attention，也不需要先点 **Check setup**。
@@ -957,7 +957,7 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
 
 ### ANSWER-01：用用户语言呈现原文事实与审慎建议
 
-**状态：Deferred。优先级：P2。**
+**状态：DONE / CLOSED（2026-11-24）。优先级：P2。**
 
 **证据与背景：** AI-03 单来源问题的回答虽然正确区分了 `Source states` 与 `Model inference`，
 但这两个标题暴露了内部校验术语，容易让用户误以为“1 source”和“model inference”代表两种
@@ -967,7 +967,7 @@ v2／read-before-check／路径与 debounce 边界由自动测试覆盖，因此
 
 **改进方向：** 保留内部结构化事实／推论字段、逐项来源引用和最终校验；只调整用户可见的标题、
 空状态和模型措辞。例如把 `Source states` 呈现为 **From the note**（笔记明确写到），把非空的
-`Model inference` 呈现为 **Possible next step**（可能的下一步）。若没有合理推论，不展示空的
+`Model inference` 呈现为 **What this may mean**（这可能意味着什么）。若没有合理推论，不展示空的
 推论分区或 `None.`。模型应直接写出带不确定性边界的建议，例如 “Consider coordinating the review
 preparations with Morgan”，避免 “A cautious planning inference is …” 等元话语，以及原文没有
 支持的人称、身份或背景假定。
@@ -982,6 +982,12 @@ preparations with Morgan”，避免 “A cautious planning inference is …” 
   cloud provider 均遵守相同规则。
 - 内部结构化输出、引用 allowlist、事实／推论分区校验及不合格答案拒绝展示的安全边界不回退；
   文案改动不改变逐题 preview、用户批准或 provider 路由。
+
+**完成证据：** 屏幕与 Copy result 现在共用同一展示转换：单来源显示 **From the note**，多来源显示
+**From your notes**，非空推论显示 **What this may mean**；带引用或 Markdown 包装的 `None`／`N/A`
+等空推论也不再渲染，真实的否定性结论仍会保留。
+桥接层仍要求内部 `source_states`／`model_inference` 结构与逐项引用，用户错误文案不再暴露内部字段名。
+自动回归同时覆盖单／多来源、空推论、真实含引用的否定性结论、复制一致性、引用校验与无证据安全边界。
 
 ### ANSWER-02：OpenAI 模型可见不等于支持结构化回答
 
@@ -1049,18 +1055,18 @@ OMD 现在只对带 `output_schema` 的 DeepSeek 请求同时发送 JSON mode �
 
 ### ANSWER-05：补全本地 embedding model 的首次使用与故障引导
 
-**状态：BACKLOG。优先级：P2。** 默认保存的 `bge-m3` 缺失时，当前 Settings 和 Ask 结果已经提供
+**状态：DONE / CLOSED（2026-11-24；原生视觉 smoke 随发布候选执行）。优先级：P2。** 默认保存的 `bge-m3` 缺失时，当前 Settings 和 Ask 结果已经提供
 明确的 **Install model**、**Use keyword search by default** 与 **Open retrieval settings**；下载只在
 用户明确点击后开始，不允许页面加载、Check setup 或提问静默 pull。这个默认路径继续保留。
 
-**现有缺口：** 一键安装目前只允许经过审核的 `bge-m3`。如果缺失的是其他已保存 model（例如
+**修复前缺口：** 一键安装只允许经过审核的 `bge-m3`。如果缺失的是其他已保存 model（例如
 `all-minilm:22m`），界面只提示在 Ollama 中手工安装，没有准确、可复制的下一步。Ollama 未安装、daemon
 未启动、Ollama 可达但没有任何 model、只有 embedding model 而没有 text/completion model 等状态，也
 没有形成连续的首次使用向导。用户容易把“用于 Vault 检索的 embedding model”和“用于本地回答／笔记
 处理的 text model”误认为同一个模型。
 
 **改进方向：** 根据实际检查结果只展示当前需要的一项主要操作，并说明完成后的下一步：安装或打开
-Ollama、启动本地服务、安装推荐的 embedding model、刷新 catalog、运行 **Test embeddings**。对非一键
+Ollama、启动本地服务、安装推荐的 embedding model、刷新 catalog、运行 **Test semantic search**。对非一键
 白名单 model，提供经过 model-id 校验的可复制 `ollama pull <model-id>` 命令或明确的 Ollama 操作说明，
 但不得直接执行任意已保存 ID。始终同时提供 **Use keyword search by default**，说明关键词检索不需要
 embedding model。若用户还选择 **Ollama on this computer** 作为回答 provider，另行说明需要一个
@@ -1068,26 +1074,36 @@ text/completion model；使用 hosted answer provider 时，不应误导用户�
 
 **验收标准：**
 
-- 覆盖 Ollama 未安装、daemon 未启动、零本地模型、缺少 embedding model、缺少任意非默认已保存 model、
-  embedding-only 和完整可用七种状态；每种状态显示准确原因、一个主要恢复动作和可返回的验证步骤。
+- 覆盖首次未检查、daemon 无响应（跨平台不臆测“未安装”还是“未启动”，同时提供安装／启动路径）、
+  零本地模型、缺少 embedding model、缺少任意非默认已保存 model、embedding-only、待测试、测试失败和
+  已验证状态；每种状态显示准确原因、主要恢复动作和可返回的验证步骤。
 - `bge-m3` 等审核过的推荐模型仍可在用户确认后由 Home 一键安装，并显示下载可能需要的时间／空间；
   其他 model 不静默执行、替换或下载。
-- 安装或手工恢复后刷新 catalog，用户可直接运行 **Test embeddings**；成功状态明确显示当前用于检索的
-  model，失败状态不把 daemon、缺失 model、能力不兼容和 cloud-backed model 混为一类。
+- 安装或手工恢复后刷新 catalog，用户可直接运行 **Test semantic search**；只有真实 probe 成功且同一
+  model digest 仍有效时才显示绿色已验证；重拉同名 tag、digest 变化或无法确认 revision 后回到待测试。
+  失败状态不把 daemon、缺失 model、能力不兼容和 cloud-backed model 混为一类。
 - Settings 与 Ask 的恢复文案、按钮命名和目标页面一致；窄窗口、150% zoom、键盘与屏幕阅读器流程可用。
 - 引导清楚区分 embedding retrieval 与 text/completion generation，并保留 keyword-only 的无模型路径。
 
+**完成证据：** Settings 现在按未检查、Ollama 无响应、零模型、缺失模型、能力不兼容、
+cloud-backed、embedding-only、待测试、测试失败和已验证分别给出原因与主要动作；按钮统一使用
+**Test semantic search**。审核过的 `bge-m3` 保留显式一键安装，其他安全 model ID 只提供可复制的
+`ollama pull …`，含 shell 元字符、远程／cloud 暗示或异常长度的 ID 不生成命令。Ask 结果最多展示
+当前恢复动作、**Open retrieval settings** 和 keyword-only 退路，避免重复或无后续路径的按钮。状态矩阵、
+命令注入边界、缺失 text model 提示、digest freshness、安装后验证路径及既有 keyword fallback 均有自动回归。
+
 ### ANSWER-06：Ollama manual endpoint 支持安全的本机自定义端口
 
-**状态：BACKLOG；等当前整轮人工测试完成后再实现。优先级：P2。** 当前实现继续保持 Automatic
-`http://localhost:11434`，并只接受 `http://localhost:11434` 与
-`http://127.0.0.1:11434`。本项只记录后续改进，不在当前测试周期改变 endpoint 校验、已保存设置或
-发布候选行为。
+**状态：DONE / CLOSED（2026-11-24；跨平台默认安装 smoke 随发布矩阵执行）。优先级：P2。** Automatic
+仍为 `http://localhost:11434`；Manual 现在只接受 `localhost`、`127.0.0.1` 或 `[::1]` 加显式有效端口。
+合法草稿只在用户点击 **Save endpoint** 后生效；保存会立即清除旧 daemon／model readiness，再由
+**Check setup** 验证新端口。初次渲染不显示虚假的“请重新验证”提示，无效草稿在输入时保持可见，
+离开字段时才用一次 assertive announcement 提醒辅助技术用户。
 
-**现有缺口：** 当前文本框看起来允许手工配置 endpoint，实际却只接受两个指向同一本机默认端口的
+**修复前缺口：** endpoint 文本框看起来允许手工配置，实际却只接受两个指向同一本机默认端口的
 地址。标准 macOS、Windows 与 Linux Ollama 安装可正常使用，但自定义 `OLLAMA_HOST`、Docker 本机端口
 映射、本地反向代理、部分 WSL 转发和 IPv6 loopback 用户无法表达其仍然位于本机的 Ollama endpoint。
-例如 `http://localhost:9999` 会在输入阶段被拒绝，既不能由 **Check setup** 给出准确的连接失败，也无法
+例如 `http://localhost:9999` 曾在输入阶段被拒绝，既不能由 **Check setup** 给出准确的连接失败，也无法
 用于 daemon fallback 的受控测试。
 
 **改进方向：** Automatic 保持 `http://localhost:11434`。Manual endpoint 继续限制为 loopback，不允许
@@ -1114,7 +1130,16 @@ Vault 内容。`http://localhost:9999` 应能作为合法格式保存，再由 C
   Linux 至少完成默认安装 smoke test。
 - endpoint 格式有效但 daemon 不可达时，**Check setup** 准确显示连接错误；embedding retrieval 可安全
   降级为 Keyword search，并且不会错误显示 **Install model**。
-- 恢复有效 endpoint 后可重新 Check setup 和 Test embeddings；无效或不可达 endpoint 不会清空先前模型
+- 恢复有效 endpoint 后可重新 Check setup 和 Test semantic search；无效或不可达 endpoint 不会清空先前模型
   选择，也不会触发自动下载或远程 fallback。
-- 实现时同步修订 `manual-test-plan.md` 中依赖 `localhost:9999` 的 daemon fallback 步骤；在本项实现前，
-  该场景通过保留有效 endpoint 并临时停止 daemon 测试。
+- `manual-test-plan.md` 同步把 `localhost:9999` 视为格式合法但 daemon 不可达的自定义端口；另用 LAN
+  地址验证输入阶段的安全拒绝，不再把 custom port 误写为 unsupported。
+
+**完成证据：** Home 设置、Node Ollama client、enrichment contract 与 Python fallback bridge 对 Home
+可配置的 endpoint 共用精确 host／port 契约；拒绝 HTTPS、缺失／越界端口、credentials、path、query、
+fragment、混淆 host、LAN／远程地址。连接层禁用代理与 redirect，并在实际连接使用的 DNS lookup 中要求
+所有返回地址都是 loopback；Python OMD 接受的本机 endpoint 同样在 connect time 固定为已验证的 loopback
+socket address，推理、embedding、catalog 与 UI probe 共用该 transport。
+旧版保存值末尾 `/` 会在加载时安全迁移，非法旧值回到 Automatic，模型选择不会被清空。Home 定向回归
+与 OMD transport／runtime 定向回归通过；未执行 macOS、Windows、Linux 三平台各自的真实 daemon smoke，
+该项保留在最终发布矩阵而非继续作为实现 backlog。

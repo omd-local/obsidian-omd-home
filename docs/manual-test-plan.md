@@ -177,10 +177,10 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 | 3 | DONE / NATIVE | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 2026-11-18 warning card、窄窗／150% 与普通本地文件 control PASS | 完整绝对 `small-local-file.html` 路径已验证 |
 | 4 | DONE / NATIVE | [CAP-07 B.2](#test-cap-07) | 2026-11-18 两个 cookies 字段输入 → Clear → 再输入 PASS；Clear 清空后立即隐藏 | 不重测 |
 | 5 | DONE / NATIVE + ARTIFACT AUDIT | [CAP-07 C.2](#test-cap-07) | Rednote metadata／正文、非空 transcript、Inbox／Recent 与唯一 tag 由 release owner 确认；最终 output、sidecar 与持久化隐私由只读检查确认 | 2026-11-22；访问查询值未写入报告 |
-| 6 | PARTIAL；C.1 PASS，C.3／C.4／D OPEN | [CAP-07 C.3／C.4、D](#test-cap-07) | Douyin 成功路径已通过；只补 wrapper runtime failure、Retry、Cancel／unload 与进程／cookies 隐私子项 | 下方 `ps ... grep -E` 命令 |
+| 6 | DONE / NATIVE + AUTOMATION | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | Douyin、wrapper runtime failure／Retry、真实嵌套进程 Cancel／unload 与 cookies 隐私均通过 | 2026-11-23；两个真实进程组均在 10 秒内退出，忽略 SIGTERM 的回归 1／1 PASS |
 | 7 | DONE / NATIVE PASS | [ANSWER-02-R1](#test-answer-02-r1) | OpenAI、Claude 与修复后的 DeepSeek Flash 均用单篇 `amber lighthouse checklist` 完成事实／推论分离、逐项 citation 与安全 preview／Cancel／Send 合同 | Q6 已关闭；不重发 hosted 固定题 |
 | 8 | DONE / NATIVE PASS | [CAL-03 E.14–16](#test-cal-03) | Recreate、Detach、Calendar 取消选择／恢复与 Destination 显示都保留 PASS，不重跑 | release owner 原生结果 |
-| 9 | PARTIAL / TARGETED NATIVE DELTA | [AI-06](#test-ai-06) | 基础命令与 embedding 已通过；只补同一动作重复点击与 active 请求期间 disable/reload＋Console。provider/model controls 在 active 时禁用，tuple 失效由自动回归覆盖 | synthetic smoke prompts |
+| 9 | DONE / AUTOMATED LIFECYCLE GATE | [AI-06](#test-ai-06) | 生产入口的同一 active 时间窗并发与 unload／fresh-instance 生命周期已由确定性回归覆盖；正常 Settings 操作不会启动重叠 request | 2026-11-24；无需再制造不稳定的手工时间窗 |
 | 10 | DONE / NATIVE PASS | [AI-08](#test-ai-08) | P01–P06 全部达到门槛；P04、P06 source hygiene 修复后各连续 3 次为 4／4 | `test-vault/Sources/Benchmark/` |
 | 11 | DONE / NATIVE PASS；POST-RELEASE AI-10 | AI-09／10 | release owner 已完成 `all-minilm:22m` 与 `bge-m3` 两轮质量矩阵、cache marker 与持久化边界；AI-10 destructive model removal 留发布后维护 | `bge-m3` 保留，不重测 |
 | 12 | DONE / NATIVE PASS | [AI-11](#test-ai-11) | release owner 已确认 pending preview disable/quit 生命周期与 Recognition defaults 只影响下一次 Capture | 不重测 |
@@ -191,7 +191,7 @@ setup 仍按各自未完成的 case 单独检查；此前已取得的结果继�
 Q0–Q2 已由 release owner 完成并确认，不再安排重测；CAL-03 E.14–E.16 与 Destination 显示也保留 PASS。
 不要重跑 fault injection、长音频、Answer model catalog 或旧 v2 helper。当前首发范围明确包含
 section-aware answer quality、semantic rerank 与多语言检索，因此 Q8、Q9 都是必做质量门禁；AI-10 的
-destructive model removal 仍留到发布后维护测试。Q3、Q9、Q10、Q11 已通过并关闭；只继续核对 Q4、Q5、Q7，全部通过后
+destructive model removal 仍留到发布后维护测试。Q3、Q5、Q7、Q9、Q10、Q11 已通过并关闭；只继续核对 Q4，完成后
 才执行 Q12。每完成一行
 就在本节后面的结果表写一行结论。
 
@@ -202,9 +202,9 @@ destructive model removal 仍留到发布后维护测试。Q3、Q9、Q10、Q11 �
 | Q2 | **DONE / NATIVE PASS** | 0 | [CAL-03 G](#test-cal-03) | release owner 已确认完成 | 不重测 |
 | Q3 | **DONE / NATIVE PASS** | 0 | [CAL-01 steps 4／5／7／8](#test-cal-01)、[CAL-02 steps 4／5](#test-cal-02)、[CALENDAR-06](ui-backlog.md#backlog-calendar-06) | release owner 已确认 Calendar Core + UI 全部通过 | linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict、三种来源／最后一项不可关闭、Upcoming 日期与跨日范围、窄栏、150%、深浅主题和 VoiceOver 均不重测 |
 | Q4 | **DONE / NATIVE PASS；FOLLOW-UP TARGETED RETEST** | 3 checks | [UI-01／02／03](ui-backlog.md)、[UI-14](ui-backlog.md#backlog-ui-14)、[RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | baseline UI／Capture 已通过；source-language／翻译／人工 tags／新控件响应式也已通过 | Capture warning、普通本地文件、cookies Clear 与普通 formatting lifecycle 不重测；只补 Transcript cleanup、两按钮 row、零 Apply 的 Done confirmation |
-| Q5 | **PARTIAL；真实平台路径 PASS，wrapper／lifecycle OPEN** | 依素材长度 | [CAP-07 C／D](#test-cap-07) | Douyin 与 Rednote 成功路径已通过；只补 wrapper runtime failure／Retry，以及 Cancel／unload／进程树与 cookies 隐私 | C.1、C.2 不重测；继续 C.3／C.4、D |
+| Q5 | **DONE / NATIVE PASS** | 0 | [CAP-07 C／D](#test-cap-07) | Douyin、Rednote、wrapper runtime failure／Retry、Cancel／unload 与进程树／cookies 隐私均通过 | 两个真实嵌套进程组均清理；唯一 tag 均为 0；无 partial note、stale task、Retry failure 或未处理 rejection |
 | Q6 | **DONE / NATIVE PASS** | 0 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05)、[ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答) | OpenAI、Claude、DeepSeek Flash 固定题以及 zero-evidence、secret scan、provider memory／reload 均通过；DeepSeek preview 的 disclosure、Cancel 零发送与新 preview 后 Send 也已通过 | 2026-11-21 DeepSeek 结果为 1 retrieved note；事实、审慎推论和每项 citation 均合格，无 `[S#]`／`[E#]`；不重测 |
-| Q7 | **发布安全门禁／Local AI PARTIAL 补齐** | 5–10 分钟 | [AI-06](#test-ai-06) | AI-06 通常属于 Extended；本候选把重复点击与 active 请求期间 disable／reload＋Console 两项提升为必做发布安全门禁 | active 时 provider/model controls 本来就禁用，tuple 失效由自动回归覆盖；不重复 Refresh models、三项 smoke 与 embedding 459ms 基线 |
+| Q7 | **DONE / AUTOMATED PASS** | 0 | [AI-06](#test-ai-06) | 真实 production methods 的 overlap、abort、stale-result 与 fresh-instance 回归通过，并覆盖 Refresh models／Check setup 的迟到结果 | 这些 local setup 动作使用可取消 HTTP request，没有 OS child；正常用户只可能在极快重复 hotkey／慢请求中触发 busy 防护，无需再做不稳定手工复测 |
 | Q8 | **DONE / NATIVE PASS** | 0 | [AI-08](#test-ai-08) | P01–P04、P06 均为 3／3 × 4／4；P05 为 3／3 × 3／4，达到其门槛 | P04 只列 Rules primary note；P06 在全新会话及前序查询后都只列 Cloud Setup primary note；无 distractor 或 placeholder 泄漏 |
 | Q9 | **DONE / NATIVE PASS** | 0 | [AI-09](#test-ai-09) | `all-minilm:22m` 与 `bge-m3` 两轮 D01／M01／B04、rerank、keyword-only、cache marker 与持久化边界均已完成 | release owner 2026-11-22 确认；AI-10 留发布后，不重测 |
 | Q10 | **DONE / NATIVE PASS** | 0 | [AI-11](#test-ai-11) | pending preview disable/reload／完全退出与 Recognition defaults 下一次 Capture 边界已完成 | release owner 2026-11-22 确认，不重测 |
@@ -318,8 +318,8 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
       hosted provider 完成本步骤。Preview 必须只含本次 question、
       provider／model／destination 与一篇获批证据；批准后回答写出 Morgan、Thursday 10:30 与有标签的审慎
       inference，每项 claim 有邻近 citation。点击 **Copy result** 并粘贴到临时 note：复制内容必须保留同样的
-      **Source states／Model inference** 分区、邻近 wiki-link 与去重后的 Sources，且没有原始 JSON、`[S1]`／
-      `[E1]`。结构／引用失败时保留 fail-closed 结论，不反复碰运气发送。
+      **From the note** 与题目要求时的 **What this may mean** 分区、邻近 wiki-link 与去重后的 Sources，
+      且没有原始 JSON、内部字段名、`[S1]`／`[E1]`。结构／引用失败时保留 fail-closed 结论，不反复碰运气发送。
    3. AI-04 D2 保持同一 provider/model，开启 hybrid、选择 `bge-m3`，退出本地 Ollama 后重复固定题。结果
       必须仍是 hosted answer＋**Keyword search**，warning 为 local Ollama unreachable，只显示
       **Use keyword search by default** 与 **Open retrieval settings**，不得出现 Install model。完成后重开 Ollama。
@@ -330,9 +330,9 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
    5. AI-05 只需切换三个 provider 并确认各自 model memory，reload 后再核对一次；自动 secret scan 已通过，
       不要把 key 粘贴进报告或截图。
 6. **AI lifecycle（约 15 分钟）**
-   1. AI-06 启动一个较慢的 synthetic smoke，立即重复同一命令并操作邻近 setup 控件；只能有一个 active
-      request，其他控件 busy／disabled。active 时 disable／enable plugin；重新启用后无 busy、orphan child、
-      unhandled rejection 或旧 completion。active tuple 变更不可人工操作，已记 automated PASS。
+   1. AI-06 已由 production-method 回归关闭：重复入口只建立一个 active request，打开的 Settings 会同步
+      busy／disabled，unload 会 abort，迟到结果不能发布，fresh instance 建立新状态。这里没有普通用户可稳定
+      制造的额外手工差额，不再抢极短时间窗；若将来改动 action mutex／Settings 订阅，再重跑该自动门禁。
    2. AI-11 打开 hosted evidence preview 但不要批准，disable plugin；modal 应关闭且零发送。重新启用后同一
       问题必须得到新的 preview。再重复一次并完全退出／重开 Obsidian，结论相同。
    3. 启动本地 `@` fixture 问题，在等待回答时只更改 OCR／ASR 默认语言；问答继续。随后新建一次真实
@@ -361,7 +361,7 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
 | OMD-01、CAP-07 A.2 exact capability | KEEP PASS；当前 OMD ready 与 share-text／cookies contract 已有证据 |
 | RC-P2-01／02、RC-P2-03 的时间／状态／tags／filter／Pin／Unpin／长文件名 | KEEP PASS；只由 Q4 验证新的 AI tools 与 formatting 入口 |
 | CAP-01A、CAP-06 B／C／D、114 秒 WAV | KEEP RESULT；普通本地文件 control 失败时才把 CAP-01A 升级为 RETEST |
-| AI-02 local Ollama、AI-06 Refresh／Check／三项 smoke／embedding | KEEP PASS；只执行 Q7 的两个原生差额 |
+| AI-02 local Ollama、AI-06 Refresh／Check／三项 smoke／embedding | KEEP PASS；Q7 生命周期差额已经由确定性 production-method 回归关闭 |
 | ANSWER-02-R1 hosted matrix、provider 自动 setup 与既有 blue-key 答案 | DONE / KEEP PASS；OpenAI、Claude 与修复后的 DeepSeek Flash 固定单篇 `amber lighthouse checklist` 结果均通过事实／推论、单来源 citation 与结构合同；Q6 已关闭 |
 | CAL-03 E.14–E.16、Destination、F.17–21 与 Q0–Q2 安全 smoke | KEEP PASS；release owner 已确认，不重做 |
 | UI-12 Inbox／Reviewed、ANSWER-04 DeepSeek Pro／Flash | DONE；原生证据已足够，backlog 已关闭，不重测 |
@@ -400,8 +400,8 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
 | CAP-07 B provider 隔离／preflight 其余子项 | KEEP RESULT | 2026-10-03 | 人工反馈 | 保留已取得结果；未执行项仍按原计划记录，不由 B.2 修复代替 |
 | CAP-07 C.1 Douyin 成功 | PASS / CLOSED | 2026-11-22 | release owner 原生 Obsidian | 公开 Douyin 样本完成 Capture；成功路径、最终 note 与非空 transcript 均通过，不再出现旧候选的笼统 post-fetch 错误 |
 | CAP-07 C.2 Rednote 视频与 output 对账 | PASS / CLOSED | 2026-11-22 | release owner 原生 Obsidian＋agent read-only artifact audit | metadata／正文、非空 Transcript、唯一 tag、Inbox／Recent 与 Home reconciliation 通过；sidecar JSON 有效，`output` 精确指向存在的最终 note，没有 planned filename 或 `.raw.md` 副本；note 与 sidecar 仅保留帖子路径，不含 query、fragment、`xsec_token`、`xsec_source` 或 cookies 路径 |
-| CAP-07 C.3／C.4 runtime failure／Retry |  |  |  | 两个子结果仍是 FIRST PASS，不能由真实平台失败代替 wrapper |
-| CAP-07 D Cancel／unload／隐私 |  |  |  | 未观察到嵌套 child 时进程树写 `NOT EXERCISED` |
+| CAP-07 C.3／C.4 runtime failure／Retry | PASS / CLOSED | 2026-11-23 | release owner 原生 Obsidian | wrapper 的 capabilities／inspect 与 preflight 通过；正式 Capture 在写 note 前失败并显示 canonical URL 与 Retry。界面不要求逐字显示内部 `exit 17`。恢复 Automatic 后 Retry 成功，未再次触发 forced failure；临时 wrapper 已删除 |
+| CAP-07 D Cancel／unload／隐私 | PASS / CLOSED | 2026-11-23 | agent 原生 Obsidian＋进程表＋自动回归 | Cancel 实测 OMD PID 30491 与嵌套 yt-dlp PID 30848 同属 PGID 30491；disable 实测 OMD PID 41254 与嵌套 yt-dlp PID 41549 同属 PGID 41254。两组均在 10 秒内退出；重新 enable 后无 stale task、partial note、Retry failure 或 Console unhandled rejection，两个唯一 tag 均为 0。忽略 SIGTERM 的嵌套 converter 回归 1／1 PASS；vault 中 `data.json` 之外未发现 cookies 路径泄漏 |
 | Q4 UI／Capture checkpoint | PASS / CLOSED | 2026-11-18 | release owner 原生 Obsidian | Settings／Home routing、Needs attention、AI tools、Capture warning、普通本地文件与两个 cookies Clear 的 targeted retest 全部通过；cookie 绝对路径不写入发布文档 |
 | RC-P2-04 AI tools／Improve formatting | BASELINE PASS；2026-11-20 follow-up PARTIAL | 2026-11-20 | release owner 原生 Obsidian＋自动 CAS 回归 | Preview／Cancel／Apply、format quality、exact-baseline conflict 与 Reviewed 状态保持继续 PASS；source-language／English 翻译、人工 tags、新控件窄窗／150% 已原生 PASS。Transcript 曾因把 capture metadata 一并交给模型而安全拒绝；已改为只处理 `## Transcript`，并统一 Capture polish 路径。安装后只补 Transcript、两按钮 row 与零 Apply 的 Done confirmation |
 | RC-P2-04 protected-content failure UX | FAIL-SAFE PASS / UI RETEST | 2026-11-22 | release owner screenshot＋真实 Ollama 根因复现＋自动回归 | `qwen3:4b-instruct` 把候选中的 `2 years` 改成 `-2 years`；OMD 数字保护正确拒绝，原 note 未改变。旧 modal 仍视觉显示不可用的 Apply，且恢复入口不直接；修复候选需原生确认 Apply 完全隐藏、明确说明 note 未变，并提供 Change local model／Try again。 |
@@ -417,7 +417,7 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
 | CALENDAR-06 Upcoming／source key | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | Today／Tomorrow／具体日期、timed 跨日、all-day 多日、窄栏、150%、深浅主题、键盘与 VoiceOver 全部通过 |
 | CAL-03 safety shell | HISTORICAL SNAPSHOT / SUPERSEDED | 2026-10-05 | 原生 Obsidian | 当时只验证 Pending sync shell；后续 A–E、跨 Calendar、Recreate／Detach、F.17／F.18 与 Q0–Q2 已有 release owner 证据，不再重做 |
 | CAL-01 UI validation preview 清理 | OPTIONAL CLEANUP | 2026-10-05 | 原生 Obsidian | 原生控件自动化试验误建一条 Vault-only 临时记录；这不是产品缺陷，不阻塞 Q0–Q12。Q1 删除路径通过后可由界面单独清理，不要触及其他 fixture |
-| AI-06 | PARTIAL；native baseline PASS；本候选的 steps 4／6 已提升为发布安全门禁 | 2026-10-05 | 原生 Obsidian＋自动回归 | 模型刷新找到 4 个模型，Check setup 后三条 workflow rail ready，三个 synthetic smoke 完成；embedding `459ms · 2 vectors × 384 dims`。Current task 保持 No task running；tuple 失效自动 PASS，只剩重复点击及 disable/reload 原生差额 |
+| AI-06 | PASS；native baseline + automated lifecycle gate | 2026-11-24 | 原生 Obsidian＋production-method 回归 | 模型刷新、Check setup、三项 synthetic smoke 与 embedding 基线保留；同一 active 时间窗的 mutex、真实 `onunload` abort、迟到成功／失败丢弃、Refresh／Check 生命周期和 fresh-instance 状态均通过 |
 | AI-08 Phase 2 benchmark | DONE / NATIVE PASS | 2026-11-22 | P01–P04、P06 均 3／3 × 4／4；P05 三次均 3／4，达到门槛 | P04／P06 的历史 3／4 结果保留在证据块；修复后最终 Sources 只保留本次回答实际引用的 primary note，全套 P01–P06 门禁关闭 |
 | AI-11.8 pending consent unload | PASS / CLOSED | 2026-11-22 | 自动回归＋release owner 原生确认 | pending preview 时 disable/reload 与完全退出均结束旧 consent；重新启用建立新 preview，无旧批准复用、orphan 或 unhandled rejection |
 | AI-11.10 Recognition defaults isolation | PASS / CLOSED | 2026-11-22 | 自动回归＋release owner 原生确认 | 本地 Ask 继续完成；OCR／ASR 变更只作用于下一次 Capture，恢复默认后后续 Capture 使用恢复值 |
@@ -427,7 +427,7 @@ Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件
 
 **下一步：** 只按上方收敛后的队列执行。ANSWER-02-R1 的非 OpenAI matrix、E.14–E.16、Destination 与
 F.19–21 与 Q0–Q2 不重复；Q8／Q9 的首发质量门禁和 Q10 lifecycle 已通过并关闭。
-只核对 Q4、Q5、Q7；REL-01 始终最后执行。每完成一项，立即写
+只核对 Q4；REL-01 始终最后执行。每完成一项，立即写
 PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
 
 
@@ -795,8 +795,8 @@ E. **Settings 统一排版（UI-01／02）**
    ```
 
    核对 destination、问题和 evidence excerpts 后点击 Cancel；本步骤不要求发送真实问题。预期
-   **Source states** 回答 Orchid station／Tuesday；题目没有要求推论，因此 **Model inference** 应为
-   **None**。每条事实都应带本次结果中的合法 note link，不得出现 `Example placeholder removed` 等
+   **From your notes** 回答 Orchid station／Tuesday；题目没有要求推论，因此不应显示空的
+   **What this may mean** 或 **None**。每条事实都应带本次结果中的合法 note link，不得出现 `Example placeholder removed` 等
    schema／placeholder 元说明。不要再使用 “Which fixture…”：fixture 可能被模型理解为文件名，也
    可能被理解为内容中的地点，不能稳定检验事实／推论合同。
 6. 有 DeepSeek 测试 key 时，先选择 `deepseek-v4-pro` 并重新 **Check setup**，再提交同一个问题、
@@ -809,7 +809,7 @@ E. **Settings 统一排版（UI-01／02）**
    provider/model、耗时和安全错误类别，不记录 key、原始响应或 evidence excerpt。
 
    有效 JSON、完整渲染、合法 citation 与正确 provider/model 只证明 transport/schema 合同。直接来自
-   evidence 的事实必须留在 **Source states**；若同一事实被改写后放进 **Model inference**，人工
+   evidence 的事实必须留在 **From your notes**；若同一事实被改写后放进 **What this may mean**，人工
    provenance 判定仍为 FAIL，不能把该 run 记为 grounded answer PASS。
 
 **2026-10-05 已取得证据：** OpenAI run PASS，但 exact model ID 仍待补录；`claude-sonnet-5` 为
@@ -852,8 +852,8 @@ model，且不得静默切换。该证据取代旧 prompt 下的 provenance FAIL
 
 #### 仍未完成、留在后续队列
 
-UI-07–11 的 Graph / Local Graph / Backlinks / Search / Bases 建议、ANSWER-01，以及 folder /
-one-item-per-line batch 仍保留在 `ui-backlog.md`。Douyin／XHS share text 与 cookies bridge 已实现并移到
+UI-07–11 中仍标为 Deferred 的 Graph / Local Graph / Backlinks / Search / Bases 建议，以及 folder /
+one-item-per-line batch 继续保留在 `ui-backlog.md`；ANSWER-01 已在当前候选关闭。Douyin／XHS share text 与 cookies bridge 已实现并移到
 [CAP-07](#test-cap-07) 做首次原生验收；在结果表完成前只能写“实现完成、人工验收待定”，不能记为
 PASS。CAP-01A、CAP-06 B／C、OMD-01／AI-02 如结果表仍空，只补录此前实际 verdict 与证据，不重新
 执行。Hosted 定向回归、Calendar、Extended AI、CAP-07 与 clean-vault release gate 继续按上表顺序。
@@ -1334,7 +1334,7 @@ shasum -a 256 "$PLUGIN_DIR/data.json"
 15. **[AI-02：Ollama daemon、endpoint 与本地模型隔离](#test-ai-02)**（Core）— 在正常连接通过后验证 daemon/endpoint/model 状态分离。
 16. **[AI-07：本地 Omnibox 结果、证据、复制与返回用时](#test-ai-07)**（Core）— 先证明真实本地问答主链路可用。
 17. **[CAP-02：本地 AI 生成 links/tags，Review 后才写入](#test-cap-02)**（Core）— 同时依赖成功 Capture 与可用本地模型。
-18. **[AI-06：Command Palette 诊断、busy 状态与生命周期](#test-ai-06)**（Extended）— 正常 AI 路径通过后只补重复点击与原生 unload；active tuple controls 禁用且失效边界已由自动回归覆盖。
+18. **[AI-06：Command Palette 诊断、busy 状态与生命周期](#test-ai-06)**（Extended）— 当前候选已由原生基线与确定性 production-method 生命周期回归关闭；不再人工抢极短 active 时间窗。
 19. **[CAP-06：后台继续、unload 和退出取消](#test-cap-06)**（Core）— 复用已经验证的后台任务生命周期。
 20. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Required release gate）— 在基本 RAG 可用后执行 P01–P06 质量门禁。
 
@@ -1353,8 +1353,8 @@ shasum -a 256 "$PLUGIN_DIR/data.json"
 
 本轮首发范围包含 section-aware answer quality、semantic rerank 与多语言检索，因此 AI-08（20）和
 AI-09（23）不能按旧的 Extended 分类跳过；只有 AI-10（26）的破坏性模型移除留到发布后维护测试。
-仍须按 1.3C Q7 执行 AI-06（18）中已提升为发布安全门禁的重复点击与原生 unload 两项，其余
-AI-06 Extended 子项不重跑。若没有可用 hosted developer key，仍完成
+AI-06（18）的重复点击、unload 与 fresh-instance 发布门禁已由确定性回归关闭，不再安排人工复测。
+若没有可用 hosted developer key，仍完成
 AI-04 的无 key与 opt-in 关闭边界；需要有效 key/model 的 catalog、preview、cancel 和真实网络
 分支记录为 `NOT RUN`，不得假装无 key 也能打开发送 preview。
 
@@ -1537,7 +1537,10 @@ question 与选定证据片段。
 "/path/shown/by/omd-home" capabilities --json
 ```
 
-输出必须是 JSON，且 `enrich_note.supported` 为 `true`、schema version 为 `1`。
+输出必须是 JSON，且 `enrich_note.supported` 为 `true`、schema version 为 `1`、
+`local_ollama_transport.version` 为 `1`。最后一项证明该 OMD 会在连接时把本地 Ollama 固定到已验证的
+loopback socket；缺失时，Polish Markdown、Improve formatting 与 links/tags 不得发送笔记内容，并应提示
+更新 OMD、运行 **Check setup**。
 4. 启动 Ollama App并检查 daemon：
 
 ```bash
@@ -1677,17 +1680,21 @@ curl -sS --max-time 2 http://localhost:11434/api/status
    **Settings → OMD Home → AI answers** 并运行 **Check setup**。只有这一步通过后，才继续
    第 5 步或后续 AI-07/CAP-02。
 5. 在 **Advanced AI controls → Ollama troubleshooting** 把 endpoint 临时改成
-   `http://localhost:9999`。输入后应立即在输入框下方的独立整行区域显示醒目的 unsupported
-   endpoint 提示，并直接列出仅允许的 `http://localhost:11434` 与
-   `http://127.0.0.1:11434`；提示不得与输入框并排争抢宽度。缩窄再加宽设置面板，确认
+   `http://192.168.1.20:11434`。输入后应立即在输入框下方的独立整行区域显示醒目的 invalid
+   endpoint 提示，并说明只允许 `localhost`、`127.0.0.1` 或 `[::1]` 加显式有效端口；提示不得与
+   输入框并排争抢宽度。缩窄再加宽设置面板，确认
    错误文字、输入框和卡片边缘留白正常，无重叠、贴边、横向溢出或异常断行。错误出现时焦点
    应留在可编辑输入框；用键盘或辅助功能检查，该字段应呈现 invalid 状态，且错误与字段有关联
    （例如 `aria-invalid` 和 `aria-describedby`），不能只靠颜色表达错误。该无效值不得覆盖最后
    一个有效设置，也不必等待发送任何内容。离开再重新打开设置，确认字段恢复为最后一个有效
    endpoint。
-6. 把 endpoint 改成允许的替代值 `http://127.0.0.1:11434`，确认输入框下方的 validation
-   error 立即消失、字段不再呈现 invalid 状态，再点 **Check setup**。成功后恢复
-   `http://localhost:11434` 并再次检查；不得把替代值或 `:9999` 留给后续测试。
+6. 把 endpoint 改成格式合法但通常没有 daemon 的自定义值 `http://localhost:9999`，确认 validation
+   error 立即消失、字段不再呈现 invalid 状态，并显示 **Save endpoint**；旧 setup 状态不得继续冒充
+   新端口的验证结果。点击 **Save endpoint** 后，保存值和当前 model 选择应保留，再点击 **Check setup**；
+   应准确显示该 endpoint 无法连接，而不是把它说成格式不受支持、自动切回 11434、尝试远程 fallback
+   或提供 **Install model**。随后点击 **Use automatic**，确认恢复 `http://localhost:11434`，再次
+   **Check setup** 成功；不得把 `:9999` 留给后续测试。若本机另有真实自定义端口，可再用该端口重复
+   Check setup 与 Test semantic search；不要为了测试修改日常 Ollama daemon。
 7. 确认 `gpt-oss:20b-cloud` 等 cloud-backed model 不会出现在本地 **Answer model** 的正常可选
    列表中。只有当 `ollama list` 或当前 daemon catalog 已显示一个 cloud-backed model 时，
    才用 **Custom…** 输入它的准确 ID；**Check setup** 必须明确显示该 model 被本地路径
@@ -1788,12 +1795,12 @@ curl -sS http://localhost:11434/api/status
 10. 成功结果必须满足：
    - header 显示 `1 source`，正文第一行准确显示 **Based on 1 retrieved note.**；
    - 不得写成 “the Vault contains …”“all Vault notes …”或以其他方式暗示覆盖整个 Vault；
-   - 正文中的 **Source states:** 与 **Model inference:** 各出现一次，按此顺序排列；
-     不显示 provider 返回的原始 JSON、`source_states` / `model_inference` 字段名或重复标题；
-   - **Source states:** 写出原文明确说明的 Thursday 10:30 和 owner Morgan；
-     **Model inference:** 给出题目要求的一条审慎规划推论，并使用 “may / suggests” 等审慎表达。
-     若题目没有要求推论且证据不足，允许显示 **Model inference:** 下的 **None.**，但本题不能
-     用 **None.** 代替所要求的推论；
+   - 正文按顺序显示 **From the note:** 与 **What this may mean:**；不显示 provider 返回的原始 JSON、
+     `source_states` / `model_inference` 字段名、内部标题或重复标题；
+   - **From the note:** 写出原文明确说明的 Thursday 10:30 和 owner Morgan；
+     **What this may mean:** 给出题目要求的一条审慎规划推论，并使用 “may / suggests” 等审慎表达。
+     若题目没有要求推论且证据不足，整个推论分区应隐藏，不能显示空标题或 **None.**；本题则不能
+     隐藏分区来代替所要求的推论；
    - 每个实质性事实、列表项和推论都紧邻至少一个本次批准来源的 wiki-link 引用；
      只有末尾 source chips 或总 `Sources:` 列表不算逐结论引用；
    - 不得出现 `[S1]`、`[E1]` 等内部 placeholder。
@@ -1812,8 +1819,8 @@ curl -sS http://localhost:11434/api/status
 13. 检查错误详情、Needs attention、Notice 和 Console：不得泄漏 evidence excerpt、凭证、
     request body 或不必要的绝对路径，也不得跨 provider fallback。
 
-若第 9 步发送后出现 **did not cite every claim**、**did not separate Source states from Model inference**
-或 **did not provide the required Source states / Model inference structure**，本次应记为
+若第 9 步发送后出现 **did not cite every claim**、**did not clearly separate facts from suggestions**
+或 **could not verify the answer format**，本次应记为
 `FAIL: grounded answer contract`，而不是 Cloud 连接或 embedding 降级通过。未经验证的正文不得显示；
 插件也不得自动重发。重试必须重新提交问题、检查新的逐题 preview 并再次点击 **Send and answer**。
 
@@ -1947,7 +1954,7 @@ HTTP 类别即可；UI 不得显示 key、Authorization header 或 request body�
 4. 成功结果必须重复满足 AI-03 的结果合同：
    - **Based on 1 retrieved note.**
    - 每个关键事实或推论均有本次批准来源的 wiki-link 引用；
-   - **Source states:** 与 **Model inference:** 各出现一次且顺序固定；不显示原始 JSON 或内部
+   - **From the note:** 与 **What this may mean:** 各出现一次且顺序固定；不显示原始 JSON、内部字段名或
      `[S1]` / `[E1]` 标签。Thursday 10:30、Morgan 属于原文事实；审慎安排建议属于模型推论；
    - 不暗示检索或阅读了整个 Vault；
    - provider/model、sources、retrieval mode 和 elapsed time 正确。
@@ -2016,8 +2023,8 @@ HTTP 400；换成同一 provider 的 `gpt-4o-mini` 后可收到有来源引用�
    storage-location 规则；API 文档没有说明可供 OMD 使用的 cache opt-out，因此 OMD 不承诺 zero
    retention。缺任何一项都记 FAIL，不批准发送。
 4. 第一次点 **Cancel**，确认 **No vault evidence was sent**。再次提交同题，取得新的 preview 后批准。
-   结果必须为 **Based on 1 retrieved note**；Thursday 10:30 与 Morgan 只能作为 Source states，审慎的
-   准备／协调建议只能作为 Model inference；每个 claim 都引用
+   结果必须为 **Based on 1 retrieved note**；Thursday 10:30 与 Morgan 只能位于 **From the note**，审慎的
+   准备／协调建议只能位于 **What this may mean**；每个 claim 都引用
    `[[Manual Test Notes/English Markdown Note.md]]`，不得显示内部 `[S#]`／`[E#]`。
 5. 若第 2 步因 disclosure 不完整、过期或旧 OMD 而失败，Check setup 必须立即显示具体原因和
    **No vault evidence was sent**，且不得请求 model catalog 或执行 Vault retrieval；这属于安全 PASS，
@@ -2054,8 +2061,8 @@ fixture excerpt。点击 Cancel 后明确显示 **Cloud answer cancelled. No vau
    空白 claim 被拒绝且不回显原始模型正文；缺失、无效或
    不属于本次检索的引用被拒绝；格式错误和引用错误在结果区得到不同的安全提示。
 3. 错误归类应准确：缺少或无效引用提示 **did not cite every claim**；受控测试中 bridge 报告
-   分区校验 warning 时提示 **did not separate Source states from Model inference**；provider 未返回可解析的
-   结构化结果提示 **did not provide the required Source states / Model inference structure**。
+   分区校验 warning 时提示 **did not clearly separate facts from suggestions**；provider 未返回可解析的
+   结构化结果提示 **could not verify the answer format**。
    三者都不能展示未经验证的正文，也不能变成笼统的 **OMD Home bridge failed**。如果真实请求
    偶发命中其中一类，记录 provider/model 与类别；重新发送前必须重新 preview 和确认。
 
@@ -2064,7 +2071,8 @@ fixture excerpt。点击 Cancel 后明确显示 **Cloud answer cancelled. No vau
 本节验证的是：Hosted provider 继续负责生成答案；本机 Ollama 只负责可选的 embedding。
 因此 embedding 失败时，检索应退回 **Keyword search**，不能把整个云回答标记为失败。
 Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其呈现为固定的
-**Source states:** / **Model inference:** 两段，并在显示前校验每项引用。D1/D2 只有在
+内部 contract 仍要求 `source_states` / `model_inference` 两段，并在显示前校验每项引用；用户界面只呈现
+**From the note(s):** 与非空的 **What this may mean:**。D1/D2 只有在
 **答案正文与 Keyword search 降级诊断同时可见**时才通过；仅看到 preview 或降级 warning 不算通过。
 
 **固定测试例子与前置状态**
@@ -2100,8 +2108,8 @@ Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其�
 4. 结果必须同时满足：
    - header 仍显示测试开始时选择的 hosted provider/model 和 `1 source`；
    - retrieval badge 显示 **Keyword search**，不能显示 **Keyword + semantic search · bge-m3**；
-   - 正文以 **Based on 1 retrieved note.** 开头；**Source states:** 写出原文明确说明的
-     Thursday 10:30 与 owner Morgan，**Model inference:** 给出有标签的审慎安排建议；
+   - 正文以 **Based on 1 retrieved note.** 开头；**From the note:** 写出原文明确说明的
+     Thursday 10:30 与 owner Morgan，**What this may mean:** 给出有标签的审慎安排建议；
      两段的每项关键结论都有这篇笔记的引用，不得只在末尾统一列来源；
    - warning 精确显示：**The selected embedding model is not installed in Ollama, so this answer used keyword search only.**
    - warning 下只显示 **Install model**、**Use keyword search by default**、**Open retrieval settings** 三个动作；
@@ -2268,7 +2276,7 @@ PARTIAL，不能只凭 AI tags 成功改为整项 PASS。
    关闭 OMD Home tab，再回到 Settings；plugin-level action 应完成或保留准确的最终反馈，且不产生第二个
    重叠动作。
 4. 在一个诊断进行时，确认相邻的 Check setup、Save／Remove credential、embedding check 等共享
-   setup 动作清楚显示 busy／disabled。连续点击不得启动重复 request 或 child process。不要用逐次打开
+   setup 动作清楚显示 busy／disabled。连续点击不得启动重复 request。不要用逐次打开
    Command Palette 的方式制造并发：短 smoke 往往会在下一次搜索命令前完成，三项随后都成功只证明它们
    顺序完成。稳定的原生复测方法是给 **Smoke local AI: Note enrichment**、**Check local AI connection**
    和 **Test local AI embeddings** 临时设置三个无冲突 Hotkeys；必要时先在 macOS Terminal 执行
@@ -2277,8 +2285,8 @@ PARTIAL，不能只凭 AI tags 成功改为整项 PASS。
    移除临时 Hotkeys。`ollama stop` 是 Terminal 命令，不是 Developer Console JavaScript。
 5. 动作 active 时确认 provider、endpoint 与 model 控件 disabled。当前 UI 不允许此时人工改变 tuple；
    旧 tuple 迟到结果不能覆盖新设置的边界由自动回归验证，不要求人工绕过 disabled 控件。
-6. 最后在 Community plugins disable／reload OMD Home。运行中的 request／child process 必须取消，
-   Settings 不留下 busy，Console 不得出现未处理 Promise rejection；重新启用后第一次诊断必须建立
+6. 最后在 Community plugins disable／reload OMD Home。运行中的 request 必须取消；重新启用后新建的
+   Settings 实例不得显示 unload 前的 busy，Console 不得出现未处理 Promise rejection；第一次诊断必须建立
    新状态，不能复用 unload 前的 completion。
 7. 需要验证用户可见 **Cancel** 时，使用 CAP-06 的 capture／transcription Case；不要把 capture 的
    Current task／Cancel 合同套到本 Case 的 Smoke 命令。
@@ -2287,23 +2295,25 @@ PARTIAL，不能只凭 AI tags 成功改为整项 PASS。
 重叠；自动 tuple 失效回归与原生 unload 后都没有 stale ready、未处理 rejection 或僵尸进程。Recorder 只在 CMD-01
 验证，Current task／Cancel 只按 capture／enrichment Case 验证。
 
-**2026-10-05 结果：`PARTIAL；native baseline PASS`。** 原生 Obsidian 中模型刷新找到 4 个模型；
+**2026-11-24 结果：`PASS；native baseline + automated lifecycle gate`。** 原生 Obsidian 中模型刷新找到 4 个模型；
 Check setup 后 Vault Q&A、Note enrichment、Polish Markdown 均为 ready；三个 synthetic smoke 完成，
 System 显示 AI last action success；embedding 检查通过（`459ms · 2 vectors × 384 dims`）。Home 的
-Current task 全程保持 **No task running**，符合修订后的职责。自动回归还确认 setup actions 拒绝重叠、
-unload 后拒绝新 local-AI signal work、过期请求不能发布 stale 状态，且 tuple 失效边界已自动覆盖。
-尚未原生执行步骤 4 的重复点击和步骤 6 的 disable／reload＋Console 检查，所以不能把整项记为 PASS。
+Current task 全程保持 **No task running**，符合修订后的职责。确定性生命周期回归直接调用生产
+enrichment smoke、Check setup、embedding 与 `onunload`：第一项挂起时，其余三个入口不产生额外 Ollama
+request；unload 会 abort pending signal 并冻结旧实例，迟到 completion 不能发布；fresh plugin instance 不继承
+旧 busy，并可建立全新成功状态。Refresh models 与 Check setup 的迟到结果也不能在 unload 后写回状态；安装与 Cloud setup
+使用相同 action-token 边界。这里运行的是 HTTP request／AbortController，不创建 OS child，因此无需再用
+人工 hotkey 猜测极短 active 时间窗或检查 orphan child。
 
 只补以下原生差额，已通过的 Refresh／Check／三项 smoke／embedding 不再重复：
 
-- [ ] **Step 4 · 重复点击：** 使用上方临时 Hotkeys 在同一 active 时间窗快速触发 smoke ×2、check ×1、
-  embedding ×1；必须清楚 busy／disabled 或显示 overlap Notice，且只产生一个 request／child。若用
-  Command Palette 后三项都成功，应记录为 **INCONCLUSIVE — actions completed sequentially**，不能记 FAIL。
+- [x] **Step 4 · 重复点击（AUTOMATED PASS）：** 生产入口在同一 pending promise 中触发 smoke ×2、
+  check ×1、embedding ×1；只有第一项到达 Ollama，其余均走 busy 防护。
 - [x] **Step 5 · tuple 失效（AUTOMATED PASS）：** active 时 UI 会禁用 provider／endpoint／model，
   因此没有可执行的原生手工路径；自动回归已确认旧 tuple 的迟到结果不能覆盖新状态。
-- [ ] **Step 6 · lifecycle：** 动作 active 时 disable／reload 插件；request／child 被取消，Settings
-  不残留 busy，DevTools Console 没有 unhandled Promise rejection；重新启用后的第一次诊断建立
-  fresh 状态，不复用 unload 前 completion。
+- [x] **Step 6 · lifecycle（AUTOMATED PASS）：** 真实 `onunload` abort pending request 并使旧结果失效；
+  新实例第一次诊断建立 fresh 状态。自动回归已验证 promise 正常收敛且无 stale completion；原生 Console
+  没有额外可观察行为要求。
 
 <a id="test-ai-07"></a>
 
@@ -2316,18 +2326,18 @@ unload 后拒绝新 local-AI signal work、过期请求不能发布 stale 状态
    model，也不得留下空的 result shell。
 4. 在 Home 输入：
    `@Who owns the lighthouse review, and when is it scheduled?`
-   预期 **Source states:** 回答 Morgan、Thursday 10:30，并逐项引用
-   `[[Manual Test Notes/English Markdown Note.md]]`；题目未要求推论时，**Model inference:** 可以为
-   **None.**，不得编造额外计划。
+   预期 **From the note:** 回答 Morgan、Thursday 10:30，并逐项引用
+   `[[Manual Test Notes/English Markdown Note.md]]`；题目未要求推论时，不显示空的
+   **What this may mean:** 或 **None.**，也不得编造额外计划。
    再输入：
    `@中文测试笔记里谁负责检查阳台番茄，什么时候检查？`
-   预期 **Source states:** 回答小林、周五下午三点，并逐项引用
+   预期 **From the note:** 回答小林、周五下午三点，并逐项引用
    `[[Manual Test Notes/中文 Markdown 测试笔记.md]]`。
 5. 确认回答出现在独立结果区域，不与 Home widgets 重叠。
 6. Header 显示 provider/model、source 数、**Keyword search** 或 **Keyword + semantic search**，以及 **Returned in …**。
 7. 点击 **Copy result**，粘贴到临时 Markdown 笔记。
-8. 复制内容应包含固定顺序、各出现一次的 **Source states:** / **Model inference:**、完整回答
-   与去重后的 `Sources:`；来源使用 Obsidian wiki links，不含原始 JSON 或 `[S1]` / `[E1]`。
+8. 复制内容应包含 **From the note:**、题目需要且实际非空时的 **What this may mean:**、完整回答
+   与去重后的 `Sources:`；来源使用 Obsidian wiki links，不含原始 JSON、内部字段名或 `[S1]` / `[E1]`。
 9. Copy 按钮短暂变成 **Copied**；键盘也能触发。
 10. 滚动长结果，切换 light/dark theme，再关闭结果；widgets 应自然回流。
 11. 重复一次问题，确认不存在 `[S#]` 或 `[E#]` placeholder。
@@ -2725,9 +2735,9 @@ hard preflight 通过后，选择本地 provider，依次运行：
    `@Does the release checklist explain cloud answer routing?`
    必须 abstain 或重定向到正确 primary note；release checklist 是 distractor，不能从它编造 routing。
 7. 每次记录：回答、Copy result、sources、retrieval mode、warnings、elapsed time、4 分制得分。
-   所有非空答案均应由固定的 **Source states:** / **Model inference:** 两段组成，每个关键
-   事实、行动、比较或推论旁都有对应 primary note 引用；推论不能伪装成原文事实。P01、P02、P05
-   若没有合理推论，**Model inference:** 可以为 **None.**。查看 Copy result 时也要核对分区和引用。
+   所有答案均应以 **From the note(s):** 呈现直接证据；只有存在非空推论时才显示
+   **What this may mean:**。每个关键事实、行动、比较或推论旁都有对应 primary note 引用；推论不能
+   伪装成原文事实。P01、P02、P05 若没有合理推论，不显示空推论标题或 **None.**。Copy result 采用同样规则。
 8. P01/P02/P03/P04/P06 必须 4/4；P05 至少 3/4。任何 distractor citation、编造 cloud 发送路径、
    缺少逐结论引用、分区错误或 `[S#]` / `[E#]` placeholder 泄漏都是 release blocker。
 
@@ -2810,7 +2820,7 @@ cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
      标为 embedding-only，不能成为回答模型。
    - `qwen3:0.6b` 与 `qwen3:4b-instruct` 属于 completion model；本轮只选择后者回答。
    - `gpt-oss:20b-cloud` 不能出现在可用的本地 Embedding model 中，也不能被 semantic retrieval 调用。
-2. 保持 **Advanced AI controls** 展开，点击 **Test embeddings**。预期相邻状态或 Notice 明确显示：
+2. 保持 **Advanced AI controls** 展开，点击 **Test semantic search**。预期相邻状态或 Notice 明确显示：
 
    ```text
    Embedding test passed in <latency>ms: 2 vectors × 384 dims.
@@ -2819,7 +2829,7 @@ cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
    两个 probes 必须得到相同且大于 0 的维度；测试结束后 disclosure 仍展开，Embedding model 仍是
    `all-minilm:22m`。失败时记录完整错误，不把 keyword fallback 误记成 embedding PASS。
 3. 在第一次提问前记录三篇 Markdown ground-truth／distractor notes 的 SHA-256；最后再次比较，证明
-   Test embeddings 和提问没有把 vector 写进正文或 frontmatter：
+   Test semantic search 和提问没有把 vector 写进正文或 frontmatter：
 
    ```bash
    shasum -a 256 \
@@ -2852,17 +2862,17 @@ cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
 
    B04 至少应识别 **deep watering、direct sun、early support**。每项明确 overlap 的同一句或相邻句必须
    同时引用两篇 tomato notes；仅在末尾列 Sources 不够。单篇独有内容不能伪装成双方共同建议；推测只能
-   放入 **Model inference:** 并使用审慎措辞。Header 仍须显示 `all-minilm:22m`。
+   放入 **What this may mean:** 并使用审慎措辞。Header 仍须显示 `all-minilm:22m`。
 6. 关闭 **Keyword + semantic search**，再运行一次 D01：
    - header 只能显示 **Keyword search**；
    - 不得显示 embedding model，也不得发 embedding request；
    - keyword-only 结果可以与 hybrid 不同，但仍不得引用两个 distractors。
 
-   完成后重新开启 Hybrid、选择 `all-minilm:22m`、关闭 rerank，并再次 Test embeddings。
+   完成后重新开启 Hybrid、选择 `all-minilm:22m`、关闭 rerank，并再次 **Test semantic search**。
 7. **Daemon fallback（可选但推荐）**：记录当前 endpoint，临时改为
-   `http://localhost:9999`，运行 D01。应安全降级为 Keyword search，并只提供
+   `http://localhost:9999` 并点击 **Save endpoint**，运行 D01。应安全降级为 Keyword search，并只提供
    **Use keyword search by default** 与 **Open retrieval settings**；daemon 不可达时不能显示
-   **Install model**。测试后点击 **Use automatic**，Check setup，并再次 Test embeddings。
+   **Install model**。测试后点击 **Use automatic**，Check setup，并再次 **Test semantic search**。
 
 AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目标是 `4/4`，M01 至少 `3/4`；
 若跨语言召回不稳定，应如实记当前模型的质量 FAIL，不能用 keyword 命中掩盖 semantic 结论。
@@ -2870,20 +2880,20 @@ AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目�
 #### AI-09B：`bge-m3` multilingual release gate（本次必做）
 
 当前 test-vault 已保存 `all-minilm:22m`，因此它不会凭空显示“`bge-m3` saved, not installed”或
-**Install model**。不要为制造该状态手改 `data.json`，也不要删除当前唯一可用 embedding model。
+**Install bge-m3**。不要为制造该状态手改 `data.json`，也不要删除当前唯一可用 embedding model。
 
 1. 选择且只选择一种安装路径：
    - **验证一键安装 UX**：在 disposable clean vault 使用默认保存的 `bge-m3`，先 Check setup，确认
-     `bge-m3 (saved, not installed)`、**Install model** 和 keyword fallback，再明确点击一次 Install model。
-   - **继续当前 test-vault**：在 Terminal 明确运行 `ollama pull bge-m3`。此路径不验证 Install model 按钮。
+     `bge-m3 (saved, not installed)`、**Install bge-m3** 和 keyword fallback，再明确点击一次 **Install bge-m3**。
+   - **继续当前 test-vault**：在 Terminal 明确运行 `ollama pull bge-m3`。此路径不验证 **Install bge-m3** 按钮。
 
    不要同时运行两种路径。pull 期间应显示 installing／progress 或准确 failure；页面加载、Check setup、
-   Test embeddings 和普通提问本身都不得触发 pull。
+   **Test semantic search** 和普通提问本身都不得触发 pull。
 2. 安装完成后运行 `ollama list`，再点击 **Check setup**：
    - `bge-m3` 在 **Embedding model** 中可选择；
    - 若它出现在 Answer model 目录，必须 disabled 并标为 embedding-only；
    - `gpt-oss:20b-cloud` 仍不能成为本地 embedding model。
-3. 选择 `bge-m3`，Hybrid On、rerank Off，点击 Test embeddings。必须成功返回 **2 vectors × N dims**，
+3. 选择 `bge-m3`，Hybrid On、rerank Off，点击 **Test semantic search**。必须成功返回 **2 vectors × N dims**，
    其中 `N > 0` 且两个 vectors 维度一致；不要把 `all-minilm` 的 384 维硬套给 `bge-m3`。
 4. 用 `bge-m3` 完整重复：D01 三次、M01 一次、rerank On 后 D01 一次和 B04 一次。所有 hybrid header
    必须显示 **Keyword + semantic search · bge-m3**；D01／B04 必须 `4/4`，M01 至少 `3/4`，且没有
@@ -2903,8 +2913,8 @@ AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目�
    Ollama 发 embedding traffic”无法仅凭普通 UI 可靠证明；这些项必须引用自动测试或 agent-assisted
    request/cache instrumentation，不能仅凭回答成功手工记 PASS。
 
-总通过条件：模型角色不混淆；除测试者明确点击 Install model 或运行 `ollama pull bge-m3` 外无自动下载；
-Test embeddings 的 vector 数量／维度明确；Advanced disclosure 保持展开；hybrid、rerank、keyword-only 与
+总通过条件：模型角色不混淆；除测试者明确点击 **Install bge-m3** 或运行 `ollama pull bge-m3` 外无自动下载；
+**Test semantic search** 的 vector 数量／维度明确；Advanced disclosure 保持展开；hybrid、rerank、keyword-only 与
 fallback header／actions 准确；fixtures 不被写入 embedding 数据；回答不引用 lettuce／calendar distractor。
 
 <a id="test-ai-10"></a>
@@ -3436,12 +3446,13 @@ plugin lifecycle 主动关闭后才能把 unload 子项记 PASS。
    3. 关闭 Capture，打开 **Settings → OMD Home → AI answers**。确认这里没有这两个开关的
       重复副本。
    4. 展开默认折叠的 **Advanced AI controls**，向下找到 **Ollama troubleshooting →
-      Ollama endpoint**。说明文字应明确显示 automatic 值 `http://localhost:11434`，以及唯一允许的备用
-      地址 `http://127.0.0.1:11434`；偏离 automatic 时显示 **Use automatic**。把当前值临时改为不可用的 `http://localhost:9999`；这个值只用来
+      Ollama endpoint**。说明文字应明确显示 automatic 值 `http://localhost:11434`，并说明 manual 只允许
+      `localhost`、`127.0.0.1` 或 `[::1]` 加显式端口；偏离 automatic 时显示 **Use automatic**。把当前值
+      临时改为格式合法但不可达的 `http://localhost:9999` 并点击 **Save endpoint**；这个值只用来
       证明关闭 AI 的 capture 不会连接 Ollama，不要点击 **Check setup**。
    5. 回到 Home，再次点击 **Capture URL or file**。关闭两个 Optional local AI 开关，然后使用
       `docs/manual-test-fixtures/capture/small-local-file.html` 完成 capture。开关应为灰色且滑块位于左侧。
-   6. 预期结构转换成功并进入 OMD Inbox；无效 Ollama endpoint 不应把这次 capture 标记为失败，
+   6. 预期结构转换成功并进入 OMD Inbox；不可达 Ollama endpoint 不应把这次 capture 标记为失败，
       也不应出现 “output path could not be verified” 提示。外部磁盘上的新文件可能需要数秒才会被
       Obsidian 索引，这段等待属于正常现象。
    7. 再次打开 Capture，确认两个关闭状态已成为下一次新 capture 的起始状态；然后点击 Cancel。

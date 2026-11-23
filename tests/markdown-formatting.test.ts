@@ -356,6 +356,11 @@ test("formatting UI is review-first, cancellable, and announces generation", () 
   assert.doesNotMatch(modalSource, /this\.applyButton\.disabled\s*=\s*false/u);
   assert.match(mainSource, /decision = modal\.openAndWait\(\)[\s\S]*previewMarkdownFormatting/u);
   assert.match(mainSource, /const formattingTarget = markdownFormattingTarget\(baseline\)[\s\S]*previewMarkdownFormatting\([\s\S]*executable,[\s\S]*formattingTarget\.source,/u);
+  assert.match(
+    mainSource,
+    /requireLocalOllamaTransport\(executable, controller\.signal\)[\s\S]*previewMarkdownFormatting\(/u,
+    "formatting must prove hardened local transport before sending note text to OMD",
+  );
   assert.match(mainSource, /mergeMarkdownFormattingTarget\(baseline, formattingTarget, formatted\)/u);
   assert.match(mainSource, /modal\.showPreview\(formatted\)/u, "the preview stays focused on the selected text");
   assert.doesNotMatch(mainSource, /modal\.showPreview\(preview\)/u, "rich media outside the target must not clutter the preview");

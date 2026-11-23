@@ -16,18 +16,24 @@ import {
   aggregateLocalAiState,
   buildConnectionSummary,
   buildModelEntry,
+  createWorkflowSnapshot,
   deriveLocalAiDaemonCode,
   deriveLocalAiModelCode,
   describeDaemonReadiness,
   describeLocalCompletionCatalog,
   describeModelReadiness,
+  embeddingModelPullCommand,
   localModelNamesMatch,
   mergeInspectedModelEntry,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
   oneClickInstallableEmbeddingModel,
+  providerMode,
+  resolveEmbeddingModelRevision,
 } from "../src/local-ai-readiness.ts";
-import { LocalAiError, type LocalAiModelInfo, type LocalAiRuntimeState } from "../src/ollama-local-types.ts";
+import { executeWithLocalAiGate } from "../src/local-ai-execution.ts";
+import { OllamaLocalClient } from "../src/ollama-local-client.ts";
+import { LocalAiError, type LocalAiModelInfo } from "../src/ollama-local-types.ts";
 import { socialCaptureProvider } from "../src/omnibox-utils.ts";
 import {
   CALENDAR_DETACH_CONFIRMATION,
@@ -70,7 +76,11 @@ function loadMethods(file: string, names: string[], dependencies: Record<string,
     return member.getText(source);
   });
   const helpers = source.statements.filter((node) => ts.isFunctionDeclaration(node)
-    && ["buildHostedState", "humanizeRetrievalWarning", "isEmbeddingRetrievalWarning", "mapHostedErrorCode", "message", "isAbortError", "isModelReadinessCode", "remapLocalAiError", "retrievalWarningForError", "waitForSharedPromise"].includes(node.name?.text ?? ""));
+    && [
+      "buildHostedState", "humanizeRetrievalWarning", "isEmbeddingRetrievalWarning", "localAiWorkflowLabel",
+      "mapHostedErrorCode", "message", "isAbortError", "isModelReadinessCode", "ownsLocalAiConnectionState",
+      "remapLocalAiError", "retrievalWarningForError", "summarizeSmokeResponse", "waitForSharedPromise",
+    ].includes(node.name?.text ?? ""));
   const compiled = ts.transpileModule(
     `${helpers.map((node) => node.getText(source)).join("\n")}\nclass Harness { ${methods.join("\n")} }`,
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
@@ -135,6 +145,7 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     "withCloudAnswerSignal", "cancelCloudAnswerRequests", ...extraMethods,
   ], {
     Notice: class { constructor(value: string) { notices.push(value); } },
+    Platform: { isWin: false },
     providerLabel: aiProviderLabel,
     providerDomain: aiProviderDestination,
     aiProviderLabel,
@@ -142,6 +153,7 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     isHostedApiProvider,
     LocalAiError,
     oneClickInstallableEmbeddingModel,
+    embeddingModelPullCommand,
     selectedAiModel,
     ...dependencies,
   });
@@ -149,6 +161,7 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     settings: { aiProvider: "openai", aiModel: "", aiModels: { openai: "" }, omdExecutable: "omd" },
     unloaded: false,
     localAiActionToken: 0,
+    localAiEmbeddingProbe: null,
     localAiControllers: new Set<AbortController>(),
     cloudAnswerControllers: new Set<AbortController>(),
     hostedCredentialHydration: null,
@@ -178,6 +191,9 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     setLocalAiFeedback(_tone: string, detail: string) { plugin.feedback.push(detail); },
     requireReadyOmdExecutable: async () => "/Applications/OMD/bin/omd",
   });
+  if (typeof plugin.reconcileEmbeddingProbe !== "function") {
+    plugin.reconcileEmbeddingProbe = () => {};
+  }
   plugin.syncHostedAiState("");
   return plugin;
 }
@@ -3174,30 +3190,50 @@ test("dismissing an independent capture retry preserves the unrelated current is
   assert.equal(refreshes, 1);
 });
 
-function localSetupHarness(model: LocalAiModelInfo, remote = false): { plugin: Harness; calls: string[]; vaultCalls: string[] } {
+function localSetupHarness(model: LocalAiModelInfo & { digest?: string }, remote = false): { plugin: Harness; calls: string[]; vaultCalls: string[] } {
   const calls: string[] = [];
   const vaultCalls: string[] = [];
   const host = "http://localhost:11434";
   const plugin = mainHarness([
+    "onunload",
+    "refreshLocalAiCatalog",
+    "invalidateLocalAiState",
+    "cancelLocalAiRequests",
     "checkLocalAiConnection",
+    "smokeLocalAiWorkflow",
+    "testLocalEmbeddings",
     "activeLocalAiModels",
     "safeShowModel",
     "beginLocalAiAction",
     "finishLocalAiAction",
+    "runLocalAiGated",
+    "runLocalAiSafetyGate",
+    "storeLiveGateModelResult",
+    "currentLocalAiHost",
+    "currentLocalAiSummary",
+    "reconcileEmbeddingProbe",
+    "syncLocalAiState",
+    "setLocalAiFailure",
+    "reportLocalAiWorkflowIssue",
   ], {
-    LocalAiError,
     aggregateLocalAiState,
     buildConnectionSummary,
     buildModelEntry,
+    createWorkflowSnapshot,
     deriveLocalAiDaemonCode,
     deriveLocalAiModelCode,
     describeDaemonReadiness,
     describeLocalCompletionCatalog,
     describeModelReadiness,
+    executeWithLocalAiGate,
     getActiveWorkflowModels: (settings: Harness) => [{ model: settings.aiModel }],
     localModelNamesMatch,
     mergeInspectedModelEntry,
+    modelIsCloudBacked,
+    modelSupportsEmbedding,
     normalizeLocalOllamaHost,
+    providerMode,
+    resolveEmbeddingModelRevision,
   });
   const catalogEntry = buildModelEntry({
     ...model,
@@ -3213,8 +3249,14 @@ function localSetupHarness(model: LocalAiModelInfo, remote = false): { plugin: H
       ollamaHost: host,
       capturePolish: false,
     },
-    localAiActionToken: 0,
-    localAiControllers: new Set<AbortController>(),
+    calendarLifecycleGeneration: 0,
+    omdCapabilityGeneration: 0,
+    markdownFormattingModals: new Set(),
+    markdownViewActionGeneration: 0,
+    calendarRefreshTimer: null,
+    calendarWriteOverrides: new Map(),
+    omdCapabilityService: { dispose() {} },
+    omdEnrichmentRunner: { dispose() {} },
     localAiSummaries: new Map(),
     localAiFailure: null,
     ollamaLocalClient: {
@@ -3237,11 +3279,8 @@ function localSetupHarness(model: LocalAiModelInfo, remote = false): { plugin: H
       answer: async () => { vaultCalls.push("answer"); },
     },
   });
-  plugin.syncLocalAiState = (activeAction: LocalAiRuntimeState["activeAction"]) => {
-    const summary = plugin.localAiSummaries.get(host) ?? null;
-    plugin.localAiState = aggregateLocalAiState(plugin.settings, summary, summary?.models ?? [], activeAction);
-  };
   plugin.syncLocalAiState("");
+  plugin.syncHostedAiState("");
   return { plugin, calls, vaultCalls };
 }
 
@@ -3263,7 +3302,7 @@ function embeddingInstallHarness(savedModel: string, catalog: LocalAiModelInfo[]
   plugin.canStartAiSetupAction = () => true;
   plugin.beginLocalAiAction = (action: string) => {
     calls.push(`begin:${action}`);
-    return 1;
+    return ++plugin.localAiActionToken;
   };
   plugin.finishLocalAiAction = (token: number) => { calls.push(`finish:${token}`); };
   plugin.withLocalAiSignal = async (task: (signal: AbortSignal) => Promise<unknown>) => await task(new AbortController().signal);
@@ -3332,6 +3371,249 @@ test("local setup blocks an exposed cloud-backed custom model without touching t
   assert.deepEqual(vaultCalls, []);
 });
 
+test("a pending local smoke holds the setup mutex and unload discards its late result", async () => {
+  const model = { name: "qwen3:4b-instruct", capabilities: ["completion"] };
+  function localLifecycle() {
+    const { plugin, vaultCalls } = localSetupHarness(model);
+    const requests: string[] = [];
+    const chatStarted = deferred<AbortSignal>();
+    const chatReply = deferred<string>();
+    const ok = (body: object) => ({ statusCode: 200, headers: {}, body: JSON.stringify(body) });
+    Object.assign(plugin, {
+      ollamaLocalClient: new OllamaLocalClient({
+        requestJson: async ({ path, body, signal }) => {
+          requests.push(path);
+          switch (path) {
+            case "/api/version": return ok({ version: "0.33.3" });
+            case "/api/status": return ok({ cloud: { disabled: true } });
+            case "/api/tags": return ok({ models: [model] });
+            case "/api/show": return ok(body?.model === model.name
+              ? { model: model.name, capabilities: model.capabilities }
+              : { model: "bge-m3", capabilities: ["embedding"] });
+            case "/api/embed": return ok({ embeddings: [[0.1], [0.2]] });
+            case "/api/chat": {
+              assert.ok(signal, "the smoke request must receive the lifecycle signal");
+              if (requests.filter((request) => request === "/api/chat").length > 1) {
+                return ok({ message: { content: "duplicate reply" } });
+              }
+              chatStarted.resolve(signal);
+              // Deliver the first reply even after abort to exercise cleanup of late results.
+              return ok({ message: { content: await chatReply.promise } });
+            }
+            default: throw new Error(`Unexpected Ollama request ${path}`);
+          }
+        },
+      }),
+    });
+    return { plugin, requests, vaultCalls, chatStarted, chatReply };
+  }
+
+  const previous = localLifecycle();
+  const smoke = previous.plugin.smokeLocalAiWorkflow("enrichment");
+  const oldSignal = await previous.chatStarted.promise;
+  const smokeRequests = ["/api/status", "/api/tags", "/api/show", "/api/chat"];
+  assert.equal(previous.plugin.localAiState.activeAction, "smoke:enrichment");
+  assert.equal(previous.plugin.aiSetupBusy(), true);
+  assert.equal(previous.plugin.localAiControllers.size, 1);
+  assert.equal(oldSignal.aborted, false);
+
+  const [, checked] = await Promise.all([
+    previous.plugin.smokeLocalAiWorkflow("enrichment"),
+    previous.plugin.checkLocalAiConnection(),
+    previous.plugin.testLocalEmbeddings(),
+  ]);
+  assert.equal(checked, false);
+  assert.deepEqual(previous.requests, smokeRequests);
+  assert.equal(previous.plugin.localAiState.activeAction, "smoke:enrichment");
+  assert.equal(previous.plugin.notices.length, 3);
+  for (const notice of previous.plugin.notices) assert.match(notice, /Another AI setup action is already running/u);
+  assert.deepEqual(previous.plugin.feedback, ["Running Note enrichment smoke test…"]);
+
+  previous.plugin.onunload();
+  assert.equal(oldSignal.aborted, true);
+  assert.equal(previous.plugin.localAiControllers.size, 0);
+  assert.equal(previous.plugin.localAiSummaries.size, 0);
+  const unloadedState = previous.plugin.localAiState;
+
+  const fresh = localLifecycle();
+  assert.equal(fresh.plugin.aiSetupBusy(), false);
+  assert.equal(fresh.plugin.localAiState.daemonCode, "unchecked");
+  assert.equal(fresh.plugin.localAiSummaries.size, 0);
+  assert.equal(fresh.plugin.feedback.length, 0);
+  const freshSmoke = fresh.plugin.smokeLocalAiWorkflow("enrichment");
+  const freshSignal = await fresh.chatStarted.promise;
+
+  previous.chatReply.resolve("obsolete reply");
+  await smoke;
+  assert.equal(previous.plugin.localAiState, unloadedState);
+  assert.equal(previous.plugin.localAiSummaries.size, 0);
+  assert.deepEqual(previous.plugin.feedback, ["Running Note enrichment smoke test…"]);
+  assert.equal(previous.plugin.notices.length, 3);
+  assert.deepEqual(previous.plugin.issues, []);
+  assert.deepEqual(previous.requests, smokeRequests);
+  assert.deepEqual(previous.vaultCalls, []);
+  assert.equal(freshSignal.aborted, false);
+  assert.equal(fresh.plugin.localAiState.activeAction, "smoke:enrichment");
+
+  fresh.chatReply.resolve("fresh reply");
+  await freshSmoke;
+  assert.deepEqual(fresh.requests, smokeRequests);
+  assert.deepEqual(fresh.vaultCalls, []);
+  assert.equal(fresh.plugin.aiSetupBusy(), false);
+  assert.equal(fresh.plugin.localAiControllers.size, 0);
+  const freshFeedback = fresh.plugin.feedback.at(-1) ?? "";
+  assert.match(freshFeedback, /smoke passed in \d+ms: fresh reply$/u);
+  assert.deepEqual(fresh.plugin.notices, [freshFeedback]);
+  assert.deepEqual(fresh.plugin.issues, []);
+});
+
+test("local setup actions refresh an open Settings tab at busy and completion boundaries", () => {
+  const { plugin } = localSetupHarness({
+    name: "qwen3:4b-instruct",
+    capabilities: ["completion"],
+  });
+  const settingsStates: string[] = [];
+  plugin.settingTab = {
+    refreshLocalAiSection: () => settingsStates.push(plugin.localAiState.activeAction),
+  };
+
+  const token = plugin.beginLocalAiAction("refresh-models");
+  assert.equal(plugin.aiSetupBusy(), true);
+  plugin.finishLocalAiAction(token);
+
+  assert.deepEqual(settingsStates, ["refresh-models", ""]);
+  assert.equal(plugin.aiSetupBusy(), false);
+});
+
+for (const action of ["refresh models", "check setup"] as const) {
+  test(`unload discards a late ${action} result without publishing setup state`, async () => {
+    const model = { name: "qwen3:4b-instruct", capabilities: ["completion"] };
+    const { plugin, vaultCalls } = localSetupHarness(model);
+    const entered = deferred<AbortSignal>();
+    const release = deferred<void>();
+    plugin.ollamaLocalClient.version = async (_host: string, signal: AbortSignal) => {
+      entered.resolve(signal);
+      await release.promise;
+      return { version: "0.33.3" };
+    };
+
+    const pending = action === "refresh models"
+      ? plugin.refreshLocalAiCatalog(true)
+      : plugin.checkLocalAiConnection();
+    const signal = await entered.promise;
+    plugin.onunload();
+    assert.equal(signal.aborted, true);
+    const state = plugin.localAiState;
+    const feedback = [...plugin.feedback];
+    const notices = [...plugin.notices];
+
+    release.resolve();
+    await pending;
+
+    assert.equal(plugin.localAiState, state);
+    assert.equal(plugin.localAiSummaries.size, 0);
+    assert.equal(plugin.localAiFailure, null);
+    assert.deepEqual(plugin.feedback, feedback);
+    assert.deepEqual(plugin.notices, notices);
+    assert.deepEqual(plugin.issues, []);
+    assert.deepEqual(vaultCalls, []);
+  });
+}
+
+for (const pending of ["chat failure", "model info", "missing model", "embedding model info"] as const) {
+  test(`unload discards a late ${pending} without publishing local AI state`, async () => {
+    const model = { name: "local-model", capabilities: ["completion"] };
+    const { plugin, vaultCalls } = localSetupHarness(model);
+    const entered = deferred<AbortSignal>();
+    const release = deferred<void>();
+    const embedding = pending === "embedding model info";
+    const method = pending === "chat failure" ? "smoke" : "show";
+    plugin.ollamaLocalClient[method] = async (_host: string, _model: string, signal: AbortSignal) => {
+      entered.resolve(signal);
+      await release.promise;
+      if (pending === "chat failure") throw new Error("Late transport failure");
+      if (pending === "missing model") throw new LocalAiError("selected_model_missing", "Model not found");
+      return embedding ? { name: "bge-m3", capabilities: ["embedding"] } : model;
+    };
+    let downstreamCalls = 0;
+    if (method === "show") {
+      plugin.ollamaLocalClient.smoke = plugin.ollamaLocalClient.embed = async () => { downstreamCalls++; };
+    }
+
+    const action = embedding ? plugin.testLocalEmbeddings() : plugin.smokeLocalAiWorkflow("enrichment");
+    const signal = await entered.promise;
+    plugin.onunload();
+    assert.ok(signal.aborted);
+    const state = plugin.localAiState;
+    const feedback = [...plugin.feedback];
+    release.resolve();
+    await action;
+
+    assert.equal(plugin.localAiSummaries.size, 0);
+    assert.equal(plugin.localAiFailure, null);
+    assert.equal(plugin.localAiEmbeddingProbe, null);
+    assert.equal(plugin.localAiState, state);
+    assert.deepEqual(plugin.feedback, feedback);
+    assert.deepEqual(plugin.issues, []);
+    assert.deepEqual(plugin.notices, []);
+    assert.deepEqual(vaultCalls, []);
+    assert.equal(downstreamCalls, 0);
+  });
+}
+
+test("the embedding probe records the tested endpoint, model and live vector result", async () => {
+  const { plugin } = localSetupHarness({ name: "bge-m3", digest: "sha256:tested", capabilities: ["embedding"] });
+  plugin.ollamaLocalClient.embed = async () => ({ latencyMs: 13, vectorCount: 2, dimensions: 3 });
+  await plugin.testLocalEmbeddings();
+  const success = plugin.localAiEmbeddingProbe;
+  assert.equal(success.host, "http://localhost:11434");
+  assert.equal(success.model, "bge-m3");
+  assert.equal(success.revision, "sha256:tested");
+  assert.equal(success.code, "ready");
+  assert.ok(success.checkedAt > 0);
+  assert.equal(success.vectorCount, 2);
+  assert.equal(success.dimensions, 3);
+  assert.match(success.detail, /2 vectors × 3 dims/u);
+
+  plugin.ollamaLocalClient.embed = async () => { throw new Error("Embedding probe failed"); };
+  await plugin.testLocalEmbeddings();
+  const failure = plugin.localAiEmbeddingProbe;
+  assert.equal(failure.host, success.host);
+  assert.equal(failure.model, success.model);
+  assert.equal(failure.code, "smoke_failed");
+  assert.match(failure.detail, /Embedding probe failed/u);
+  assert.equal(failure.dimensions, undefined);
+
+  await plugin.refreshLocalAiCatalog();
+  assert.equal(plugin.localAiEmbeddingProbe, null, "a catalog refresh releases the obsolete probe failure");
+  for (const reason of ["host", "embedding-model", "retrieval"]) {
+    plugin.localAiEmbeddingProbe = success;
+    plugin.invalidateLocalAiState(reason);
+    assert.equal(plugin.localAiEmbeddingProbe, null, reason);
+  }
+});
+
+test("catalog refresh invalidates a verified embedding probe when its model revision changes or is unknown", async () => {
+  const { plugin } = localSetupHarness({ name: "bge-m3", digest: "sha256:tested", capabilities: ["embedding"] });
+  plugin.ollamaLocalClient.embed = async () => ({ latencyMs: 13, vectorCount: 2, dimensions: 3 });
+  await plugin.testLocalEmbeddings();
+  const verified = plugin.localAiEmbeddingProbe;
+  assert.equal(verified.revision, "sha256:tested");
+
+  plugin.ollamaLocalClient.tags = async () => [buildModelEntry({
+    name: "bge-m3",
+    digest: "sha256:replaced",
+    capabilities: ["embedding"],
+  })];
+  await plugin.refreshLocalAiCatalog();
+  assert.equal(plugin.localAiEmbeddingProbe, null);
+
+  plugin.localAiEmbeddingProbe = verified;
+  plugin.ollamaLocalClient.tags = async () => [buildModelEntry({ name: "bge-m3", capabilities: ["embedding"] })];
+  await plugin.refreshLocalAiCatalog();
+  assert.equal(plugin.localAiEmbeddingProbe, null);
+});
+
 test("one-click embedding installation enforces its allowlist and stale-action snapshot before network access", async () => {
   const unsupported = embeddingInstallHarness("nomic-embed-text");
   assert.equal(await unsupported.plugin.installEmbeddingModel("nomic-embed-text"), false);
@@ -3340,6 +3622,11 @@ test("one-click embedding installation enforces its allowlist and stale-action s
   const stale = embeddingInstallHarness("other-model");
   assert.equal(await stale.plugin.installEmbeddingModel("bge-m3"), false);
   assert.deepEqual(stale.calls, ["begin:install-embedding", "finish:1"]);
+
+  const changedEndpoint = embeddingInstallHarness("bge-m3");
+  assert.equal(await changedEndpoint.plugin.installEmbeddingModel("bge-m3", "http://localhost:22434"), false);
+  assert.deepEqual(changedEndpoint.calls, ["begin:install-embedding", "finish:1"]);
+  assert.match(changedEndpoint.plugin.feedback.at(-1), /endpoint changed/u);
 });
 
 test("one-click embedding installation canonicalizes aliases and downloads only when explicitly requested", async () => {
@@ -3357,7 +3644,9 @@ test("one-click embedding installation canonicalizes aliases and downloads only 
   ]);
 
   const missing = embeddingInstallHarness("bge-m3");
+  missing.plugin.localAiEmbeddingProbe = { host: "http://localhost:11434", model: "bge-m3", code: "selected_model_missing" };
   assert.equal(await missing.plugin.installEmbeddingModel("bge-m3"), true);
+  assert.equal(missing.plugin.localAiEmbeddingProbe, null);
   assert.deepEqual(missing.calls, [
     "begin:install-embedding",
     "tags",
@@ -3842,11 +4131,12 @@ for (const provider of ["ollama", "openai"] as const) {
 }
 
 for (const [warning, model, expectedButtons] of [
-  ["hybrid_retrieval_model_not_installed", "bge-m3", ["Install model", "Use keyword search by default", "Open retrieval settings"]],
-  ["hybrid_retrieval_daemon_unreachable", null, ["Use keyword search by default", "Open retrieval settings"]],
-  ["hybrid_retrieval_model_unsupported", null, ["Use keyword search by default", "Open retrieval settings"]],
+  ["hybrid_retrieval_model_not_installed", "bge-m3", ["Install bge-m3", "Open retrieval settings", "Use keyword search by default"]],
+  ["hybrid_retrieval_model_not_installed", "all-minilm:22m", ["Copy install command", "Open retrieval settings", "Use keyword search by default"]],
+  ["hybrid_retrieval_daemon_unreachable", null, ["Open retrieval settings", "Use keyword search by default"]],
+  ["hybrid_retrieval_model_unsupported", null, ["Open retrieval settings", "Use keyword search by default"]],
 ] as const) {
-  test(`zero-evidence Ask preserves ${warning} recovery actions`, async () => {
+  test(`zero-evidence Ask preserves ${warning} recovery actions for ${model ?? "no model"}`, async () => {
     const plugin = mainHarness(["askOmd"]);
     Object.assign(plugin.settings, {
       aiProvider: "ollama",
@@ -3857,6 +4147,7 @@ for (const [warning, model, expectedButtons] of [
       preview: { evidence: [], warnings: [warning] },
       retrieval: { hybridRetrievalEnabled: false },
       embeddingFallbackModel: model,
+      endpoint: "http://localhost:11434",
     });
     plugin.executeLocalAnswer = async () => assert.fail("No model request may run without evidence");
 
@@ -3898,6 +4189,78 @@ for (const [warning, model, expectedButtons] of [
     assert.deepEqual(buttons, expectedButtons);
   });
 }
+
+test("embedding install disclosure precedes its consequential action", () => {
+  const plugin = mainHarness();
+  plugin.settings.hybridRetrievalEnabled = true;
+  const events: string[] = [];
+  const element = (): Record<string, any> => ({
+    isConnected: true,
+    createDiv(options: { text?: string } = {}) {
+      if (options.text) events.push(options.text);
+      return element();
+    },
+    createSpan(options: { text?: string } = {}) {
+      if (options.text) events.push(options.text);
+      return element();
+    },
+    createEl(_tag: string, options: { text?: string } = {}) {
+      if (options.text) events.push(options.text);
+      return { isConnected: true, disabled: false, addEventListener() {} };
+    },
+  });
+
+  plugin.renderRetrievalDiagnostics(
+    element(),
+    ["hybrid_retrieval_model_not_installed"],
+    "bge-m3",
+    "http://localhost:11434",
+  );
+
+  const disclosure = events.findIndex((value) => /downloads model data/u.test(value));
+  const install = events.indexOf("Install bge-m3");
+  assert.ok(disclosure >= 0, events.join(" | "));
+  assert.ok(install > disclosure, events.join(" | "));
+});
+
+test("a manual embedding install command follows the warning endpoint and rechecks the route on click", async () => {
+  const host = "http://127.0.0.1:22434";
+  const model = "all-minilm:22m";
+  const copied: string[] = [];
+  const plugin = mainHarness(["currentLocalAiHost"], {
+    normalizeLocalOllamaHost, localModelNamesMatch,
+    navigator: { clipboard: { writeText: async (value: string) => { copied.push(value); } } },
+  });
+  Object.assign(plugin.settings, { embeddingModel: model, ollamaHost: host });
+  let settingsOpened = 0;
+  plugin.openRetrievalSettings = () => { settingsOpened++; };
+  let click!: () => void;
+  const container = {
+    createDiv() { return container; },
+    createSpan() {},
+    createEl(_tag: string, options: { text: string }) {
+      return {
+        isConnected: true,
+        addEventListener(_event: string, listener: () => void) {
+          if (options.text === "Copy install command") click = listener;
+        },
+      };
+    },
+  };
+
+  plugin.renderRetrievalDiagnostics(container, ["hybrid_retrieval_model_not_installed"], model, host);
+  click();
+  await Promise.resolve();
+  assert.deepEqual(copied, [embeddingModelPullCommand(model, host, false)]);
+  assert.ok(copied[0].includes(host));
+  plugin.settings.ollamaHost = "http://localhost:11434";
+  click();
+  plugin.settings.ollamaHost = host;
+  plugin.settings.embeddingModel = "bge-m3";
+  click();
+  assert.equal(copied.length, 1);
+  assert.equal(settingsOpened, 2);
+});
 
 test("retrieval diagnostics use answer wording after an answer exists", () => {
   const plugin = mainHarness();
@@ -4599,6 +4962,55 @@ test("shared setup publishes the verified executable and capture probes it befor
   assert.equal(plugin.resolvedOmdExecutable(), verified, "capture discovery cannot replace the shared verified path");
 });
 
+test("polished capture fails closed on legacy transport while plain capture remains compatible", async () => {
+  const executable = "/legacy/bin/omd";
+  const probes: string[] = [];
+  let transportChecks = 0;
+  const plugin = loadMethods("src/main.ts", ["requireCaptureOmdExecutable"], {
+    discoverOmdExecutable: async (
+      _saved: string,
+      _options: unknown,
+      validate: (path: string) => Promise<unknown>,
+    ) => {
+      await validate(executable);
+      return { executable, mode: "custom" };
+    },
+    process,
+    hasCaptureLanguageOverrides: () => false,
+    probeOmdCaptureExecutable: async (candidate: string) => { probes.push(candidate); },
+    socialCaptureProvider,
+  });
+  Object.assign(plugin, {
+    settings: { omdExecutable: executable },
+    omdCapabilityCheck: null,
+    discoveredOmdExecutable: "",
+    lastVerifiedOmdExecutable: "",
+    usesAutomaticOmdDiscovery: () => false,
+    omdCapabilityService: {
+      requireLocalOllamaTransport: async () => {
+        transportChecks += 1;
+        throw new Error("Update OMD; no note content was sent");
+      },
+      requireCaptureLanguages: async () => assert.fail("no recognition override was requested"),
+      requireSocialCaptureAuth: async () => assert.fail("a local file is not a social capture"),
+    },
+  });
+
+  await assert.rejects(
+    plugin.requireCaptureOmdExecutable({ source: "/tmp/fixture.html", polish: true }),
+    /no note content was sent/iu,
+  );
+  assert.equal(transportChecks, 1);
+  assert.deepEqual(probes, [], "legacy transport must be rejected before the executable can capture content");
+
+  assert.equal(
+    await plugin.requireCaptureOmdExecutable({ source: "/tmp/fixture.html", polish: false }),
+    executable,
+  );
+  assert.equal(transportChecks, 1, "plain conversion does not send note text to local AI");
+  assert.deepEqual(probes, [executable]);
+});
+
 test("automatic setup falls back to an enrich-only OMD when no recognition-capable candidate exists", async () => {
   const legacy = "/legacy/bin/omd";
   let discoveryCalls = 0;
@@ -5008,7 +5420,7 @@ test("Ollama Cloud setup publishes a fresh catalog when the saved model was remo
   assert.match(plugin.feedback.at(-1) ?? "", /cloud-a:latest is no longer installed/u);
 });
 
-for (const failure of ["no-cloud-model", "incompatible-cloud-model", "cloud-model-inspection-unavailable"] as const) {
+for (const failure of ["cloud-disabled", "no-cloud-model", "incompatible-cloud-model", "cloud-model-inspection-unavailable"] as const) {
   test(`Ollama Cloud ${failure} feedback does not overwrite healthy local daemon readiness`, async () => {
     const host = "http://localhost:11434";
     const healthy = buildConnectionSummary({
@@ -5039,24 +5451,29 @@ for (const failure of ["no-cloud-model", "incompatible-cloud-model", "cloud-mode
         aiProvider: "ollama-cloud",
         aiModel: failure === "no-cloud-model"
           ? ""
-          : failure === "cloud-model-inspection-unavailable" ? "gpt-oss:20b-cloud" : "local-not-cloud:latest",
+          : failure === "cloud-model-inspection-unavailable" || failure === "cloud-disabled"
+            ? "gpt-oss:20b-cloud"
+            : "local-not-cloud:latest",
         aiModels: {
           "ollama-cloud": failure === "no-cloud-model"
             ? ""
-            : failure === "cloud-model-inspection-unavailable" ? "gpt-oss:20b-cloud" : "local-not-cloud:latest",
+            : failure === "cloud-model-inspection-unavailable" || failure === "cloud-disabled"
+              ? "gpt-oss:20b-cloud"
+              : "local-not-cloud:latest",
         },
         ollamaHost: host,
       },
       localAiSummaries: new Map([[host, healthy]]),
       localAiFailure: null,
+      localAiActionToken: 1,
       canStartAiSetupAction: () => true,
       beginLocalAiAction: () => 1,
       finishLocalAiAction() {},
       syncLocalAiState() {},
       ollamaLocalClient: {
         version: async () => ({ version: "0.33.3" }),
-        status: async () => ({ cloud: { disabled: false } }),
-        tags: async () => failure === "no-cloud-model" ? [] : [verifiedCloudModel],
+        status: async () => ({ cloud: { disabled: failure === "cloud-disabled" } }),
+        tags: async () => failure === "no-cloud-model" || failure === "cloud-disabled" ? [] : [verifiedCloudModel],
         show: async () => {
           if (failure === "cloud-model-inspection-unavailable") {
             throw new LocalAiError("model_unavailable", "The selected Ollama Cloud model could not be inspected.");
@@ -5069,11 +5486,20 @@ for (const failure of ["no-cloud-model", "incompatible-cloud-model", "cloud-mode
       },
     });
     let localFailureWrites = 0;
+    let embeddingReconciliations = 0;
     plugin.setLocalAiFailure = () => { localFailureWrites += 1; };
+    plugin.reconcileEmbeddingProbe = () => { embeddingReconciliations += 1; };
 
     assert.equal(await plugin.checkOllamaCloudConnection(), false);
     assert.equal(localFailureWrites, 0);
-    assert.equal(plugin.localAiSummaries.get(host), healthy);
+    const summary = plugin.localAiSummaries.get(host);
+    assert.notEqual(summary, healthy, "a successful catalog read must replace stale alternatives");
+    assert.equal(summary.daemonCode, "ready");
+    assert.deepEqual(
+      summary.models.map((entry: LocalAiModelInfo) => entry.name),
+      failure === "no-cloud-model" || failure === "cloud-disabled" ? [] : ["gpt-oss:20b-cloud"],
+    );
+    assert.equal(embeddingReconciliations, 1);
     assert.equal(plugin.localAiFailure, null);
     assert.match(plugin.feedback.at(-1) ?? "", /Ollama Cloud setup failed/u);
     assert.equal(plugin.issues.length, 1);

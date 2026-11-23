@@ -101,7 +101,7 @@ function createHarness(methods: string[] = []) {
   }
   const source = ts.createSourceFile("settings.ts", readFileSync("src/settings.ts", "utf8"), ts.ScriptTarget.Latest, true);
   const declaration = source.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === "OmdHomeSettingTab")!;
-  const names = new Set(["answerModelSetting", "modelSetting", "saveModelValue", "saveAnswerModel", "saveSettingsInOrder", "changeAnswerProvider", "autoCheckHostedProvider", "runAiSetupAction", "modelReadinessRail", "settingsDisclosure", "renderOmdSetup", "renderCookiePathSetting", ...methods]);
+  const names = new Set(["answerModelSetting", "modelSetting", "saveModelValue", "saveAnswerModel", "saveSettingsInOrder", "changeAnswerProvider", "autoCheckHostedProvider", "runAiSetupAction", "modelReadinessRail", "settingsDisclosure", "renderOmdSetup", "renderCookiePathSetting", "ollamaEndpointSetting", ...methods]);
   const members = declaration.members.filter((node) => ts.isPropertyDeclaration(node) || (node.name && names.has(node.name.getText(source))));
   const helpers = source.statements.filter((node) => ts.isFunctionDeclaration(node) || ts.isVariableStatement(node)).map((node) => node.getText(source).replace(/^export /u, ""));
   const code = ts.transpileModule(`${helpers.join("\n")}\nclass Harness { ${members.map((m) => m.getText(source)).join("\n")} }`, {
@@ -166,6 +166,40 @@ test("custom answer and writing model drafts survive setup rerenders", async () 
   h.tab.modelSetting(h.container, "Local writing model", "Description", "localWritingModel", "enrichment");
   assert.equal(h.row("Local writing model").texts[0]!.value, "writer-custom:4b");
   assert.equal(h.saveCalls(), 0, "draft changes must not persist before Save model");
+});
+
+test("typing a custom Ollama port keeps the editor alive and saves only on request", async () => {
+  const h = createHarness();
+  h.tab.plugin.settings.ollamaHost = "http://localhost:11434";
+  const invalidations: Array<[string, boolean | undefined]> = [];
+  h.tab.plugin.invalidateLocalAiState = (reason: string, refreshSettings?: boolean) => {
+    invalidations.push([reason, refreshSettings]);
+  };
+  let embeddingRefreshes = 0;
+  h.tab.ollamaEndpointSetting(h.container, () => { embeddingRefreshes += 1; });
+  const row = h.row("Ollama endpoint");
+  const input = row.texts[0]!;
+
+  for (const value of [
+    "http://localhost:2",
+    "http://localhost:22",
+    "http://localhost:224",
+    "http://localhost:2243",
+    "http://localhost:22434",
+  ]) {
+    await input.change(value);
+    assert.equal(input.inputEl.isConnected, true, value);
+    assert.equal(h.tab.plugin.settings.ollamaHost, "http://localhost:11434", value);
+  }
+  assert.deepEqual(invalidations, []);
+  assert.equal(embeddingRefreshes, 0);
+  assert.equal(h.saveCalls(), 0);
+
+  await row.buttons.find((button) => button.label === "Save endpoint")!.click();
+  assert.equal(h.tab.plugin.settings.ollamaHost, "http://localhost:22434");
+  assert.deepEqual(invalidations, [["host", false]]);
+  assert.equal(embeddingRefreshes, 1);
+  assert.equal(h.saveCalls(), 1);
 });
 
 test("hosted model drafts stay separate for each provider and save only on request", async () => {

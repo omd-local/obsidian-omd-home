@@ -128,7 +128,8 @@ test("hybrid retrieval falls back to sparse search when local embedding safety c
   ]) {
     assert.match(mainSource, new RegExp(reason, "u"));
   }
-  assert.match(mainSource, /text: "Install model"/u);
+  assert.match(mainSource, /text: `Install \$\{installableModel\}`/u);
+  assert.match(mainSource, /downloads model data to Ollama and may take several minutes/u);
   assert.match(mainSource, /if \(this\.settings\.hybridRetrievalEnabled\)/u);
   assert.match(mainSource, /text: "Use keyword search by default"/u);
   assert.match(mainSource, /text: "Open retrieval settings"/u);

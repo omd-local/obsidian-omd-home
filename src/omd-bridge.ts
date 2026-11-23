@@ -373,14 +373,14 @@ function assertGroundedAnswerContract(answer: AiAnswer): void {
   const invalidSections = warnings.has("answer_provenance_labels_missing");
   if (missingCitations && invalidSections) {
     throw new Error(
-      "The answer model omitted claim citations and the required Source states / Model inference format. No unverified answer was shown; try again or ask a narrower question.",
+      "The answer model omitted claim citations and did not clearly separate facts from suggestions. No unverified answer was shown. Try again or ask a narrower question.",
     );
   }
   if (missingCitations) {
     throw new Error("The answer model did not cite every claim from the retrieved notes. No unverified answer was shown; try again or ask a narrower question.");
   }
   if (invalidSections) {
-    throw new Error("The answer model did not separate Source states from Model inference in the required format. No unverified answer was shown; try again.");
+    throw new Error("The answer model did not clearly separate facts from suggestions. No unverified answer was shown. Try again.");
   }
   if (!answer.evidence.length) {
     throw new Error(
@@ -1406,8 +1406,8 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   }
   if (detail.code === "malformed_structured_output") {
     return approvedEvidenceWasSent
-      ? "The answer model did not provide the required Source states / Model inference structure. The approved vault evidence was sent, but no unverified answer was shown; try again."
-      : "The answer model did not provide the required Source states / Model inference structure. No unverified answer was shown; try again.";
+      ? "OMD Home could not verify the answer format. The approved vault evidence was sent. No unverified answer was shown. Try again."
+      : "OMD Home could not verify the answer format. No unverified answer was shown. Try again.";
   }
   if (detail.code === "malformed_response") {
     return `${provider} returned a response OMD Home could not read. Try again or choose another model.`;

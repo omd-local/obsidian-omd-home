@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import type { LookupFunction } from "node:net";
 import {
   LocalAiError,
   type LocalAiEmbedResult,
@@ -388,13 +389,39 @@ async function requestJson(options: JsonRequestOptions): Promise<HttpResponse> {
   const { host, path, method = "GET", body, timeoutMs, signal } = options;
   const runtimeWindow = window as Window & { require?: (id: string) => unknown };
   if (!runtimeWindow.require) throw new Error("Desktop HTTP APIs are unavailable");
+  const dns = runtimeWindow.require("node:dns") as typeof import("node:dns");
   const http = runtimeWindow.require("node:http") as typeof import("node:http");
   const { URL } = runtimeWindow.require("node:url") as typeof import("node:url");
+  const lookup: LookupFunction = (hostname, options, callback) => {
+    // Validate both families before applying the socket's family or single-address preference.
+    dns.lookup(hostname, { all: true }, (error, addresses) => {
+      if (error) {
+        callback(error, options.all ? [] : "");
+        return;
+      }
+      if (!addresses.length || addresses.some(({ address }) => address !== "127.0.0.1" && address !== "::1")) {
+        callback(new LocalAiError("invalid_host", "The configured Ollama hostname did not resolve exclusively to loopback addresses."), options.all ? [] : "");
+        return;
+      }
+      const family = options.family === "IPv4" ? 4 : options.family === "IPv6" ? 6 : options.family;
+      const matching = family ? addresses.filter((entry) => entry.family === family) : addresses;
+      const first = matching[0];
+      if (!first) {
+        callback(new LocalAiError("daemon_unreachable", "No loopback address matched the requested address family."), options.all ? [] : "");
+      } else if (options.all) {
+        callback(null, matching);
+      } else {
+        callback(null, first.address, first.family);
+      }
+    });
+  };
   return await new Promise<HttpResponse>((resolve, reject) => {
     const url = new URL(path, host);
     const payload = body ? JSON.stringify(body) : null;
     const request = http.request(url, {
       method,
+      agent: false,
+      lookup,
       headers: payload ? { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(payload)) } : {},
     }, (response: IncomingMessage) => {
       consumeLocalOllamaResponse(response, resolve, reject);

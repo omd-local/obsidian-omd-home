@@ -46,6 +46,7 @@ test("capability validation preserves optional build and capture language metada
       share_text: { supported: true, requires_single_http_url: true },
       platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
     },
+    local_ollama_transport: { version: 1 },
     hosted_ai_disclosure: sampleHostedAiDisclosure(),
     enrich_note: { supported: true, schema_versions: [1] },
   });
@@ -61,6 +62,7 @@ test("capability validation preserves optional build and capture language metada
     share_text: { supported: true, requires_single_http_url: true },
     platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
   });
+  assert.deepEqual(capability.local_ollama_transport, { version: 1 });
   assert.equal(capability.hosted_ai_disclosure?.checked_on, "2026-11-18");
   assert.equal(capability.hosted_ai_disclosure?.providers.deepseek.status, "ready");
   assert.equal(
@@ -77,6 +79,13 @@ test("capability validation rejects malformed social capture auth metadata", () 
       platform_cookie_flags: { douyin: ["--douyin-cookies"], xhs: "--xhs-cookies" },
     },
   }), /platform_cookie_flags\.douyin/u);
+});
+
+test("capability validation rejects malformed local Ollama transport metadata", () => {
+  assert.throws(() => validateCapabilityResponse({
+    enrich_note: { supported: true, schema_versions: [1] },
+    local_ollama_transport: { version: 0 },
+  }), /local_ollama_transport\.version/u);
 });
 
 for (const [name, mutate, pattern] of [
@@ -239,11 +248,16 @@ test("validateEnrichEvent requires v=1 and ts while allowing additive fields", (
 
 test("ensureLoopbackHost accepts only credential-free loopback base URLs", () => {
   assert.equal(ensureLoopbackHost("http://localhost:11434"), "http://localhost:11434");
-  assert.equal(ensureLoopbackHost("http://127.0.0.1:11434/"), "http://127.0.0.1:11434");
-  assert.equal(ensureLoopbackHost("http://[::1]:11434"), "http://[::1]:11434");
-  assert.throws(() => ensureLoopbackHost("http://localhost:11434/api"), /without a path, query, or fragment/i);
-  assert.throws(() => ensureLoopbackHost("http://user:pass@localhost:11434"), /without embedded credentials/i);
-  assert.throws(() => ensureLoopbackHost("https://example.com"), /loopback Ollama endpoint/i);
+  assert.equal(ensureLoopbackHost("http://127.0.0.1:00080"), "http://127.0.0.1:80");
+  assert.equal(ensureLoopbackHost("http://[::1]:9999"), "http://[::1]:9999");
+  for (const host of [
+    "http://localhost", "http://localhost:0", "http://localhost:65536", "https://localhost:80",
+    "http://localhost:80/", "http://localhost:80/api", "http://localhost:80?", "http://localhost:80#",
+    "http://@localhost:80", "http://user:pass@localhost:80", "http://sub.localhost:80",
+    "http://127.0.0.2:80", "http://127.1:80", "http://%6cocalhost:80", "http://192.168.0.2:80",
+  ]) {
+    assert.throws(() => ensureLoopbackHost(host), { code: "remote_host_not_allowed" }, host);
+  }
 });
 
 test("fixture manifest stays in sync with copied OMD contract fixtures", () => {

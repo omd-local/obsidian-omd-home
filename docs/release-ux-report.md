@@ -276,7 +276,8 @@ OMD 后端 **1684 / 1684** tests、Ruff、compileall 以及隔离 wheel 安装�
 
 在这个 2026-09-21 checkpoint，Graph／Search／Backlinks／Bases、ANSWER-01、Douyin／XHS bridge 与
 folder／list batch 当时都仍是 **Deferred / P2**。Douyin／XHS 后续实现状态与未完成的人工门禁已经由
-报告顶部 2026-09-26 小节取代；Graph 类建议、ANSWER-01 与 Local batch 到当前仍保持 Deferred。
+报告顶部 2026-09-26 小节取代；该句仅记录当时状态。当前状态以 `ui-backlog.md` 为准，其中
+ANSWER-01 已关闭，仍标 Deferred 的 Graph 类建议与 Local batch 继续留在后续队列。
 
 **20:45 候选结果（后续新发现见下方）：当时已发现的界面与交互缺陷已修复，完整前端 563 项、后端 1627 项测试通过，前端类型检查 / ESLint / 构建通过。恢复 minimal 风格后，36 组常规布局 + 8 组 Pin 对齐 + 4 组原生设置宽度模拟，共 48 组浏览器检查通过。**
 

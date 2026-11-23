@@ -118,7 +118,19 @@ export interface LocalAiWorkflowDisplayState {
   checkedAt?: number;
 }
 
+export interface LocalAiEmbeddingProbe {
+  host: string;
+  model: string;
+  revision?: string;
+  code: LocalAiReadinessCode;
+  detail: string;
+  checkedAt: number;
+  vectorCount?: number;
+  dimensions?: number;
+}
+
 export interface LocalAiRuntimeState {
+  connectionCode: LocalAiReadinessCode;
   providerMode: LocalAiProviderMode;
   providerValue: StoredAiProvider;
   normalizedHost?: string;

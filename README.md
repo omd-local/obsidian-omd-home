@@ -180,8 +180,12 @@ model, and bounded evidence excerpts before anything leaves the device. OMD Home
 
 Local-first rules still apply where they matter:
 
-- The live local Ollama answer path accepts only `http://localhost:11434` and
-  `http://127.0.0.1:11434`.
+- The live local Ollama path defaults to `http://localhost:11434`. A manual
+  endpoint may use `localhost`, `127.0.0.1`, or `[::1]` with an explicit custom
+  port. Select **Save endpoint** before checking the new daemon; the previous
+  verified setup is invalidated only when that explicit save succeeds. LAN and
+  remote hosts, credentials, paths, queries, fragments, proxies, and redirects
+  are rejected.
 - Local answer mode, note enrichment, Polish Markdown, and local embedding-based
   retrieval stay on loopback Ollama. Cloud availability does not block local
   model selection.
@@ -205,7 +209,7 @@ Cloud access is provider-scoped and explicit:
 Settings provide:
 
 - **Check setup** for the selected provider, model, and safety boundary.
-- **Test embeddings** for local semantic search.
+- **Test semantic search** for local retrieval.
 - `OMD Home: Refresh local AI models` from the command palette when you want to
   rescan local Ollama models without changing the saved selection.
 
@@ -306,10 +310,11 @@ preset fails, install the named Tesseract language pack and check
 | Google or Outlook calendar sync | Account already added to macOS Calendar | Uses the same selected EventKit calendars |
 
 Vault answers describe the evidence actually retrieved, not the whole Vault. A one-source
-answer begins with **Based on 1 retrieved note.** Source-backed conclusions are labeled
-**Source states:**, model synthesis is labeled **Model inference:**, and each substantive
-claim must carry an inline source citation. Vault links are restored locally after a cloud
-answer returns.
+answer begins with **Based on 1 retrieved note.** Direct evidence appears under **From the
+note** (or **From your notes**), while a non-empty interpretation appears under **What this
+may mean**. Each substantive claim must carry an inline source citation. Vault links are
+restored locally after a cloud answer returns; internal structured-output field names are not
+shown to the user.
 
 <details>
 <summary><strong>ASK VAULT SETUP // local by default, cloud by per-request approval</strong></summary>
@@ -329,8 +334,8 @@ answer returns.
    ```
 
    Choose it under **Advanced AI controls > Vault retrieval**, then press
-   **Test embeddings**. If a result reports that the selected embedding model is
-   missing, **Install model** runs the equivalent Ollama download only after you
+   **Test semantic search**. If the selected `bge-m3` model is missing,
+   **Install bge-m3** runs the equivalent Ollama download only after you
    click it. Opening settings, checking setup, and asking a question never download
    a model automatically. **Switch to keyword search** turns off semantic search for
    future vault questions and saves that choice; keyword search needs no embedding model.

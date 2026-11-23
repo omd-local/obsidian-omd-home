@@ -31,6 +31,70 @@ test("capability service rejects unsupported enrich-note versions", async () => 
   await assert.rejects(service.requireEnrichNote("omd"), /does not support enrich-note schema v1/i);
 });
 
+test("local Ollama transport capability fails closed before note content can be sent", async () => {
+  const legacy = new OmdCapabilityService(async () => ({
+    stdout: '{"enrich_note":{"supported":true,"schema_versions":[1]}}',
+    stderr: "",
+    code: 0,
+  }));
+  await assert.rejects(
+    legacy.requireLocalOllamaTransport("omd"),
+    /Update OMD, run Check setup.*No note content was sent/iu,
+  );
+
+  const hardened = new OmdCapabilityService(async () => ({
+    stdout: '{"enrich_note":{"supported":true,"schema_versions":[1]},"local_ollama_transport":{"version":1}}',
+    stderr: "",
+    code: 0,
+  }));
+  assert.equal((await hardened.requireLocalOllamaTransport("omd")).local_ollama_transport?.version, 1);
+});
+
+test("local transport gate re-probes an executable replaced at the same path", async () => {
+  let hardened = true;
+  let calls = 0;
+  const service = new OmdCapabilityService(async () => {
+    calls += 1;
+    return {
+      stdout: JSON.stringify({
+        enrich_note: { supported: true, schema_versions: [1] },
+        ...(hardened ? { local_ollama_transport: { version: 1 } } : {}),
+      }),
+      stderr: "",
+      code: 0,
+    };
+  });
+
+  await service.requireLocalOllamaTransport("/usr/local/bin/omd");
+  hardened = false;
+  await assert.rejects(
+    service.requireLocalOllamaTransport("/usr/local/bin/omd"),
+    /cannot prove hardened local Ollama transport/iu,
+  );
+  assert.equal(calls, 2);
+});
+
+test("local transport gate rejects invalid and downgraded capability versions", async () => {
+  for (const local_ollama_transport of [
+    { version: 0 },
+    { version: -1 },
+    { version: "1" },
+  ]) {
+    const service = new OmdCapabilityService(async () => ({
+      stdout: JSON.stringify({
+        enrich_note: { supported: true, schema_versions: [1] },
+        local_ollama_transport,
+      }),
+      stderr: "",
+      code: 0,
+    }));
+    await assert.rejects(
+      service.requireLocalOllamaTransport("omd"),
+      /capabilities\.local_ollama_transport\.version|hardened local Ollama transport/iu,
+    );
+  }
+});
+
 test("recognition capability rejects enrich-only OMD builds and accepts the capture language contract", async () => {
   const enrichOnly = new OmdCapabilityService(async () => ({
     stdout: "{\"enrich_note\":{\"supported\":true,\"schema_versions\":[1]}}",
