@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import { captureRequestFromSettings } from "../src/capture-request.ts";
-import { isLocalImageSource, isPluginRecordingWrapperCommand, looksCapturable, normalizeCaptureSource, parseCaptureSourceInput, recordingQuickActions, socialCaptureProvider } from "../src/omnibox-utils.ts";
+import { isLocalImageSource, isPluginRecordingWrapperCommand, looksCapturable, normalizeCaptureSource, parseCaptureSourceInput, registeredCommandRefs, recordingQuickActions, resolveRecordingCommand, socialCaptureProvider } from "../src/omnibox-utils.ts";
 
 type Harness = Record<string, any>;
 
@@ -101,7 +101,7 @@ test("omnibox opens supported social share text for review and rejects generic p
 test("an unavailable command explains why it did not run", async () => {
   const notices: string[] = [];
   const box = loadMethods("src/omnibox.ts", ["execute"], {
-    looksCapturable,
+    looksCapturable, registeredCommandRefs,
     Notice: class { constructor(value: string) { notices.push(value); } },
   });
   Object.assign(box, {
@@ -109,7 +109,7 @@ test("an unavailable command explains why it did not run", async () => {
     input: { value: ">unavailable" },
     beginSubmission() {},
     commands: {
-      listCommands: () => [{ id: "command:unavailable", name: "Unavailable command" }],
+      commands: { unavailable: { id: "command:unavailable", name: "Unavailable command" } },
       executeCommandById: () => false,
     },
   });
@@ -124,9 +124,9 @@ test("omnibox offers working start and stop controls for the native recorder wit
   ];
   const clicks: string[] = [];
   const actions: { label: string; run: () => void; primary: boolean }[] = [];
-  const box = loadMethods("src/omnibox.ts", ["renderQuickActions"], { recordingQuickActions, isPluginRecordingWrapperCommand });
+  const box = loadMethods("src/omnibox.ts", ["renderQuickActions"], { recordingQuickActions, isPluginRecordingWrapperCommand, registeredCommandRefs });
   Object.assign(box, {
-    commands: { listCommands: () => commands },
+    commands: { commands: Object.fromEntries(commands.map((command) => [command.id, command])) },
     actionBar: { empty() { actions.length = 0; } },
     quickAction(_container: unknown, _icon: string, label: string, run: () => void, primary = false) {
       actions.push({ label, run, primary });
@@ -144,6 +144,64 @@ test("omnibox offers working start and stop controls for the native recorder wit
   assert.deepEqual(clicks, ["start", "stop"]);
   assert.equal(actions.some((action) => action.label === "Recording"), false);
   assert.deepEqual(actions.filter((action) => action.primary).map((action) => action.label), ["Capture URL or file"]);
+});
+
+test("omnibox quick actions do not evaluate unrelated command availability callbacks", () => {
+  const commands = {
+    "audio-recorder:start": { id: "audio-recorder:start", name: "Start recording audio" },
+    "audio-recorder:stop": { id: "audio-recorder:stop", name: "Stop recording audio" },
+  };
+  const actions: string[] = [];
+  const box = loadMethods("src/omnibox.ts", ["renderQuickActions"], { recordingQuickActions, isPluginRecordingWrapperCommand, registeredCommandRefs });
+  Object.assign(box, {
+    commands: {
+      commands,
+      listCommands: () => {
+        throw new TypeError("A core command assumed an active tab group while checking availability");
+      },
+    },
+    actionBar: {
+      childElementCount: 0,
+      empty() { actions.length = 0; },
+    },
+    quickAction(_container: unknown, _icon: string, label: string) {
+      actions.push(label);
+    },
+    plugin: { manifest: { id: "omd-home" } },
+  });
+
+  assert.doesNotThrow(() => box.renderQuickActions());
+  assert.deepEqual(actions, ["Capture URL or file", "New event", "Commands", "Ask vault", "Start recording", "Stop recording"]);
+});
+
+test("recording dispatch does not evaluate unrelated command availability callbacks", () => {
+  const executed: string[] = [];
+  const notices: string[] = [];
+  const plugin = loadMethods("src/main.ts", ["runRecordingCommand"], {
+    isPluginRecordingWrapperCommand,
+    registeredCommandRefs,
+    resolveRecordingCommand,
+    Notice: class { constructor(value: string) { notices.push(value); } },
+  });
+  Object.assign(plugin, {
+    manifest: { id: "omd-home" },
+    app: {
+      commands: {
+        commands: {
+          "omd-home:start-recording": { id: "omd-home:start-recording", name: "Start recording" },
+          "audio-recorder:start": { id: "audio-recorder:start", name: "Start recording audio" },
+        },
+        listCommands: () => {
+          throw new TypeError("A core command assumed an active tab group while checking availability");
+        },
+        executeCommandById: (id: string) => { executed.push(id); return true; },
+      },
+    },
+  });
+
+  assert.equal(plugin.runRecordingCommand("start", "Recording started."), true);
+  assert.deepEqual(executed, ["audio-recorder:start"]);
+  assert.deepEqual(notices, ["Recording started."]);
 });
 
 test("search displays pending work and keeps an actionable failure in its result panel", async () => {

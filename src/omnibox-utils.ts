@@ -243,6 +243,19 @@ export interface RecordingCommandRef {
   name: string;
 }
 
+export function registeredCommandRefs(commandManager: unknown): RecordingCommandRef[] {
+  if (typeof commandManager !== "object" || commandManager === null) return [];
+  const registry = (commandManager as { commands?: unknown }).commands;
+  if (typeof registry !== "object" || registry === null || Array.isArray(registry)) return [];
+  return Object.values(registry).flatMap((candidate) => {
+    if (typeof candidate !== "object" || candidate === null) return [];
+    const { id, name } = candidate as { id?: unknown; name?: unknown };
+    return typeof id === "string" && id && typeof name === "string" && name
+      ? [{ id, name }]
+      : [];
+  });
+}
+
 export interface RecordingQuickAction {
   id: string;
   label: "Recording" | "Start recording" | "Stop recording";

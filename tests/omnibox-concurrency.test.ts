@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import ts from "typescript";
-import { isLocalImageSource, parseCaptureSourceInput, socialCaptureProvider } from "../src/omnibox-utils.ts";
+import { isLocalImageSource, parseCaptureSourceInput, registeredCommandRefs, socialCaptureProvider } from "../src/omnibox-utils.ts";
 
 type Harness = Record<string, any>;
 
@@ -74,6 +74,7 @@ function omniboxHarness(looksCapturable: (query: string) => boolean = () => fals
     looksCapturable,
     isLocalImageSource,
     parseCaptureSourceInput,
+    registeredCommandRefs,
     socialCaptureProvider,
     captureRequestFromSettings: (source: string) => ({ source }),
     normalizeCaptureSource: (source: string) => source,
@@ -164,7 +165,7 @@ test("a late plain-text answer cannot restore the result shell after a later com
   let commandRuns = 0;
   const box = omniboxHarness();
   box.commands = {
-    listCommands: () => [{ id: "app:command", name: "Run command" }],
+    commands: { run: { id: "app:command", name: "Run command" } },
     executeCommandById: () => { commandRuns += 1; return true; },
   };
   box.plugin = {
@@ -209,7 +210,7 @@ test("submitting +, captures, and commands clears a pending @ result shell", asy
       query: ">run",
       setup(box: Harness) {
         box.commands = {
-          listCommands: () => [{ id: "app:command", name: "Run command" }],
+          commands: { run: { id: "app:command", name: "Run command" } },
           executeCommandById: () => true,
         };
       },

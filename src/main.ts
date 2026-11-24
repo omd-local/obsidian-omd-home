@@ -125,6 +125,7 @@ import {
 import {
   isPluginRecordingWrapperCommand,
   captureSourceInputError,
+  registeredCommandRefs,
   resolveRecordingCommand,
   socialCaptureProvider,
   type RecordingCommandRef,
@@ -5253,12 +5254,12 @@ export default class OmdHomePlugin extends Plugin {
   private runRecordingCommand(kind: "start" | "stop" | "toggle", successMessage: string): boolean {
     const commands = (this.app as App & {
       commands: {
-        listCommands(): RecordingCommandRef[];
+        commands?: Record<string, RecordingCommandRef>;
         executeCommandById(id: string): boolean;
       };
     }).commands;
     const command = resolveRecordingCommand(
-      commands.listCommands().filter(
+      registeredCommandRefs(commands).filter(
         (candidate) => !isPluginRecordingWrapperCommand(candidate.id, this.manifest.id),
       ),
       kind,

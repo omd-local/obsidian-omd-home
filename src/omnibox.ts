@@ -8,6 +8,7 @@ import {
   isLocalImageSource,
   looksCapturable,
   parseCaptureSourceInput,
+  registeredCommandRefs,
   socialCaptureProvider,
   recordingQuickActions,
   safeFileName,
@@ -19,7 +20,7 @@ interface ObsidianCommand {
 }
 
 interface CommandRegistry {
-  listCommands(): ObsidianCommand[];
+  commands?: Record<string, ObsidianCommand>;
   executeCommandById(id: string): boolean;
 }
 
@@ -182,7 +183,7 @@ export class Omnibox {
   }
 
   private renderQuickActions(): void {
-    const recording = recordingQuickActions(this.commands.listCommands().filter(
+    const recording = recordingQuickActions(registeredCommandRefs(this.commands).filter(
       (command) => !isPluginRecordingWrapperCommand(command.id, this.plugin.manifest.id),
     ));
     const signature = recording.map((action) => action.id).join("|");
@@ -227,7 +228,7 @@ export class Omnibox {
     }
     if (query.startsWith(">")) {
       const needle = query.slice(1).trim().toLowerCase();
-      const commands = this.commands.listCommands().filter((command) => command.name.toLowerCase().includes(needle)).slice(0, 7);
+      const commands = registeredCommandRefs(this.commands).filter((command) => command.name.toLowerCase().includes(needle)).slice(0, 7);
       this.showRows(commands.map((command) => ({
         title: command.name,
         detail: command.id,
@@ -286,7 +287,7 @@ export class Omnibox {
       return;
     }
     if (query.startsWith(">")) {
-      const first = this.commands.listCommands().find((command) => command.name.toLowerCase().includes(query.slice(1).trim().toLowerCase()));
+      const first = registeredCommandRefs(this.commands).find((command) => command.name.toLowerCase().includes(query.slice(1).trim().toLowerCase()));
       if (first) {
         if (!this.commands.executeCommandById(first.id)) new Notice("This command is unavailable in the current view.");
       }
