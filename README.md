@@ -441,7 +441,7 @@ Calendar controls.
 |---|---|
 | **macOS 14+** | Home, capture, Inbox, omnibox, Markdown events, local AI, and optional selected-calendar sync |
 | **Windows and Linux desktop** | Home, capture, Inbox, omnibox, Markdown events, and local AI; no Apple Calendar integration |
-| **iPhone and iPad** | Not supported in v0.1 because the plugin depends on desktop child processes and filesystem APIs |
+| **iPhone and iPad** | Not supported because the plugin depends on desktop child processes and filesystem APIs |
 
 ## Commands and status
 
