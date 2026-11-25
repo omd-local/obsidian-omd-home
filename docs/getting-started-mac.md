@@ -16,8 +16,8 @@
 
 1. 点屏幕左上角 **苹果菜单 → 关于本机（About This Mac）**，查看芯片和 macOS 版本。本指南的 Homebrew 路线适用于 **Apple Silicon（M 系列芯片）、macOS 15 或以上**。Intel 或更旧系统请先查 [Homebrew 系统要求](https://docs.brew.sh/Installation)，不要照搬本指南的 Apple Silicon 路径。
 2. 已安装 Obsidian 时直接打开。尚未安装时，从 [Obsidian 官网](https://obsidian.md/download)下载 Mac 版，打开下载文件，把 Obsidian 拖到 **Applications / 应用程序**，再从应用程序打开。需要桌面版 **1.11.4 或以上**。
-3. **已有 Vault：**打开自己打算使用 OMD 的资料库。插件是按 Vault 安装的，要始终在同一个 Vault 中操作。
-4. **第一次用 Obsidian：**在资料库管理窗口找到 **Create new vault → Create**，名称填 `OMD Demo`，点 **Browse** 选择自己的 Documents 文件夹，再点 **Create**。已在笔记界面时，可从左下角资料库菜单进入 **Manage Vaults…**。详见[官方资料库说明](https://obsidian.md/help/manage-vaults)。
+3. **已有 Vault：** 打开自己打算使用 OMD 的资料库。插件是按 Vault 安装的，要始终在同一个 Vault 中操作。
+4. **第一次用 Obsidian：** 在资料库管理窗口找到 **Create new vault → Create**，名称填 `OMD Demo`，点 **Browse** 选择自己的 Documents 文件夹，再点 **Create**。已在笔记界面时，可从左下角资料库菜单进入 **Manage Vaults…**。详见[官方资料库说明](https://obsidian.md/help/manage-vaults)。
 
 Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建隐藏的 `.obsidian` 设置目录；**你不需要自己创建这个隐藏目录**。下面推荐的 BRAT 路线完全不需要找它。
 
@@ -27,7 +27,7 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 
 <a id="install-plugin"></a>
 
-[BRAT](https://community.obsidian.md/plugins/obsidian42-brat) 是另一个第三方社区插件，作者是 **TfTHacker**。它替你下载并放好 OMD Home 文件。**OMD Home 目前尚未上架社区目录，因此这里先搜索 BRAT，再由 BRAT 安装 OMD Home。**不想安装 BRAT 时，直接用[第 3 节的手动方法](#manual-install)；两种方式选一种即可。
+[BRAT](https://community.obsidian.md/plugins/obsidian42-brat) 是另一个第三方社区插件，作者是 **TfTHacker**。它替你下载并放好 OMD Home 文件。**OMD Home 目前尚未上架社区目录，因此这里先搜索 BRAT，再由 BRAT 安装 OMD Home。** 不想安装 BRAT 时，直接用[第 3 节的手动方法](#manual-install)；两种方式选一种即可。
 
 1. 在目标 Vault 打开 **Settings → Community plugins / 社区插件**。如果看到 **Turn on community plugins / 启用社区插件**，先阅读提示并开启。
 2. 点 **Browse / 浏览**，搜索 `BRAT`，确认作者为 **TfTHacker**，点 **Install / 安装**，完成后点 **Enable / 启用**。
@@ -42,7 +42,7 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 6. 勾选 **Enable after installing the plugin / 安装后启用此插件**，点 **Add plugin / 添加插件**，等待完成。若没有自动启用，回 **Community plugins → Installed plugins**，刷新列表并打开 **OMD Home** 的开关。
 7. 关闭设置，按 **⌘P**，输入 `OMD Home: Open home`，点该命令。
 
-**完成标志：**看到 OMD Home 页面。接下来[直接去第 4 节](#install-backend)，不用再做第 3 节。插件此时可以打开，但 Capture 仍要安装后端。
+**完成标志：** 看到 OMD Home 页面。接下来[直接去第 4 节](#install-backend)，不用再做第 3 节。插件此时可以打开，但 Capture 仍要安装后端。
 
 选择 **0.2.2** 会固定这个版本，不会自动升级 OMD Home。BRAT 的 **Latest version** 选项和更新检查属于另一种更新方式；不要在首次安装时误选。BRAT 也不会替你安装后端、模型或 Calendar helper。遇到 GitHub 请求额度限制时，可以稍后重试或改用手动方法，不必为了首次安装创建 token。参考 [BRAT 作者指南](https://tfthacker.com/brat-quick-guide)。
 
@@ -50,7 +50,7 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 
 <a id="manual-install"></a>
 
-**已经通过第 2 节看到 Home？跳过本节。**如果是在已有 Vault 升级，先按[第 12 节](#12-升级备份与演示前检查)备份并停用插件，保留原来的 `data.json`。
+**已经通过第 2 节看到 Home？跳过本节。** 如果是在已有 Vault 升级，先按[第 12 节](#12-升级备份与演示前检查)备份并停用插件，保留原来的 `data.json`。
 
 ### 3A. 下载三个文件
 
@@ -62,12 +62,12 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 | `manifest.json` | [下载 manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json) |
 | `styles.css` | [下载 styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css) |
 
-**不要选 Source code (zip) 或 Source code (tar.gz)。**无需解压这三个单独文件，也无需用代码编辑器打开。三个文件必须同版本，名称不能多出 `.txt` 或 `(1)`；Safari 或其他浏览器若给重复下载加了后缀，请先确认并改回上表名称。
+**不要选 Source code (zip) 或 Source code (tar.gz)。** 无需解压这三个单独文件，也无需用代码编辑器打开。三个文件必须同版本，名称不能多出 `.txt` 或 `(1)`；Safari 或其他浏览器若给重复下载加了后缀，请先确认并改回上表名称。
 
 ### 3B. 从 Obsidian 直接打开安装位置
 
 1. 回到**目标 Vault**，打开 **Settings → Community plugins**，如有需要先开启社区插件。
-2. 在 **Installed plugins / 已安装插件** 一行旁找到**文件夹图标**并点击。Finder 会打开这个 Vault 的插件目录。图标含义见 [Obsidian 官方说明](https://help.obsidian.md/community-plugins)。
+2. 在 **Installed plugins / 已安装插件** 一行旁找到**文件夹图标** 并点击。Finder 会打开这个 Vault 的插件目录。图标含义见 [Obsidian 官方说明](https://help.obsidian.md/community-plugins)。
 3. 在打开的目录中按 **⌘⇧N**，新建一个普通文件夹，名称填 `omd-home`。它已经存在时直接打开，**不要再在里面新建一层同名文件夹**。
 4. 在 Downloads 中选中三个下载文件，按 **⌘C**；回到 `omd-home` 文件夹，按 **⌘V**。最终应是：
 
@@ -85,7 +85,7 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 5. 回到 Obsidian 的 Community plugins，点已安装列表旁的**刷新图标**。如仍未出现，按 **⌘Q** 完全退出 Obsidian，再重新打开同一个 Vault。
 6. 找到 **OMD Home** 并打开开关。关闭设置，按 **⌘P**，运行 **OMD Home: Open home**。
 
-**完成标志：**Home 页面打开。然后去[第 4 节](#install-backend)。
+**完成标志：** Home 页面打开。然后去[第 4 节](#install-backend)。
 
 <details>
 <summary><strong>找不到文件夹按钮、plugins 不存在，或 Finder 不显示 .obsidian？</strong></summary>
@@ -94,15 +94,15 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 
 1. 在 Finder 打开**实际的 Vault 文件夹**；新建示例 Vault 时，就是自己选定的 Documents 中的 `OMD Demo`。
 2. 按 **⌘⇧.**（Command、Shift 和英文句号）显示隐藏项目，就能看到 `.obsidian`。打开它。操作完可再按同一快捷键隐藏。
-3. 如果没有 `plugins`，在 `.obsidian` **内部**按 **⌘⇧N** 新建普通文件夹 `plugins`；打开它，再新建普通文件夹 `omd-home`。这两个名字都不以句号开头。
+3. 如果没有 `plugins`，在 `.obsidian` **内部** 按 **⌘⇧N** 新建普通文件夹 `plugins`；打开它，再新建普通文件夹 `omd-home`。这两个名字都不以句号开头。
 4. 如果已经知道自己的 Vault 路径，也可在 Finder 按 **⌘⇧G**，输入现有设置目录的位置，按 Return。**仅当你确实按示例创建了 Vault** 时，才复制下面这行：
 
    ```text
    ~/Documents/OMD Demo/.obsidian/
    ```
 
-   `~` 代表你的用户目录；Vault 在别处时要用实际位置。**前往文件夹只打开已存在的目录，不会创建目录。**找不到 `.obsidian` 时，回 Obsidian 确认打开的是这个 Vault；不要在 Downloads 或另一个资料库里另外创建 `.obsidian`。
-5. 回到 **3B 的第 4 步**复制三个文件。
+   `~` 代表你的用户目录；Vault 在别处时要用实际位置。**前往文件夹只打开已存在的目录，不会创建目录。** 找不到 `.obsidian` 时，回 Obsidian 确认打开的是这个 Vault；不要在 Downloads 或另一个资料库里另外创建 `.obsidian`。
+5. 回到 **3B 的第 4 步** 复制三个文件。
 
 参考：[Obsidian 设置目录](https://obsidian.md/help/data-storage)、[Apple 的 Finder 快捷键](https://support.apple.com/en-sg/102650)。
 
@@ -134,7 +134,7 @@ brew --version
 
    如果系统弹出开发工具窗口，点 **Install / 安装**，等系统明确完成；不必安装整个 Xcode app。若提示工具已安装，继续下一步。
 2. 打开 [Homebrew 官网](https://brew.sh/)，选择官网提供的 **.pkg installer**。打开下载的 `.pkg`，按系统安装器继续并安装；要求授权时用自己的 Mac 登录密码。此包的系统要求见 [Homebrew 安装说明](https://docs.brew.sh/Installation)。
-3. 包安装完成后，在 Terminal 粘贴下面**整个代码框**并按 Return。它为 macOS 默认的 zsh 设置 Homebrew 路径，保留原有 `.zprofile` 内容；仅首次安装时做一次。已自行更换 shell 时，按 Homebrew 完成页的 **Next steps** 配置自己的 shell。
+3. 包安装完成后，在 Terminal 粘贴下面**整个代码框** 并按 Return。它为 macOS 默认的 zsh 设置 Homebrew 路径，保留原有 `.zprofile` 内容；仅首次安装时做一次。已自行更换 shell 时，按 Homebrew 完成页的 **Next steps** 配置自己的 shell。
 
    ```bash
    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
@@ -142,7 +142,7 @@ brew --version
    brew --version
    ```
 
-**完成标志：**出现 Homebrew 版本号。如果官网下载方式不同，按官方安装器最后显示的 **Next steps** 完成路径设置，再回来运行 `brew --version`；不要用 `sudo brew install`。
+**完成标志：** 出现 Homebrew 版本号。如果官网下载方式不同，按官方安装器最后显示的 **Next steps** 完成路径设置，再回来运行 `brew --version`；不要用 `sudo brew install`。
 
 ### 4C. 安装并连接 OMD
 
@@ -160,7 +160,7 @@ omd --version
 
 应看到 **0.3.0b5**。配方同时安装 Python 3.12、文档转换所需依赖、ffmpeg/ffprobe、Tesseract、OCR 语言包和 yt-dlp；Whisper、Ollama、模型及 Calendar helper 仍是选装项。见[公开配方](https://github.com/omd-local/homebrew-omd/blob/main/Formula/omd.rb)。
 
-回 Obsidian，打开 **Settings → OMD Home**，向下找到 **Capture and processing**，点 **Detect OMD**（已检查过时叫 **Check again**）。看到 **OMD is ready** 或就绪状态后继续。这里**不是**上方 AI answers 的 **Check setup** 按钮。
+回 Obsidian，打开 **Settings → OMD Home**，向下找到 **Capture and processing**，点 **Detect OMD**（已检查过时叫 **Check again**）。看到 **OMD is ready** 或就绪状态后继续。这里**不是** 上方 AI answers 的 **Check setup** 按钮。
 
 <details>
 <summary><strong>版本还是旧的、没检测到 OMD，或需要诊断？</strong></summary>
@@ -210,13 +210,13 @@ OCR 只影响支持的图片文字识别，不翻译正文，也不表示普通�
 
 **完成标志：在 Inbox 能打开并读到生成笔记。到这里，基础安装已经完成；后面全部按需选择。**
 
-再试本地文件时，从 Finder 把**一个小型 HTML 或 PDF 文件**拖到 Capture 弹窗里的 **Drop a local file here** 区域，确认路径已填入，再点 **Capture**。不需要手写路径，也没有另一个 Choose file 按钮。每次只提交一个来源。
+再试本地文件时，从 Finder 把**一个小型 HTML 或 PDF 文件** 拖到 Capture 弹窗里的 **Drop a local file here** 区域，确认路径已填入，再点 **Capture**。不需要手写路径，也没有另一个 Choose file 按钮。每次只提交一个来源。
 
 笔记通常在 `Sources/<source type>/`，旁边有 `.omd.json` 元数据；`<source type>` 是程序生成的分类，不要自己创建同名占位目录。Capture 会立即写入新笔记；可选链接标签建议要按 **Apply** 才写入，**Done reviewing** 才标记 Reviewed。提交才保存本次开关选择，取消不保存。失败时读 **Needs attention**，修复原因后点 **Retry capture**。
 
 ## 7. 选装：Apple Silicon 本地语音转录
 
-**基础 Capture 成功后再做。**需要 Apple M 系列芯片；MLX 不是 Intel 路线。后端已有 ffmpeg，但 Whisper 程序和模型需另外安装。
+**基础 Capture 成功后再做。** 需要 Apple M 系列芯片；MLX 不是 Intel 路线。后端已有 ffmpeg，但 Whisper 程序和模型需另外安装。
 
 在 Terminal 运行下面整个代码框，等每行完成：
 
@@ -258,7 +258,7 @@ command -v mlx_whisper
    ```
 
    在 **Advanced AI controls → Vault retrieval** 开启 **Keyword + semantic search**、选择 `bge-m3`，点 **Test semantic search**。也可主动点 **Install bge-m3** 下载；打开设置不会自动下载。只需关键词检索时关闭该开关，无需 embedding 模型。
-6. 关闭设置，在 Home 的 omnibox 输入 `@` 和能从自己测试笔记回答的问题。**完成标志：答案有引用，点击引用能打开原笔记。**Vault Q&A 只读；格式整理先在测试笔记预览，再决定 Apply。上述检查通过后，才在下一次 Capture 开启所需 AI 开关。
+6. 关闭设置，在 Home 的 omnibox 输入 `@` 和能从自己测试笔记回答的问题。**完成标志：答案有引用，点击引用能打开原笔记。** Vault Q&A 只读；格式整理先在测试笔记预览，再决定 Apply。上述检查通过后，才在下一次 Capture 开启所需 AI 开关。
 
 保留 endpoint `http://localhost:11434` 即可，无需填写 Ollama 程序路径。自定义地址只接受本机 loopback 和明确端口，保存时要点 **Save endpoint**。模型下载成功不代表适合所有功能，按每项检查结果处理。
 
@@ -286,7 +286,7 @@ b5 支持含**恰好一个 HTTP(S) URL** 的抖音或小红书 / Rednote 分享�
 
 ## 11. 选装：Apple Calendar
 
-**这是进阶选装，不影响基础 Capture 或 Vault 内的 Markdown 日历。**同步 Apple Calendar，以及已加入 macOS Calendar 的 Google / Outlook 账户，需要 **macOS 14+、独立 EventKit helper、Calendar 权限和明确选定的日历**。BRAT 和三个标准插件文件都不包含 helper。
+**这是进阶选装，不影响基础 Capture 或 Vault 内的 Markdown 日历。** 同步 Apple Calendar，以及已加入 macOS Calendar 的 Google / Outlook 账户，需要 **macOS 14+、独立 EventKit helper、Calendar 权限和明确选定的日历**。BRAT 和三个标准插件文件都不包含 helper。
 
 ### 11A. 编译 helper
 
@@ -324,7 +324,7 @@ open dist
 6. 关闭设置，按 **⌘P** 运行 **OMD Home: Create event**。填测试标题、Start 和 End，在 **Destination** 选 **Vault + 你的测试日历名称**，点 **Save**。
 7. 在 OMD Home 的 Calendar 和系统 Calendar app 核对这个事件，并打开它的 Vault 笔记。只在系统 Calendar 新建一个普通事件，不会自动生成 Vault 笔记。
 
-**完成标志：选中的日历和测试事件能加载并核对。**双方都修改时需要选择保留哪边。拒绝权限后可到 **System Settings → Privacy & Security → Calendars** 调整。
+**完成标志：选中的日历和测试事件能加载并核对。** 双方都修改时需要选择保留哪边。拒绝权限后可到 **System Settings → Privacy & Security → Calendars** 调整。
 
 如果希望 helper 保存在别处，复制实际可执行文件的路径，在 **Calendar → Advanced Calendar helper → Helper override** 中粘贴；不要选源码或 `dist` 文件夹。源码目录被移动后要更新 override。
 
@@ -332,10 +332,10 @@ open dist
 
 升级前备份整个 Vault，停止 Capture，在 Community plugins 停用 OMD Home。把原 `.obsidian/plugins/omd-home/` 文件夹另存一份，尤其保留 `data.json`（设置）、笔记和已安装 helper。
 
-- **BRAT 安装：**第 2 节固定在 0.2.2，后续版本不会自动替换它。准备升级时在 BRAT 的插件列表中修改该插件的版本选择；选择要用的新版本后再更新，不必改成 Latest version。
-- **手动安装：**从目标 release 下载同版本三个文件，只替换 `main.js`、`manifest.json`、`styles.css`，保留 `data.json` 和 `omd-eventkit`。不要删除整个插件文件夹来更新。
-- **后端：**使用第 4 节展开项中的 `brew update` / `brew upgrade`；与插件分开升级。
-- **Calendar helper：**有更新时按第 11 节从匹配 tag 重新编译并替换。
+- **BRAT 安装：** 第 2 节固定在 0.2.2，后续版本不会自动替换它。准备升级时在 BRAT 的插件列表中修改该插件的版本选择；选择要用的新版本后再更新，不必改成 Latest version。
+- **手动安装：** 从目标 release 下载同版本三个文件，只替换 `main.js`、`manifest.json`、`styles.css`，保留 `data.json` 和 `omd-eventkit`。不要删除整个插件文件夹来更新。
+- **后端：** 使用第 4 节展开项中的 `brew update` / `brew upgrade`；与插件分开升级。
+- **Calendar helper：** 有更新时按第 11 节从匹配 tag 重新编译并替换。
 
 重新启用插件并重开 Obsidian，检查 OMD 及实际使用的 AI / Calendar。回退时停用插件，恢复备份文件和设置，不删除笔记。不要用演示 Vault 的设置覆盖自己的资料库。
 
