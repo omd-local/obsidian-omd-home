@@ -1,0 +1,9 @@
+#!/bin/sh
+
+if [ "$1" = "capabilities" ] && [ "$2" = "--json" ]; then
+  printf '%s\n' '{"package_version":"0.0-cap03-test","protocol_version":1,"enrich_note":{"supported":false,"schema_versions":[1]}}'
+  exit 0
+fi
+
+printf '%s\n' 'CAP-03 fixture only supports: capabilities --json' >&2
+exit 2

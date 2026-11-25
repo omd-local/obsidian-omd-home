@@ -9,17 +9,26 @@ import type {
   OmdEnrichEvent,
   OmdEnrichRequest,
 } from "./contract.ts";
-import { isEnrichmentError, toUserFacingEnrichmentMessage } from "./errors.ts";
+import {
+  describeEnrichmentFailure,
+  isEnrichmentError,
+} from "./errors.ts";
 import { createObsidianApplyServices, desktopVaultRoot } from "./obsidian-adapter.ts";
-import { EnrichmentReviewModal, type EnrichmentApplyPayload } from "./review-modal.ts";
+import {
+  ENRICHMENT_REVIEW_VIEW_TYPE,
+  EnrichmentReviewView,
+  type EnrichmentApplyPayload,
+} from "./review-view.ts";
 import { emptyReviewState, type EnrichmentReviewState } from "./workflow.ts";
 import { createWorkflowSnapshot } from "../local-ai-readiness.ts";
 
 interface ActiveEnrichment {
   token: number;
   file: TFile;
-  modal: EnrichmentReviewModal;
+  view: EnrichmentReviewView;
+  viewClosed: boolean;
   state: EnrichmentReviewState;
+  abortController: AbortController | null;
   request?: OmdEnrichRequest;
   catalogById?: ReadonlyMap<string, EnrichmentCandidate>;
 }
@@ -33,43 +42,112 @@ export class EnrichmentWorkflowController {
     this.plugin = plugin;
   }
 
+  get phase(): EnrichmentReviewState["phase"] | null {
+    return this.active?.state.phase ?? null;
+  }
+
+  /**
+   * Only model generation is cancellable. An open review pane is an idle UI
+   * state, while Apply and Done reviewing are short guarded vault writes.
+   */
+  get canCancel(): boolean {
+    const phase = this.active?.state.phase;
+    return phase === "capability" || phase === "catalog" || phase === "generating";
+  }
+
   async start(file: TFile): Promise<void> {
+    await this.open(file, true);
+  }
+
+  async review(file: TFile): Promise<void> {
+    await this.open(file, false);
+  }
+
+  private async open(file: TFile, autoGenerate: boolean): Promise<void> {
     if (file.extension !== "md") {
       new Notice("Open a Markdown note first.");
       return;
     }
-    if (this.plugin.captureActive) {
+    if (this.active?.state.phase === "applying" || this.active?.state.phase === "finishing") {
+      new Notice("Wait for the active OMD review write to finish before opening another note.");
+      return;
+    }
+    if (autoGenerate && this.plugin.captureActive) {
       new Notice("Wait for the active OMD capture to finish, or cancel it first.");
       return;
     }
 
-    this.cancel(false);
-    const model = this.plugin.settings.enrichmentModel;
+    this.abandonCurrent();
+    const model = this.plugin.settings.localWritingModel;
     const endpoint = this.plugin.settings.ollamaHost;
     const token = ++this.nextToken;
     const state = emptyReviewState(file.path, model, endpoint);
-    const active = {} as ActiveEnrichment;
-    const modal = new EnrichmentReviewModal(this.plugin.app, state, {
-      onCancel: () => {
-        this.cancel();
-      },
+    await this.plugin.app.workspace.openLinkText(file.path, "", false);
+    if (token !== this.nextToken) return;
+    const leaf = await this.plugin.app.workspace.ensureSideLeaf(
+      ENRICHMENT_REVIEW_VIEW_TYPE,
+      "right",
+      { active: true, reveal: true },
+    );
+    await leaf.loadIfDeferred();
+    if (token !== this.nextToken) return;
+    if (!(leaf.view instanceof EnrichmentReviewView)) {
+      new Notice("OMD review is still loading. Try again.");
+      return;
+    }
+
+    const active: ActiveEnrichment = {
+      token,
+      file,
+      view: leaf.view,
+      viewClosed: false,
+      state,
+      abortController: null,
+    };
+    active.view.bindTarget(state, {
+      onGenerate: async () => await this.generate(active),
+      onCancelGeneration: () => { this.cancel(false); },
+      onTranslateSummary: async (summary) => await this.translateSummaryToEnglish(active, summary),
       onApply: async (payload) => await this.apply(active, payload),
-      onRetry: async () => {
-        this.plugin.omdCapabilityService.clear(this.plugin.settings.omdExecutable);
-        await this.start(file);
-      },
-      onOpenPath: (path) => {
-        void this.plugin.app.workspace.openLinkText(path, file.path, false);
+      onDoneReviewing: async () => await this.doneReviewing(active),
+      onClose: () => this.viewClosed(active),
+      onOpenPath: async (path) => {
+        await this.plugin.app.workspace.openLinkText(path, file.path, false);
       },
     });
-    Object.assign(active, { token, file, modal, state });
     this.active = active;
+    this.setBusy(false);
+    if (autoGenerate) await this.generate(active);
+  }
+
+  private async generate(active: ActiveEnrichment): Promise<void> {
+    if (!this.isCurrent(active)) return;
+    if (this.plugin.captureActive) {
+      new Notice("Wait for the active OMD capture to finish, or cancel it first.");
+      return;
+    }
+    if (active.state.phase === "applying" || active.state.phase === "finishing") return;
+
+    const hasAppliedSuggestions = active.state.hasAppliedSuggestions;
+    active.abortController?.abort();
+    this.plugin.omdEnrichmentRunner.cancel();
+    const abortController = new AbortController();
+    active.abortController = abortController;
+    active.request = undefined;
+    active.catalogById = undefined;
+    active.state = {
+      ...emptyReviewState(active.file.path, this.plugin.settings.localWritingModel, this.plugin.settings.ollamaHost),
+      phase: "capability",
+      hasAppliedSuggestions,
+      statusText: "Checking that this OMD installation can generate suggestions.",
+    };
+    active.view.updateState(active.state);
     this.plugin.clearEnrichmentIssue();
     this.setBusy(true);
-    modal.open();
 
     try {
-      await this.plugin.omdCapabilityService.requireEnrichNote(this.plugin.settings.omdExecutable);
+      const executable = await this.plugin.requireReadyOmdExecutable();
+      await this.plugin.omdCapabilityService.requireLocalOllamaTransport(executable, abortController.signal);
       if (!this.isCurrent(active)) return;
 
       const snapshot = createWorkflowSnapshot("enrichment", this.plugin.settings);
@@ -83,7 +161,7 @@ export class EnrichmentWorkflowController {
           });
           const built = await buildEnrichmentRequest(
             this.plugin.app,
-            file,
+            active.file,
             gatedSnapshot.model,
             gatedSnapshot.host,
           );
@@ -95,7 +173,7 @@ export class EnrichmentWorkflowController {
             statusText: "OMD is asking the configured local model for a read-only proposal.",
           });
           const generated = await this.plugin.omdEnrichmentRunner.run({
-            executable: this.plugin.settings.omdExecutable,
+            executable,
             request: built.request,
             onEvent: (event) => {
               if (!this.isCurrent(active)) return;
@@ -109,37 +187,34 @@ export class EnrichmentWorkflowController {
             catalogById: built.catalogById,
           };
         },
+        abortController.signal,
       );
       if (!this.isCurrent(active)) return;
 
-      active.state = reviewState(request, response, catalogById);
-      active.modal.setState(active.state);
+      active.state = reviewState(request, response, catalogById, hasAppliedSuggestions);
+      active.abortController = null;
+      active.view.updateState(active.state);
       this.plugin.clearEnrichmentIssue();
+      // Review is intentionally idle: users can edit the note or run a capture
+      // while the non-modal pane remains open.
       this.setBusy(false);
     } catch (error) {
-      if (!this.isCurrent(active)) return;
-      const cancelled = (isEnrichmentError(error) && error.code === "cancelled")
-        || (error instanceof Error && error.name === "AbortError");
-      const detail = toUserFacingEnrichmentMessage(error);
-      this.update(active, {
-        phase: cancelled ? "cancelled" : "error",
-        statusText: detail,
-        detailText: cancelled
-          ? "No proposal changes were written."
-          : "Check OMD, Ollama, the model, and the configured loopback endpoint, then try again.",
-      });
-      this.active = null;
+      if (!this.isCurrent(active) || active.abortController !== abortController) return;
+      active.abortController = null;
+      const failure = describeEnrichmentFailure(error, "generation");
+      const cancelled = failure.phase === "cancelled";
+      this.update(active, failure);
       this.setBusy(false);
       this.pushEvent({
         v: 1,
         event: cancelled ? "cancelled" : "error",
         kind: cancelled ? "cancelled" : isEnrichmentError(error) ? error.code : "error",
         ts: Date.now() / 1000,
-        message: detail,
+        message: failure.statusText,
       });
       if (!cancelled) {
-        this.plugin.reportEnrichmentIssue(error, file.path);
-        new Notice(detail);
+        this.plugin.reportEnrichmentIssue(error, active.file.path);
+        new Notice(failure.statusText);
       }
     }
   }
@@ -150,10 +225,18 @@ export class EnrichmentWorkflowController {
       if (showIdleNotice) new Notice("OMD is idle");
       return false;
     }
-    this.active = null;
-    this.plugin.cancelLocalAiRequests();
+    if (!this.canCancel || !active.abortController) {
+      if (showIdleNotice) new Notice("No suggestion generation is running.");
+      return false;
+    }
+    const abortController = active.abortController;
+    active.abortController = null;
+    abortController.abort();
     this.plugin.omdEnrichmentRunner.cancel();
-    this.plugin.omdCapabilityService.cancelActive(this.plugin.settings.omdExecutable);
+    this.update(active, {
+      phase: "cancelled",
+      statusText: "Suggestion generation stopped. No note changes were made.",
+    });
     this.setBusy(false);
     this.pushEvent({
       v: 1,
@@ -162,16 +245,22 @@ export class EnrichmentWorkflowController {
       ts: Date.now() / 1000,
       message: "Note enrichment cancelled",
     });
-    active.modal.closeWithoutCallback();
     return true;
   }
 
   dispose(): void {
-    this.cancel(false);
+    this.abandonCurrent();
   }
 
   private async apply(active: ActiveEnrichment, payload: EnrichmentApplyPayload): Promise<void> {
     if (!this.isCurrent(active) || !active.request || !active.catalogById) return;
+    // Keep this check before the phase transition and before the first await.
+    // Capture claims its side of the mutex synchronously, so Apply can never
+    // begin writing across an already-active capture.
+    if (this.plugin.captureActive) {
+      new Notice("Wait for the active OMD capture to finish, or cancel it first.");
+      return;
+    }
     this.update(active, {
       phase: "applying",
       statusText: "Revalidating the note and selected candidates before writing.",
@@ -182,7 +271,8 @@ export class EnrichmentWorkflowController {
       const selectedLinks = payload.selectedSuggestions.filter((item) => item.kind === "existing-link");
       const selectedTags = payload.selectedSuggestions
         .filter((item) => item.kind === "existing-tag" || item.kind === "new-tag")
-        .map((item) => item.label.replace(/^#/u, ""));
+        .map((item) => item.label.replace(/^#/u, ""))
+        .concat(payload.selection.manualTags ?? []);
       const plan: ApplyEnrichmentPlan = {
         targetPath: active.request.note.path,
         originalContent: active.request.note.content,
@@ -192,6 +282,8 @@ export class EnrichmentWorkflowController {
           .map((item) => ({ id: item.id, path: item.path!, display: item.label })),
         selectedCandidateIds: selectedLinks.map((item) => item.id),
         selectedTags,
+        selectedSummary: payload.selection.includeSummary ? payload.selection.summaryDraft : undefined,
+        markReviewed: false,
       };
       const result = await applyEnrichmentSelection(
         plan,
@@ -204,36 +296,108 @@ export class EnrichmentWorkflowController {
           : result.status === "partial-failure" ? "partial-failure"
             : "error";
       const statusText = result.status === "applied"
-        ? `Applied ${result.appliedLinks} links and ${result.appliedTags} tags.`
+        ? `${describeAppliedSelection(result)} The note remains in Inbox.`
         : result.message;
-      this.update(active, { phase, statusText });
-      this.active = null;
+      this.update(active, {
+        phase,
+        statusText,
+        hasAppliedSuggestions: result.status === "applied" || active.state.hasAppliedSuggestions,
+      });
       this.setBusy(false);
       this.plugin.clearEnrichmentIssue();
       this.plugin.refreshHomeViews();
+      if (active.viewClosed) this.active = null;
       new Notice(statusText);
     } catch (error) {
       if (!this.isCurrent(active)) return;
-      const detail = toUserFacingEnrichmentMessage(error);
-      this.update(active, { phase: "error", statusText: detail });
-      this.active = null;
+      const failure = describeEnrichmentFailure(error, "apply");
+      this.update(active, failure);
       this.setBusy(false);
       this.pushEvent({
         v: 1,
         event: "error",
         kind: isEnrichmentError(error) ? error.code : "error",
         ts: Date.now() / 1000,
-        message: detail,
+        message: failure.statusText,
       });
-      this.plugin.reportEnrichmentIssue(detail, active.file.path);
-      new Notice(detail);
+      if (failure.phase !== "cancelled") {
+        this.plugin.reportEnrichmentIssue(error, active.file.path);
+        new Notice(failure.statusText);
+      }
+    }
+  }
+
+  private async translateSummaryToEnglish(active: ActiveEnrichment, summary: string): Promise<string> {
+    if (!this.isCurrent(active) || active.state.phase !== "review") {
+      throw new Error("This proposal is no longer available to translate.");
+    }
+    if (this.plugin.captureActive) {
+      throw new Error("Wait for the active OMD capture to finish, or cancel it first.");
+    }
+    if (active.abortController) throw new Error("Another local AI action is already running.");
+
+    const abortController = new AbortController();
+    active.abortController = abortController;
+    this.setBusy(true);
+    try {
+      return await this.plugin.translateLocalTextToEnglish(summary, abortController.signal);
+    } finally {
+      if (active.abortController === abortController) active.abortController = null;
+      if (this.isCurrent(active)) this.setBusy(false);
+    }
+  }
+
+  private async doneReviewing(active: ActiveEnrichment): Promise<void> {
+    if (!this.isCurrent(active)) return;
+    if (active.state.phase === "capability" || active.state.phase === "catalog" || active.state.phase === "generating") {
+      new Notice("Wait for suggestion generation to finish, or cancel it first.");
+      return;
+    }
+    if (active.state.phase === "applying" || active.state.phase === "finishing" || active.state.phase === "partial-failure") return;
+
+    this.update(active, {
+      phase: "finishing",
+      statusText: "Saving Reviewed status. Existing note edits are preserved.",
+    });
+    this.setBusy(true);
+    try {
+      const file = this.plugin.app.vault.getFileByPath(active.file.path);
+      if (!(file instanceof TFile) || file !== active.file) {
+        this.update(active, {
+          phase: "unavailable",
+          statusText: "The target note was removed or replaced. It was not marked Reviewed.",
+        });
+        return;
+      }
+      await this.plugin.refreshInboxStatus(file, "reviewed");
+      if (!this.isCurrent(active)) return;
+      this.update(active, {
+        phase: "reviewed",
+        statusText: "Review complete. The note is now marked Reviewed.",
+      });
+      this.plugin.clearEnrichmentIssue();
+      new Notice("Review complete. The note is marked reviewed.");
+    } catch {
+      if (!this.isCurrent(active)) return;
+      this.update(active, {
+        phase: "error",
+        statusText: "OMD Home could not mark this note Reviewed. Its content and Inbox status were left as they are.",
+        canRetry: false,
+      });
+      new Notice("Could not mark this note reviewed. Try again from OMD inbox.");
+    } finally {
+      if (this.isCurrent(active)) {
+        this.setBusy(false);
+        this.plugin.refreshHomeViews();
+        if (active.viewClosed) this.active = null;
+      }
     }
   }
 
   private update(active: ActiveEnrichment, patch: Partial<EnrichmentReviewState>): void {
     if (!this.isCurrent(active)) return;
     active.state = { ...active.state, ...patch };
-    active.modal.setState(active.state);
+    active.view.updateState(active.state);
     this.plugin.refreshHomeViews();
   }
 
@@ -246,6 +410,26 @@ export class EnrichmentWorkflowController {
     this.plugin.refreshHomeViews();
   }
 
+  private viewClosed(active: ActiveEnrichment): void {
+    if (!this.isCurrent(active)) return;
+    active.viewClosed = true;
+    if (active.state.phase === "applying" || active.state.phase === "finishing") return;
+    active.abortController?.abort();
+    active.abortController = null;
+    this.plugin.omdEnrichmentRunner.cancel();
+    this.active = null;
+    this.setBusy(false);
+  }
+
+  private abandonCurrent(): void {
+    const active = this.active;
+    this.active = null;
+    this.nextToken += 1;
+    active?.abortController?.abort();
+    if (active?.abortController) this.plugin.omdEnrichmentRunner.cancel();
+    this.setBusy(false);
+  }
+
   private pushEvent(event: OmdEnrichEvent | OmdProgressEvent): void {
     this.plugin.processingEvents.push(toProgressEvent(event));
     this.plugin.processingEvents = this.plugin.processingEvents.slice(-40);
@@ -253,10 +437,20 @@ export class EnrichmentWorkflowController {
   }
 }
 
+function describeAppliedSelection(result: Extract<Awaited<ReturnType<typeof applyEnrichmentSelection>>, { status: "applied" }>): string {
+  const items = [
+    result.appliedSummary ? "summary" : null,
+    result.appliedLinks ? `${result.appliedLinks} ${result.appliedLinks === 1 ? "link" : "links"}` : null,
+    result.appliedTags ? `${result.appliedTags} ${result.appliedTags === 1 ? "tag" : "tags"}` : null,
+  ].filter((item): item is string => item !== null);
+  return `Saved ${items.join(", ")}.`;
+}
+
 function reviewState(
   request: OmdEnrichRequest,
   response: EnrichmentResponse,
   catalogById: ReadonlyMap<string, EnrichmentCandidate>,
+  hasAppliedSuggestions = false,
 ): EnrichmentReviewState {
   return {
     phase: "review",
@@ -295,6 +489,7 @@ function reviewState(
       selectable: false,
     })),
     warnings: response.warnings,
+    hasAppliedSuggestions,
     statusText: "Review the proposal and choose what OMD Home may write.",
   };
 }

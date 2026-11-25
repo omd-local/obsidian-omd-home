@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -51,7 +54,7 @@ jobs:
             manifest.json
             styles.css
 
-      - name: Create release
+      - name: Create draft release for artifact verification
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -59,5 +62,6 @@ jobs:
           gh release create "$tag" \
             --title="$tag" \
             --verify-tag \
+            --draft \
             --generate-notes \
             main.js manifest.json styles.css

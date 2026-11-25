@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sha256HexUtf8, type OmdEnrichRequest } from "../src/enrichment/contract.ts";
+import {
+  describeEnrichmentFailure,
+  OmdEnrichmentError,
+} from "../src/enrichment/errors.ts";
 import { OmdEnrichmentRunner, parseEnrichEventLine, parseStrictStdout } from "../src/enrichment/runner.ts";
 
 test("parseEnrichEventLine ignores invalid JSON lines", () => {
@@ -20,9 +24,14 @@ test("parseStrictStdout requires one trailing newline and one JSON object", () =
 
 test("runner validates stdout and ignores stale stderr events", async () => {
   const request = sampleRequest();
+  const observed: unknown[] = [];
   const runner = new OmdEnrichmentRunner(async (_command, args, options) => {
     assert.deepEqual(args, ["enrich-note", "--request-json", "-", "--json-events"]);
     options?.onStderrLine?.("{\"v\":1,\"ts\":1,\"event\":\"progress\",\"request_id\":\"other\"}");
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1, ts: 1, event: "progress", request_id: request.request_id,
+      stage: "catalog", percent: 50, additive: "retained",
+    }));
     options?.onStderrLine?.("{\"v\":1,\"ts\":2,\"event\":\"done\",\"request_id\":\"request-1\"}");
     return {
       code: 0,
@@ -59,9 +68,15 @@ test("runner validates stdout and ignores stale stderr events", async () => {
     };
   });
 
-  const result = await runner.run({ executable: "omd", request });
+  const result = await runner.run({ executable: "omd", request, onEvent: (event) => observed.push(event) });
   assert.equal(result.response.proposal.summary, "Summary");
   assert.equal(result.terminalEvent?.event, "done");
+  assert.equal(result.events.length, 2);
+  assert.deepEqual(result.events[0], {
+    v: 1, ts: 1, event: "progress", request_id: request.request_id,
+    stage: "catalog", percent: 50, additive: "retained",
+  });
+  assert.deepEqual(observed, result.events);
 });
 
 test("runner maps non-zero exits into process errors", async () => {
@@ -71,6 +86,165 @@ test("runner maps non-zero exits into process errors", async () => {
     return { code: 1, stderr: "", stdout: "" };
   });
   await assert.rejects(runner.run({ executable: "omd", request }), /selected Ollama model is not installed/i);
+});
+
+test("runner carries candidate validation into safe errors and public progress", async () => {
+  const request = sampleRequest();
+  const observed: unknown[] = [];
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1, ts: 1, event: "error", request_id: request.request_id, kind: "invalid_request",
+      message: "private terminal text", stage: "private stage", detail: "private note text",
+      validation: { field: "candidate.evidence", reason: "incompatible_text", evidence: "private snippet" },
+    }));
+    return { code: 1, stderr: "private stderr", stdout: "" };
+  });
+  await assert.rejects(runner.run({ executable: "omd", request, onEvent: (event) => observed.push(event) }),
+    (error: unknown) => error instanceof OmdEnrichmentError
+      && error.code === "invalid_candidate_evidence"
+      && /candidate note snippet/iu.test(error.message)
+      && !/private/iu.test(error.message));
+  assert.equal(observed.length, 1);
+  assert.doesNotMatch(JSON.stringify(observed), /private/iu);
+});
+
+test("runner safely handles unknown validation categories without treating them as candidate failures", async () => {
+  const request = sampleRequest();
+  const observed: unknown[] = [];
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1, ts: 1, event: "error", request_id: request.request_id, kind: "invalid_request",
+      message: "private terminal text",
+      validation: { field: "candidate.evidence", reason: "private unknown reason" },
+    }));
+    return { code: 1, stderr: "", stdout: "" };
+  });
+  await assert.rejects(runner.run({ executable: "omd", request, onEvent: (event) => observed.push(event) }),
+    (error: unknown) => error instanceof OmdEnrichmentError && error.code === "invalid_request"
+      && !/private/iu.test(error.message));
+  assert.doesNotMatch(JSON.stringify(observed), /private/iu);
+});
+
+test("runner explains a rejected local-model proposal without calling it a setup failure", async () => {
+  const request = sampleRequest();
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1,
+      ts: 1,
+      event: "error",
+      request_id: request.request_id,
+      kind: "invalid_model_json",
+      message: "model selected an unknown vault tag",
+    }));
+    return { code: 1, stderr: "", stdout: "" };
+  });
+
+  await assert.rejects(
+    runner.run({ executable: "omd", request }),
+    (error: unknown) => error instanceof OmdEnrichmentError
+      && error.code === "invalid_response"
+      && error.message === "The local model suggested a tag outside the current vault catalog. Generate again or choose another local writing model."
+      && !/setup|endpoint/iu.test(error.message),
+  );
+});
+
+test("runner directs legacy semantic-tag validation to an OMD update", async () => {
+  const request = sampleRequest();
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1,
+      ts: 1,
+      event: "error",
+      request_id: request.request_id,
+      kind: "invalid_model_json",
+      message: "model classified an unknown vault tag as existing",
+    }));
+    return { code: 1, stderr: "", stdout: "" };
+  });
+
+  await assert.rejects(
+    runner.run({ executable: "/opt/homebrew/bin/omd", request }),
+    (error: unknown) => error instanceof OmdEnrichmentError
+      && error.code === "invalid_response"
+      && error.message === "This OMD build cannot safely review a new tag returned as an existing tag. Update OMD, then generate again.",
+  );
+});
+
+test("runner keeps note availability failures distinct from invalid requests", async () => {
+  const request = sampleRequest();
+  const runner = new OmdEnrichmentRunner(async (_command, _args, options) => {
+    options?.onStderrLine?.(JSON.stringify({
+      v: 1,
+      ts: 1,
+      event: "error",
+      request_id: request.request_id,
+      kind: "note_not_found",
+      message: "selected vault paths changed during generation",
+    }));
+    return { code: 1, stderr: "", stdout: "" };
+  });
+
+  await assert.rejects(
+    runner.run({ executable: "omd", request }),
+    (error: unknown) => error instanceof OmdEnrichmentError
+      && error.code === "note_unavailable"
+      && /note or a suggested note is no longer available/iu.test(error.message),
+  );
+});
+
+test("generation failure presents an unavailable note without offering a stale retry", () => {
+  const unavailableInput = describeEnrichmentFailure(new OmdEnrichmentError(
+    "note_unavailable",
+    "The target note or a suggested note is no longer available.",
+  ), "generation");
+  assert.deepEqual(unavailableInput, {
+    phase: "unavailable",
+    statusText: "The target note or a suggested note is no longer available.",
+    detailText: "No proposal changes were written. Close this view, then start again from an available Markdown note.",
+  });
+});
+
+test("enrichment failure presentation gives recovery advice for the actual failure class", () => {
+  const rejectedProposal = describeEnrichmentFailure(new OmdEnrichmentError(
+    "invalid_response",
+    "The local model returned an invalid proposal.",
+  ), "generation");
+  assert.deepEqual(rejectedProposal, {
+    phase: "error",
+    statusText: "The local model returned an invalid proposal.",
+    detailText: "No proposal changes were written. Generate again. If this repeats, choose another local writing model.",
+  });
+
+  const changedNote = describeEnrichmentFailure(new OmdEnrichmentError(
+    "note_conflict",
+    "The note is no longer available.",
+  ), "generation");
+  assert.deepEqual(changedNote, {
+    phase: "conflict",
+    statusText: "The note is no longer available.",
+    detailText: "No proposal changes were written. Refresh the note, then generate a new proposal.",
+  });
+
+  const abort = new Error("aborted");
+  abort.name = "AbortError";
+  assert.equal(describeEnrichmentFailure(abort, "generation").phase, "cancelled");
+});
+
+test("apply failure presentation never claims writes did not occur when an exception escapes", () => {
+  const conflict = describeEnrichmentFailure(new OmdEnrichmentError(
+    "note_conflict",
+    "The note changed while Apply was running.",
+  ), "apply");
+  assert.deepEqual(conflict, {
+    phase: "conflict",
+    statusText: "The note changed while Apply was running.",
+    detailText: "Review the note, then generate a fresh proposal before applying again.",
+  });
+
+  const unexpected = describeEnrichmentFailure(new Error("disk write interrupted"), "apply");
+  assert.equal(unexpected.phase, "error");
+  assert.match(unexpected.detailText, /review the target note/iu);
+  assert.doesNotMatch(unexpected.detailText, /no vault changes were written/iu);
 });
 
 test("runner gives a safe, copyable Ollama pull command for a missing configured model", async () => {

@@ -1,13 +1,28 @@
+import { mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { setTimeout as pause } from "node:timers/promises";
 import type { OmdProgressEvent, OmdSearchHit } from "./model.ts";
-import { guardSparseComparisonAnswer } from "./ai-answer.ts";
+import type {
+  AnswerModelCompatibilityStatus,
+  HostedAiCatalog,
+  HostedAiCheckResult,
+  HostedAiCredentialState,
+} from "./ollama-local-types.ts";
 import {
   appendCommonExecutableDirectoriesToPath,
   type CapturePolishOptions,
+  type CaptureSourceAccessOptions,
   omdCaptureArgs,
   parseOmdEvent,
   parsePythonShebang,
+  sanitizeCaptureProgressEvent,
   prependExecutableDirectoryToPath,
 } from "./omd-events.ts";
+import type { CaptureRequest } from "./capture-request.ts";
+import type { MarkdownFormattingMode } from "./markdown-formatting.ts";
+import type { ReplacementTranscriptSegment } from "./transcript-repair.ts";
+import { isXhsShortlinkSource, socialCaptureProvider } from "./omnibox-utils.ts";
 
 export interface SpawnResult {
   stdout: string;
@@ -24,6 +39,7 @@ export interface SpawnOptions {
   maxStderrChars?: number;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
+  shell?: false;
 }
 
 const DEFAULT_MAX_STDOUT_CHARS = 1_000_000;
@@ -31,20 +47,42 @@ const DEFAULT_MAX_STDERR_CHARS = 256_000;
 const BRIDGE_TIMEOUT_MS = 95_000;
 const HYBRID_BRIDGE_TIMEOUT_MS = 5 * 60_000;
 const CAPTURE_TIMEOUT_MS = 10 * 60_000;
+const MARKDOWN_FORMATTING_TIMEOUT_MS = 5 * 60_000;
+const TRANSCRIPT_REPAIR_TIMEOUT_MS = 10 * 60_000;
+const CAPTURE_INSPECT_TIMEOUT_MS = 30_000;
+const MAX_CAPTURE_INSPECT_BYTES = 64 * 1024;
 const WHICH_TIMEOUT_MS = 5_000;
+const CAPTURE_MANIFEST_CLOCK_SKEW_MS = 1_000;
+const CAPTURE_MANIFEST_RETRY_DELAYS_MS = [0, 75, 175, 350] as const;
+const MAX_CAPTURE_MANIFEST_BYTES = 1_000_000;
+const MAX_CAPTURE_MANIFESTS = 512;
+const OMD_PLANNED_OUTPUT_NAME = /^\d{4}-\d{2}-\d{2}-.+-[0-9a-f]{8}\.md$/u;
+
+export const MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE =
+  "The local model tried to change words, numbers, links, or another protected source detail. OMD discarded the result. Your note is unchanged.";
+
+function normalizeAnswerCompatibility(value: unknown): AnswerModelCompatibilityStatus {
+  return value === "supported" || value === "unsupported" || value === "unverified"
+    ? value
+    : "unverified";
+}
 
 export interface AiPreview {
   preview: {
     provider: string;
     model: string;
+    capability?: string;
+    operation?: string;
     privacy_mode: string;
     destination_domain: string;
     character_count: number;
     estimated_input_tokens: number;
+    sends_attachment?: boolean;
     policy_url?: string | null;
     data_handling_summary: string;
   };
   evidence: OmdSearchHit[];
+  noEvidence?: boolean;
   consent_grant?: Record<string, unknown> | null;
   retrieval_mode?: "sparse" | "hybrid";
   retrieval_model?: string | null;
@@ -61,6 +99,19 @@ export interface AiAnswer {
   warnings?: string[];
   usage?: Record<string, number>;
   timing?: Record<string, number>;
+  embeddingFallbackModel?: string;
+}
+
+export type CaptureCookieStatus = "not_provided" | "found" | "missing" | "unreadable" | "invalid_format" | "wrong_domain" | "expired";
+
+export interface CaptureInspection {
+  detectedType: "douyin_url" | "xhs_url";
+  ready: boolean;
+  missingTools: string[];
+  missingAuth: string[];
+  blockingRisks: string[];
+  cookieStatus: CaptureCookieStatus;
+  cookieRuntimeRecheck: boolean;
 }
 
 export interface HybridRetrievalOptions {
@@ -68,6 +119,274 @@ export interface HybridRetrievalOptions {
   embeddingModel: string;
   embeddingModelRevision?: string;
   semanticRerankEnabled: boolean;
+}
+
+export interface PreparedTranscriptRepairMedia {
+  readonly path: string;
+  readonly durationSeconds: number;
+}
+
+export interface RetranscribedTranscriptRange {
+  readonly segments: readonly ReplacementTranscriptSegment[];
+  readonly language: string | null;
+  readonly chunkLanguages: readonly string[];
+  readonly qualityWarnings: readonly string[];
+  readonly suspectIntervals: readonly {
+    readonly startSeconds: number;
+    readonly endSeconds: number;
+    readonly reasons: readonly string[];
+  }[];
+  readonly safeToApply: boolean;
+  readonly contextStartSeconds: number;
+  readonly contextEndSeconds: number;
+}
+
+export interface TranscriptRepairSessionRequest {
+  readonly vaultPath: string;
+  readonly configDir: string;
+  readonly sessionId: string;
+}
+
+function normalizeCredential(value: Record<string, unknown> | undefined): HostedAiCredentialState | null {
+  if (!value) return null;
+  const provider = typeof value.provider === "string" ? value.provider : "";
+  const envVar = typeof value.envVar === "string" ? value.envVar : "";
+  const source = value.source;
+  const keychainSupported = value.keychainSupported;
+  if (!provider || !envVar) return null;
+  if (source !== "missing" && source !== "env" && source !== "keychain") return null;
+  if (typeof keychainSupported !== "boolean") return null;
+  return {
+    provider: provider as HostedAiCredentialState["provider"],
+    envVar,
+    source,
+    keychainSupported,
+    envPresent: typeof value.envPresent === "boolean" ? value.envPresent : source === "env",
+    keychainPresent: typeof value.keychainPresent === "boolean" ? value.keychainPresent : source === "keychain",
+  };
+}
+
+function normalizeSearchHits(value: unknown): OmdSearchHit[] | null {
+  if (!Array.isArray(value)) return null;
+  const hits: OmdSearchHit[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record.path !== "string"
+      || typeof record.title !== "string"
+      || typeof record.evidence !== "string"
+      || typeof record.score !== "number"
+      || !Number.isFinite(record.score)
+    ) return null;
+    hits.push({ path: record.path, title: record.title, evidence: record.evidence, score: record.score });
+  }
+  return hits;
+}
+
+function normalizeAiPreview(value: Record<string, unknown>): AiPreview | null {
+  const previewValue = value.preview;
+  if (!previewValue || typeof previewValue !== "object" || Array.isArray(previewValue)) return null;
+  const preview = previewValue as Record<string, unknown>;
+  const requiredStrings = ["provider", "model", "privacy_mode", "destination_domain", "data_handling_summary"] as const;
+  if (requiredStrings.some((key) => typeof preview[key] !== "string" || !preview[key].trim())) return null;
+  if (
+    typeof preview.character_count !== "number"
+    || !Number.isFinite(preview.character_count)
+    || preview.character_count < 0
+    || typeof preview.estimated_input_tokens !== "number"
+    || !Number.isFinite(preview.estimated_input_tokens)
+    || preview.estimated_input_tokens < 0
+  ) return null;
+  if (preview.policy_url !== undefined && preview.policy_url !== null && typeof preview.policy_url !== "string") return null;
+  if (preview.sends_attachment !== undefined && typeof preview.sends_attachment !== "boolean") return null;
+  const evidence = normalizeSearchHits(value.evidence);
+  if (!evidence) return null;
+  const retrievalMode = value.retrieval_mode;
+  if (retrievalMode !== undefined && retrievalMode !== "sparse" && retrievalMode !== "hybrid") return null;
+  const retrievalModel = value.retrieval_model;
+  if (retrievalModel !== undefined && retrievalModel !== null && typeof retrievalModel !== "string") return null;
+  const consentGrant = value.consent_grant;
+  if (consentGrant !== undefined && consentGrant !== null && (typeof consentGrant !== "object" || Array.isArray(consentGrant))) return null;
+  const warnings = value.warnings;
+  const noEvidence = value.no_evidence;
+  if (noEvidence !== undefined && typeof noEvidence !== "boolean") return null;
+  if (warnings !== undefined && (!Array.isArray(warnings) || warnings.some((item) => typeof item !== "string"))) return null;
+  return {
+    preview: {
+      provider: preview.provider as string,
+      model: preview.model as string,
+      capability: typeof preview.capability === "string" ? preview.capability : undefined,
+      operation: typeof preview.operation === "string" ? preview.operation : undefined,
+      privacy_mode: preview.privacy_mode as string,
+      destination_domain: preview.destination_domain as string,
+      character_count: preview.character_count,
+      estimated_input_tokens: preview.estimated_input_tokens,
+      sends_attachment: typeof preview.sends_attachment === "boolean" ? preview.sends_attachment : undefined,
+      policy_url: preview.policy_url,
+      data_handling_summary: preview.data_handling_summary as string,
+    },
+    evidence,
+    noEvidence,
+    consent_grant: consentGrant as Record<string, unknown> | null | undefined,
+    retrieval_mode: retrievalMode,
+    retrieval_model: retrievalModel,
+    warnings: warnings as string[] | undefined,
+  };
+}
+
+function normalizeNumberRecord(value: unknown): Record<string, number> | undefined | null {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const result: Record<string, number> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "number" || !Number.isFinite(item) || item < 0) return null;
+    result[key] = item;
+  }
+  return result;
+}
+
+function normalizePreparedTranscriptMedia(value: unknown): PreparedTranscriptRepairMedia | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.path !== "string" || !record.path.trim()) return null;
+  if (typeof record.duration_seconds !== "number"
+    || !Number.isFinite(record.duration_seconds)
+    || record.duration_seconds <= 0) return null;
+  return {
+    path: record.path,
+    durationSeconds: record.duration_seconds,
+  };
+}
+
+function normalizeRetranscribedTranscriptRange(value: unknown): RetranscribedTranscriptRange | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.segments) || !record.segments.length) return null;
+  const segments: ReplacementTranscriptSegment[] = [];
+  for (const item of record.segments) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const segment = item as Record<string, unknown>;
+    if (typeof segment.start !== "number" || !Number.isFinite(segment.start) || segment.start < 0
+      || typeof segment.end !== "number" || !Number.isFinite(segment.end) || segment.end <= segment.start
+      || typeof segment.text !== "string" || !segment.text.trim()) return null;
+    segments.push({ start: segment.start, end: segment.end, text: segment.text.trim() });
+  }
+  const contextStart = record.context_start_seconds;
+  const contextEnd = record.context_end_seconds;
+  if (typeof contextStart !== "number" || !Number.isFinite(contextStart) || contextStart < 0
+    || typeof contextEnd !== "number" || !Number.isFinite(contextEnd) || contextEnd <= contextStart) return null;
+  if (record.language !== null && record.language !== undefined && typeof record.language !== "string") return null;
+  const chunkLanguages = normalizeStringArray(record.chunk_languages);
+  const qualityWarnings = normalizeStringArray(record.quality_warnings);
+  if (!chunkLanguages || !qualityWarnings) return null;
+  const suspectIntervals: Array<{
+    startSeconds: number;
+    endSeconds: number;
+    reasons: readonly string[];
+  }> = [];
+  if (record.suspect_intervals !== undefined) {
+    if (!Array.isArray(record.suspect_intervals)) return null;
+    for (const item of record.suspect_intervals) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const interval = item as Record<string, unknown>;
+      const reasons = normalizeStringArray(interval.reasons);
+      if (typeof interval.start !== "number" || !Number.isFinite(interval.start) || interval.start < 0
+        || typeof interval.end !== "number" || !Number.isFinite(interval.end) || interval.end <= interval.start
+        || !reasons || !reasons.length) return null;
+      suspectIntervals.push({
+        startSeconds: interval.start,
+        endSeconds: interval.end,
+        reasons,
+      });
+    }
+  }
+  if (record.safe_to_apply !== undefined && typeof record.safe_to_apply !== "boolean") return null;
+  const safeToApply = record.safe_to_apply !== false
+    && qualityWarnings.length === 0
+    && suspectIntervals.length === 0;
+  return {
+    segments,
+    language: typeof record.language === "string" && record.language.trim() ? record.language.trim() : null,
+    chunkLanguages,
+    qualityWarnings,
+    suspectIntervals,
+    safeToApply,
+    contextStartSeconds: contextStart,
+    contextEndSeconds: contextEnd,
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const strings: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim()) return null;
+    const normalized = item.trim();
+    if (!strings.includes(normalized)) strings.push(normalized);
+  }
+  return strings;
+}
+
+function normalizeAiAnswer(value: Record<string, unknown>): AiAnswer | null {
+  const text = value.text;
+  const provider = value.provider;
+  const model = value.model;
+  if (
+    value.grounding_contract_version !== 1
+    ||
+    typeof text !== "string"
+    || !text.trim()
+    || typeof provider !== "string"
+    || !provider.trim()
+    || typeof model !== "string"
+    || !model.trim()
+  ) return null;
+  const evidence = normalizeSearchHits(value.evidence);
+  if (!evidence) return null;
+  const retrievalMode = value.retrieval_mode;
+  if (retrievalMode !== undefined && retrievalMode !== "sparse" && retrievalMode !== "hybrid") return null;
+  const retrievalModel = value.retrieval_model;
+  if (retrievalModel !== undefined && retrievalModel !== null && typeof retrievalModel !== "string") return null;
+  const warnings = value.warnings;
+  if (warnings !== undefined && (!Array.isArray(warnings) || warnings.some((item) => typeof item !== "string"))) return null;
+  const usage = normalizeNumberRecord(value.usage);
+  const timing = normalizeNumberRecord(value.timing);
+  if (usage === null || timing === null) return null;
+  return {
+    text,
+    evidence,
+    provider,
+    model,
+    retrieval_mode: retrievalMode,
+    retrieval_model: retrievalModel,
+    warnings,
+    usage,
+    timing,
+  };
+}
+
+function assertGroundedAnswerContract(answer: AiAnswer): void {
+  const warnings = new Set(answer.warnings ?? []);
+  const missingCitations = warnings.has("answer_citation_coverage_incomplete");
+  const invalidSections = warnings.has("answer_provenance_labels_missing");
+  if (missingCitations && invalidSections) {
+    throw new Error(
+      "The answer model omitted claim citations and did not clearly separate facts from suggestions. No unverified answer was shown. Try again or ask a narrower question.",
+    );
+  }
+  if (missingCitations) {
+    throw new Error("The answer model did not cite every claim from the retrieved notes. No unverified answer was shown; try again or ask a narrower question.");
+  }
+  if (invalidSections) {
+    throw new Error("The answer model did not clearly separate facts from suggestions. No unverified answer was shown. Try again.");
+  }
+  if (!answer.evidence.length) {
+    throw new Error(
+      "The answer model did not return a verifiable grounded answer. No retrieved evidence was attached, so no answer was shown.",
+    );
+  }
 }
 
 const BUNDLED_BRIDGE_BOOTSTRAP = "import json,sys\ns=json.loads(sys.stdin.readline())['source']\nexec(compile(s,'<omd-home-bridge>','exec'))";
@@ -90,6 +409,34 @@ export function pythonBridgeStdin(
   return `${JSON.stringify({ source: embeddedSource })}\n${JSON.stringify(payload)}`;
 }
 
+export function windowsPythonCandidatesForOmd(omdExecutable: string): string[] {
+  const executable = omdExecutable.trim().replaceAll("/", "\\");
+  if (!path.win32.isAbsolute(executable)) return [];
+  const scriptsDirectory = path.win32.dirname(executable);
+  const candidates = [
+    path.win32.join(scriptsDirectory, "python.exe"),
+    path.win32.join(scriptsDirectory, "python3.exe"),
+  ];
+  if (path.win32.basename(scriptsDirectory).toLowerCase() === "scripts") {
+    const environmentRoot = path.win32.dirname(scriptsDirectory);
+    candidates.push(
+      path.win32.join(environmentRoot, "python.exe"),
+      path.win32.join(environmentRoot, "python3.exe"),
+    );
+  }
+  return [...new Set(candidates)];
+}
+
+export async function firstVerifiedWindowsPython(
+  omdExecutable: string,
+  verify: (candidate: string) => Promise<boolean>,
+): Promise<string | null> {
+  for (const candidate of windowsPythonCandidatesForOmd(omdExecutable)) {
+    if (await verify(candidate)) return candidate;
+  }
+  return null;
+}
+
 export class OmdBridge {
   private readonly omdExecutable: () => string;
   private readonly pythonExecutable: () => string;
@@ -110,39 +457,264 @@ export class OmdBridge {
   }
 
   async capture(
-    source: string,
+    executable: string,
+    request: CaptureRequest,
     vaultPath: string,
-    tags: string[],
     polish: CapturePolishOptions,
+    sourceAccess: CaptureSourceAccessOptions,
     onEvent: (event: OmdProgressEvent) => void,
+    signal?: AbortSignal,
   ): Promise<string | null> {
     this.assertDesktop();
+    const captureStartedAt = Date.now();
     let result: SpawnResult;
     try {
       result = await this.spawnManagedProcess(
-        this.omdExecutable(),
-        omdCaptureArgs(source, vaultPath, tags, polish),
+        executable,
+        omdCaptureArgs(request, vaultPath, polish, sourceAccess),
         {
+          signal,
           timeoutMs: CAPTURE_TIMEOUT_MS,
           maxStdoutChars: 32_000,
           maxStderrChars: 1_000_000,
           onStderrLine: (line) => {
             const event = parseOmdEvent(line);
-            if (event) onEvent(event);
+            if (event) {
+              const surfacedEvent = event.event === "error" || event.event === "fatal"
+                ? { ...event, message: mapCaptureEventToUserMessage(event, request.source) }
+                : event;
+              onEvent(sanitizeCaptureProgressEvent(surfacedEvent, [
+                sourceAccess.douyinCookiesPath,
+                sourceAccess.xhsCookiesPath,
+              ]));
+            }
           },
         },
       );
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
       throw new Error(captureProcessErrorMessage(error), { cause: error as Error });
     }
-    if (result.code !== 0) throw new Error(captureErrorMessage(result.stderr));
+    if (result.code !== 0) throw new Error(captureErrorMessage(result.stderr, request.source));
     const done = result.stderr.split(/\r?\n/).map(parseOmdEvent).findLast((event) => event?.event === "done");
-    return done?.output ?? null;
+    return await resolveOmdCaptureOutput(done?.output ?? null, request.source, vaultPath, captureStartedAt);
   }
 
-  async search(vaultPath: string, query: string): Promise<OmdSearchHit[]> {
-    const response = await this.callPythonBridge({ action: "search", vault: vaultPath, query, limit: 10 });
+  async previewMarkdownFormatting(
+    executable: string,
+    markdown: string,
+    model: string,
+    host: string,
+    signal?: AbortSignal,
+    mode: MarkdownFormattingMode = "layout-only",
+  ): Promise<string> {
+    this.assertDesktop();
+    const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "omd-home-format-"));
+    const temporaryNote = path.join(temporaryDirectory, "note.md");
+    try {
+      signal?.throwIfAborted();
+      await writeFile(temporaryNote, markdown, "utf8");
+      const args = [
+        temporaryNote,
+        "--polish-md",
+        "--polish-md-model",
+        model,
+        "--polish-md-host",
+        host,
+        "--json-events",
+      ];
+      if (mode === "transcript-cleanup") args.push("--polish-md-transcript-cleanup");
+      const result = await this.spawnManagedProcess(executable, args, {
+        signal,
+        shell: false,
+        timeoutMs: MARKDOWN_FORMATTING_TIMEOUT_MS,
+        maxStdoutChars: 32_000,
+        maxStderrChars: 1_000_000,
+      });
+      signal?.throwIfAborted();
+      if (result.code !== 0) {
+        throw new Error("OMD could not improve formatting. The note was not changed.");
+      }
+      const formattingFailure = markdownFormattingFailureMessage(result.stderr);
+      if (formattingFailure) throw new Error(formattingFailure);
+      const formatted = await readFile(temporaryNote, "utf8");
+      if (!formatted.trim()) {
+        throw new Error("OMD returned an empty formatting preview. The note was not changed.");
+      }
+      return formatted;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      if (error instanceof Error && (
+        /note was not changed/u.test(error.message)
+        || error.message === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE
+      )) throw error;
+      throw new Error("OMD could not improve formatting. The note was not changed.", { cause: error as Error });
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
+
+  async inspectCaptureSource(
+    executable: string,
+    source: string,
+    expectedType: "douyin_url" | "xhs_url",
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<CaptureInspection> {
+    this.assertDesktop();
+    const args = ["inspect", source, "--json", "--with-readiness"];
+    if (cookiesPath.trim()) args.push("--cookies", cookiesPath.trim());
+    const result = await this.spawnManagedProcess(executable, args, {
+      signal,
+      shell: false,
+      timeoutMs: CAPTURE_INSPECT_TIMEOUT_MS,
+      maxStdoutBytes: MAX_CAPTURE_INSPECT_BYTES,
+      maxStderrBytes: 16 * 1024,
+      maxStdoutChars: MAX_CAPTURE_INSPECT_BYTES,
+      maxStderrChars: 16 * 1024,
+    });
+    if (result.code !== 0) {
+      throw new Error("OMD could not check this social source. Update OMD or verify the link, then try again.");
+    }
+    const inspection = parseCaptureInspection(result.stdout);
+    if (!inspection || inspection.detectedType !== expectedType) {
+      throw new Error("OMD could not verify this link as the selected social source. Check the link and try again.");
+    }
+    return inspection;
+  }
+
+  async prepareTranscriptRepairMedia(
+    session: TranscriptRepairSessionRequest,
+    source: string,
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<PreparedTranscriptRepairMedia> {
+    const response = await this.callPythonBridge({
+      action: "prepare_transcript_repair_media",
+      vault: session.vaultPath,
+      config_dir: session.configDir,
+      session_id: session.sessionId,
+      source,
+      cookies_path: cookiesPath || null,
+    }, { signal });
+    const media = normalizePreparedTranscriptMedia(response.media);
+    if (!media) throw new Error("OMD Home bridge returned invalid transcript review media.");
+    return media;
+  }
+
+  async retranscribeTranscriptRange(
+    session: TranscriptRepairSessionRequest,
+    mediaPath: string,
+    startSeconds: number,
+    endSeconds: number,
+    language: string | null,
+    signal?: AbortSignal,
+  ): Promise<RetranscribedTranscriptRange> {
+    const response = await this.callPythonBridge({
+      action: "retranscribe_transcript_range",
+      vault: session.vaultPath,
+      config_dir: session.configDir,
+      session_id: session.sessionId,
+      media_path: mediaPath,
+      start_seconds: startSeconds,
+      end_seconds: endSeconds,
+      context_seconds: 8,
+      chunk_seconds: 25,
+      language,
+    }, { signal });
+    const transcript = normalizeRetranscribedTranscriptRange(response.transcript);
+    if (!transcript) throw new Error("OMD Home bridge returned an invalid transcript range.");
+    return transcript;
+  }
+
+  async search(vaultPath: string, query: string, signal?: AbortSignal): Promise<OmdSearchHit[]> {
+    const response = await this.callPythonBridge({ action: "search", vault: vaultPath, query, limit: 10 }, { signal });
     return Array.isArray(response.hits) ? response.hits as OmdSearchHit[] : [];
+  }
+
+  async storeHostedApiKey(
+    provider: HostedAiCredentialState["provider"],
+    apiKey: string,
+    signal?: AbortSignal,
+  ): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge(
+      { action: "store_hosted_api_key", provider, api_key: apiKey },
+      { signal },
+    );
+    const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
+    if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
+    return credential;
+  }
+
+  async hostedCredentialState(
+    provider: HostedAiCredentialState["provider"],
+    signal?: AbortSignal,
+  ): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge({ action: "hosted_credential_state", provider }, { signal });
+    const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
+    if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
+    return credential;
+  }
+
+  async deleteHostedApiKey(
+    provider: HostedAiCredentialState["provider"],
+    signal?: AbortSignal,
+  ): Promise<HostedAiCredentialState> {
+    const response = await this.callPythonBridge({ action: "delete_hosted_api_key", provider }, { signal });
+    const credential = normalizeCredential(response.credential as Record<string, unknown> | undefined);
+    if (!credential) throw new Error("OMD Home bridge returned an invalid credential state");
+    return credential;
+  }
+
+  async discoverProviderModels(
+    provider: HostedAiCredentialState["provider"],
+    signal?: AbortSignal,
+  ): Promise<HostedAiCatalog> {
+    const response = await this.callPythonBridge({ action: "discover_provider_models", provider }, { signal });
+    return {
+      provider,
+      destinationDomain: typeof response.destination_domain === "string" ? response.destination_domain : "",
+      models: Array.isArray(response.models) ? response.models.filter((value): value is string => typeof value === "string") : [],
+      elapsedSeconds: typeof response.elapsed_seconds === "number" ? response.elapsed_seconds : undefined,
+      credential: normalizeCredential(response.credential as Record<string, unknown> | undefined) ?? undefined,
+    };
+  }
+
+  async checkProviderModel(
+    provider: HostedAiCredentialState["provider"],
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<HostedAiCheckResult> {
+    const response = await this.callPythonBridge({ action: "check_provider_model", provider, model }, { signal });
+    const normalizedAnswerCompatibility = normalizeAnswerCompatibility(response.answer_compatibility);
+    const answerContract = typeof response.answer_contract === "string" && response.answer_contract.trim()
+      ? response.answer_contract.trim()
+      : null;
+    const answerCompatibility = normalizedAnswerCompatibility === "supported" && answerContract === null
+      ? "unverified"
+      : normalizedAnswerCompatibility;
+    const backendReason = typeof response.answer_compatibility_reason === "string"
+      && response.answer_compatibility_reason.trim()
+      ? response.answer_compatibility_reason.trim()
+      : null;
+    const answerCompatibilityReason = normalizedAnswerCompatibility === "supported" && answerContract === null
+      ? `OMD reported ${model} as compatible without identifying the answer contract. Run Check setup after updating OMD.`
+      : backendReason ?? `OMD did not verify ${model} against the selected provider's answer contract.`;
+    return {
+      provider,
+      destinationDomain: typeof response.destination_domain === "string" ? response.destination_domain : "",
+      models: Array.isArray(response.models) ? response.models.filter((value): value is string => typeof value === "string") : [],
+      elapsedSeconds: typeof response.elapsed_seconds === "number" ? response.elapsed_seconds : undefined,
+      credential: normalizeCredential(response.credential as Record<string, unknown> | undefined) ?? undefined,
+      model: typeof response.model === "string" ? response.model : model,
+      available: response.available === true,
+      alternativeModels: Array.isArray(response.alternative_models)
+        ? response.alternative_models.filter((value): value is string => typeof value === "string")
+        : [],
+      answerCompatibility,
+      answerCompatibilityReason,
+      answerContract,
+    };
   }
 
   async previewAi(
@@ -154,7 +726,7 @@ export class OmdBridge {
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiPreview> {
-    return await this.callPythonBridge({
+    const response = await this.callPythonBridge({
       action: "preview_ai",
       vault: vaultPath,
       query,
@@ -166,7 +738,10 @@ export class OmdBridge {
       embedding_model: retrieval.embeddingModel,
       embedding_model_revision: retrieval.embeddingModelRevision ?? null,
       semantic_rerank_enabled: retrieval.semanticRerankEnabled,
-    }, { signal }) as unknown as AiPreview;
+    }, { signal });
+    const preview = normalizeAiPreview(response);
+    if (!preview) throw new Error("OMD Home bridge returned an invalid AI preview.");
+    return preview;
   }
 
   async executeAi(
@@ -175,25 +750,34 @@ export class OmdBridge {
     provider: string,
     model: string,
     endpoint: string,
+    consentGranted: boolean,
     consentGrant: Record<string, unknown> | null,
     retrieval: HybridRetrievalOptions,
     signal?: AbortSignal,
   ): Promise<AiAnswer> {
-    const answer = await this.callPythonBridge({
+    const response = await this.callPythonBridge({
       action: "execute_ai",
       vault: vaultPath,
       query,
       provider,
       model,
       endpoint,
+      consent_granted: consentGranted,
       consent_grant: consentGrant,
       limit: 8,
       hybrid_retrieval_enabled: retrieval.hybridRetrievalEnabled,
       embedding_model: retrieval.embeddingModel,
       embedding_model_revision: retrieval.embeddingModelRevision ?? null,
       semantic_rerank_enabled: retrieval.semanticRerankEnabled,
-    }, { signal }) as unknown as AiAnswer;
-    return guardSparseComparisonAnswer(query, answer);
+    }, { signal });
+    const answer = normalizeAiAnswer(response);
+    if (!answer) {
+      throw new Error(
+        "OMD Home bridge returned an invalid AI answer. Grounding contract v1 is required; use the bundled bridge or update the custom bridge. No answer was shown.",
+      );
+    }
+    assertGroundedAnswerContract(answer);
+    return answer;
   }
 
   private async callPythonBridge(
@@ -240,12 +824,32 @@ export class OmdBridge {
         maxStdoutChars: 16_000,
         maxStderrChars: 16_000,
       })).stdout.trim().split(/\r?\n/u).find(Boolean) ?? "";
-    if (!executable) throw new Error("Could not find the configured OMD executable");
+    if (!executable) throw new Error("Could not find the detected OMD executable");
+    if (process.platform === "win32") {
+      const interpreter = await firstVerifiedWindowsPython(executable, async (candidate) => {
+        try {
+          const result = await this.spawnManagedProcess(candidate, ["--version"], {
+            signal,
+            timeoutMs: WHICH_TIMEOUT_MS,
+            maxStdoutChars: 16_000,
+            maxStderrChars: 16_000,
+          });
+          return result.code === 0 && /\bPython\s+\d+(?:\.\d+)+/u.test(`${result.stdout}\n${result.stderr}`);
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") throw error;
+          return false;
+        }
+      });
+      if (!interpreter) {
+        throw new Error("Could not find Python beside the detected OMD launcher. Open Advanced OMD paths to choose the environment's python.exe.");
+      }
+      return interpreter;
+    }
     const runtimeWindow = window as Window & { require?: (id: string) => typeof import("node:fs") };
     if (!runtimeWindow.require) throw new Error("Desktop file APIs are unavailable");
     const firstLine = runtimeWindow.require("node:fs").readFileSync(executable, "utf8").slice(0, 256);
     const interpreter = parsePythonShebang(firstLine);
-    if (!interpreter) throw new Error("Could not determine OMD's Python interpreter. Set it in OMD Home settings.");
+    if (!interpreter) throw new Error("Could not determine OMD's Python interpreter. Open Advanced OMD paths to choose it.");
     return interpreter;
   }
 
@@ -278,8 +882,146 @@ export class OmdBridge {
   }
 }
 
+function markdownFormattingFailureMessage(stderr: string): string | null {
+  let failed = false;
+  for (const line of stderr.split(/\r?\n/u)) {
+    const event = parseOmdEvent(line);
+    if (!event) continue;
+    if (event.event === "error" || event.event === "fatal") {
+      failed = true;
+      continue;
+    }
+    if (event.event !== "warn" || typeof event.message !== "string") continue;
+    const warning = event.message.toLowerCase();
+    if (
+      warning.includes("model changed source content")
+      || warning.includes("model changed numeric content")
+      || warning.includes("model changed protected link")
+      || warning.includes("model changed protected links")
+      || warning.includes("model changed semantic operators")
+    ) {
+      return MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE;
+    }
+    failed ||= warning.includes("markdown polish skipped")
+      || (warning.includes("polish chunk") && warning.includes("failed"))
+      || warning.includes("markdown polish failed");
+  }
+  return failed ? "OMD could not improve formatting. The note was not changed." : null;
+}
+
+export async function resolveOmdCaptureOutput(
+  reportedOutput: string | null,
+  source: string,
+  vaultRoot: string,
+  captureStartedAt: number,
+): Promise<string | null> {
+  if (!reportedOutput) return null;
+  if (!path.isAbsolute(reportedOutput)) return reportedOutput;
+  if (!OMD_PLANNED_OUTPUT_NAME.test(path.basename(reportedOutput)) && await isRegularFile(reportedOutput)) {
+    return reportedOutput;
+  }
+
+  for (const delayMs of CAPTURE_MANIFEST_RETRY_DELAYS_MS) {
+    if (delayMs > 0) await pause(delayMs);
+    const resolved = await matchingCaptureManifestOutput(reportedOutput, source, vaultRoot, captureStartedAt);
+    if (resolved) return resolved;
+  }
+  return await isRegularFile(reportedOutput) ? reportedOutput : null;
+}
+
+async function matchingCaptureManifestOutput(
+  reportedOutput: string,
+  source: string,
+  vaultRoot: string,
+  captureStartedAt: number,
+): Promise<string | null> {
+  try {
+    const realVaultRoot = await realpath(vaultRoot);
+    const realReportedDirectory = await realpath(path.dirname(reportedOutput));
+    if (!isContainedPath(realVaultRoot, realReportedDirectory)) return null;
+
+    const entries = (await readdir(realReportedDirectory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && !entry.name.startsWith(".") && entry.name.endsWith(".omd.json"))
+      .slice(0, MAX_CAPTURE_MANIFESTS);
+    let best: { output: string; updatedAt: number } | null = null;
+    for (const entry of entries) {
+      const manifestPath = path.join(realReportedDirectory, entry.name);
+      const manifestStats = await stat(manifestPath);
+      if (manifestStats.size <= 0 || manifestStats.size > MAX_CAPTURE_MANIFEST_BYTES) continue;
+      const manifest = parseCaptureManifest(await readFile(manifestPath, "utf8"));
+      if (!manifest || !captureManifestMatchesSource(manifest, source)) continue;
+      const updatedAt = captureManifestTimestamp(manifest, manifestStats.mtimeMs);
+      if (updatedAt < captureStartedAt - CAPTURE_MANIFEST_CLOCK_SKEW_MS) continue;
+
+      const output = typeof manifest.output === "string" ? manifest.output : "";
+      if (!path.isAbsolute(output) || path.extname(output).toLowerCase() !== ".md") continue;
+      const realOutput = await realpath(output);
+      if (path.dirname(realOutput) !== realReportedDirectory || !await isRegularFile(realOutput)) continue;
+      if (!best || updatedAt > best.updatedAt) best = { output: realOutput, updatedAt };
+    }
+    return best?.output ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function parseCaptureManifest(value: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function captureManifestMatchesSource(manifest: Record<string, unknown>, source: string): boolean {
+  const expectedIdentity = persistedCaptureSourceIdentity(source);
+  return [manifest.source, manifest.local_source_path].some((candidate) => (
+    typeof candidate === "string"
+    && persistedCaptureSourceIdentity(candidate) === expectedIdentity
+  ));
+}
+
+function persistedCaptureSourceIdentity(source: string): string {
+  if (socialCaptureProvider(source) !== "xhs") return source;
+  const queryIndex = source.indexOf("?");
+  const fragmentIndex = source.indexOf("#");
+  const boundary = [queryIndex, fragmentIndex]
+    .filter((index) => index >= 0)
+    .reduce((lowest, index) => Math.min(lowest, index), source.length);
+  return source.slice(0, boundary);
+}
+
+function captureManifestTimestamp(manifest: Record<string, unknown>, fallback: number): number {
+  for (const field of ["updated_at", "created_at"] as const) {
+    const value = manifest[field];
+    if (typeof value !== "string") continue;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+async function isRegularFile(candidate: string): Promise<boolean> {
+  try {
+    return (await stat(candidate)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isContainedPath(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return !relative || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
 export function bridgeTimeoutMs(payload: Record<string, unknown>): number {
   const action = typeof payload.action === "string" ? payload.action : "";
+  if (action === "prepare_transcript_repair_media" || action === "retranscribe_transcript_range") {
+    return TRANSCRIPT_REPAIR_TIMEOUT_MS;
+  }
   const hybridEnabled = payload.hybrid_retrieval_enabled === true;
   if (hybridEnabled && (action === "preview_ai" || action === "execute_ai")) {
     return HYBRID_BRIDGE_TIMEOUT_MS;
@@ -318,7 +1060,13 @@ export async function spawnProcess(
       maxStdoutBytes,
       maxStderrBytes,
     } = options;
-    const child = spawn(command, args, { env, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, {
+      env,
+      shell: false,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -328,34 +1076,45 @@ export async function spawnProcess(
     let stdinFailure: Error | null = null;
     let settled = false;
     let forceKillTimer: number | null = null;
+    const killTree = (signalName: NodeJS.Signals) => {
+      if (process.platform !== "win32" && typeof child.pid === "number") {
+        try {
+          process.kill(-child.pid, signalName);
+          return;
+        } catch {
+          // The process may have already left its group; retain the direct-child fallback.
+        }
+      }
+      child.kill(signalName);
+    };
+    const stop = (error: Error) => {
+      if (failure) return;
+      failure = error;
+      killTree("SIGTERM");
+      forceKillTimer = window.setTimeout(() => {
+        forceKillTimer = null;
+        killTree("SIGKILL");
+      }, 1_000);
+    };
     const timeoutHandle = timeoutMs === undefined
       ? null
-      : window.setTimeout(() => {
-        failure = new Error(`Process timed out after ${timeoutMs}ms`);
-        child.kill("SIGTERM");
-        forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
-      }, timeoutMs);
-    const abort = () => {
-      failure = abortError();
-      child.kill("SIGTERM");
-      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
-    };
-    const cleanup = () => {
+      : window.setTimeout(() => stop(new Error(`Process timed out after ${timeoutMs}ms`)), timeoutMs);
+    const abort = () => stop(abortError());
+    const cleanup = (keepForceKill = false) => {
       if (timeoutHandle) window.clearTimeout(timeoutHandle);
-      if (forceKillTimer) window.clearTimeout(forceKillTimer);
+      if (forceKillTimer && !keepForceKill) {
+        window.clearTimeout(forceKillTimer);
+        forceKillTimer = null;
+      }
       signal?.removeEventListener("abort", abort);
     };
     const failForOverflow = (stream: "stdout" | "stderr", limit: number) => {
       if (failure) return;
-      failure = new Error(`Process ${stream} exceeded ${limit} characters`);
-      child.kill("SIGTERM");
-      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
+      stop(new Error(`Process ${stream} exceeded ${limit} characters`));
     };
     const failForByteOverflow = (stream: "stdout" | "stderr", limit: number) => {
       if (failure) return;
-      failure = new Error(`Process ${stream} exceeded ${limit} bytes`);
-      child.kill("SIGTERM");
-      forceKillTimer = window.setTimeout(() => child.kill("SIGKILL"), 1_000);
+      stop(new Error(`Process ${stream} exceeded ${limit} bytes`));
     };
     if (signal?.aborted) {
       abort();
@@ -398,7 +1157,9 @@ export async function spawnProcess(
     child.on("close", (code: number | null) => {
       if (settled) return;
       settled = true;
-      cleanup();
+      // A direct child can exit on SIGTERM while a nested converter ignores it.
+      // Keep the bounded SIGKILL escalation alive until it has reached the group.
+      cleanup(failure !== null);
       if (pending) onStderrLine?.(pending);
       if (failure) {
         reject(failure);
@@ -437,6 +1198,101 @@ export function parseBridgeResponse(value: string): Record<string, unknown> | nu
     : null;
 }
 
+export function parseCaptureInspection(value: string): CaptureInspection | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!isPlainRecord(parsed)) return null;
+  const detectedType = parsed.detected_type;
+  if (detectedType !== "douyin_url" && detectedType !== "xhs_url") return null;
+  if (!isPlainRecord(parsed.readiness)) return null;
+  const readiness = parsed.readiness;
+  if (typeof readiness.ready !== "boolean") return null;
+  const missingTools = boundedInspectionStrings(readiness.missing_tools, 16, 64);
+  const missingAuth = boundedInspectionStrings(readiness.missing_auth, 8, 64);
+  const blockingRisks = boundedInspectionStrings(readiness.blocking_risks, 16, 64);
+  if (!missingTools || !missingAuth || !blockingRisks || !isPlainRecord(readiness.cookies_file)) return null;
+  const cookieStatus = readiness.cookies_file.status;
+  if (!isCaptureCookieStatus(cookieStatus)) return null;
+  if (typeof readiness.cookie_runtime_recheck !== "boolean") return null;
+  return {
+    detectedType,
+    ready: readiness.ready,
+    missingTools,
+    missingAuth,
+    blockingRisks,
+    cookieStatus,
+    cookieRuntimeRecheck: readiness.cookie_runtime_recheck,
+  };
+}
+
+export function captureInspectionError(
+  inspection: CaptureInspection,
+  provider: "douyin" | "xhs",
+  source = "",
+): string | null {
+  const label = provider === "douyin" ? "Douyin" : "Xiaohongshu / Rednote";
+  if (provider === "xhs" && isXhsShortlinkSource(source) && !inspection.cookieRuntimeRecheck) {
+    return "Update OMD and run Check OMD setup before capturing this Xiaohongshu shortlink.";
+  }
+  if (inspection.missingTools.length) {
+    return `Install the required local tools (${inspection.missingTools.join(", ")}), then try again.`;
+  }
+  if (inspection.cookieStatus === "missing") {
+    return `The saved ${label} cookies file was not found. Choose it again, then retry.`;
+  }
+  if (inspection.cookieStatus === "unreadable") {
+    return `The saved ${label} cookies file cannot be read. Check its permissions or choose it again, then retry.`;
+  }
+  if (inspection.cookieStatus === "invalid_format") {
+    return `The ${label} cookies file is not valid Netscape cookies.txt format. Export it again, then retry.`;
+  }
+  if (inspection.cookieStatus === "wrong_domain") {
+    return `The cookies file does not contain ${label} cookies. Export cookies from that site, then retry.`;
+  }
+  if (inspection.cookieStatus === "expired") {
+    return `The ${label} cookies have expired. Sign in again, export fresh cookies, then retry.`;
+  }
+  if (inspection.cookieStatus === "not_provided") {
+    return `Add a local Netscape cookies.txt path for ${label}, then try again.`;
+  }
+  if (inspection.missingAuth.length) {
+    return `${label} access is unavailable. Choose a valid local cookies.txt file, then retry.`;
+  }
+  if (inspection.blockingRisks.length) {
+    return "This source is not ready to capture. Check the public link and try again.";
+  }
+  if (inspection.ready) return null;
+  return "OMD could not verify that this source is ready. Check the local setup, then try again.";
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedInspectionStrings(value: unknown, maxItems: number, maxChars: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maxItems) return null;
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim() || item.length > maxChars || !/^[A-Za-z0-9_.-]+$/u.test(item)) return null;
+    result.push(item);
+  }
+  return result;
+}
+
+function isCaptureCookieStatus(value: unknown): value is CaptureCookieStatus {
+  return value === "not_provided"
+    || value === "found"
+    || value === "missing"
+    || value === "unreadable"
+    || value === "invalid_format"
+    || value === "wrong_domain"
+    || value === "expired";
+}
+
 export function bridgeErrorMessage(error: unknown, fallback: string): string {
   const detail = extractBridgeErrorDetail(error);
   if (!detail) return sanitizeBridgeFallback(fallback);
@@ -444,7 +1300,7 @@ export function bridgeErrorMessage(error: unknown, fallback: string): string {
 }
 
 function bridgeError(error: unknown, fallback: string): Error {
-  return new Error(bridgeErrorMessage(error, fallback), { cause: error });
+  return new Error(bridgeErrorMessage(error, fallback));
 }
 
 export function bridgeProcessFailureMessage(stderr: string, code: number): string {
@@ -452,7 +1308,7 @@ export function bridgeProcessFailureMessage(stderr: string, code: number): strin
   const mapped = detail ? mapBridgeDetailToUserMessage(detail) : null;
   if (mapped) return mapped;
   const exitCode = Number.isInteger(code) && code >= 0 ? code : 1;
-  return `OMD Home's Python bridge exited before returning a result (exit ${exitCode}). Check the configured OMD executable and Python environment, then try again.`;
+  return `OMD Home's Python bridge exited before returning a result (exit ${exitCode}). Check the detected OMD and Python environment, then try again.`;
 }
 
 function isDesktopApp(): boolean {
@@ -460,18 +1316,18 @@ function isDesktopApp(): boolean {
     && typeof (window as Window & { require?: (id: string) => unknown }).require === "function";
 }
 
-export function captureErrorMessage(value: string): string {
+export function captureErrorMessage(value: string, source = ""): string {
   const detail = normalize(value);
   if (
     detail.includes("missingdependencyexception")
     && (detail.includes("pdfconverter") || detail.includes("markitdown[pdf]"))
   ) {
-    return "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the configured OMD environment, then retry.";
+    return "OMD cannot convert PDFs because MarkItDown PDF support is missing. Install markitdown[pdf] in the detected OMD environment, then retry.";
   }
   const lines = value.trim().split(/\r?\n/).filter(Boolean).reverse();
   for (const line of lines) {
     const event = parseOmdEvent(line);
-    if (event) return mapCaptureEventToUserMessage(event);
+    if (event) return mapCaptureEventToUserMessage(event, source);
   }
   return "OMD capture failed. Check the OMD setup and try again.";
 }
@@ -492,27 +1348,120 @@ function extractBridgeErrorDetail(error: unknown): BridgeErrorDetail | null {
       break;
     }
   }
-  for (const key of ["type", "kind", "code"] as const) {
+  for (const key of ["type", "kind"] as const) {
     const value = record[key];
     if (typeof value === "string" && value.trim()) {
       detail.kind = value.trim();
       break;
     }
   }
-  return detail.message || detail.kind ? detail : null;
+  if (typeof record.code === "string" && record.code.trim()) detail.code = record.code.trim();
+  if (typeof record.provider === "string" && record.provider.trim()) detail.provider = record.provider.trim();
+  const statusCode = record.status_code ?? record.statusCode;
+  if (typeof statusCode === "number" && Number.isInteger(statusCode)) detail.statusCode = statusCode;
+  if (typeof record.retryable === "boolean") detail.retryable = record.retryable;
+  if (typeof record.action === "string" && record.action.trim()) detail.action = record.action.trim();
+  return detail.message || detail.kind || detail.code || detail.provider || detail.statusCode ? detail : null;
 }
 
 function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null {
-  const tokens = normalize(`${detail.kind ?? ""} ${detail.message ?? ""}`);
+  const tokens = normalize(`${detail.kind ?? ""} ${detail.code ?? ""} ${detail.message ?? ""}`);
   if (!tokens) return null;
+  const provider = hostedProviderDisplayName(detail.provider);
+  const approvedEvidenceWasSent = detail.action === "execute_ai";
+  if (detail.code === "credentials_invalid") {
+    return `${provider} rejected the developer API key. Replace it in Settings → OMD Home → AI answers, then check setup again.`;
+  }
+  if (detail.code === "credentials_missing") {
+    return `${provider} developer API key is unavailable. Add or replace it in Settings → OMD Home → AI answers, then check setup again.`;
+  }
+  if (detail.code === "disclosure_unavailable") {
+    return "OMD Home could not prepare the exact evidence disclosure. Nothing was sent. Retry the question; if it repeats, run Check OMD setup.";
+  }
+  if (detail.code === "provider_mismatch") {
+    return "The selected provider no longer matches the approved request. Nothing was sent. Review the current provider and evidence, then approve a new request.";
+  }
+  if (detail.code === "cancelled") {
+    return "The AI request was cancelled. Start a new request when you are ready.";
+  }
+  if (detail.code === "model_unavailable" || detail.code === "model_check_invalid") {
+    return `${provider} could not use the selected answer model. Check setup and choose an available model, then try again.`;
+  }
+  if (detail.code === "answer_schema_unsupported") {
+    return "The installed OMD version cannot enforce citation-safe answers. No vault evidence was sent. Update OMD, then run Check setup again.";
+  }
+  if (detail.code === "timeout") {
+    return `${provider} did not respond before the request timed out. Try again.`;
+  }
+  if (detail.code === "transport_error") {
+    return `OMD Home could not connect to ${provider}. Check the network connection and try again.`;
+  }
+  if (detail.code === "incomplete_response") {
+    return approvedEvidenceWasSent
+      ? `${provider} stopped before completing the answer. The approved vault evidence was sent, but no unverified answer was shown. Try again or ask a narrower question.`
+      : `${provider} stopped before completing the answer. Try again or ask a narrower question.`;
+  }
+  if (detail.code === "refused") {
+    return `${provider} declined this request. Revise the question or choose another model.`;
+  }
+  if (detail.code === "malformed_structured_output") {
+    return approvedEvidenceWasSent
+      ? "OMD Home could not verify the answer format. The approved vault evidence was sent. No unverified answer was shown. Try again."
+      : "OMD Home could not verify the answer format. No unverified answer was shown. Try again.";
+  }
+  if (detail.code === "malformed_response") {
+    return `${provider} returned a response OMD Home could not read. Try again or choose another model.`;
+  }
+  if (detail.code === "response_too_large") {
+    return `${provider} returned more data than OMD Home can safely process. Ask a narrower question and try again.`;
+  }
+  if (detail.code === "provider_failure") {
+    return `${provider} could not complete the request. Check the provider setup and try again.`;
+  }
+  if (detail.code === "stream_error") {
+    return `${provider} stopped while returning the answer. Try again or ask a narrower question.`;
+  }
+  if (detail.code === "consent_required" || detail.code === "consent_expired" || detail.code === "consent_mismatch" || detail.code === "consent_preview_required") {
+    return "The cloud request approval is no longer current. Review the destination and exact evidence again, then approve a new request.";
+  }
+  if (detail.code === "http_error" || tokens.includes("http error")) {
+    const operation = detail.action === "discover_provider_models" || detail.action === "check_provider_model"
+      ? "provider setup request"
+      : "answer request";
+    if (detail.statusCode === 401) {
+      return `${provider} rejected the developer API key. Replace the key in Settings → OMD Home → AI answers, then check setup again.`;
+    }
+    if (detail.statusCode === 403) {
+      return `${provider} denied access. Check that the API account and selected model are permitted, then try again.`;
+    }
+    if (detail.statusCode === 429) {
+      return `${provider} is rate-limited or the API account has no available quota. Check the provider account, then try again.`;
+    }
+    if (typeof detail.statusCode === "number" && detail.statusCode >= 500) {
+      return `${provider} is temporarily unavailable (HTTP ${detail.statusCode}). Try again later.`;
+    }
+    if (detail.statusCode === 400) {
+      return `${provider} rejected the ${operation} (HTTP 400). Check that the selected model supports this request, then try again.`;
+    }
+    return `${provider} rejected the ${operation}${typeof detail.statusCode === "number" ? ` (HTTP ${detail.statusCode})` : ""}. Check the provider setup and try again.`;
+  }
   if (tokens.includes("no module named") || tokens.includes("modulenotfounderror")) {
-    return "The Python environment used by OMD Home is missing a required module. Point the OMD executable to the current OMD environment, then try again.";
+    return "The Python environment used by OMD Home is missing a required module. Use Advanced OMD paths to select the current OMD environment, then try again.";
+  }
+  if (
+    tokens.includes("cannot access provider credentials")
+    || tokens.includes("cannot validate provider models")
+    || tokens.includes("cannot create cloud consent grants")
+    || tokens.includes("cannot run ai answers")
+    || tokens.includes("cannot run cloud vault q&a")
+  ) {
+    return "The detected OMD build is too old for this AI provider. Update OMD, run Check OMD setup, then check the provider setup again.";
   }
   if (tokens.includes("can't open file") || tokens.includes("cannot open file")) {
     return "The configured OMD Home bridge file could not be opened. Use the bundled bridge or choose an existing bridge file.";
   }
   if (tokens.includes("syntaxerror") || tokens.includes("unsupported python") || tokens.includes("requires python")) {
-    return "The configured Python version cannot run the OMD Home bridge. Point OMD Home to the Python used by the current OMD executable.";
+    return "The selected Python version cannot run the OMD Home bridge. Use Advanced OMD paths to select the Python used by the detected OMD executable.";
   }
   if (tokens.includes("permission denied") || tokens.includes("eacces")) {
     return "OMD Home could not start the configured Python bridge because of file permissions.";
@@ -527,7 +1476,7 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
     return "This OMD build only supports local Ollama for vault questions.";
   }
   if (tokens.includes("ollama is not reachable at")) {
-    return "Ollama is not reachable at the configured local endpoint. Start Ollama and try again.";
+    return "Ollama is not reachable at the configured local endpoint. Open the Ollama app or start its local service, then try again.";
   }
   if (tokens.includes("ollama rejected the request")) {
     return "Ollama rejected the request. Check the selected local model and try again.";
@@ -541,6 +1490,9 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   if (tokens.includes("ollama returned an invalid response")) {
     return "Ollama returned an invalid response. Try again after the local service is ready.";
   }
+  if (tokens.includes("the question is too long for the ai context budget")) {
+    return "The question is too long for the AI context budget. Shorten it and try again.";
+  }
   if (tokens.includes("context budget") || tokens.includes("context_limit_exceeded")) {
     return "The retrieved vault evidence exceeded the local model context budget. OMD Home reduced the evidence selection; try again or ask a narrower question.";
   }
@@ -549,6 +1501,12 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
   }
   if (tokens.includes("retrieval root must be an existing directory")) {
     return "The selected vault could not be read by OMD Home.";
+  }
+  if (tokens.includes("no matched vault body excerpts are available for this question")) {
+    return "No relevant vault evidence was found. No model request was sent.";
+  }
+  if (tokens.includes("selected model is not a verified ollama cloud model routed to https://ollama.com")) {
+    return "The selected model could not be verified as an Ollama Cloud model routed to https://ollama.com. Run Check setup and choose a verified Ollama Cloud model, then try again. No vault evidence was sent.";
   }
   if (
     tokens.includes("request must be a json object")
@@ -559,6 +1517,15 @@ function mapBridgeDetailToUserMessage(detail: BridgeErrorDetail): string | null 
     return "OMD Home rejected the request. Check the plugin settings and try again.";
   }
   return null;
+}
+
+function hostedProviderDisplayName(value: string | undefined): string {
+  if (value === "openai") return "OpenAI";
+  if (value === "anthropic") return "Anthropic";
+  if (value === "deepseek") return "DeepSeek";
+  if (value === "ollama-cloud") return "Ollama Cloud";
+  if (value === "ollama") return "Ollama";
+  return "The selected AI provider";
 }
 
 function sanitizeBridgeFallback(fallback: string): string {
@@ -577,10 +1544,13 @@ function bridgeProcessErrorMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   const tokens = normalize(detail);
   if (tokens.includes("could not find the configured omd executable") || tokens.includes("spawn enoent")) {
-    return "The configured OMD executable could not be found.";
+    return "The detected OMD executable could not be found. Run Check OMD setup and try again.";
   }
   if (tokens.includes("could not determine omd's python interpreter")) {
-    return "OMD Home could not determine OMD's Python interpreter. Set it in settings.";
+    return "OMD Home could not determine OMD's Python interpreter. Open Advanced OMD paths to choose it.";
+  }
+  if (tokens.includes("could not find python beside the detected omd launcher")) {
+    return "Could not find Python beside the detected OMD launcher. Open Advanced OMD paths to choose the environment's python.exe.";
   }
   if (tokens.includes("timed out")) return "OMD Home bridge timed out. Try again.";
   if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {
@@ -594,7 +1564,7 @@ function captureProcessErrorMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error);
   const tokens = normalize(detail);
   if (tokens.includes("spawn enoent") || tokens.includes("could not find the configured omd executable")) {
-    return "The configured OMD executable could not be found.";
+    return "The detected OMD executable could not be found. Run Check OMD setup and try again.";
   }
   if (tokens.includes("timed out")) return "OMD capture timed out. Try again.";
   if (tokens.includes("stdout exceeded") || tokens.includes("stderr exceeded")) {
@@ -603,16 +1573,34 @@ function captureProcessErrorMessage(error: unknown): string {
   return "OMD capture failed. Check the OMD setup and try again.";
 }
 
-function mapCaptureEventToUserMessage(event: OmdProgressEvent): string {
+function mapCaptureEventToUserMessage(event: OmdProgressEvent, source = ""): string {
+  const socialFailure = socialCaptureEventMessage(event.kind, source);
+  if (socialFailure) return socialFailure;
+  if (event.kind === "ocr_language_pack_missing") return missingOcrLanguagePackMessage(event);
   const tokens = normalize(`${event.kind ?? ""} ${event.event} ${event.message ?? ""}`);
   if (tokens.includes("cancel")) return "OMD capture was cancelled.";
+  if (
+    tokens.includes("file_not_found")
+    || tokens.includes("file not found")
+    || tokens.includes("no such file")
+    || tokens.includes("enoent")
+  ) {
+    const displayedSource = boundedLocalCaptureSource(source);
+    return displayedSource
+      ? `File not found: ${displayedSource}. Check the filename and location, then try again.`
+      : "The selected file does not exist. Check the filename and location, then try again.";
+  }
+  if (tokens.includes("unsupported_extension") || tokens.includes("unsupported extension")) {
+    return "OMD does not support this file type as a capture source. Choose a supported document, media file, or URL.";
+  }
+  if (tokens.includes("converter created empty output") || tokens.includes("empty output")) {
+    return "OMD could not extract readable content from this file. For an image-only PDF, capture its pages as images with OCR or use a PDF with a text layer.";
+  }
   if (tokens.includes("playwright") || tokens.includes("browser")) {
     return "OMD could not load the page. Check the local browser capture setup and try again.";
   }
   if (
-    tokens.includes("no such file")
-    || tokens.includes("enoent")
-    || tokens.includes("unsupported url")
+    tokens.includes("unsupported url")
     || tokens.includes("invalid url")
     || tokens.includes("permission denied")
   ) {
@@ -622,6 +1610,96 @@ function mapCaptureEventToUserMessage(event: OmdProgressEvent): string {
   return "OMD capture failed. Check the OMD setup and try again.";
 }
 
+function socialCaptureEventMessage(kind: string | undefined, source: string): string | null {
+  if (!kind) return null;
+  const sourceProvider = socialCaptureProvider(source);
+  const provider = kind.startsWith("douyin_")
+    ? "douyin"
+    : kind.startsWith("xhs_") ? "xhs" : sourceProvider;
+  if (!provider) return null;
+  const label = provider === "douyin" ? "Douyin" : "Xiaohongshu / Rednote";
+  switch (kind) {
+    case "cookies_rejected":
+      return `${label} rejected the saved cookies. Sign in again, export fresh ${label} cookies, then retry.`;
+    case "cookies_wrong_domain":
+      return `The saved cookies file does not contain ${label} cookies. Export cookies from the matching signed-in site, then retry.`;
+    case "cookies_expired":
+      return `The saved ${label} cookies have expired. Sign in again, export fresh cookies, then retry.`;
+    case "cookies_invalid":
+      return `The saved ${label} cookies could not be verified. Sign in again, export fresh cookies, then retry.`;
+    case "cookies_invalid_format":
+      return `The saved ${label} cookies file is not valid Netscape cookies.txt format. Export it again, then retry.`;
+    case "cookies_not_provided":
+      return `Add a local Netscape cookies.txt path for ${label}, then retry.`;
+    case "cookies_missing":
+      return `The saved ${label} cookies file was not found. Choose it again, then retry.`;
+    case "cookies_unreadable":
+      return `The saved ${label} cookies file cannot be read. Check its permissions or choose it again, then retry.`;
+    case "douyin_fetch_failed":
+      return "Douyin could not fetch this post. Check that the link is public and still available, update yt-dlp, then retry.";
+    case "xhs_fetch_failed":
+      return "Xiaohongshu / Rednote could not fetch this post. Check that the link is public and still available, then retry.";
+    case "xhs_video_unavailable":
+      return "Xiaohongshu / Rednote identified a video post but found no supported video stream. Update OMD or export fresh cookies, then retry.";
+    case "xhs_media_download_failed":
+      return "Xiaohongshu / Rednote found the post, but could not download its video. Check the post, network connection, and available local storage, then retry.";
+    case "xhs_audio_extract_failed":
+      return "The Rednote video downloaded, but OMD could not extract its audio. Run Check setup to verify ffmpeg, then retry.";
+    case "xhs_transcription_failed":
+      return "The Rednote audio was prepared, but local transcription could not finish. Run Check setup to verify Whisper and retry.";
+    case "xhs_polish_failed":
+      return "The Rednote transcript was created, but Markdown polish could not finish. Check the local writing model, then retry.";
+    case "douyin_redirect_rejected":
+    case "xhs_redirect_rejected":
+      return `${label} could not safely resolve this shared link. No cookies were sent to an unapproved destination. Check the link and network, then retry.`;
+    default:
+      return null;
+  }
+}
+
+function boundedLocalCaptureSource(source: string): string {
+  const cleaned = Array.from(source, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1F || codePoint === 0x7F ? " " : character;
+  }).join("").trim();
+  if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/u.test(cleaned)) return "";
+  return cleaned.length <= 500 ? cleaned : `${cleaned.slice(0, 499)}…`;
+}
+
+function missingOcrLanguagePackMessage(event: OmdProgressEvent): string {
+  const record = event as unknown as Record<string, unknown>;
+  const detail = event.message ?? "";
+  const requested = recognitionSummaryValue(record.requested)
+    || detail.match(/Requested OCR language:\s*([^.]+)/iu)?.[1]?.trim();
+  const missing = recognitionSummaryValue(record.missing)
+    || detail.match(/Missing Tesseract language pack\(s\):\s*([^.]+)/iu)?.[1]?.trim();
+  const available = recognitionSummaryValue(record.available)
+    || detail.match(/Available language packs:\s*(.+)$/iu)?.[1]?.trim();
+  const summary = [
+    requested ? `Requested: ${boundedRecognitionDetail(requested)}` : "",
+    missing ? `Missing: ${boundedRecognitionDetail(missing)}` : "",
+    available ? `Available: ${boundedRecognitionDetail(available)}` : "",
+  ].filter(Boolean).join(". ");
+  const prefix = summary ? `${summary}. ` : "";
+  return `OMD image recognition is missing required Tesseract language data. ${prefix}Install the missing packs (macOS Homebrew: brew install tesseract-lang; Linux: install the matching tesseract-ocr-* packages; Windows: add the matching .traineddata files to Tesseract's tessdata directory), then retry.`;
+}
+
+function recognitionSummaryValue(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string").join(", ");
+  }
+  return "";
+}
+
+function boundedRecognitionDetail(value: string): string {
+  const printable = [...value].map((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 32 || codePoint === 127 ? " " : character;
+  }).join("");
+  return printable.replace(/\s+/gu, " ").trim().slice(0, 240);
+}
+
 function normalize(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -629,4 +1707,9 @@ function normalize(value: string): string {
 interface BridgeErrorDetail {
   message?: string;
   kind?: string;
+  code?: string;
+  provider?: string;
+  statusCode?: number;
+  retryable?: boolean;
+  action?: string;
 }

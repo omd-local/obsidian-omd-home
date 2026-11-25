@@ -72,12 +72,21 @@ export class OmdEnrichmentRunner {
               return;
             }
             if (event.request_id && event.request_id !== options.request.request_id) return;
-            events.push(event);
             if (event.event === "done" || event.event === "error") terminalEvents.push(event);
             if (terminalEvents.length > 1) {
               streamState.error = new OmdEnrichmentError("invalid_event", "OMD emitted more than one terminal enrichment event.");
               return;
             }
+            if (event.event === "error") {
+              const failure = mapOmdErrorKind(event.kind ?? "", options.request.model, event.message, event.validation);
+              // Terminal diagnostics may contain private note text. Publish
+              // only the classified error, without arbitrary terminal fields.
+              event = {
+                v: event.v, event: "error", ts: event.ts, request_id: event.request_id,
+                kind: failure.code, message: failure.message,
+              };
+            }
+            events.push(event);
             options.onEvent?.(event);
           },
         },
@@ -93,7 +102,7 @@ export class OmdEnrichmentRunner {
           throw new OmdEnrichmentError("invalid_event", "OMD failed without one valid terminal error event.");
         }
         if (typeof terminal.kind === "string") {
-          throw mapOmdErrorKind(terminal.kind, options.request.model);
+          throw mapOmdErrorKind(terminal.kind, options.request.model, terminal.message, terminal.validation);
         }
         throw new OmdEnrichmentError("omd_failed", "OMD enrichment failed. Check the OMD setup and try again.");
       }
@@ -121,7 +130,7 @@ export class OmdEnrichmentRunner {
         throw new OmdEnrichmentError("output_overflow", "OMD enrichment output exceeded its safety limit.", { cause: error as Error });
       }
       if (/ENOENT|not found|could not find/iu.test(detail)) {
-        throw new OmdEnrichmentError("missing_executable", "The configured OMD executable could not be found.", { cause: error as Error });
+        throw new OmdEnrichmentError("missing_executable", "The detected OMD executable could not be found. Run Check OMD setup and try again.", { cause: error as Error });
       }
       throw new OmdEnrichmentError("omd_failed", "OMD enrichment failed. Check the OMD setup and try again.", { cause: error as Error });
     } finally {

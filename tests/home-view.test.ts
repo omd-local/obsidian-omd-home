@@ -6,6 +6,7 @@ import { inferCaptureActive, summarizeProcessingEvents } from "../src/processing
 
 const homeSource = readFileSync(resolve("src/home-view.ts"), "utf8");
 const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
+const omniboxSource = readFileSync(resolve("src/omnibox.ts"), "utf8");
 const enrichmentControllerSource = readFileSync(resolve("src/enrichment/controller.ts"), "utf8");
 const stylesSource = readFileSync(resolve("src/styles.css"), "utf8");
 
@@ -26,6 +27,27 @@ test("processing summary separates active work from completed history", () => {
     value: "completed",
     tone: "done",
   }]);
+});
+
+test("processing actions only offer Cancel while the active phase is cancellable", () => {
+  assert.match(
+    homeSource,
+    /const canCancel = this\.plugin\.captureCancelable \|\| this\.plugin\.enrichmentCancelable/u,
+  );
+  assert.match(homeSource, /if \(canCancel\) \{[\s\S]*text: "Cancel"/u);
+  assert.doesNotMatch(homeSource, /if \(activity\.active\) \{\s*const controls = body\.createDiv[\s\S]*text: "Cancel"/u);
+});
+
+test("a failed capture keeps a dedicated Retry after another issue replaces it", () => {
+  assert.match(homeSource, /const captureFailure = this\.plugin\.currentCaptureFailure\(\)/u);
+  assert.match(homeSource, /const captureFailureForIssue = this\.plugin\.captureFailureForCurrentIssue\(\)/u);
+  assert.match(homeSource, /this\.renderIndependentCaptureFailure\(body, captureFailure\)/u);
+  const lastIssueBody = extractMethodBody(homeSource, "private renderLastIssue");
+  assert.match(lastIssueBody, /captureFailureForCurrentIssue\(\)/u);
+  const independentBody = extractMethodBody(homeSource, "private renderIndependentCaptureFailure");
+  assert.match(independentBody, /formatIssueTime\(failure\.failedAt\)/u);
+  assert.match(independentBody, /text: failure\.detail/u);
+  assert.match(independentBody, /retryFailedCapture\(failure\.id\)/u);
 });
 
 test("capture activity falls back to the latest event state", () => {
@@ -64,14 +86,26 @@ test("failed enrichment ends Current task and moves the actionable error to Need
     tone: "error",
   });
   assert.doesNotMatch(extractMethodBody(homeSource, "private get captureActive"), /inferCaptureActive/);
-  assert.match(enrichmentControllerSource, /reportEnrichmentIssue\(error, file\.path\)/);
+  assert.match(enrichmentControllerSource, /reportEnrichmentIssue\(error, active\.file\.path\)/);
   assert.match(enrichmentControllerSource, /event: cancelled \? "cancelled" : "error"/);
 });
 
 test("backgrounding or closing the Home view does not cancel plugin-owned capture work", () => {
   const onClose = extractMethodBody(homeSource, "async onClose()");
-  assert.doesNotMatch(onClose, /cancelActive|cancelActiveOmd|dispose\(/);
+  assert.doesNotMatch(onClose, /cancelActive|cancelActiveOmd|this\.plugin\.[\s\S]*dispose\(/u);
   assert.match(mainSource, /onunload\(\): void[\s\S]*this\.omdBridge\?\.dispose|this\.omdBridge\?\.dispose/);
+});
+
+test("closing Home disposes only its Omnibox-owned requests", () => {
+  const onClose = extractMethodBody(homeSource, "async onClose()");
+  assert.match(onClose, /this\.omnibox\?\.dispose\(\)/u);
+  assert.doesNotMatch(onClose, /cancelActive|cancelActiveOmd/u);
+});
+
+test("omnibox Enter submits explicitly while Space remains ordinary input", () => {
+  assert.match(omniboxSource, /if \(event\.key === "Enter" && !event\.isComposing\) \{[\s\S]*event\.preventDefault\(\);[\s\S]*void this\.execute\(\);/u);
+  assert.doesNotMatch(omniboxSource, /event\.key === "(?: |Space|Spacebar)"/u);
+  assert.match(omniboxSource, /cls: "omd-omnibox-source-key",[\s\S]{0,180}attr: \{[\s\S]{0,80}type: "button"/u);
 });
 
 test("Current task and Needs attention do not render the same terminal capture error", () => {
@@ -80,23 +114,65 @@ test("Current task and Needs attention do not render the same terminal capture e
   assert.match(homeSource, /formatIssueTime/);
   assert.match(homeSource, /enrichmentCapability\.status === "unavailable"/);
   assert.match(homeSource, /if \(context === "inbox"\) return "Inbox update failed";/);
-  assert.match(homeSource, /if \(this\.plugin\.lastErrorContext === "capture"\)/);
-  assert.match(homeSource, /if \(this\.plugin\.lastErrorContext === "inbox" && this\.plugin\.lastErrorSource\)/);
+  assert.match(homeSource, /const failure = this\.plugin\.captureFailureForCurrentIssue\(\)/u);
+  assert.match(homeSource, /retryFailedCapture\(failure\.id\)/u);
+  assert.match(homeSource, /this\.app\.vault\.getAbstractFileByPath\(this\.plugin\.lastErrorSource\)/u);
+  assert.match(homeSource, /sourceFile instanceof TFile/u);
+  assert.match(homeSource, /text: "Open note"/u);
+  assert.match(homeSource, /text: this\.plugin\.aiSetupBusy\(\) \? "Checking…" : "Check local AI"/u);
+});
+
+test("Home introduces the workflow once and reserves the primary treatment for Capture", () => {
+  const shell = extractMethodBody(homeSource, "private buildShell()");
+  assert.match(shell, /Capture links and files, review notes, and keep events in sync\./u);
+  assert.match(shell, /text: "Customize"/u);
+  assert.match(shell, /"aria-label": "Customize OMD Home widgets"/u);
+  assert.doesNotMatch(shell, /text: "Capture URL or file"|text: "Create event"/u);
+  assert.match(omniboxSource, /"Capture URL or file", \(\) => this\.plugin\.openCaptureModal\(\), true/u);
+  assert.match(omniboxSource, /cls: `omd-quick-action\$\{primary \? " mod-cta" : ""\}`/u);
 });
 
 test("Home exposes unchecked Local AI recovery without duplicating owned AI failures", () => {
   assert.match(homeSource, /statusLine\(body, "Local AI", this\.plugin\.localAiState\.daemonCode\)/u);
-  assert.match(homeSource, /text: "Check connection"|\? "Checking…" : "Check connection"/u);
+  assert.match(homeSource, /text: "Check setup"|\? "Checking…" : "Check setup"/u);
+  assert.match(homeSource, /this\.plugin\.aiSetupBusy\(\)/u);
   assert.match(homeSource, /const localAiOwnsLastError = localAiNeedsAttention && this\.plugin\.lastErrorContext === "ai"/u);
-  assert.match(homeSource, /if \(this\.plugin\.lastError && !localAiOwnsLastError\) this\.renderLastIssue\(body\)/u);
+  assert.match(
+    homeSource,
+    /if \(this\.plugin\.lastError && !localAiOwnsLastError\) this\.renderLastIssue\(body, this\.plugin\.currentIssueId\(\)\)/u,
+  );
   assert.match(homeSource, /formatIssueTime\(this\.plugin\.localAiState\.catalogCheckedAt\)/u);
   assert.match(homeSource, /workflow\.code === this\.plugin\.localAiState\.daemonCode/u);
+  assert.match(homeSource, /canOpenOllamaDesktopApp\(\)/u);
+  assert.match(homeSource, /text: "Open Ollama"/u);
+  assert.match(homeSource, /this\.plugin\.openOllamaApp\(\)/u);
+});
+
+test("hosted AI attention stays disabled while a credential child is still draining", () => {
+  const hostedAttention = extractMethodBody(homeSource, "private renderHostedAiAttention");
+  assert.match(hostedAttention, /const aiSetupBusy = this\.plugin\.aiSetupBusy\(\)/u);
+  assert.match(hostedAttention, /check\.disabled = aiSetupBusy/u);
 });
 
 test("maintenance actions are available through Obsidian commands", () => {
+  assert.match(mainSource, /id: "check-omd-setup"/u);
+  assert.match(mainSource, /id: "open-omd-install-guide"/u);
   assert.match(mainSource, /id: "refresh-local-models"/u);
   assert.match(mainSource, /id: "check-local-ai"/u);
+  assert.match(mainSource, /id: "smoke-local-ai-qa"/u);
+  assert.match(mainSource, /id: "smoke-local-ai-enrichment"/u);
+  assert.match(mainSource, /id: "smoke-local-ai-capture"/u);
+  assert.match(mainSource, /id: "open-ollama-app"/u);
   assert.match(mainSource, /id: "refresh-calendars"/u);
+});
+
+test("missing OMD has guided recovery on Home without running an installer", () => {
+  assert.match(homeSource, /text: "Copy install steps"/u);
+  assert.match(homeSource, /text: this\.plugin\.enrichmentCapability\.code === "missing_executable" \? "Install guide" : "Update guide"/u);
+  assert.match(homeSource, /text: "Check again"/u);
+  assert.match(mainSource, /navigator\.clipboard\.writeText\(instructions\.commands\)/u);
+  assert.match(mainSource, /window\.open\(OMD_INSTALL_GUIDE_URL/u);
+  assert.doesNotMatch(mainSource, /brew install[\s\S]{0,120}spawnProcess|spawnProcess[\s\S]{0,120}brew install/u);
 });
 
 test("omnibox answers reserve an owned surface and note rows stay left aligned", () => {
@@ -107,6 +183,131 @@ test("omnibox answers reserve an owned surface and note rows stay left aligned",
   assert.match(stylesSource, /\.has-omnibox-results \.omd-widget-omnibox[^}]*min-height/su);
 });
 
+test("Home note surfaces and vault search results expose the shared pin action", () => {
+  assert.match(extractMethodBody(homeSource, "private renderWorkflowNoteRow("), /this\.createPinButton\(actions, note\.file\)/u);
+  assert.match(extractMethodBody(homeSource, "private renderFileList("), /this\.createPinButton\(row, file\)/u);
+  assert.match(omniboxSource, /action: \(\) => void this\.app\.workspace\.openLinkText\(file\.path,[\s\S]{0,100}file,/u);
+  assert.match(extractMethodBody(omniboxSource, "private showRows("), /if \(row\.file\) this\.createPinButton\(parent, row\.file\)/u);
+  assert.match(mainSource, /onClick\(\(\) => void this\.toggleNotePinned\(file\.path\)\)/u);
+  const pinButton = extractMethodBody(homeSource, "private createPinButton(");
+  assert.match(pinButton, /"aria-label": `\$\{label\} \$\{file\.basename\}/u);
+  assert.match(pinButton, /"aria-pressed": String\(pinned\)/u);
+  assert.doesNotMatch(pinButton, /createSpan\(\{ text: label \}\)/u);
+  assert.match(stylesSource, /\.omd-note-list-row\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/su);
+  assert.match(stylesSource, /\.omd-pin-action\s*\{[^}]*border-left:\s*1px solid var\(--omd-line\)/su);
+  assert.match(stylesSource, /\.omd-pin-action:focus-visible/u);
+});
+
+test("pinned notes stay in their workflow lists with a compact title marker", () => {
+  const workflow = extractMethodBody(homeSource, "private renderWorkflowNoteList(");
+  assert.match(workflow, /prioritizePinnedHomeNotes\([\s\S]*this\.plugin\.isNotePinned\(path\)/u);
+  assert.match(workflow, /filtered\.slice\(0, 7\)/u, "pin priority must be applied before the visible-row limit");
+  assert.match(homeSource, /cls: "omd-note-title-pin"/u);
+  assert.match(homeSource, /setIcon\(pin, "pin"\)/u);
+  assert.doesNotMatch(extractMethodBody(homeSource, "private renderWidgetBody("), /id === "pinned"/u);
+  assert.match(stylesSource, /\.omd-note-title-line\s*\{[^}]*display:\s*flex/su);
+  const toggle = extractMethodBody(mainSource, "async toggleNotePinned(");
+  assert.match(toggle, /await this\.saveSettings\(\);\s*this\.refreshHomeViews\(\);/u);
+  assert.match(toggle, /Pinned to the top of OMD Home lists\./u);
+  assert.match(toggle, /Unpinned; restored the list's usual order\./u);
+});
+
+test("file-menu actions stay grouped without changing their command paths", () => {
+  const fileMenu = mainSource.slice(
+    mainSource.indexOf('this.registerEvent(this.app.workspace.on("file-menu"'),
+    mainSource.indexOf("this.app.workspace.onLayoutReady", mainSource.indexOf('this.registerEvent(this.app.workspace.on("file-menu"')),
+  );
+  assert.equal(fileMenu.match(/\.setSection\("omd-home"\)/gu)?.length, 4);
+  assert.match(fileMenu, /setTitle\(pinned \? "Unpin from OMD Home" : "Pin to OMD Home"\)/u);
+  assert.match(fileMenu, /setTitle\("Review in OMD Home"\)/u);
+  assert.match(fileMenu, /setTitle\("Improve formatting"\)/u);
+  assert.match(fileMenu, /setTitle\("Generate suggestions · summary, links, tags"\)/u);
+});
+
+test("event source meaning opens from a normal calendar widget menu action without a permanent legend", () => {
+  assert.match(homeSource, /row\.createSpan\(\{ cls: `omd-source-mark is-\$\{event\.source\}`, attr: \{ "aria-hidden": "true" \} \}\)/u);
+  assert.match(homeSource, /`Source: \$\{source\.label\}\. \$\{source\.description\}\.`/u);
+  const widgetMenu = extractMethodBody(homeSource, "private openWidgetMenu(");
+  assert.match(widgetMenu, /id === "today"/u);
+  assert.doesNotMatch(widgetMenu, /id === "upcoming"/u);
+  assert.match(widgetMenu, /setTitle\("Event source key…"\)[\s\S]*\.onClick\(\(\) => this\.openEventSourceKeyModal\(\)\)/u);
+  assert.doesNotMatch(widgetMenu, /setIsLabel\(true\)/u);
+  assert.match(homeSource, /class EventSourceKeyModal extends Modal/u);
+  assert.match(homeSource, /EVENT_SOURCE_ORDER[\s\S]*presentation\.glyph[\s\S]*presentation\.label[\s\S]*presentation\.description/u);
+  assert.match(homeSource, /role: "list"[\s\S]*role: "listitem"/u);
+  assert.match(stylesSource, /\.omd-source-key-row\s*\{[^}]*grid-template-columns:\s*24px minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /\.omd-source-key-glyph\s*\{[^}]*color:\s*var\(--omd-ink\)/su);
+});
+
+test("the omnibox replaces unused syntax hints with one accessible event source key", () => {
+  assert.doesNotMatch(omniboxSource, />  \+  @/u);
+  assert.match(omniboxSource, /cls: "omd-omnibox-source-key"[\s\S]*"aria-label": eventSourceKeyAccessibleLabel\(\)[\s\S]*"aria-haspopup": "dialog"/u);
+  assert.match(omniboxSource, /EVENT_SOURCE_ORDER[\s\S]*eventSourcePresentation\(source\)\.glyph/u);
+  assert.match(omniboxSource, /this\.openEventSourceKey\(\)/u);
+  assert.match(homeSource, /new Omnibox\([\s\S]*\(\) => this\.openEventSourceKeyModal\(\)/u);
+  assert.match(stylesSource, /\.omd-omnibox-source-key\s*\{[^}]*display:\s*inline-flex/su);
+});
+
+test("Today & Upcoming uses one date-aware timeline and all-day ranges use the exclusive end", () => {
+  const calendarBody = extractMethodBody(homeSource, "private renderWidgetBody(");
+  assert.match(calendarBody, /const events = homeCalendarEvents\(this\.plugin\.calendarEvents, now\)/u);
+  assert.match(calendarBody, /const timing = upcomingEventTiming\(event, now\)/u);
+  assert.doesNotMatch(calendarBody, /id === "upcoming"/u);
+  assert.match(calendarBody, /eventAccessibleTiming\(event\)/u);
+  assert.match(homeSource, /if \(difference === 0\) return "Today";[\s\S]*if \(difference === 1\) return "Tomorrow";/u);
+  assert.match(homeSource, /weekday: "short", day: "numeric", month: "short"/u);
+  assert.match(homeSource, /allDayInclusiveEnd\(event\.start, event\.end\)/u);
+  assert.match(homeSource, /new Date\(endDate\.getFullYear\(\), endDate\.getMonth\(\), endDate\.getDate\(\) - 1, 12\)/u);
+  assert.match(homeSource, /All day from \$\{fullLocalDate\(start\)\} through \$\{fullLocalDate\(inclusiveEnd\)\}/u);
+  assert.match(homeSource, /today: "Today & Upcoming"/u);
+  assert.match(stylesSource, /\.omd-widget-today\s*\{ container: omd-calendar-widget \/ inline-size; \}/u);
+  assert.doesNotMatch(stylesSource, /\.omd-widget-upcoming/u);
+  assert.match(stylesSource, /@container omd-calendar-widget \(max-width: 360px\)[\s\S]*\.omd-event-row \{ grid-template-columns: 10px minmax\(0, 1fr\);/u);
+  assert.match(stylesSource, /\.omd-event-row \.omd-source-mark \{ grid-row: 1 \/ span 2;/u);
+});
+
+test("Inbox and Recent share one cached metadata snapshot and responsive note renderer", () => {
+  assert.match(homeSource, /this\.noteSnapshot = buildHomeNoteSnapshot\(/u);
+  assert.match(homeSource, /tags: cache \? getAllTags\(cache\) \?\? \[\] : \[\]/u);
+  assert.match(homeSource, /if \(id === "inbox"\) return this\.renderInbox\(body\)/u);
+  assert.match(homeSource, /if \(id === "recent"\) return this\.renderRecent\(body\)/u);
+  assert.match(homeSource, /private renderWorkflowNoteRow\(/u);
+  assert.match(homeSource, /text: `\$\{label\} \$\{formatRelativeHomeNoteTime\(display\.timestamp\)\}`/u);
+  assert.match(homeSource, /datetime: new Date\(display\.timestamp\)\.toISOString\(\)/u);
+  assert.match(stylesSource, /\.omd-widget-inbox,\s*\.omd-widget-recent\s*\{ container: omd-note-widget \/ inline-size; \}/u);
+  assert.match(stylesSource, /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-list-row \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
+  assert.doesNotMatch(homeSource, /note\.status === "reviewed" \? "Review again" : "Review"/u);
+  assert.doesNotMatch(homeSource, /this\.createNoteTool\(actions/u);
+  assert.match(homeSource, /this\.createAiToolsButton\(actions, note\.file\)/u);
+  const aiTools = extractMethodBody(homeSource, "private createAiToolsButton(");
+  assert.match(aiTools, /"aria-haspopup": "menu"/u);
+  assert.match(aiTools, /"aria-expanded": "false"/u);
+  assert.match(aiTools, /AI tools for \$\{file\.basename\}/u);
+  const aiMenu = extractMethodBody(homeSource, "private openAiToolsMenu(");
+  assert.match(
+    aiMenu,
+    /setTitle\("Improve formatting"\)[\s\S]*setTitle\("Generate suggestions · summary, links, tags"\)/u,
+    "AI tools must describe its two distinct operations",
+  );
+  assert.match(aiMenu, /trigger\.getBoundingClientRect\(\)[\s\S]*showAtPosition/u);
+  assert.match(aiMenu, /trigger\.setAttribute\("aria-expanded", "true"\)[\s\S]*showAtPosition/u);
+  assert.match(aiMenu, /menu\.onHide\(\(\) => \{[\s\S]*trigger\.setAttribute\("aria-expanded", "false"\)/u);
+  assert.match(aiMenu, /let actionChosen = false[\s\S]*actionChosen = true[\s\S]*menu\.onHide\(\(\) => \{[\s\S]*if \(!actionChosen\) trigger\.focus\(\)/u);
+  assert.doesNotMatch(homeSource, /"AI tags"|"Summarize"/u);
+});
+
+test("long note titles and the two row actions reflow without horizontal overlap", () => {
+  assert.match(stylesSource, /\.omd-result-title, \.omd-note-title\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis/su);
+  assert.match(stylesSource, /\.omd-note-tools\s*\{[^}]*max-width:\s*100%/su);
+  assert.match(
+    stylesSource,
+    /@container omd-note-widget \(max-width: 680px\)[\s\S]*\.omd-note-list-row \{ grid-template-columns: minmax\(0, 1fr\); \}[\s\S]*\.omd-note-tools \{[^}]*flex-wrap: wrap/su,
+  );
+  const row = extractMethodBody(homeSource, "private renderWorkflowNoteRow(");
+  assert.match(row, /createAiToolsButton[\s\S]*createPinButton/u);
+  assert.doesNotMatch(row, /createNoteTool/u);
+});
+
 test("widget move and resize are locked while omnibox results temporarily own the layout", () => {
   assert.match(homeSource, /private allowLayoutEditing\(\): boolean/u);
   assert.match(extractMethodBody(homeSource, "private bindPointerTransform("), /if \(!this\.allowLayoutEditing\(\)\) return;/u);
@@ -115,7 +316,8 @@ test("widget move and resize are locked while omnibox results temporarily own th
 
 test("model settings keep labels stable while their controls reflow", () => {
   assert.match(stylesSource, /\.omd-settings-model\s*\{[^}]*grid-template-columns:/su);
-  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control\s*\{[^}]*grid-template-columns:/su);
+  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/su);
+  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control :is\(select, input\[type="text"\], input\[type="password"\]\)\s*\{[^}]*flex:\s*1 1 210px/su);
   assert.match(stylesSource, /@media \(max-width: 900px\)[\s\S]*\.omd-settings-model\s*\{[^}]*grid-template-columns:\s*1fr/su);
 });
 

@@ -75,6 +75,9 @@ test("executeWithLocalAiGate rechecks the snapshot after the awaited gate", asyn
 test("askOmd and enrichment controller are wired to the gate seam", () => {
   assert.match(mainSource, /executeWithLocalAiGate\(/u);
   assert.match(enrichmentControllerSource, /this\.plugin\.runLocalAiGated\(/u);
+  assert.match(mainSource, /await this\.requireReadyOmdExecutable\(\)/u);
+  assert.match(enrichmentControllerSource, /const executable = await this\.plugin\.requireReadyOmdExecutable\(\)/u);
+  assert.doesNotMatch(enrichmentControllerSource, /executable: this\.plugin\.settings\.omdExecutable/u);
   assert.match(mainSource, /createWorkflowSnapshot\("qa"/u);
   assert.match(enrichmentControllerSource, /createWorkflowSnapshot\("enrichment"/u);
 });
@@ -85,4 +88,57 @@ test("capture always uses the shared gate seam and binds the invocation polish f
   assert.match(mainSource, /enabled: gatedSnapshot\.enabled/u);
   assert.match(mainSource, /model: gatedSnapshot\.model/u);
   assert.match(mainSource, /host: gatedSnapshot\.host/u);
+});
+
+test("Vault Q&A requires provider-scoped cloud opt-in and a per-request consent preview", () => {
+  assert.match(mainSource, /cloudAnswerPermissionEnabled\(this\.settings\)/u);
+  assert.match(mainSource, /Enable Allow \$\{aiProviderLabel\(provider\)\} answers in Settings [→-] OMD Home [→-] AI answers/u);
+  assert.match(mainSource, /const preview = await this\.previewCloudAnswer\(query, provider, model, requestSignal\);/u);
+  assert.match(mainSource, /new CloudAnswerConsentModal\(this\.app/u);
+  assert.match(mainSource, /question:\s*query/u);
+  assert.match(mainSource, /evidence:\s*preview\.preview\.evidence/u);
+  assert.match(mainSource, /Cloud answer cancelled\. No vault evidence was sent\./u);
+  assert.match(mainSource, /this\.assertCloudPreviewStillCurrent\(preview\);/u);
+  assert.match(mainSource, /answer = await this\.executeCloudAnswer\(query, preview, requestSignal\);/u);
+});
+
+test("cloud answers stay pinned to the selected provider and never fall back across providers", () => {
+  assert.match(mainSource, /async checkHostedAiConnection\(\): Promise<boolean>/u);
+  assert.match(mainSource, /async checkOllamaCloudConnection\(\): Promise<boolean>/u);
+  assert.match(mainSource, /const cloudModels = catalog\.filter\(modelIsVerifiedOllamaCloud\)/u);
+  assert.match(mainSource, /if \(!modelIsVerifiedOllamaCloud\(inspected\)\)/u);
+  assert.match(mainSource, /provider !== preview\.provider[\s\S]+model !== preview\.model[\s\S]+endpoint !== preview\.endpoint/u);
+  assert.doesNotMatch(mainSource, /provider === "openai"[\s\S]{0,160}anthropic|provider === "anthropic"[\s\S]{0,160}openai|provider === "deepseek"[\s\S]{0,160}openai/su);
+});
+
+test("hybrid retrieval falls back to sparse search when local embedding safety cannot be verified", () => {
+  assert.match(mainSource, /const status = await this\.ollamaLocalClient\.status\(host, signal\)/u);
+  assert.match(mainSource, /const models = await this\.ollamaLocalClient\.tags\(host, signal\)/u);
+  assert.match(mainSource, /const inspected = mergeInspectedModelEntry\([\s\S]+buildModelEntry\(await this\.safeShowModel\(host, embeddingModel, signal\)\)[\s\S]+embeddingModel/u);
+  assert.match(mainSource, /if \(modelIsCloudBacked\(inspected\)\)/u);
+  assert.match(mainSource, /if \(!modelSupportsEmbedding\(inspected\)\)/u);
+  assert.match(mainSource, /hybridRetrievalEnabled:\s*false/u);
+  assert.match(mainSource, /semanticRerankEnabled:\s*false/u);
+  assert.match(mainSource, /const warning = retrievalWarningForError\(error, requested\.embeddingModel\)/u);
+  assert.match(mainSource, /warning,\s*warningModel:/u);
+  for (const reason of [
+    "hybrid_retrieval_model_not_installed",
+    "hybrid_retrieval_daemon_unreachable",
+    "hybrid_retrieval_model_unsupported",
+  ]) {
+    assert.match(mainSource, new RegExp(reason, "u"));
+  }
+  assert.match(mainSource, /text: `Install \$\{installableModel\}`/u);
+  assert.match(mainSource, /downloads model data to Ollama and may take several minutes/u);
+  assert.match(mainSource, /if \(this\.settings\.hybridRetrievalEnabled\)/u);
+  assert.match(mainSource, /text: "Use keyword search by default"/u);
+  assert.match(mainSource, /text: "Open retrieval settings"/u);
+});
+
+test("local smoke and embedding gates reject explicit cloud ids even without remote metadata", () => {
+  assert.match(mainSource, /modelIsCloudBacked\(\{\s*name: gatedSnapshot\.model,\s*remoteModel: smoke\.remoteModel,\s*remoteHost: smoke\.remoteHost/u);
+  assert.match(mainSource, /const catalogEntry = models\.find\(\(entry\) => localModelNamesMatch\(entry\.name, model\)\);/u);
+  assert.match(mainSource, /const selectedEntry = mergeInspectedModelEntry\(catalogEntry, buildModelEntry\(selected\), entryName\);/u);
+  assert.match(mainSource, /if \(modelIsCloudBacked\(selectedEntry\)\)/u);
+  assert.match(mainSource, /const modelEntry = mergeInspectedModelEntry\([\s\S]+snapshot\.model,[\s\S]+const modelCode = deriveLocalAiModelCode\(modelEntry\)/u);
 });

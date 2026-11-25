@@ -1,6 +1,9 @@
+import { validateManagedSummaryText } from "./managed-block.ts";
+
 export type EnrichmentPhase =
   | "idle" | "capability" | "catalog" | "generating" | "review" | "applying"
-  | "applied" | "error" | "cancelled" | "conflict" | "partial-failure";
+  | "applied" | "finishing" | "reviewed" | "error" | "cancelled" | "conflict"
+  | "unavailable" | "partial-failure";
 
 export type EnrichmentTone = "idle" | "busy" | "success" | "warning" | "danger";
 export type EnrichmentSuggestionKind = "existing-link" | "existing-tag" | "new-tag" | "new-concept";
@@ -27,11 +30,19 @@ export interface EnrichmentReviewState {
   newTags: EnrichmentSuggestion[];
   concepts: EnrichmentSuggestion[];
   warnings: string[];
+  hasAppliedSuggestions: boolean;
   statusText?: string;
   detailText?: string;
+  canRetry?: boolean;
 }
 
-export interface EnrichmentSelection { selectedIds: Record<string, boolean>; }
+export interface EnrichmentSelection {
+  selectedIds: Record<string, boolean>;
+  includeSummary: boolean;
+  summaryDraft: string;
+  summarySource: string;
+  manualTags?: string[];
+}
 
 export interface EnrichmentPhaseCopy {
   title: string;
@@ -43,24 +54,33 @@ export interface EnrichmentPhaseCopy {
 
 export function describeEnrichmentPhase(phase: EnrichmentPhase): EnrichmentPhaseCopy {
   switch (phase) {
-    case "capability": return phaseCopy("Checking OMD", "Verifying that the configured OMD executable supports enrichment.", "busy");
+    case "capability": return phaseCopy("Checking OMD", "Verifying that the detected OMD installation supports enrichment.", "busy");
     case "catalog": return phaseCopy("Building catalog", "Ranking safe vault notes and tags for this request.", "busy");
     case "generating": return phaseCopy("Generating proposal", "The local model is preparing links and tags for review.", "busy");
-    case "review": return phaseCopy("Review proposal", "Choose exactly which suggestions OMD Home may write.", "idle", false, true);
-    case "applying": return phaseCopy("Applying changes", "Rechecking the note before writing your selection.", "busy");
-    case "applied": return phaseCopy("Applied", "The selected links and tags were saved.", "success", true);
+    case "review": return phaseCopy("Review suggestions", "Choose a summary, links, or tags to add, or finish without them.", "idle", false, true);
+    case "applying": return phaseCopy("Applying suggestions", "Rechecking the note before writing your selection.", "busy");
+    case "applied": return phaseCopy("Suggestions applied", "The selected note changes were saved. The note remains in Inbox.", "success");
+    case "finishing": return phaseCopy("Finishing review", "Marking this note as reviewed without changing its body.", "busy");
+    case "reviewed": return phaseCopy("Review complete", "This note is marked Reviewed.", "success", true);
     case "error": return phaseCopy("Could not finish", "No proposal changes were applied.", "danger", true);
-    case "cancelled": return phaseCopy("Cancelled", "The proposal flow stopped before any changes were written.", "warning", true);
+    case "cancelled": return phaseCopy("Generation cancelled", "No suggestions were applied. You can still finish the review or generate again.", "warning");
     case "conflict": return phaseCopy("Note changed", "This proposal is stale. Generate again from the current note before applying.", "warning", true);
-    case "partial-failure": return phaseCopy("Review required", "A guarded rollback could not safely restore the complete pre-apply state.", "danger", true);
-    case "idle": return phaseCopy("Ready", "Choose a Markdown note to generate a review-only proposal.", "idle");
+    case "unavailable": return phaseCopy("Note unavailable", "The target note or one of its candidates can no longer be read safely.", "warning", true);
+    case "partial-failure": return phaseCopy("Apply incomplete", "Some selected content may be present, but the note's Properties were not finalized.", "danger", true);
+    case "idle": return phaseCopy("Review note", "Read the note, generate optional suggestions, then choose Done reviewing.", "idle");
   }
 }
 
 export function createEnrichmentSelection(state: EnrichmentReviewState): EnrichmentSelection {
   const selectedIds: Record<string, boolean> = {};
   for (const item of selectableSuggestions(state)) selectedIds[item.id] = item.selected ?? defaultSelection(item.kind);
-  return { selectedIds };
+  return {
+    selectedIds,
+    includeSummary: false,
+    summaryDraft: state.summary,
+    summarySource: state.summary,
+    manualTags: [],
+  };
 }
 
 export function reconcileEnrichmentSelection(
@@ -71,7 +91,14 @@ export function reconcileEnrichmentSelection(
   for (const item of selectableSuggestions(state)) {
     selectedIds[item.id] = selection.selectedIds[item.id] ?? item.selected ?? defaultSelection(item.kind);
   }
-  return { selectedIds };
+  const sameSummary = selection.summarySource === state.summary;
+  return {
+    selectedIds,
+    includeSummary: sameSummary ? selection.includeSummary : false,
+    summaryDraft: sameSummary ? selection.summaryDraft : state.summary,
+    summarySource: state.summary,
+    manualTags: [...(selection.manualTags ?? [])],
+  };
 }
 
 export function toggleEnrichmentSelection(
@@ -79,7 +106,59 @@ export function toggleEnrichmentSelection(
   suggestionId: string,
   selected?: boolean,
 ): EnrichmentSelection {
-  return { selectedIds: { ...selection.selectedIds, [suggestionId]: selected ?? !selection.selectedIds[suggestionId] } };
+  return {
+    ...selection,
+    selectedIds: { ...selection.selectedIds, [suggestionId]: selected ?? !selection.selectedIds[suggestionId] },
+  };
+}
+
+export function updateEnrichmentSummarySelection(
+  selection: EnrichmentSelection,
+  patch: Partial<Pick<EnrichmentSelection, "includeSummary" | "summaryDraft">>,
+): EnrichmentSelection {
+  return { ...selection, ...patch };
+}
+
+export function addManualEnrichmentTag(
+  selection: EnrichmentSelection,
+  rawTag: string,
+): { selection: EnrichmentSelection; error: string } {
+  const tag = rawTag.trim().replace(/^#+/u, "");
+  if (!tag) return { selection, error: "Enter a tag first." };
+  if ([...tag].length > 128) return { selection, error: "Tags must be 128 characters or fewer." };
+  if (/\s/u.test(tag)) return { selection, error: "Obsidian tags cannot contain spaces." };
+  if (containsInvalidManualTagCharacter(tag)) {
+    return { selection, error: "This tag contains a character Obsidian cannot use." };
+  }
+  const manualTags = selection.manualTags ?? [];
+  if (manualTags.some((value) => value.toLocaleLowerCase() === tag.toLocaleLowerCase())) {
+    return { selection, error: `#${tag} is already added.` };
+  }
+  return { selection: { ...selection, manualTags: [...manualTags, tag] }, error: "" };
+}
+
+function containsInvalidManualTagCharacter(tag: string): boolean {
+  for (const character of tag) {
+    const code = character.charCodeAt(0);
+    if (character === "," || code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+export function removeManualEnrichmentTag(
+  selection: EnrichmentSelection,
+  tag: string,
+): EnrichmentSelection {
+  return {
+    ...selection,
+    manualTags: (selection.manualTags ?? []).filter(
+      (value) => value.toLocaleLowerCase() !== tag.toLocaleLowerCase(),
+    ),
+  };
+}
+
+export function enrichmentSummaryValidation(selection: EnrichmentSelection): ReturnType<typeof validateManagedSummaryText> | null {
+  return selection.includeSummary ? validateManagedSummaryText(selection.summaryDraft) : null;
 }
 
 export function selectedEnrichmentCount(
@@ -94,7 +173,11 @@ export function selectedEnrichmentCount(
 }
 
 export function canApplyEnrichment(state: EnrichmentReviewState, selection: EnrichmentSelection): boolean {
-  return state.phase === "review" && selectedEnrichmentCount(state, selection).selected > 0;
+  if (state.phase !== "review") return false;
+  const summary = enrichmentSummaryValidation(selection);
+  return selectedEnrichmentCount(state, selection).selected > 0
+    || (selection.manualTags?.length ?? 0) > 0
+    || summary?.ok === true;
 }
 
 export function selectedSuggestions(
@@ -111,22 +194,20 @@ export function stageRailItems(current: EnrichmentPhase): Array<{
   active: boolean;
 }> {
   const stages: Array<{ phase: EnrichmentPhase; label: string }> = [
-    { phase: "capability", label: "Check" },
-    { phase: "catalog", label: "Catalog" },
-    { phase: "generating", label: "Generate" },
-    { phase: "review", label: "Review" },
-    { phase: "applying", label: "Apply" },
+    { phase: "idle", label: "Review" },
+    { phase: "generating", label: "Suggestions" },
+    { phase: "reviewed", label: "Done" },
   ];
-  const active = current === "applied" || current === "partial-failure" ? "applying"
-    : current === "conflict" ? "review"
-      : current;
+  const active = current === "reviewed" || current === "finishing" ? "reviewed"
+    : current === "idle" ? "idle"
+      : "generating";
   const tone = describeEnrichmentPhase(current).tone;
   return stages.map((stage) => ({ ...stage, active: stage.phase === active, tone: stage.phase === active ? tone : "idle" }));
 }
 
 export function emptyReviewState(targetPath: string, model: string, endpoint: string): EnrichmentReviewState {
   return {
-    phase: "capability",
+    phase: "idle",
     targetPath,
     model,
     endpoint,
@@ -136,6 +217,7 @@ export function emptyReviewState(targetPath: string, model: string, endpoint: st
     newTags: [],
     concepts: [],
     warnings: [],
+    hasAppliedSuggestions: false,
   };
 }
 

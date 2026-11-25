@@ -4,6 +4,7 @@ import {
   DEFAULT_LAYOUT,
   LEGACY_DEFAULT_LAYOUT,
   PREVIOUS_DEFAULT_LAYOUT,
+  SPLIT_DASHBOARD_DEFAULT_LAYOUT,
   migrateLegacyLayout,
   movePlacement,
   normalizeLayout,
@@ -46,15 +47,29 @@ test("default dashboard uses coherent rows without the redundant Continue widget
     .map((item) => ({ x: item.x, w: item.w, h: item.h }));
 
   assert.deepEqual(rowAt(2), [
-    { x: 0, w: 6, h: 6 },
-    { x: 6, w: 6, h: 6 },
+    { x: 0, w: 6, h: 8 },
+    { x: 6, w: 6, h: 8 },
   ]);
-  assert.deepEqual(rowAt(12), [
-    { x: 0, w: 6, h: 4 },
-    { x: 6, w: 6, h: 4 },
+  assert.deepEqual(rowAt(14), [
+    { x: 0, w: 6, h: 5 },
+    { x: 6, w: 3, h: 5 },
+    { x: 9, w: 3, h: 5 },
   ]);
   assert.equal(DEFAULT_LAYOUT.some((item) => item.id === "continue"), false);
-  assert.equal(DEFAULT_LAYOUT.some((item) => item.id === "pinned"), true);
+  assert.equal(DEFAULT_LAYOUT.some((item) => item.id === "upcoming"), false);
+  assert.equal(DEFAULT_LAYOUT.some((item) => item.id === "pinned"), false);
+});
+
+test("normalization retires the standalone Upcoming and Pinned panels", () => {
+  const normalized = normalizeLayout([
+    { id: "today", x: 0, y: 2, w: 6, h: 6 },
+    { id: "upcoming", x: 6, y: 12, w: 6, h: 4 },
+    { id: "pinned", x: 0, y: 16, w: 4, h: 4 },
+  ]);
+
+  assert.equal(normalized.some((item) => item.id === "upcoming"), false);
+  assert.equal(normalized.some((item) => item.id === "pinned"), false);
+  assert.equal(normalized.filter((item) => item.id === "today").length, 1);
 });
 
 test("legacy default layout upgrades without losing hidden widget choices", () => {
@@ -83,7 +98,7 @@ test("legacy migration preserves customized widget geometry", () => {
   assert.equal(migrated.find((item) => item.id === "today")?.w, 7);
 });
 
-test("the previous default retires Continue without rewriting customized layouts", () => {
+test("the previous default retires removed widgets without rewriting active custom geometry", () => {
   const migratedDefault = migrateLegacyLayout(PREVIOUS_DEFAULT_LAYOUT);
   assert.deepEqual(migratedDefault, DEFAULT_LAYOUT.map((item) => ({ ...item, hidden: false })));
 
@@ -92,6 +107,20 @@ test("the previous default retires Continue without rewriting customized layouts
   assert.ok(recent);
   recent.h = 5;
   const migratedCustom = migrateLegacyLayout(customized);
-  assert.equal(migratedCustom.some((item) => item.id === "continue"), true);
+  assert.equal(migratedCustom.some((item) => item.id === "continue"), false);
   assert.equal(migratedCustom.find((item) => item.id === "recent")?.h, 5);
+});
+
+test("the split dashboard default migrates to one calendar panel without losing hidden choices", () => {
+  const previous = SPLIT_DASHBOARD_DEFAULT_LAYOUT.map((item) => ({
+    ...item,
+    hidden: item.id === "attention",
+  }));
+
+  const migrated = migrateLegacyLayout(previous);
+
+  assert.deepEqual(
+    migrated,
+    DEFAULT_LAYOUT.map((item) => ({ ...item, hidden: item.id === "attention" })),
+  );
 });

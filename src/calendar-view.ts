@@ -6,12 +6,41 @@ import listPlugin from "fullcalendar/list";
 import interactionPlugin from "fullcalendar/interaction";
 import classicThemePlugin from "fullcalendar/themes/classic";
 import type OmdHomePlugin from "./main";
-import type { CalendarEventRecord, EventSource, ExternalCalendarDescriptor } from "./model";
+import type {
+  CalendarEventRecord,
+  CalendarUnavailableReason,
+  EventSource,
+  ExternalCalendarDescriptor,
+} from "./model";
 import {
+  CALENDAR_DETACH_CONFIRMATION,
+  CALENDAR_EVENT_DELETE_CONFIRMATION,
+  CALENDAR_NOTE_DELETE_CONFIRMATION,
+  CALENDAR_RECREATE_CONFIRMATION,
+  CalendarPartialActionError,
+  calendarSyncResultMessage,
+  isCalendarNoteErrorRecord,
+  type CalendarDetachConfirmation,
+  type CalendarNoteDeleteConfirmation,
+  type CalendarRecreateConfirmation,
+  type CalendarSyncSummary,
+} from "./calendar-sync";
+import {
+  EVENT_SOURCE_ORDER,
+  calendarConflictVersionFields,
   calendarEditorInputValue,
   calendarEditorRangeForMode,
   calendarEditorStoredValue,
+  calendarRecoveryPresentation,
+  calendarRangeValidationTarget,
+  calendarRangeValidationMessage,
+  calendarRecoveryRecords,
+  deviceTimeZoneDescription,
+  deviceTimeZoneName,
   eventMatchesSourceFilter,
+  eventSourceFilterControlState,
+  eventSourceFilterSummary,
+  eventSourcePresentation,
   normalizeSourceFilters,
   replaceCalendarEvents,
   toggleSourceFilter,
@@ -19,8 +48,15 @@ import {
 
 export const CALENDAR_VIEW_TYPE = "omd-home-calendar";
 
+const calendarModalActionGuards = new WeakMap<Modal, () => boolean>();
+
+export function setCalendarModalActionGuard(modal: Modal, guard: () => boolean): void {
+  calendarModalActionGuards.set(modal, guard);
+}
+
 interface CalendarEventContentArg {
   event: {
+    id: string;
     title: string;
     extendedProps: Record<string, unknown>;
   };
@@ -33,7 +69,13 @@ interface CalendarEventContentArg {
 export class OmdCalendarView extends ItemView {
   private calendar?: Calendar;
   private hostEl?: HTMLDivElement;
+  private syncButton?: HTMLButtonElement;
+  private sourceFilterSummaryEl?: HTMLElement;
+  private recoverySummaryEl?: HTMLDivElement;
+  private syncing = false;
   private readonly plugin: OmdHomePlugin;
+  private readonly ownedModals = new Set<Modal>();
+  private lifecycleGeneration = 0;
   private enabledSources = normalizeSourceFilters();
 
   constructor(leaf: WorkspaceLeaf, plugin: OmdHomePlugin) {
@@ -46,17 +88,25 @@ export class OmdCalendarView extends ItemView {
   getIcon(): string { return "calendar-days"; }
 
   async onOpen(): Promise<void> {
+    const generation = ++this.lifecycleGeneration;
     await this.plugin.refreshCalendarEvents();
+    if (generation !== this.lifecycleGeneration) return;
     this.render();
   }
   async onClose(): Promise<void> {
+    this.lifecycleGeneration += 1;
+    for (const modal of [...this.ownedModals]) modal.close();
+    this.ownedModals.clear();
     this.calendar?.destroy();
     this.calendar = undefined;
     this.hostEl = undefined;
+    this.sourceFilterSummaryEl = undefined;
+    this.recoverySummaryEl = undefined;
   }
 
   render(): void {
     this.ensureShell();
+    this.updateRecoverySummary();
     if (!this.calendar && this.hostEl) {
       this.calendar = new Calendar(this.hostEl, {
         plugins: [classicThemePlugin, dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin],
@@ -83,15 +133,36 @@ export class OmdCalendarView extends ItemView {
           const content = createSpan();
           const monthView = info.view.type === "dayGridMonth";
           content.className = `omd-calendar-event-content${monthView ? " is-month-view" : ""}`;
-          content.title = info.event.title;
+          const source = info.event.extendedProps.source as EventSource;
+          const sourcePresentation = eventSourcePresentation(source);
+          const statusLabel = calendarRecoveryPresentation({
+            id: info.event.id,
+            notePath: info.event.extendedProps.notePath as string | undefined,
+            syncState: info.event.extendedProps.syncState as CalendarEventRecord["syncState"],
+            unavailableReason: info.event.extendedProps.unavailableReason as CalendarUnavailableReason | undefined,
+          })?.label ?? calendarStatusLabel(info.event.extendedProps.syncState as string | undefined);
+          const accessibleTime = info.timeText || "All day";
+          const accessibleLabel = [info.event.title, accessibleTime, sourcePresentation.label, statusLabel]
+            .filter(Boolean)
+            .join(" · ");
+          content.title = accessibleLabel;
+          content.setAttribute("aria-label", accessibleLabel);
+          content.createSpan({
+            cls: `omd-calendar-event-source is-${source}`,
+            text: sourcePresentation.glyph,
+            attr: { "aria-hidden": "true" },
+          });
           if (info.timeText) {
             const time = content.createSpan({ cls: "omd-calendar-event-time", text: info.timeText });
             time.setAttribute("aria-hidden", "true");
           }
-          content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title });
-          if (!monthView) {
-            const statusLabel = calendarStatusLabel(info.event.extendedProps.syncState as string | undefined);
-            if (statusLabel) content.createSpan({ cls: "omd-calendar-event-status", text: ` • ${statusLabel}` });
+          content.createSpan({ cls: "omd-calendar-event-title", text: info.event.title, attr: { dir: "auto" } });
+          if (!monthView && statusLabel) {
+            content.createSpan({
+              cls: "omd-calendar-event-status",
+              attr: { "aria-hidden": "true" },
+            });
+            content.createSpan({ cls: "omd-calendar-event-status-label", text: statusLabel });
           }
           return { domNodes: [content] };
         },
@@ -138,34 +209,55 @@ export class OmdCalendarView extends ItemView {
 
   private openEditor(event: CalendarEventRecord): void {
     const defaultCalendar = resolveWritableDefaultCalendar(this.plugin.externalCalendars, this.plugin.settings);
-    new EventEditorModal(this.app, event, defaultCalendar, async (saved) => {
+    this.openTrackedModal(new EventEditorModal(this.app, event, defaultCalendar, async (saved) => {
       await this.plugin.saveCalendarEvent(saved);
       this.render();
-    }, calendarEditorActions(this.plugin)).open();
+    }, calendarEditorActions(this.plugin, (modal) => this.trackModal(modal))));
   }
 
   private openEvent(info: EventClickInfo): void {
     const record = this.plugin.calendarEvents.find((event) => event.id === info.event.id);
     if (!record) return;
+    this.openRecord(record);
+  }
+
+  private openRecord(record: CalendarEventRecord): void {
     if (requiresSyncBeforeEdit(record)) {
-      new SyncRequiredModal(this.app, record, async () => {
-        await this.plugin.synchronizeCalendarEvents();
+      this.openTrackedModal(new SyncRequiredModal(this.app, record, async () => {
+        const summary = await this.plugin.synchronizeCalendarEvents();
+        new Notice(calendarSyncResultMessage(summary));
         this.render();
-      }).open();
+      }));
       return;
     }
     if (record.syncState === "conflict" && record.conflictExternal) {
-      new EventConflictModal(this.app, record, async (choice) => {
+      this.openTrackedModal(new EventConflictModal(this.app, record, async (choice) => {
         await this.plugin.resolveCalendarConflict(record, choice);
         this.render();
-      }).open();
+      }));
       return;
     }
     const defaultCalendar = resolveWritableDefaultCalendar(this.plugin.externalCalendars, this.plugin.settings);
-    new EventEditorModal(this.app, record, defaultCalendar, async (event) => {
+    this.openTrackedModal(new EventEditorModal(this.app, record, defaultCalendar, async (event) => {
       await this.plugin.saveCalendarEvent(event);
       this.render();
-    }, calendarEditorActions(this.plugin)).open();
+    }, calendarEditorActions(this.plugin, (modal) => this.trackModal(modal))));
+  }
+
+  private trackModal<T extends Modal>(modal: T): T | null {
+    const generation = this.lifecycleGeneration;
+    this.ownedModals.add(modal);
+    const tracked = this.plugin.trackCalendarModal(
+      modal,
+      () => this.ownedModals.delete(modal),
+      () => generation === this.lifecycleGeneration,
+    );
+    if (!tracked) this.ownedModals.delete(modal);
+    return tracked;
+  }
+
+  private openTrackedModal<T extends Modal>(modal: T): void {
+    this.trackModal(modal)?.open();
   }
 
   private async commitChange(info: EventChangeInfo): Promise<void> {
@@ -186,6 +278,9 @@ export class OmdCalendarView extends ItemView {
     try {
       await this.plugin.saveCalendarEvent({
         ...existing,
+        externalStartHint: existing.occurrenceDate && existing.appleItemId
+          ? existing.start
+          : existing.externalStartHint,
         start,
         end,
         allDay: info.event.allDay,
@@ -197,17 +292,37 @@ export class OmdCalendarView extends ItemView {
   }
 
   private async syncEvents(): Promise<void> {
+    if (this.syncing) return;
+    this.syncing = true;
+    if (this.syncButton) {
+      this.syncButton.disabled = true;
+      this.syncButton.setText("Syncing…");
+    }
     const plugin = this.plugin as OmdHomePlugin & CalendarViewPluginActions;
     try {
-      if (plugin.synchronizeCalendarEvents) await plugin.synchronizeCalendarEvents();
-      else await this.plugin.refreshCalendarEvents();
+      if (plugin.synchronizeCalendarEvents) {
+        const summary = await plugin.synchronizeCalendarEvents();
+        new Notice(calendarSyncResultMessage(summary));
+      } else {
+        await this.plugin.refreshCalendarEvents();
+      }
       this.render();
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Could not sync calendars");
+    } finally {
+      this.syncing = false;
+      if (this.syncButton) {
+        this.syncButton.disabled = false;
+        this.syncButton.setText("Sync");
+      }
     }
   }
 
   private toggleSource(source: EventSource): void {
+    if (this.enabledSources.has(source) && this.enabledSources.size === 1) {
+      new Notice("At least one event source must remain visible");
+      return;
+    }
     this.enabledSources = toggleSourceFilter(this.enabledSources, source);
     if (!this.calendar) {
       this.render();
@@ -217,10 +332,9 @@ export class OmdCalendarView extends ItemView {
     this.contentEl.querySelectorAll<HTMLButtonElement>(".omd-calendar-filter-button").forEach((button) => {
       const buttonSource = button.dataset.source as EventSource | undefined;
       if (!buttonSource) return;
-      const enabled = this.enabledSources.has(buttonSource);
-      button.setAttribute("aria-pressed", String(enabled));
-      button.title = `${enabled ? "Hide" : "Show"} ${sourceLabel(buttonSource)} events`;
+      updateSourceFilterButton(button, this.enabledSources, buttonSource);
     });
+    this.updateSourceFilterSummary();
   }
 
   private visibleEvents(): CalendarEventRecord[] {
@@ -237,15 +351,71 @@ export class OmdCalendarView extends ItemView {
     this.contentEl.addClass("omd-calendar-view");
     const shell = this.contentEl.createDiv({ cls: "omd-calendar-shell" });
     const topbar = shell.createDiv({ cls: "omd-calendar-topbar" });
-    const legend = topbar.createDiv({ cls: "omd-calendar-legend" });
-    legendFilterButton(legend, this.enabledSources, "vault", "Vault", () => this.toggleSource("vault"));
-    legendFilterButton(legend, this.enabledSources, "external", "Calendar", () => this.toggleSource("external"));
-    legendFilterButton(legend, this.enabledSources, "linked", "Linked", () => this.toggleSource("linked"));
-    const sync = topbar.createEl("button", { cls: "omd-action-button", type: "button", text: "Sync" });
+    const sourceFilter = topbar.createEl("details", { cls: "omd-calendar-source-filter" });
+    this.sourceFilterSummaryEl = sourceFilter.createEl("summary", {
+      cls: "omd-calendar-source-summary",
+      text: eventSourceFilterSummary(this.enabledSources),
+      attr: { "aria-label": `${eventSourceFilterSummary(this.enabledSources)}. Filter events by source.` },
+    });
+    const sourceOptions = sourceFilter.createDiv({
+      cls: "omd-calendar-source-options",
+      attr: { role: "group", "aria-label": "Event sources" },
+    });
+    for (const source of EVENT_SOURCE_ORDER) {
+      sourceFilterButton(sourceOptions, this.enabledSources, source, () => this.toggleSource(source));
+    }
+    const actions = topbar.createDiv({ cls: "omd-calendar-actions" });
+    const sync = actions.createEl("button", { cls: "omd-action-button", type: "button", text: "Sync" });
+    this.syncButton = sync;
     sync.addEventListener("click", () => void this.syncEvents());
-    const create = topbar.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "+ new event" });
+    const create = actions.createEl("button", { cls: "mod-cta omd-action-button", type: "button", text: "New event" });
     create.addEventListener("click", () => this.createEvent());
+    this.recoverySummaryEl = shell.createDiv({
+      cls: "omd-calendar-recovery-summary",
+      attr: { role: "region", "aria-label": "Calendar recovery" },
+    });
+    this.recoverySummaryEl.hidden = true;
     this.hostEl = shell.createDiv({ cls: "omd-calendar-host" });
+  }
+
+  private updateRecoverySummary(): void {
+    const summary = this.recoverySummaryEl;
+    if (!summary) return;
+    const records = calendarRecoveryRecords(this.plugin.calendarEvents);
+    summary.empty();
+    summary.hidden = records.length === 0;
+    if (!records.length) return;
+
+    const count = records.length;
+    summary.createEl("strong", {
+      text: `${count} linked ${count === 1 ? "note needs" : "notes need"} Calendar recovery`,
+    });
+    summary.createEl("p", {
+      text: count === 1
+        ? "Its Calendar copy may have been deleted, moved, or belong to a Calendar that is not selected."
+        : "Their Calendar copies may have been deleted, moved, or belong to Calendars that are not selected.",
+    });
+    const list = summary.createDiv({ cls: "omd-calendar-recovery-list", attr: { role: "list" } });
+    for (const record of records) {
+      const row = list.createDiv({ cls: "omd-calendar-recovery-row", attr: { role: "listitem" } });
+      const identity = row.createDiv({ cls: "omd-calendar-recovery-identity" });
+      identity.createSpan({ cls: "omd-calendar-recovery-title", text: record.title, attr: { dir: "auto" } });
+      const status = calendarRecoveryPresentation(record)?.label;
+      if (status) identity.createSpan({ cls: "omd-calendar-recovery-state", text: status });
+      const review = row.createEl("button", {
+        cls: "omd-action-button",
+        type: "button",
+        text: "Review event",
+        attr: { "aria-label": `Review event: ${record.title}` },
+      });
+      review.addEventListener("click", () => this.openRecord(record));
+    }
+  }
+
+  private updateSourceFilterSummary(): void {
+    const summary = eventSourceFilterSummary(this.enabledSources);
+    this.sourceFilterSummaryEl?.setText(summary);
+    this.sourceFilterSummaryEl?.setAttribute("aria-label", `${summary}. Filter events by source.`);
   }
 }
 
@@ -264,22 +434,36 @@ class EventConflictModal extends Modal {
   }
 
   onOpen(): void {
+    this.modalEl.addClass("omd-event-conflict-modal");
     this.titleEl.setText("Calendar conflict");
-    this.contentEl.createEl("p", { text: `“${this.event.title}” changed in both its note and Calendar.` });
-    this.contentEl.createEl("p", { cls: "omd-conflict-help", text: "Choose which version should become the linked event. Nothing is overwritten until you choose." });
-    new Setting(this.contentEl)
-      .addButton((button) => button.setButtonText("Keep note").onClick(async () => this.resolve("vault")))
-      .addButton((button) => button.setCta().setButtonText("Keep calendar").onClick(async () => this.resolve("external")));
+    this.contentEl.createEl("p", { text: "This linked event changed in both its note and calendar." });
+    this.contentEl.createEl("p", {
+      cls: "omd-conflict-help",
+      text: "Nothing has been overwritten. Compare both versions, then choose which one should become the linked event.",
+    });
+    const versions = this.contentEl.createDiv({ cls: "omd-conflict-versions" });
+    this.renderVersion(versions, "Note version", this.event);
+    this.renderVersion(versions, "Calendar version", this.event.conflictExternal ?? this.event);
+    const actions = new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((button) => button.setButtonText("Use note version").onClick(async () => this.resolve("vault")))
+      .addButton((button) => button.setButtonText("Use calendar version").onClick(async () => this.resolve("external")));
+    actions.settingEl.addClass("omd-modal-actions");
   }
 
   onClose(): void { this.contentEl.empty(); }
 
   private async resolve(choice: "vault" | "external"): Promise<void> {
-    try {
-      await this.onResolve(choice);
-      this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not resolve Calendar conflict");
+    await runCalendarModalAction(this, () => this.onResolve(choice), "Could not resolve Calendar conflict");
+  }
+
+  private renderVersion(container: HTMLElement, label: string, event: CalendarEventRecord): void {
+    const version = container.createEl("section", { cls: "omd-conflict-version" });
+    version.createEl("h3", { text: label });
+    const fields = version.createEl("dl");
+    for (const field of calendarConflictVersionFields(event)) {
+      fields.createEl("dt", { text: field.label });
+      fields.createEl("dd", { text: field.value, attr: { dir: field.label === "Time" ? "ltr" : "auto" } });
     }
   }
 }
@@ -292,27 +476,175 @@ class SyncRequiredModal extends Modal {
   ) { super(app); }
 
   onOpen(): void {
+    this.modalEl.addClass("omd-sync-required-modal");
     const failed = this.event.syncState === "error";
     this.titleEl.setText(failed ? "Calendar sync paused" : "Calendar has newer changes");
     this.contentEl.createEl("p", {
       text: failed
-        ? "OMD Home could not safely read Calendar. Retry before editing, recreating, or deleting this linked event."
+        ? "OMD Home could not safely read Calendar. Check Calendar setup in OMD Home settings, then retry Sync. The event has not been treated as missing."
         : "Import the newer Calendar version before editing this linked note, so the external change is not overwritten.",
     });
-    new Setting(this.contentEl)
+    const actions = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
       .addButton((button) => button.setCta().setButtonText(failed ? "Retry sync" : "Import Calendar change").onClick(async () => {
-        try {
-          await this.onSync();
-          this.close();
-        } catch (error) {
-          new Notice(error instanceof Error ? error.message : "Could not sync Calendar");
-        }
+        await runCalendarModalAction(this, this.onSync, "Could not sync Calendar");
       }));
+    actions.settingEl.addClass("omd-modal-actions");
   }
 
   onClose(): void { this.contentEl.empty(); }
 }
+
+export interface CalendarConfirmationIdentityField {
+  label: "Title" | "Time" | "Note path" | "Calendar" | "Target calendar";
+  value: string;
+  dir: "auto" | "ltr";
+}
+
+export function calendarConfirmationIdentityFields(
+  event: CalendarEventRecord,
+  details: { notePath?: boolean; calendar?: boolean; targetCalendar?: string },
+): CalendarConfirmationIdentityField[] {
+  const identity = calendarConflictVersionFields(event);
+  const title = identity.find((field) => field.label === "Title")?.value ?? event.title;
+  const time = identity.find((field) => field.label === "Time")?.value ?? `${event.start} – ${event.end}`;
+  const fields = [
+    { label: "Title", value: title, dir: "auto" },
+    { label: "Time", value: time, dir: "ltr" },
+  ] as CalendarConfirmationIdentityField[];
+  if (details.calendar || details.targetCalendar) {
+    fields.push({
+      label: details.targetCalendar ? "Target calendar" : "Calendar",
+      value: details.targetCalendar ?? (event.calendar?.trim() || "Calendar"),
+      dir: "auto",
+    });
+  }
+  if (details.notePath) {
+    fields.push({ label: "Note path", value: event.notePath ?? "Unavailable", dir: "auto" });
+  }
+  return fields;
+}
+
+function renderCalendarConfirmationIdentity(
+  container: HTMLElement,
+  event: CalendarEventRecord,
+  details: { notePath?: boolean; calendar?: boolean; targetCalendar?: string },
+): void {
+  const summary = container.createEl("section", {
+    cls: "omd-conflict-version omd-calendar-confirmation-identity",
+  });
+  summary.createEl("h3", { text: "Selected event" });
+  const fields = summary.createEl("dl");
+  for (const field of calendarConfirmationIdentityFields(event, details)) {
+    fields.createEl("dt", { text: field.label });
+    fields.createEl("dd", { text: field.value, attr: { dir: field.dir } });
+  }
+}
+
+class RecreateCalendarConfirmationModal extends Modal {
+  constructor(
+    app: App,
+    private readonly event: CalendarEventRecord,
+    private readonly targetCalendar: WritableDefaultCalendar,
+    private readonly onConfirm: () => Promise<void>,
+  ) { super(app); }
+
+  onOpen(): void {
+    this.modalEl.addClass("omd-calendar-recreate-modal");
+    this.titleEl.setText("Recreate calendar event?");
+    this.contentEl.createEl("p", {
+      text: "Apple may change an event identifier after an event moves between calendars or calendar performs a full sync.",
+    });
+    this.contentEl.createEl("p", {
+      text: "Check calendar first and continue only if the original event is gone. Continuing while it still exists will create a duplicate.",
+    });
+    renderCalendarConfirmationIdentity(this.contentEl, this.event, {
+      targetCalendar: this.targetCalendar.title,
+      notePath: true,
+    });
+    const actions = new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((button) => {
+        button.buttonEl.addClass("mod-warning");
+        button.setButtonText("Recreate anyway").onClick(async () => this.confirm());
+      });
+    actions.settingEl.addClass("omd-modal-actions");
+  }
+
+  onClose(): void { this.contentEl.empty(); }
+
+  private async confirm(): Promise<void> {
+    await runCalendarModalAction(this, this.onConfirm, "Could not recreate Calendar event");
+  }
+}
+
+class DeleteEventNoteConfirmationModal extends Modal {
+  constructor(
+    app: App,
+    private readonly event: CalendarEventRecord,
+    private readonly linked: boolean,
+    private readonly onConfirm: () => Promise<void>,
+  ) { super(app); }
+
+  onOpen(): void {
+    this.modalEl.addClass("omd-calendar-delete-modal");
+    this.titleEl.setText("Delete event note?");
+    this.contentEl.createEl("p", {
+      text: this.linked
+        ? "Move this Markdown event note to Obsidian's trash. OMD Home will not delete or modify Apple Calendar."
+        : "Move this Markdown event note to Obsidian's trash.",
+    });
+    renderCalendarConfirmationIdentity(this.contentEl, this.event, { notePath: true });
+    const actions = new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((button) => {
+        button.buttonEl.addClass("mod-warning");
+        button.setButtonText("Move to trash").onClick(async () => this.confirm());
+      });
+    actions.settingEl.addClass("omd-modal-actions");
+  }
+
+  onClose(): void { this.contentEl.empty(); }
+
+  private async confirm(): Promise<void> {
+    await runCalendarModalAction(this, this.onConfirm, "Could not delete event note");
+  }
+}
+
+class DeleteCalendarEventConfirmationModal extends Modal {
+  constructor(
+    app: App,
+    private readonly event: CalendarEventRecord,
+    private readonly linked: boolean,
+    private readonly onConfirm: () => Promise<void>,
+  ) { super(app); }
+
+  onOpen(): void {
+    this.modalEl.addClass("omd-calendar-delete-modal");
+    this.titleEl.setText(this.linked ? "Delete Calendar copy?" : "Delete Calendar event?");
+    this.contentEl.createEl("p", {
+      text: this.linked
+        ? "The Apple Calendar event will be removed. The Markdown note will remain as Vault only."
+        : "This removes the event from Apple Calendar. No vault note will remain.",
+    });
+    renderCalendarConfirmationIdentity(this.contentEl, this.event, { calendar: true });
+    const actions = new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((button) => {
+        button.buttonEl.addClass("mod-warning");
+        button.setButtonText("Delete event").onClick(async () => this.confirm());
+      });
+    actions.settingEl.addClass("omd-modal-actions");
+  }
+
+  onClose(): void { this.contentEl.empty(); }
+
+  private async confirm(): Promise<void> {
+    await runCalendarModalAction(this, this.onConfirm, "Could not delete Calendar event");
+  }
+}
+
+let eventEditorSequence = 0;
 
 class EventEditorModal extends Modal {
   private draft: CalendarEventRecord;
@@ -320,6 +652,11 @@ class EventEditorModal extends Modal {
   private readonly onSave: (event: CalendarEventRecord) => Promise<void>;
   private readonly actions: CalendarEditorActions;
   private readonly initialSource: EventSource;
+  private readonly controlId = `omd-event-editor-${++eventEditorSequence}`;
+  private startInput?: HTMLInputElement;
+  private endInput?: HTMLInputElement;
+  private rangeValidationEl?: HTMLDivElement;
+  private allDayToggleEl?: HTMLElement;
 
   constructor(
     app: App,
@@ -329,7 +666,12 @@ class EventEditorModal extends Modal {
     actions: CalendarEditorActions,
   ) {
     super(app);
-    this.draft = { ...event };
+    this.draft = {
+      ...event,
+      externalStartHint: event.occurrenceDate && event.appleItemId
+        ? event.start
+        : event.externalStartHint,
+    };
     this.defaultCalendar = defaultCalendar;
     this.onSave = onSave;
     this.actions = actions;
@@ -337,25 +679,63 @@ class EventEditorModal extends Modal {
   }
 
   onOpen(): void {
+    this.modalEl.addClass("omd-event-modal");
     const capabilities = calendarEditorCapabilities(this.draft);
-    const fieldsReadOnly = this.initialSource === "external" && Boolean(this.draft.readOnly);
+    const fieldsReadOnly = Boolean(this.draft.readOnly)
+      || (this.initialSource === "linked"
+        && (this.draft.syncState === "unavailable" || this.draft.syncState === "error"));
     this.titleEl.setText(this.draft.title ? "Edit event" : "New event");
-    const statusLabel = calendarStatusLabel(this.draft.syncState);
-    if (statusLabel) {
+    const recovery = calendarRecoveryPresentation(this.draft);
+    const statusLabel = recovery?.label ?? calendarStatusLabel(this.draft.syncState);
+    if (recovery) {
+      const state = this.contentEl.createDiv({
+        cls: `omd-calendar-recovery${this.draft.syncState === "error" ? " is-error" : ""}`,
+      });
+      state.createEl("strong", { text: recovery.label });
+      state.createEl("p", { text: recovery.description });
+    } else if (statusLabel) {
       new Setting(this.contentEl)
         .setName("Status")
         .setDesc(calendarStatusDescription(this.draft.syncState) ?? statusLabel);
     }
-    new Setting(this.contentEl).setName("Title").addText((text) => text
-      .setValue(this.draft.title)
-      .setDisabled(fieldsReadOnly)
-      .onChange((value) => { this.draft.title = value; }));
-    this.renderBoundaryInput("Start", "Event start date and time in your local timezone.", fieldsReadOnly, "start");
-    this.renderBoundaryInput("End", "Event end date and time in your local timezone.", fieldsReadOnly, "end");
-    new Setting(this.contentEl).setName("All day").setDesc("Store this event as calendar dates instead of times.").addToggle((toggle) => toggle
-      .setValue(this.draft.allDay)
-      .setDisabled(fieldsReadOnly)
-      .onChange((value) => {
+    new Setting(this.contentEl).setName("Title").addText((text) => {
+      text.inputEl.dir = "auto";
+      text
+        .setValue(this.draft.title)
+        .setDisabled(fieldsReadOnly)
+        .onChange((value) => { this.draft.title = value; });
+    });
+    this.startInput = this.renderBoundaryInput("Start", this.draft.allDay
+      ? "The first day of this event."
+      : "Event start date and time.", fieldsReadOnly, "start");
+    this.endInput = this.renderBoundaryInput("End", this.draft.allDay
+      ? "All-day events end at the start of this date. For one day, choose the next date."
+      : "Event end date and time.", fieldsReadOnly, "end");
+    this.rangeValidationEl = this.contentEl.createDiv({
+      cls: "omd-event-validation is-error",
+      attr: {
+        id: `${this.controlId}-range-error`,
+        role: "alert",
+      },
+    });
+    this.rangeValidationEl.hidden = true;
+    if (!this.draft.allDay) {
+      this.contentEl.createEl("p", {
+        cls: "omd-event-timezone",
+        text: deviceTimeZoneDescription(),
+        attr: { id: `${this.controlId}-timezone-help` },
+      });
+    }
+    new Setting(this.contentEl).setName("All day").setDesc("Store this event as calendar dates instead of times.").addToggle((toggle) => {
+      this.allDayToggleEl = toggle.toggleEl;
+      toggle
+        .setValue(this.draft.allDay)
+        .setDisabled(fieldsReadOnly)
+        .onChange((value) => {
+        if (pendingCalendarActions.has(this)) {
+          toggle.setValue(this.draft.allDay);
+          return;
+        }
         const range = calendarEditorRangeForMode(this.draft.start, this.draft.end, value);
         if (range) {
           this.draft.start = range.start;
@@ -364,17 +744,29 @@ class EventEditorModal extends Modal {
         this.draft.allDay = value;
         this.contentEl.empty();
         this.onOpen();
-      }));
-    new Setting(this.contentEl).setName("Location").addText((text) => text
-      .setValue(this.draft.location ?? "")
-      .setDisabled(fieldsReadOnly)
-      .onChange((value) => { this.draft.location = value.trim() || undefined; }));
+        this.allDayToggleEl?.focus();
+      });
+    });
+    new Setting(this.contentEl).setName("Location").addText((text) => {
+      text.inputEl.dir = "auto";
+      text
+        .setValue(this.draft.location ?? "")
+        .setDisabled(fieldsReadOnly)
+        .onChange((value) => { this.draft.location = value.trim() || undefined; });
+    });
     if (capabilities.showDestination) {
+      const linkedCalendarTitle = this.initialSource === "linked"
+        ? this.draft.calendar?.trim() || undefined
+        : undefined;
       new Setting(this.contentEl)
         .setName("Destination")
-        .setDesc(destinationDescription(this.initialSource))
+        .setDesc(destinationDescription(this.initialSource, linkedCalendarTitle))
         .addDropdown((dropdown) => {
-        for (const option of destinationOptions(this.initialSource, this.defaultCalendar?.title)) {
+        for (const option of destinationOptions(
+          this.initialSource,
+          this.defaultCalendar?.title,
+          linkedCalendarTitle,
+        )) {
           dropdown.addOption(option.value, option.label);
         }
         dropdown.setValue(this.draft.source).onChange((value) => {
@@ -385,6 +777,7 @@ class EventEditorModal extends Modal {
     this.renderActionHooks();
     const footer = new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()));
+    footer.settingEl.addClass("omd-modal-actions");
     if (capabilities.showSave) {
       footer.addButton((button) => button.setCta().setButtonText("Save").onClick(async () => {
           await this.saveDraft();
@@ -399,8 +792,10 @@ class EventEditorModal extends Modal {
     description: string,
     readOnly: boolean,
     key: "start" | "end",
-  ): void {
+  ): HTMLInputElement {
     const setting = new Setting(this.contentEl).setName(label).setDesc(description);
+    const helpId = `${this.controlId}-${key}-help`;
+    setting.descEl.id = helpId;
     const input = setting.controlEl.createEl("input", {
       cls: "omd-calendar-boundary-input",
       type: this.draft.allDay ? "date" : "datetime-local",
@@ -408,33 +803,94 @@ class EventEditorModal extends Modal {
     input.value = calendarEditorInputValue(this.draft[key], this.draft.allDay);
     input.disabled = readOnly;
     input.required = true;
+    input.setAttribute("aria-describedby", this.boundaryDescriptionIds(key));
     if (!this.draft.allDay) input.step = "900";
     input.ariaLabel = `${label} ${this.draft.allDay ? "date" : "date and time"}`;
     input.title = this.draft.allDay
       ? `${label} date`
-      : `${label} in your local timezone`;
+      : `${label} in ${deviceTimeZoneName()}`;
     input.addEventListener("change", () => {
       const stored = calendarEditorStoredValue(input.value, this.draft.allDay);
       this.draft[key] = stored ?? "";
+      if (this.rangeValidationEl && !this.rangeValidationEl.hidden) this.refreshRangeValidation(false);
     });
+    return input;
+  }
+
+  private refreshRangeValidation(focusEnd: boolean): boolean {
+    const validationError = validateCalendarEventRange(this.draft.start, this.draft.end);
+    const message = calendarRangeValidationMessage(validationError, this.draft.allDay);
+    if (!message) {
+      this.clearRangeValidation();
+      return true;
+    }
+    const validation = this.rangeValidationEl;
+    const startInput = this.startInput;
+    const endInput = this.endInput;
+    if (!validation || !startInput || !endInput || !validationError) return false;
+    this.clearRangeValidation();
+    validation.setText(message);
+    validation.hidden = false;
+    const target = calendarRangeValidationTarget(validationError);
+    const invalidInputs = target === "both"
+      ? [startInput, endInput]
+      : target === "start"
+        ? [startInput]
+        : [endInput];
+    for (const input of invalidInputs) {
+      const key = input === startInput ? "start" : "end";
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", this.boundaryDescriptionIds(key, validation.id));
+    }
+    if (focusEnd) invalidInputs[0]?.focus();
+    return false;
+  }
+
+  private clearRangeValidation(): void {
+    if (this.rangeValidationEl) {
+      this.rangeValidationEl.empty();
+      this.rangeValidationEl.hidden = true;
+    }
+    for (const [key, input] of [["start", this.startInput], ["end", this.endInput]] as const) {
+      if (!input) continue;
+      input.removeAttribute("aria-invalid");
+      input.setAttribute("aria-describedby", this.boundaryDescriptionIds(key));
+    }
+  }
+
+  private boundaryDescriptionIds(key: "start" | "end", validationId?: string): string {
+    return [
+      `${this.controlId}-${key}-help`,
+      this.draft.allDay ? null : `${this.controlId}-timezone-help`,
+      validationId,
+    ].filter((value): value is string => Boolean(value)).join(" ");
   }
 
   private renderActionHooks(): void {
-    const syncState = this.draft.syncState as string | undefined;
     const capabilities = calendarEditorCapabilities(this.draft);
     if (this.initialSource === "linked") {
-      new Setting(this.contentEl)
-        .setName("Detach link")
-        .setDesc("Keep the note and stop syncing it to Apple Calendar.")
-        .addButton((button) => button.setButtonText("Detach").onClick(async () => {
-          await this.runDetachAction(false, "Detach is not available until main.ts wires detachCalendarEvent(event, false).");
-        }));
-      if (syncState === "unavailable") {
+      if (capabilities.showRetrySync) {
         new Setting(this.contentEl)
-          .setName("Recreate in default calendar")
-          .setDesc("Create a fresh Apple Calendar copy using the current writable default calendar.")
-          .addButton((button) => button.setCta().setButtonText("Recreate").onClick(async () => {
+          .setName("Check calendar again")
+          .setDesc("Sync all linked events and recheck this event before making a copy.")
+          .addButton((button) => button.setCta().setButtonText("Retry full sync").onClick(async () => {
+            await this.retryCalendarSync();
+          }));
+      }
+      if (capabilities.showRecreate) {
+        new Setting(this.contentEl)
+          .setName(`Recreate in ${this.defaultCalendar?.title ?? "default calendar"}`)
+          .setDesc("Use this only after checking that the original event is gone. OMD Home rechecks before creating another copy.")
+          .addButton((button) => button.setButtonText("Recreate…").onClick(async () => {
             await this.recreateCalendarCopy();
+          }));
+      }
+      if (capabilities.showDetach) {
+        new Setting(this.contentEl)
+          .setName("Detach link")
+          .setDesc("Keep the note and stop syncing it to Apple Calendar.")
+          .addButton((button) => button.setButtonText("Detach").onClick(async () => {
+            await this.runDetachAction(CALENDAR_DETACH_CONFIRMATION, "Detach is unavailable. Reopen Calendar and try again.");
           }));
       }
     }
@@ -443,65 +899,122 @@ class EventEditorModal extends Modal {
         .setName("Create linked vault note")
         .setDesc("Save this read-only calendar event as a linked Markdown note. Apple Calendar will not be modified.")
         .addButton((button) => button.setCta().setButtonText("Create note").onClick(async () => {
-          try {
-            await this.onSave({ ...this.draft, source: "linked", syncState: "clean" });
-            this.close();
-          } catch (error) {
-            new Notice(error instanceof Error ? error.message : "Could not create linked note");
-          }
+          await runCalendarModalAction(this,
+            () => this.onSave({ ...this.draft, source: "linked", syncState: "clean" }),
+            "Could not create linked note");
         }));
     }
     if (capabilities.showDelete) {
       new Setting(this.contentEl)
-        .setName("Delete calendar copy")
+        .setName(this.initialSource === "external" ? "Delete from Calendar" : "Delete Calendar copy")
         .setDesc(this.initialSource === "external"
-          ? "Delete the Calendar event."
-          : "Delete the Calendar event and leave the note detached.")
+          ? "Permanently remove this event from Apple Calendar."
+          : "Remove the Apple Calendar event and keep this note as Vault only.")
         .addButton((button) => {
           button.buttonEl.addClass("mod-warning");
-          button.setButtonText("Delete").onClick(async () => {
-            await this.runDetachAction(true, "Delete is not available until main.ts wires detachCalendarEvent(event, true).");
+          button.setButtonText("Delete…").onClick(() => {
+            this.confirmCalendarDeletion();
           });
+        });
+    }
+    if (capabilities.showDeleteNote) {
+      new Setting(this.contentEl)
+        .setName("Delete event note")
+        .setDesc(this.initialSource === "linked"
+          ? "Move this note to Obsidian's trash. OMD Home will not delete or modify Apple Calendar."
+          : "Move this event note to Obsidian's trash.")
+        .addButton((button) => {
+          button.buttonEl.addClass("mod-warning");
+          button.setButtonText("Delete note…").onClick(() => this.confirmNoteDeletion());
         });
     }
   }
 
-  private async recreateCalendarCopy(): Promise<void> {
-    const title = this.draft.title.trim();
-    if (!title) return void new Notice("Event title is required");
-    const validationError = validateCalendarEventRange(this.draft.start, this.draft.end);
-    if (validationError) return void new Notice(validationError);
-    if (!this.defaultCalendar) {
-      return void new Notice("Choose a writable default calendar in OMD Home settings first");
+  private confirmCalendarDeletion(): void {
+    if (!this.actions.detachCalendarEvent) {
+      new Notice("Delete is unavailable. Reopen calendar and try again.");
+      return;
     }
-    try {
-      await this.onSave({
-        ...this.draft,
-        title,
-        source: "linked",
-        appleCalendarId: this.defaultCalendar.id,
-        appleItemId: undefined,
-        appleExternalId: undefined,
-        occurrenceDate: undefined,
-        syncState: "pending",
-      });
+    this.openTrackedModal(new DeleteCalendarEventConfirmationModal(this.app, this.draft, this.initialSource === "linked", async () => {
+      try {
+        await this.actions.detachCalendarEvent!(this.draft, CALENDAR_EVENT_DELETE_CONFIRMATION);
+      } catch (error) {
+        if (error instanceof CalendarPartialActionError) this.close();
+        throw error;
+      }
+      new Notice(this.initialSource === "linked"
+        ? "Calendar event deleted; note kept as Vault only."
+        : "Deleted from Calendar.");
       this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not recreate Calendar copy");
-    }
+    }));
   }
 
-  private async runDetachAction(deleteExternal: boolean, missingActionMessage: string): Promise<void> {
+  private confirmNoteDeletion(): void {
+    if (!this.actions.deleteCalendarEventNote) {
+      new Notice("Delete is unavailable. Reopen calendar and try again.");
+      return;
+    }
+    this.openTrackedModal(new DeleteEventNoteConfirmationModal(this.app, this.draft, this.initialSource === "linked", async () => {
+      await this.actions.deleteCalendarEventNote!(this.draft, CALENDAR_NOTE_DELETE_CONFIRMATION);
+      new Notice("Event note moved to trash.");
+      this.close();
+    }));
+  }
+
+  private async recreateCalendarCopy(): Promise<void> {
+    if (!calendarRecoveryPresentation(this.draft)?.showRecreate) {
+      new Notice("Restore calendar access and retry sync before recreating this event.");
+      return;
+    }
+    const title = this.draft.title.trim();
+    if (!title) return void new Notice("Event title is required");
+    if (!this.refreshRangeValidation(true)) return;
+    const defaultCalendar = this.defaultCalendar;
+    if (!defaultCalendar) {
+      return void new Notice("Choose a writable default calendar in OMD Home settings first");
+    }
+    if (!this.actions.recreateCalendarEvent) {
+      new Notice("Recreate is unavailable. Reopen the calendar and try again.");
+      return;
+    }
+    this.openTrackedModal(new RecreateCalendarConfirmationModal(this.app, this.draft, defaultCalendar, async () => {
+      await this.actions.recreateCalendarEvent!(
+        { ...this.draft, title },
+        CALENDAR_RECREATE_CONFIRMATION,
+        defaultCalendar.id,
+        defaultCalendar.selectedCalendarIds,
+      );
+      this.close();
+    }));
+  }
+
+  private openTrackedModal<T extends Modal>(modal: T): void {
+    if (!this.actions.trackModal) {
+      modal.open();
+      return;
+    }
+    this.actions.trackModal(modal)?.open();
+  }
+
+  private async retryCalendarSync(): Promise<void> {
+    if (!this.actions.synchronizeCalendarEvents) {
+      new Notice("Sync is unavailable. Reopen the calendar and try again.");
+      return;
+    }
+    await runCalendarModalAction(this, async () => {
+      const summary = await this.actions.synchronizeCalendarEvents!();
+      new Notice(calendarSyncResultMessage(summary));
+    }, "Could not sync Calendar");
+  }
+
+  private async runDetachAction(confirmation: CalendarDetachConfirmation, missingActionMessage: string): Promise<void> {
     if (!this.actions.detachCalendarEvent) {
       new Notice(missingActionMessage);
       return;
     }
-    try {
-      await this.actions.detachCalendarEvent(this.draft, deleteExternal);
-      this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not update Calendar link");
-    }
+    await runCalendarModalAction(this,
+      () => this.actions.detachCalendarEvent!(this.draft, confirmation),
+      "Could not update Calendar link");
   }
 
   private async saveDraft(): Promise<void> {
@@ -509,44 +1022,86 @@ class EventEditorModal extends Modal {
     if (blockReason) return void new Notice(blockReason);
     const title = this.draft.title.trim();
     if (!title) return void new Notice("Event title is required");
-    const validationError = validateCalendarEventRange(this.draft.start, this.draft.end);
-    if (validationError) return void new Notice(validationError);
+    if (!this.refreshRangeValidation(true)) return;
     if (this.draft.source === "linked" && !this.draft.appleCalendarId && !this.defaultCalendar) {
       return void new Notice("Choose a writable default calendar in OMD Home settings first");
     }
-    try {
-      await this.onSave({ ...this.draft, title });
-      this.close();
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Could not save event");
-    }
+    await runCalendarModalAction(this, () => this.onSave({ ...this.draft, title }), "Could not save event");
+  }
+}
+
+const pendingCalendarActions = new WeakSet<Modal>();
+
+async function runCalendarModalAction(modal: Modal, action: () => Promise<void>, failureMessage: string): Promise<void> {
+  if (calendarModalActionGuards.get(modal)?.() === false) {
+    modal.close();
+    return;
+  }
+  if (pendingCalendarActions.has(modal)) return;
+  pendingCalendarActions.add(modal);
+  const controls = Array.from(modal.contentEl.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>("input, select, button"))
+    .map((control) => ({ control, disabled: control.disabled }));
+  for (const { control } of controls) control.disabled = true;
+  modal.contentEl.setAttribute("aria-busy", "true");
+  try {
+    await action();
+    modal.close();
+  } catch (error) {
+    if (error instanceof CalendarPartialActionError) modal.close();
+    new Notice(error instanceof Error ? error.message : failureMessage);
+  } finally {
+    for (const { control, disabled } of controls) control.disabled = disabled;
+    modal.contentEl.removeAttribute("aria-busy");
+    pendingCalendarActions.delete(modal);
   }
 }
 
 export interface CalendarEditorCapabilities {
   showSave: boolean;
   showDelete: boolean;
+  showDeleteNote: boolean;
+  showDetach: boolean;
   showDestination: boolean;
   showCreateLinkedNote: boolean;
+  showRecreate: boolean;
+  showRetrySync: boolean;
 }
 
 export function calendarEditorCapabilities(event: CalendarEventRecord): CalendarEditorCapabilities {
-  const unavailableLinked = event.source === "linked" && event.syncState === "unavailable";
+  const recoveryLinked = event.source === "linked"
+    && (event.syncState === "unavailable" || event.syncState === "error");
   const readOnlyExternal = event.source === "external" && Boolean(event.readOnly);
+  const readOnlyLinked = event.source === "linked" && Boolean(event.readOnly);
+  const recovery = calendarRecoveryPresentation(event);
   return {
-    showSave: !unavailableLinked && !readOnlyExternal,
+    showSave: !recoveryLinked && !readOnlyExternal && !readOnlyLinked,
     showDelete: Boolean(event.appleItemId)
       && !event.readOnly
       && event.syncState !== "error"
       && event.syncState !== "unavailable",
-    showDestination: !unavailableLinked && !readOnlyExternal,
+    showDeleteNote: event.source !== "external" && Boolean(event.notePath),
+    showDetach: event.source === "linked" && !isCalendarNoteErrorRecord(event),
+    showDestination: !recoveryLinked && !readOnlyExternal && !readOnlyLinked,
     showCreateLinkedNote: readOnlyExternal,
+    showRecreate: event.syncState === "unavailable" && Boolean(recovery?.showRecreate),
+    showRetrySync: recoveryLinked && Boolean(recovery?.showRetrySync),
   };
 }
 
 export function calendarEditorSaveBlockReason(event: CalendarEventRecord): string | undefined {
-  if (event.source === "linked" && event.syncState === "unavailable") {
-    return "This Calendar event is unavailable. Use Recreate or Detach instead of Save";
+  if (event.source === "linked" && (event.syncState === "unavailable" || event.syncState === "error")) {
+    const recovery = calendarRecoveryPresentation(event);
+    if (event.syncState === "error") {
+      if (isCalendarNoteErrorRecord(event)) {
+        return "Fix the event note and Retry Sync, or Delete event note";
+      }
+      return event.unavailableReason === "setup-or-read-failure"
+        ? "Check Calendar setup and Retry Sync, or Detach the note"
+        : "Review the event note and Retry Sync, or Detach the note";
+    }
+    return recovery?.showRecreate
+      ? "Use Retry Sync, Recreate or Detach instead of ordinary Save"
+      : "Restore Calendar access and Retry Sync, or Detach the note";
   }
   if (event.source === "external" && event.readOnly) {
     return "This Calendar is read-only. Create a linked vault note instead";
@@ -557,6 +1112,7 @@ export function calendarEditorSaveBlockReason(event: CalendarEventRecord): strin
 interface WritableDefaultCalendar {
   id: string;
   title: string;
+  selectedCalendarIds: readonly string[];
 }
 
 interface CalendarDestinationOption {
@@ -565,20 +1121,38 @@ interface CalendarDestinationOption {
 }
 
 export interface CalendarViewPluginActions {
-  synchronizeCalendarEvents?: () => Promise<void>;
-  detachCalendarEvent?: (event: CalendarEventRecord, deleteExternal: boolean) => Promise<void>;
+  synchronizeCalendarEvents?: () => Promise<CalendarSyncSummary>;
+  detachCalendarEvent?: (event: CalendarEventRecord, confirmation: CalendarDetachConfirmation) => Promise<void>;
+  deleteCalendarEventNote?: (event: CalendarEventRecord, confirmation: CalendarNoteDeleteConfirmation) => Promise<void>;
+  recreateCalendarEvent?: (
+    event: CalendarEventRecord,
+    confirmation: CalendarRecreateConfirmation,
+    targetCalendarId: string,
+    selectedCalendarIds: readonly string[],
+  ) => Promise<void>;
 }
 
 interface CalendarEditorActions {
-  detachCalendarEvent?: (event: CalendarEventRecord, deleteExternal: boolean) => Promise<void>;
+  detachCalendarEvent?: (event: CalendarEventRecord, confirmation: CalendarDetachConfirmation) => Promise<void>;
+  deleteCalendarEventNote?: (event: CalendarEventRecord, confirmation: CalendarNoteDeleteConfirmation) => Promise<void>;
+  recreateCalendarEvent?: (
+    event: CalendarEventRecord,
+    confirmation: CalendarRecreateConfirmation,
+    targetCalendarId: string,
+    selectedCalendarIds: readonly string[],
+  ) => Promise<void>;
+  synchronizeCalendarEvents?: () => Promise<CalendarSyncSummary>;
+  trackModal?: <T extends Modal>(modal: T) => T | null;
 }
 
 export function destinationOptions(
   source: EventSource,
   defaultCalendarTitle?: string,
+  linkedCalendarTitle?: string,
 ): CalendarDestinationOption[] {
-  const linkedLabel = defaultCalendarTitle
-    ? `Vault + ${defaultCalendarTitle}`
+  const destinationCalendarTitle = source === "linked" ? linkedCalendarTitle : defaultCalendarTitle;
+  const linkedLabel = destinationCalendarTitle
+    ? `Vault + ${destinationCalendarTitle}`
     : "Vault + default Calendar (choose in settings)";
   if (source === "external") {
     return [
@@ -593,9 +1167,12 @@ export function destinationOptions(
   ];
 }
 
-function destinationDescription(source: EventSource): string {
+function destinationDescription(source: EventSource, linkedCalendarTitle?: string): string {
   if (source === "external") return "Keep this as a Calendar event, or create a linked note for it.";
-  if (source === "linked") return "Linked events stay linked here. Use the explicit actions below to detach, delete, or recreate the Calendar copy.";
+  if (source === "linked") {
+    const destination = linkedCalendarTitle ?? "its current Calendar";
+    return `Save keeps this linked event in ${destination}. Changing the default Calendar does not move it.`;
+  }
   return "Keep a Markdown-only event, or link the note to the writable default macOS Calendar.";
 }
 
@@ -663,17 +1240,29 @@ function resolveWritableDefaultCalendar(
   calendars: ExternalCalendarDescriptor[],
   settings: Pick<OmdHomePlugin["settings"], "defaultExternalCalendarId" | "selectedCalendarIds">,
 ): WritableDefaultCalendar | null {
+  const selectedCalendarIds = [...new Set(settings.selectedCalendarIds)].sort();
   const defaultCalendar = calendars.find((calendar) => (
     calendar.id === settings.defaultExternalCalendarId
     && calendar.allowsModifications
-    && settings.selectedCalendarIds.includes(calendar.id)
+    && selectedCalendarIds.includes(calendar.id)
   ));
-  return defaultCalendar ? { id: defaultCalendar.id, title: defaultCalendar.title } : null;
+  return defaultCalendar
+    ? { id: defaultCalendar.id, title: defaultCalendar.title, selectedCalendarIds }
+    : null;
 }
 
-function calendarEditorActions(plugin: OmdHomePlugin): CalendarEditorActions {
+function calendarEditorActions(
+  plugin: OmdHomePlugin,
+  trackModal: <T extends Modal>(modal: T) => T | null,
+): CalendarEditorActions {
   const actions = plugin as OmdHomePlugin & CalendarViewPluginActions;
-  return { detachCalendarEvent: actions.detachCalendarEvent?.bind(plugin) };
+  return {
+    detachCalendarEvent: actions.detachCalendarEvent?.bind(plugin),
+    deleteCalendarEventNote: actions.deleteCalendarEventNote?.bind(plugin),
+    recreateCalendarEvent: actions.recreateCalendarEvent?.bind(plugin),
+    synchronizeCalendarEvents: actions.synchronizeCalendarEvents?.bind(plugin),
+    trackModal,
+  };
 }
 
 function toFullCalendarEvent(event: CalendarEventRecord): Record<string, unknown> {
@@ -684,7 +1273,12 @@ function toFullCalendarEvent(event: CalendarEventRecord): Record<string, unknown
     end: event.end,
     allDay: event.allDay,
     editable: calendarEventEditable(event),
-    extendedProps: { source: event.source, syncState: event.syncState, notePath: event.notePath },
+    extendedProps: {
+      source: event.source,
+      syncState: event.syncState,
+      unavailableReason: event.unavailableReason,
+      notePath: event.notePath,
+    },
   };
 }
 
@@ -696,31 +1290,39 @@ export function calendarEventEditable(event: Pick<CalendarEventRecord, "source" 
 export function requiresSyncBeforeEdit(
   event: Pick<CalendarEventRecord, "syncState" | "pendingDirection">,
 ): boolean {
-  return event.syncState === "error"
-    || (event.syncState === "pending" && event.pendingDirection === "external");
+  return event.syncState === "pending" && event.pendingDirection === "external";
 }
 
-function legendFilterButton(
+function sourceFilterButton(
   container: HTMLElement,
   enabledSources: ReadonlySet<EventSource>,
   source: EventSource,
-  label: string,
   onClick: () => void,
 ): void {
+  const presentation = eventSourcePresentation(source);
   const button = container.createEl("button", {
-    cls: "omd-legend-item omd-calendar-filter-button",
-    text: label,
+    cls: "omd-calendar-filter-button",
     type: "button",
   });
   button.dataset.source = source;
-  button.prepend(createSpan({ cls: `omd-source-mark is-${source}` }));
-  button.ariaPressed = String(enabledSources.has(source));
-  button.title = `${enabledSources.has(source) ? "Hide" : "Show"} ${label.toLowerCase()} events`;
+  const marker = button.createSpan({ cls: `omd-source-mark is-${source}` });
+  marker.setAttribute("aria-hidden", "true");
+  const copy = button.createSpan({ cls: "omd-calendar-source-copy" });
+  copy.createSpan({ cls: "omd-calendar-source-label", text: presentation.label });
+  copy.createSpan({ cls: "omd-calendar-source-description", text: presentation.description });
+  updateSourceFilterButton(button, enabledSources, source);
   button.addEventListener("click", onClick);
 }
 
-function sourceLabel(source: EventSource): string {
-  if (source === "vault") return "vault";
-  if (source === "external") return "calendar";
-  return "linked";
+function updateSourceFilterButton(
+  button: HTMLButtonElement,
+  enabledSources: ReadonlySet<EventSource>,
+  source: EventSource,
+): void {
+  const state = eventSourceFilterControlState(enabledSources, source);
+  button.disabled = false;
+  button.setAttribute("aria-disabled", String(state.disabled));
+  button.ariaPressed = String(state.enabled);
+  button.ariaLabel = state.ariaLabel;
+  button.title = state.title;
 }

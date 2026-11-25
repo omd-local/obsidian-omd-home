@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OmdCapabilityService } from "../src/enrichment/capability.ts";
+import { createCaptureRequest } from "../src/capture-request.ts";
+import {
+  omdCapabilityIdentityLabel,
+  OmdCapabilityService,
+} from "../src/enrichment/capability.ts";
 
 test("capability service caches successful enrich-note probes", async () => {
   let calls = 0;
@@ -25,6 +29,147 @@ test("capability service rejects unsupported enrich-note versions", async () => 
     code: 0,
   }));
   await assert.rejects(service.requireEnrichNote("omd"), /does not support enrich-note schema v1/i);
+});
+
+test("local Ollama transport capability fails closed before note content can be sent", async () => {
+  const legacy = new OmdCapabilityService(async () => ({
+    stdout: '{"enrich_note":{"supported":true,"schema_versions":[1]}}',
+    stderr: "",
+    code: 0,
+  }));
+  await assert.rejects(
+    legacy.requireLocalOllamaTransport("omd"),
+    /Update OMD, run Check setup.*No note content was sent/iu,
+  );
+
+  const hardened = new OmdCapabilityService(async () => ({
+    stdout: '{"enrich_note":{"supported":true,"schema_versions":[1]},"local_ollama_transport":{"version":1}}',
+    stderr: "",
+    code: 0,
+  }));
+  assert.equal((await hardened.requireLocalOllamaTransport("omd")).local_ollama_transport?.version, 1);
+});
+
+test("local transport gate re-probes an executable replaced at the same path", async () => {
+  let hardened = true;
+  let calls = 0;
+  const service = new OmdCapabilityService(async () => {
+    calls += 1;
+    return {
+      stdout: JSON.stringify({
+        enrich_note: { supported: true, schema_versions: [1] },
+        ...(hardened ? { local_ollama_transport: { version: 1 } } : {}),
+      }),
+      stderr: "",
+      code: 0,
+    };
+  });
+
+  await service.requireLocalOllamaTransport("/usr/local/bin/omd");
+  hardened = false;
+  await assert.rejects(
+    service.requireLocalOllamaTransport("/usr/local/bin/omd"),
+    /cannot prove hardened local Ollama transport/iu,
+  );
+  assert.equal(calls, 2);
+});
+
+test("local transport gate rejects invalid and downgraded capability versions", async () => {
+  for (const local_ollama_transport of [
+    { version: 0 },
+    { version: -1 },
+    { version: "1" },
+  ]) {
+    const service = new OmdCapabilityService(async () => ({
+      stdout: JSON.stringify({
+        enrich_note: { supported: true, schema_versions: [1] },
+        local_ollama_transport,
+      }),
+      stderr: "",
+      code: 0,
+    }));
+    await assert.rejects(
+      service.requireLocalOllamaTransport("omd"),
+      /capabilities\.local_ollama_transport\.version|hardened local Ollama transport/iu,
+    );
+  }
+});
+
+test("recognition capability rejects enrich-only OMD builds and accepts the capture language contract", async () => {
+  const enrichOnly = new OmdCapabilityService(async () => ({
+    stdout: "{\"enrich_note\":{\"supported\":true,\"schema_versions\":[1]}}",
+    stderr: "",
+    code: 0,
+  }));
+  await assert.rejects(
+    enrichOnly.requireRecognitionCapability("/opt/homebrew/bin/omd"),
+    /does not advertise capture language options/i,
+  );
+
+  const complete = new OmdCapabilityService(async () => ({
+    stdout: JSON.stringify(languageCapabilities()),
+    stderr: "",
+    code: 0,
+  }));
+  const capability = await complete.requireRecognitionCapability("/compatible/bin/omd");
+  assert.equal(capability.capture_language_options?.supported, true);
+});
+
+test("social capture requires the exact additive share-text and provider flag contract", async () => {
+  const supported = new OmdCapabilityService(async () => ({
+    stdout: JSON.stringify({
+      ...languageCapabilities(),
+      capture_auth_options: {
+        share_text: { supported: true, requires_single_http_url: true },
+        platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+      },
+    }),
+    stderr: "",
+    code: 0,
+  }));
+  assert.equal(
+    (await supported.requireSocialCaptureAuth("omd", "douyin")).capture_auth_options?.platform_cookie_flags.douyin,
+    "--douyin-cookies",
+  );
+  await supported.requireSocialCaptureAuth("omd", "xhs");
+
+  for (const capture_auth_options of [
+    undefined,
+    {
+      share_text: { supported: false, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: false },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--cookies", xhs: "--xhs-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies" },
+    },
+    {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--cookies" },
+    },
+  ]) {
+    const service = new OmdCapabilityService(async () => ({
+      stdout: JSON.stringify({ ...languageCapabilities(), ...(capture_auth_options ? { capture_auth_options } : {}) }),
+      stderr: "",
+      code: 0,
+    }));
+    await assert.rejects(
+      service.requireSocialCaptureAuth("omd", "douyin"),
+      /Update OMD, run Check setup/iu,
+    );
+    await assert.rejects(
+      service.requireSocialCaptureAuth("omd", "xhs"),
+      /Update OMD, run Check setup/iu,
+    );
+  }
 });
 
 test("capability service maps missing executable errors", async () => {
@@ -65,6 +210,104 @@ test("capability service caches a failed probe until retry clears it", async () 
   assert.equal(calls, 2);
 });
 
+test("a cancelled capability probe is not retained as a stale rejected cache entry", async () => {
+  let calls = 0;
+  const service = new OmdCapabilityService(async (_command, _args, options) => {
+    calls += 1;
+    if (calls === 1) {
+      return await new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        }, { once: true });
+      });
+    }
+    return {
+      stdout: JSON.stringify(languageCapabilities()),
+      stderr: "",
+      code: 0,
+    };
+  });
+  const request = createCaptureRequest({
+    source: "image.png",
+    ocr: { mode: "preset", language: "eng" },
+  });
+  const controller = new AbortController();
+  const cancelled = service.requireCaptureLanguages("omd", request, controller.signal);
+  controller.abort();
+  await assert.rejects(cancelled, /cancelled/iu);
+
+  await service.requireCaptureLanguages("omd", request);
+  assert.equal(calls, 2);
+});
+
+test("one cancelled waiter does not abort a shared capability probe", async () => {
+  let calls = 0;
+  let aborts = 0;
+  let finish!: (result: { stdout: string; stderr: string; code: number }) => void;
+  const pendingResult = new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+    finish = resolve;
+  });
+  const service = new OmdCapabilityService(async (_command, _args, options) => {
+    calls += 1;
+    options?.signal?.addEventListener("abort", () => { aborts += 1; }, { once: true });
+    return await pendingResult;
+  });
+  const firstController = new AbortController();
+  const first = service.requireEnrichNote("omd", firstController.signal);
+  const second = service.requireEnrichNote("omd");
+
+  firstController.abort();
+  await assert.rejects(first, /cancelled/iu);
+  finish({ stdout: JSON.stringify(languageCapabilities()), stderr: "", code: 0 });
+  await second;
+
+  assert.equal(calls, 1);
+  assert.equal(aborts, 0);
+});
+
+test("an aborted waiter does not evict an already-settled capability", async () => {
+  let calls = 0;
+  const service = new OmdCapabilityService(async () => {
+    calls += 1;
+    return { stdout: JSON.stringify(languageCapabilities()), stderr: "", code: 0 };
+  });
+  await service.requireEnrichNote("omd");
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(service.requireEnrichNote("omd", controller.signal), /cancelled/iu);
+  await service.requireEnrichNote("omd");
+  assert.equal(calls, 1);
+});
+
+test("an explicit retry can replace a cached language-contract failure after OMD updates in place", async () => {
+  let updated = false;
+  let calls = 0;
+  const service = new OmdCapabilityService(async () => {
+    calls += 1;
+    return {
+      stdout: JSON.stringify(updated
+        ? languageCapabilities()
+        : { enrich_note: { supported: true, schema_versions: [1] } }),
+      stderr: "",
+      code: 0,
+    };
+  });
+  const request = createCaptureRequest({
+    source: "image.png",
+    ocr: { mode: "preset", language: "eng" },
+  });
+
+  await assert.rejects(service.requireCaptureLanguages("/usr/local/bin/omd", request), /newer OMD build/iu);
+  updated = true;
+  await assert.rejects(service.requireCaptureLanguages("/usr/local/bin/omd", request), /newer OMD build/iu);
+  service.clear("/usr/local/bin/omd");
+  await service.requireCaptureLanguages("/usr/local/bin/omd", request);
+  assert.equal(calls, 2);
+});
+
 test("capability service maps malformed JSON and timeouts", async () => {
   const malformed = new OmdCapabilityService(async () => ({
     stdout: "{",
@@ -78,3 +321,127 @@ test("capability service maps malformed JSON and timeouts", async () => {
   });
   await assert.rejects(timeout.requireEnrichNote("omd"), /timed out after five seconds/i);
 });
+
+test("capability identity labels package, protocol, and optional build without inventing legacy metadata", () => {
+  assert.equal(
+    omdCapabilityIdentityLabel({
+      package_version: "0.4.0",
+      protocol_version: 1,
+      build_revision: "abc123",
+    }),
+    "package 0.4.0 · protocol v1 · build abc123",
+  );
+  assert.equal(omdCapabilityIdentityLabel({}), "");
+});
+
+test("inherited recognition remains compatible without probing legacy OMD capabilities", async () => {
+  let calls = 0;
+  const service = new OmdCapabilityService(async () => {
+    calls += 1;
+    throw new Error("legacy executable should not be probed for language capabilities");
+  });
+  const request = createCaptureRequest({
+    source: "image.png",
+    tags: [],
+    polish: false,
+    suggest: false,
+  });
+
+  await service.requireCaptureLanguages("legacy-omd", request);
+  assert.equal(calls, 0);
+});
+
+test("explicit OCR and ASR overrides require and accept the frozen language contract", async () => {
+  let calls = 0;
+  const service = new OmdCapabilityService(async () => {
+    calls += 1;
+    return {
+      stdout: JSON.stringify(languageCapabilities()),
+      stderr: "",
+      code: 0,
+    };
+  });
+  const request = createCaptureRequest({
+    source: "media.mp4",
+    tags: [],
+    polish: false,
+    suggest: false,
+    ocr: { mode: "preset", language: "chi_sim+eng" },
+    asr: { mode: "auto-detect" },
+  });
+
+  await service.requireCaptureLanguages("omd", request);
+  await service.requireCaptureLanguages("omd", request);
+  assert.equal(calls, 1);
+});
+
+test("explicit language overrides explain that an older OMD must be updated", async () => {
+  const service = new OmdCapabilityService(async () => ({
+    stdout: JSON.stringify({ enrich_note: { supported: true, schema_versions: [1] } }),
+    stderr: "",
+    code: 0,
+  }));
+  const request = createCaptureRequest({
+    source: "image.png",
+    tags: [],
+    polish: false,
+    suggest: false,
+    ocr: { mode: "preset", language: "eng" },
+  });
+
+  await assert.rejects(
+    service.requireCaptureLanguages("old-omd", request),
+    /requires a newer OMD build.+choose No language preference or update OMD/iu,
+  );
+});
+
+test("capture language gating rejects contracts that cannot accept Home's exact argv", async () => {
+  const unsupportedOcrFlag = languageCapabilities();
+  unsupportedOcrFlag.capture_language_options.ocr.aliases = ["--lang"];
+  const ocrService = new OmdCapabilityService(async () => ({
+    stdout: JSON.stringify(unsupportedOcrFlag), stderr: "", code: 0,
+  }));
+  const ocrRequest = createCaptureRequest({
+    source: "image.png", tags: [], polish: false, suggest: false,
+    ocr: { mode: "preset", language: "eng" },
+  });
+  await assert.rejects(ocrService.requireCaptureLanguages("omd", ocrRequest), /--ocr-lang/iu);
+
+  const unsupportedAsrMode = languageCapabilities();
+  unsupportedAsrMode.capture_language_options.asr.modes = ["inherit-adapter-default", "explicit"];
+  const asrService = new OmdCapabilityService(async () => ({
+    stdout: JSON.stringify(unsupportedAsrMode), stderr: "", code: 0,
+  }));
+  const asrRequest = createCaptureRequest({
+    source: "audio.mp3", tags: [], polish: false, suggest: false,
+    asr: { mode: "auto-detect" },
+  });
+  await assert.rejects(asrService.requireCaptureLanguages("omd", asrRequest), /auto-detect/iu);
+});
+
+function languageCapabilities() {
+  return {
+    package_version: "0.4.0",
+    protocol_version: 1,
+    build_revision: null,
+    config_schema: { current_version: 1, supported_versions: [1] },
+    capture_language_options: {
+      ocr: {
+        argument: "--ocr-language",
+        aliases: ["--ocr-lang", "--lang"],
+        composite: true,
+        separator: "+",
+        presets: [
+          { id: "english", label: "English", value: "eng" },
+          { id: "simplified-chinese-english", label: "Simplified Chinese + English", value: "chi_sim+eng" },
+          { id: "traditional-chinese-english", label: "Traditional Chinese + English", value: "chi_tra+eng" },
+        ],
+      },
+      asr: {
+        argument: "--whisper-lang",
+        modes: ["inherit-adapter-default", "auto-detect", "explicit"],
+      },
+    },
+    enrich_note: { supported: true, schema_versions: [1] },
+  };
+}

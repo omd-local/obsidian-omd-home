@@ -1,6 +1,6 @@
 import { sha256HexUtf8 } from "./contract.ts";
 import { OmdEnrichmentError } from "./errors.ts";
-import { upsertManagedLinksBlock } from "./managed-block.ts";
+import { upsertManagedEnrichmentBlocks, validateManagedSummaryText } from "./managed-block.ts";
 
 export interface ApplyLinkCandidate {
   id: string;
@@ -15,10 +15,13 @@ export interface ApplyEnrichmentPlan {
   linkCandidates: ApplyLinkCandidate[];
   selectedCandidateIds: string[];
   selectedTags: string[];
+  selectedSummary?: string;
+  /** Applying suggestions and completing review are separate decisions. */
+  markReviewed: boolean;
 }
 
 export type ApplyEnrichmentResult =
-  | { status: "applied"; appliedLinks: number; appliedTags: number; changedBody: boolean }
+  | { status: "applied"; appliedLinks: number; appliedTags: number; appliedSummary: boolean; changedBody: boolean }
   | { status: "conflict"; message: string; changedBody: false }
   | { status: "failed"; message: string; changedBody: false }
   | { status: "partial-failure"; message: string; changedBody: true };
@@ -27,7 +30,7 @@ export interface ApplyServices<FileRef> {
   resolveMarkdown(path: string): Promise<FileRef | null>;
   validate(file: FileRef): Promise<boolean>;
   read(file: FileRef): Promise<string>;
-  process(file: FileRef, update: (current: string) => string): Promise<void>;
+  process(file: FileRef, update: (current: string) => string): Promise<FileRef>;
   processFrontMatter(file: FileRef, update: (frontmatter: Record<string, unknown>) => void): Promise<void>;
   generateMarkdownLink(file: FileRef, sourcePath: string, display: string): string;
   contentHash?: (content: string) => string;
@@ -39,15 +42,17 @@ export async function applyEnrichmentSelection<FileRef>(
 ): Promise<ApplyEnrichmentResult> {
   const selectedIds = unique(plan.selectedCandidateIds);
   const selectedTags = normalizeFrontmatterTags(plan.selectedTags);
-  if (selectedIds.length + selectedTags.length === 0) {
-    throw new OmdEnrichmentError("invalid_request", "Choose at least one link or tag before applying.");
+  const selectedSummary = normalizeSelectedSummary(plan.selectedSummary);
+  const markReviewed = plan.markReviewed;
+  if (selectedIds.length + selectedTags.length === 0 && selectedSummary === undefined) {
+    throw new OmdEnrichmentError("invalid_request", "Choose at least one summary, link, or tag before applying.");
   }
   const hash = services.contentHash ?? sha256HexUtf8;
   if (hash(plan.originalContent) !== plan.originalHash) {
     throw new OmdEnrichmentError("invalid_request", "The proposal snapshot hash is invalid. Generate a fresh proposal.");
   }
 
-  const target = await services.resolveMarkdown(plan.targetPath);
+  let target = await services.resolveMarkdown(plan.targetPath);
   if (!target) return conflict("The target note is no longer available. Generate a fresh proposal.");
 
   const candidatesById = new Map(plan.linkCandidates.map((candidate) => [candidate.id, candidate]));
@@ -71,33 +76,34 @@ export async function applyEnrichmentSelection<FileRef>(
 
   let intermediateContent = plan.originalContent;
   let changedBody = false;
-  if (selectedCandidates.length > 0) {
-    const links = selectedCandidates.map(({ candidate, file }) => {
+  if (selectedCandidates.length > 0 || selectedSummary !== undefined) {
+    const links = selectedCandidates.length > 0 ? selectedCandidates.map(({ candidate, file }) => {
       const markdownLink = services.generateMarkdownLink(file, plan.targetPath, candidate.display).trim();
       if (!markdownLink || /[\r\n]/u.test(markdownLink)) {
         throw new OmdEnrichmentError("apply_failed", "Obsidian could not generate a safe Markdown link for one selection.");
       }
       return `- ${markdownLink}`;
-    });
+    }) : undefined;
     let hashConflict = false;
     try {
-      await services.process(target, (current) => {
+      target = await services.process(target, (current) => {
         if (hash(current) !== plan.originalHash) {
           hashConflict = true;
           return current;
         }
-        const result = upsertManagedLinksBlock(current, links);
+        const result = upsertManagedEnrichmentBlocks(current, { links, summary: selectedSummary });
         if (!result.ok) throw new OmdEnrichmentError("apply_failed", result.message);
         intermediateContent = result.content;
         changedBody = result.changed;
         return result.content;
       });
     } catch (error) {
+      if (changedBody) return partialFailure(plan.targetPath);
       if (error instanceof OmdEnrichmentError && error.code === "note_conflict") {
         return conflict("The target note changed after its path was validated. Generate a fresh proposal.");
       }
       if (error instanceof OmdEnrichmentError) throw error;
-      throw new OmdEnrichmentError("apply_failed", "OMD Home could not write the managed links block.", { cause: error as Error });
+      throw new OmdEnrichmentError("apply_failed", "OMD Home could not write the selected note changes.", { cause: error as Error });
     }
     if (hashConflict) return conflict("The note changed after the proposal was generated. Generate again before applying.");
   } else {
@@ -117,10 +123,20 @@ export async function applyEnrichmentSelection<FileRef>(
     return partialFailure(plan.targetPath);
   }
 
+  if (selectedTags.length === 0 && !markReviewed) {
+    return {
+      status: "applied",
+      appliedLinks: selectedCandidates.length,
+      appliedTags: 0,
+      appliedSummary: selectedSummary !== undefined,
+      changedBody,
+    };
+  }
+
   try {
     await services.processFrontMatter(target, (frontmatter) => {
       if (selectedTags.length > 0) frontmatter.tags = mergeTags(frontmatter.tags, selectedTags);
-      frontmatter.omd_home_status = "reviewed";
+      if (markReviewed) frontmatter.omd_home_status = "reviewed";
     });
   } catch (error) {
     if (error instanceof OmdEnrichmentError && error.code === "note_conflict") {
@@ -132,7 +148,7 @@ export async function applyEnrichmentSelection<FileRef>(
     }
     const rolledBack = await guardedRollback(target, intermediateContent, plan.originalContent, services);
     if (rolledBack) {
-      return { status: "failed", changedBody: false, message: "Frontmatter could not be updated, so the managed links change was rolled back." };
+      return { status: "failed", changedBody: false, message: "Properties could not be updated, so the selected note changes were rolled back." };
     }
     return partialFailure(plan.targetPath);
   }
@@ -141,6 +157,7 @@ export async function applyEnrichmentSelection<FileRef>(
     status: "applied",
     appliedLinks: selectedCandidates.length,
     appliedTags: selectedTags.length,
+    appliedSummary: selectedSummary !== undefined,
     changedBody,
   };
 }
@@ -212,6 +229,13 @@ function containsInvalidTagCharacter(value: string): boolean {
   return false;
 }
 
+function normalizeSelectedSummary(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const validated = validateManagedSummaryText(value);
+  if (!validated.ok) throw new OmdEnrichmentError("invalid_request", validated.message);
+  return validated.summary;
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -224,7 +248,7 @@ function partialFailure(targetPath: string): ApplyEnrichmentResult {
   return {
     status: "partial-failure",
     changedBody: true,
-    message: `Links may be present in ${targetPath}, but frontmatter was not finalized. Review the managed Related notes block before retrying.`,
+    message: `Some selected content may be present in ${targetPath}, but its Properties were not finalized. Open the note and review Summary, Related notes, and Properties before generating again.`,
   };
 }
 

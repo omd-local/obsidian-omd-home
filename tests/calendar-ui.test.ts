@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calendarConflictVersionFields,
   calendarEditorInputValue,
   calendarEditorRangeForMode,
   calendarEditorStoredValue,
+  calendarRangeValidationTarget,
+  calendarRangeValidationMessage,
+  calendarRecoveryRecords,
+  calendarRecoveryPresentation,
+  deviceTimeZoneName,
+  deviceTimeZoneDescription,
   eventMatchesSourceFilter,
+  eventSourceFilterControlState,
+  eventSourceFilterSummary,
+  eventSourceKeyAccessibleLabel,
+  eventSourcePresentation,
   replaceCalendarEvents,
   toggleSourceFilter,
 } from "../src/calendar-ui.ts";
@@ -33,6 +44,141 @@ test("source filters never disable every source at once", () => {
   const vaultOnly = new Set(["vault"] as const);
   assert.deepEqual([...toggleSourceFilter(vaultOnly, "vault")], ["vault"]);
   assert.deepEqual([...toggleSourceFilter(vaultOnly, "external")].sort(), ["external", "vault"]);
+  assert.deepEqual(eventSourceFilterControlState(vaultOnly, "vault"), {
+    enabled: true,
+    disabled: true,
+    ariaLabel: "Vault only events shown. At least one source must remain visible. Markdown event note.",
+    title: "At least one event source must remain visible",
+  });
+  assert.equal(eventSourceFilterControlState(vaultOnly, "external").disabled, false);
+});
+
+test("calendar source presentation stays consistent across Calendar and Home", () => {
+  assert.deepEqual(eventSourcePresentation("vault"), {
+    label: "Vault only",
+    description: "Markdown event note",
+    glyph: "□",
+  });
+  assert.deepEqual(eventSourcePresentation("external"), {
+    label: "Calendar only",
+    description: "macOS Calendar event",
+    glyph: "■",
+  });
+  assert.deepEqual(eventSourcePresentation("linked"), {
+    label: "Linked",
+    description: "Note synced with Calendar",
+    glyph: "◧",
+  });
+  assert.equal(eventSourceFilterSummary(new Set(["vault", "external", "linked"])), "Sources · All");
+  assert.equal(eventSourceFilterSummary(new Set(["vault", "linked"])), "Sources · 2 of 3");
+  assert.equal(
+    eventSourceKeyAccessibleLabel(),
+    "Event source key. Vault only: Markdown event note. Calendar only: macOS Calendar event. Linked: Note synced with Calendar.",
+  );
+});
+
+test("event editor names the device timezone and explains range errors by mode", () => {
+  assert.equal(
+    deviceTimeZoneDescription("Pacific/Auckland"),
+    "Times use this device's time zone: Pacific/Auckland.",
+  );
+  assert.equal(
+    calendarRangeValidationMessage("End must be after start", false),
+    "Choose an End time after Start.",
+  );
+  assert.equal(
+    calendarRangeValidationMessage("End must be after start", true),
+    "Choose an End date after Start. For a one-day event, choose the next date.",
+  );
+  assert.equal(calendarRangeValidationMessage(null, true), null);
+  assert.equal(calendarRangeValidationTarget("Start must be an ISO date or timestamp"), "start");
+  assert.equal(calendarRangeValidationTarget("End must be after start"), "end");
+  assert.equal(calendarRangeValidationTarget("Start and end must both be ISO dates or both be timestamps"), "both");
+});
+
+test("Calendar recovery keeps Recreate behind an explicit duplicate-risk confirmation", () => {
+  assert.deepEqual(calendarRecoveryPresentation({
+    syncState: "unavailable",
+    unavailableReason: "confirmed-missing",
+  }), {
+    label: "Calendar event not verified",
+    description: "The saved Calendar identifier may have changed after a move or full sync. Retry Sync, or use Recreate… only after checking that the event is gone in Calendar.",
+    showRecreate: true,
+    showRetrySync: true,
+  });
+  for (const unavailableReason of ["outside-window", "unknown"] as const) {
+    const presentation = calendarRecoveryPresentation({ syncState: "unavailable", unavailableReason });
+    assert.equal(presentation?.showRecreate, true);
+    assert.equal(presentation?.showRetrySync, true);
+  }
+  assert.equal(calendarRecoveryPresentation({
+    syncState: "unavailable", unavailableReason: "calendar-deselected",
+  })?.showRecreate, false);
+  const readFailure = calendarRecoveryPresentation({
+    syncState: "error",
+    unavailableReason: "setup-or-read-failure",
+  });
+  assert.equal(readFailure?.label, "Calendar sync paused");
+  assert.match(readFailure?.description ?? "", /Check Calendar setup/);
+  const linkReview = calendarRecoveryPresentation({ syncState: "error", unavailableReason: "unknown" });
+  assert.equal(linkReview?.label, "Calendar link needs review");
+  assert.doesNotMatch(linkReview?.description ?? "", /Calendar setup/);
+  const invalidNote = calendarRecoveryPresentation({
+    id: "calendar-note-error:Calendar/Events/Broken.md",
+    notePath: "Calendar/Events/Broken.md",
+    syncState: "error",
+    unavailableReason: "unknown",
+  });
+  assert.match(invalidNote?.description ?? "", /Fix the note.*delete the note/);
+  assert.doesNotMatch(invalidNote?.description ?? "", /detach/i);
+  const prefixCollision = calendarRecoveryPresentation({
+    id: "calendar-note-error:user-authored-id",
+    notePath: "Calendar/Events/Valid.md",
+    syncState: "error",
+    unavailableReason: "unknown",
+  });
+  assert.match(prefixCollision?.description ?? "", /detach it/);
+  assert.equal(calendarRecoveryPresentation({ syncState: "unavailable" })?.showRecreate, true);
+  assert.equal(calendarRecoveryPresentation({ syncState: "clean" }), null);
+});
+
+test("Calendar recovery summary includes only linked notes with actionable recovery states", () => {
+  const base = {
+    start: "2026-10-08T10:00:00.000Z",
+    end: "2026-10-08T11:00:00.000Z",
+    allDay: false,
+    calendar: "Work",
+  };
+  const records = calendarRecoveryRecords([
+    { ...base, id: "clean", title: "Clean", source: "linked", syncState: "clean" },
+    { ...base, id: "missing", title: "Missing", source: "linked", syncState: "unavailable" },
+    { ...base, id: "error", title: "Error", source: "linked", syncState: "error" },
+    { ...base, id: "vault", title: "Vault", source: "vault", syncState: "error" },
+  ]);
+  assert.deepEqual(records.map((record) => record.id), ["missing", "error"]);
+});
+
+test("calendar conflict comparison exposes the values needed for a safe choice", () => {
+  assert.deepEqual(calendarConflictVersionFields({
+    title: "CAL-03 – Note 1",
+    start: "2026-10-08",
+    end: "2026-10-09",
+    allDay: true,
+    calendar: "Activity",
+    location: "Vault room",
+  }), [
+    { label: "Title", value: "CAL-03 – Note 1" },
+    { label: "Time", value: "2026-10-08 to 2026-10-09 · end date excluded" },
+    { label: "Calendar", value: "Activity" },
+    { label: "Location", value: "Vault room" },
+  ]);
+  const timed = calendarConflictVersionFields({
+    title: "CAL-03 timed",
+    start: "2026-10-08T10:00:00Z",
+    end: "2026-10-08T11:00:00Z",
+    allDay: false,
+  }, "en-NZ");
+  assert.match(timed[1].value, new RegExp(` · ${deviceTimeZoneName().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "u"));
 });
 
 test("all-day input can be derived from timestamps when toggling modes", () => {

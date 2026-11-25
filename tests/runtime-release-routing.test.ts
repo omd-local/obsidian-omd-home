@@ -1,0 +1,282 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import test from "node:test";
+import ts from "typescript";
+import { captureRequestFromSettings } from "../src/capture-request.ts";
+import { isLocalImageSource, isPluginRecordingWrapperCommand, looksCapturable, normalizeCaptureSource, parseCaptureSourceInput, registeredCommandRefs, recordingQuickActions, resolveRecordingCommand, socialCaptureProvider } from "../src/omnibox-utils.ts";
+
+type Harness = Record<string, any>;
+
+function loadMethods(file: string, names: string[], dependencies: Record<string, unknown> = {}): Harness {
+  const source = ts.createSourceFile(file, readFileSync(resolve(file), "utf8"), ts.ScriptTarget.Latest, true);
+  const members = source.statements.flatMap((node) => ts.isClassDeclaration(node) ? [...node.members] : []);
+  const methods = names.map((name) => {
+    const member = members.find((node) => node.name?.getText(source) === name);
+    assert.ok(member, `Missing production member ${name}`);
+    return member.getText(source);
+  });
+  const compiled = ts.transpileModule(`class Harness { ${methods.join("\n")} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+  return new Function(...Object.keys(dependencies), `${compiled}\nreturn new Harness();`)(...Object.values(dependencies));
+}
+
+test("omnibox captures normalized multilingual PDF paths and file URLs instead of searching them", async () => {
+  for (const [input, expected] of [
+    ['"/Users/example/研究 计划.pdf"', "/Users/example/研究 计划.pdf"],
+    ["file:///Users/example/%E7%A0%94%E7%A9%B6%20%E8%AE%A1%E5%88%92.pdf", "/Users/example/研究 计划.pdf"],
+    ["'https://example.com/%E7%A0%94%E7%A9%B6'", "https://example.com/%E7%A0%94%E7%A9%B6"],
+    ["/Users/example/研究\\ 计划.pdf", "/Users/example/研究 计划.pdf"],
+    ["https://example.com/image.png?download=1", "https://example.com/image.png?download=1"],
+  ]) {
+    const captured: string[] = [];
+    const box = loadMethods("src/omnibox.ts", ["execute"], {
+      isLocalImageSource, looksCapturable, parseCaptureSourceInput, socialCaptureProvider,
+      normalizeCaptureSource,
+      captureRequestFromSettings: (source: string) => ({ source: normalizeCaptureSource(source) }),
+      Notice: class {},
+    });
+    Object.assign(box, {
+      previewTimer: null,
+      input: { value: input },
+      beginSubmission() {},
+      searchVault() { assert.fail(`Capture input routed to search: ${input}`); },
+      plugin: { settings: {}, captureWithOmd: async (request: { source: string }) => { captured.push(request.source); } },
+    });
+    await box.execute();
+    assert.deepEqual(captured, [expected]);
+  }
+});
+
+test("recognition does not turn ordinary multilingual search terms into captures", () => {
+  for (const input of ["稠密向量与稀疏向量", "résumé notes", "C++ resources"]) {
+    assert.equal(looksCapturable(input), false);
+  }
+});
+
+test("omnibox opens supported social share text for review and rejects generic prose", async () => {
+  const opened: Array<{ source: string; submittedSource?: string }> = [];
+  const captured: string[] = [];
+  const notices: string[] = [];
+  const box = loadMethods("src/omnibox.ts", ["execute"], {
+    captureRequestFromSettings,
+    isLocalImageSource,
+    looksCapturable,
+    parseCaptureSourceInput,
+    socialCaptureProvider,
+    Notice: class { constructor(value: string) { notices.push(value); } },
+  });
+  Object.assign(box, {
+    previewTimer: null,
+    input: { value: "复制此链接 https://v.douyin.com/abc/ 打开抖音" },
+    beginSubmission() {},
+    plugin: {
+      settings: {
+        capturePolish: false,
+        captureSuggestLinksAndTags: false,
+        captureOcrLanguage: "",
+        captureAsrLanguage: "inherit-adapter-default",
+      },
+      openCaptureModal(request: { source: string; submittedSource?: string }) { opened.push(request); },
+      captureWithOmd: async (request: { source: string }) => { captured.push(request.source); },
+    },
+  });
+  await box.execute();
+  assert.deepEqual(opened.map(({ source, submittedSource }) => ({ source, submittedSource })), [{
+    source: "https://v.douyin.com/abc/",
+    submittedSource: "复制此链接 https://v.douyin.com/abc/ 打开抖音",
+  }]);
+  assert.deepEqual(captured, []);
+
+  box.input.value = "read this https://example.com/article";
+  await box.execute();
+  assert.match(notices.at(-1) ?? "", /Paste other web links by themselves/u);
+  box.input.value = "https://v.douyin.com/one https://xhslink.com/two";
+  await box.execute();
+  assert.match(notices.at(-1) ?? "", /more than one HTTP\(S\) URL/u);
+  assert.deepEqual(captured, []);
+});
+
+test("an unavailable command explains why it did not run", async () => {
+  const notices: string[] = [];
+  const box = loadMethods("src/omnibox.ts", ["execute"], {
+    looksCapturable, registeredCommandRefs,
+    Notice: class { constructor(value: string) { notices.push(value); } },
+  });
+  Object.assign(box, {
+    previewTimer: null,
+    input: { value: ">unavailable" },
+    beginSubmission() {},
+    commands: {
+      commands: { unavailable: { id: "command:unavailable", name: "Unavailable command" } },
+      executeCommandById: () => false,
+    },
+  });
+  await box.execute();
+  assert.deepEqual(notices, ["This command is unavailable in the current view."]);
+});
+
+test("omnibox offers working start and stop controls for the native recorder without an unavailable toggle", () => {
+  const commands = [
+    { id: "audio-recorder:start", name: "开始录音" },
+    { id: "audio-recorder:stop", name: "停止录音" },
+  ];
+  const clicks: string[] = [];
+  const actions: { label: string; run: () => void; primary: boolean }[] = [];
+  const box = loadMethods("src/omnibox.ts", ["renderQuickActions"], { recordingQuickActions, isPluginRecordingWrapperCommand, registeredCommandRefs });
+  Object.assign(box, {
+    commands: { commands: Object.fromEntries(commands.map((command) => [command.id, command])) },
+    actionBar: { empty() { actions.length = 0; } },
+    quickAction(_container: unknown, _icon: string, label: string, run: () => void, primary = false) {
+      actions.push({ label, run, primary });
+    },
+    plugin: {
+      manifest: { id: "omd-home" },
+      startRecording: () => clicks.push("start"),
+      stopRecording: () => clicks.push("stop"),
+      toggleRecording: () => assert.fail("The core recorder has no toggle command"),
+    },
+  });
+  box.renderQuickActions();
+  actions.find((action) => action.label === "Start recording")?.run();
+  actions.find((action) => action.label === "Stop recording")?.run();
+  assert.deepEqual(clicks, ["start", "stop"]);
+  assert.equal(actions.some((action) => action.label === "Recording"), false);
+  assert.deepEqual(actions.filter((action) => action.primary).map((action) => action.label), ["Capture URL or file"]);
+});
+
+test("omnibox quick actions do not evaluate unrelated command availability callbacks", () => {
+  const commands = {
+    "audio-recorder:start": { id: "audio-recorder:start", name: "Start recording audio" },
+    "audio-recorder:stop": { id: "audio-recorder:stop", name: "Stop recording audio" },
+  };
+  const actions: string[] = [];
+  const box = loadMethods("src/omnibox.ts", ["renderQuickActions"], { recordingQuickActions, isPluginRecordingWrapperCommand, registeredCommandRefs });
+  Object.assign(box, {
+    commands: {
+      commands,
+      listCommands: () => {
+        throw new TypeError("A core command assumed an active tab group while checking availability");
+      },
+    },
+    actionBar: {
+      childElementCount: 0,
+      empty() { actions.length = 0; },
+    },
+    quickAction(_container: unknown, _icon: string, label: string) {
+      actions.push(label);
+    },
+    plugin: { manifest: { id: "omd-home" } },
+  });
+
+  assert.doesNotThrow(() => box.renderQuickActions());
+  assert.deepEqual(actions, ["Capture URL or file", "New event", "Commands", "Ask vault", "Start recording", "Stop recording"]);
+});
+
+test("recording dispatch does not evaluate unrelated command availability callbacks", () => {
+  const executed: string[] = [];
+  const notices: string[] = [];
+  const plugin = loadMethods("src/main.ts", ["runRecordingCommand"], {
+    isPluginRecordingWrapperCommand,
+    registeredCommandRefs,
+    resolveRecordingCommand,
+    Notice: class { constructor(value: string) { notices.push(value); } },
+  });
+  Object.assign(plugin, {
+    manifest: { id: "omd-home" },
+    app: {
+      commands: {
+        commands: {
+          "omd-home:start-recording": { id: "omd-home:start-recording", name: "Start recording" },
+          "audio-recorder:start": { id: "audio-recorder:start", name: "Start recording audio" },
+        },
+        listCommands: () => {
+          throw new TypeError("A core command assumed an active tab group while checking availability");
+        },
+        executeCommandById: (id: string) => { executed.push(id); return true; },
+      },
+    },
+  });
+
+  assert.equal(plugin.runRecordingCommand("start", "Recording started."), true);
+  assert.deepEqual(executed, ["audio-recorder:start"]);
+  assert.deepEqual(notices, ["Recording started."]);
+});
+
+test("search displays pending work and keeps an actionable failure in its result panel", async () => {
+  let rejectSearch!: (error: Error) => void;
+  const pending = new Promise<never>((_resolve, reject) => { rejectSearch = reject; });
+  const notices: string[] = [];
+  const text: string[] = [];
+  const plugin = loadMethods("src/main.ts", ["searchWithOmd"], {
+    Notice: class { constructor(value: string) { notices.push(value); } },
+    message: (error: Error) => error.message,
+    isAbortError: (error: Error) => error.name === "AbortError",
+  });
+  Object.assign(plugin, {
+    requireReadyOmdExecutable: async () => {},
+    vaultPath: () => "/vault",
+    omdBridge: { search: async () => pending },
+  });
+  const output = {
+    hidden: true,
+    empty() { text.length = 0; },
+    createDiv(options: { text: string }) { text.push(options.text); },
+  };
+  const searching = plugin.searchWithOmd("查找研究资料", output);
+  assert.equal(output.hidden, false);
+  assert.deepEqual(text, ["Searching your vault…"]);
+  rejectSearch(new Error("OMD is unavailable. Check OMD setup in settings."));
+  await searching;
+  assert.deepEqual(text, ["OMD is unavailable. Check OMD setup in settings."]);
+  assert.deepEqual(notices, text);
+});
+
+test("enrichment phase is exposed separately from the workflow lock", () => {
+  const controller = loadMethods("src/enrichment/controller.ts", ["phase", "canCancel"]);
+  controller.active = { state: { phase: "review" } };
+  assert.equal(controller.phase, "review");
+  assert.equal(controller.canCancel, false);
+  controller.active = { state: { phase: "generating" } };
+  assert.equal(controller.canCancel, true);
+  controller.active = { state: { phase: "applying" } };
+  assert.equal(controller.phase, "applying");
+  assert.equal(controller.canCancel, false);
+  controller.active = null;
+  assert.equal(controller.phase, null);
+
+  const plugin = loadMethods("src/main.ts", ["enrichmentPhase"]);
+  plugin.enrichmentWorkflowController = { phase: "review" };
+  assert.equal(plugin.enrichmentPhase, "review");
+});
+
+
+test("pasted local images open recognition options before any capture starts", async () => {
+  for (const input of [
+    '/Users/example/中文 图片.png',
+    '"/Users/example/中文 图片.PNG"',
+    'file:///Users/example/%E4%B8%AD%E6%96%87%20%E5%9B%BE%E7%89%87.png',
+    '~/Pictures/中文 图片.jpeg',
+    '/Users/example/a#b.webp',
+    '/Users/example/picture.tiff',
+    '/Users/example/picture.bmp',
+  ]) {
+    const opened: string[] = [];
+    const box = loadMethods("src/omnibox.ts", ["execute"], {
+      isLocalImageSource, looksCapturable, normalizeCaptureSource, parseCaptureSourceInput, socialCaptureProvider,
+      captureRequestFromSettings: (source: string) => ({ source: normalizeCaptureSource(source) }),
+      Notice: class {},
+    });
+    Object.assign(box, {
+      previewTimer: null, input: { value: input }, beginSubmission() {},
+      plugin: {
+        settings: {},
+        openCaptureModal: (request: { source: string }) => { opened.push(request.source); },
+        captureWithOmd: async () => { assert.fail("Image capture bypassed recognition options"); },
+      },
+    });
+    await box.execute();
+    assert.deepEqual(opened, [normalizeCaptureSource(input)]);
+  }
+});

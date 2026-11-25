@@ -43,6 +43,8 @@ function serializeEventFrontmatter(event: CalendarEventRecord): string {
   if (event.source !== "vault" && event.appleItemId) lines.push(`apple-item-id: ${quoted(event.appleItemId)}`);
   if (event.source !== "vault" && event.appleExternalId) lines.push(`apple-external-id: ${quoted(event.appleExternalId)}`);
   if (event.source !== "vault" && event.occurrenceDate) lines.push(`apple-occurrence-date: ${quoted(event.occurrenceDate)}`);
+  if (event.source === "linked" && event.clientRequestId) lines.push(`calendar-request-id: ${quoted(event.clientRequestId)}`);
+  if (event.source !== "vault" && event.externalModifiedAt) lines.push(`calendar-modified-at: ${quoted(event.externalModifiedAt)}`);
   if (event.source === "linked" && event.lastSyncedAt) lines.push(`last-synced-at: ${quoted(event.lastSyncedAt)}`);
   if (event.source === "linked" && event.syncHash) lines.push(`sync-hash: ${quoted(event.syncHash)}`);
   if (event.source === "linked" && event.pendingDirection) lines.push(`pending-direction: ${event.pendingDirection}`);
@@ -77,6 +79,8 @@ export function recordFromFrontmatter(
     appleItemId: asString(frontmatter["apple-item-id"]),
     appleExternalId: asString(frontmatter["apple-external-id"]),
     occurrenceDate: asString(frontmatter["apple-occurrence-date"]),
+    clientRequestId: asString(frontmatter["calendar-request-id"]),
+    externalModifiedAt: asString(frontmatter["calendar-modified-at"]),
     lastSyncedAt: asString(frontmatter["last-synced-at"]),
     syncHash: asString(frontmatter["sync-hash"]),
     syncState: parseSyncState(frontmatter["sync-state"]),

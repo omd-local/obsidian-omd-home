@@ -16,6 +16,13 @@ test("install:test-vault succeeds without a built EventKit helper", () => {
     assert.match(result.stdout, /Optional EventKit helper not found or not executable/u);
     assert.equal(existsSync(path.join(root, "test-vault", ".obsidian", "plugins", "omd-home", "omd-eventkit")), false);
     assert.equal(existsSync(path.join(root, "test-vault", ".obsidian", "plugins", "omd-home", "main.js")), true);
+    assert.equal(existsSync(path.join(root, "test-vault", "OMD Manual Tests", "OMD Incomplete Transcript Range Repair.md")), true);
+    const sidecar = readFileSync(
+      path.join(root, "test-vault", "OMD Manual Tests", "OMD Incomplete Transcript Range Repair.omd.json"),
+      "utf8",
+    );
+    assert.doesNotMatch(sidecar, /__OMD_FIXTURE_AUDIO__/u);
+    assert.match(sidecar, /slow-bilingual-speech\.wav/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -64,4 +71,18 @@ function writeProjectFiles(root: string): void {
     writeFileSync(targetPath, `${relativePath}\n`, "utf8");
   }
   writeFileSync(path.join(root, "manifest.json"), "{\"id\":\"omd-home\"}\n", "utf8");
+  const fixtureRoot = path.join(root, "docs", "manual-test-fixtures");
+  mkdirSync(path.join(fixtureRoot, "vault-notes"), { recursive: true });
+  mkdirSync(path.join(fixtureRoot, "generated"), { recursive: true });
+  writeFileSync(
+    path.join(fixtureRoot, "vault-notes", "OMD Incomplete Transcript Range Repair.md"),
+    "# Incomplete transcript fixture\n",
+    "utf8",
+  );
+  writeFileSync(
+    path.join(fixtureRoot, "vault-notes", "OMD Incomplete Transcript Range Repair.omd.json"),
+    "{\"source\":\"__OMD_FIXTURE_AUDIO__\"}\n",
+    "utf8",
+  );
+  writeFileSync(path.join(fixtureRoot, "generated", "slow-bilingual-speech.wav"), "fixture", "utf8");
 }

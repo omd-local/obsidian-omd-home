@@ -3,9 +3,42 @@ import type { CalendarEventRecord, ExternalCalendarDescriptor } from "./model";
 export type LinkedChange = "clean" | "vault" | "external" | "conflict";
 export type LinkedAvailability = "available" | "unavailable" | "error";
 
+export interface CalendarSyncSummary {
+  conflicts: number;
+  unavailable: number;
+  errors: number;
+  pending: number;
+  recoveryTitles?: string[];
+}
+
 export interface CalendarWriteOverride {
   event: CalendarEventRecord;
   modifiedAt: number;
+}
+
+export const CALENDAR_RECREATE_CONFIRMATION = "duplicate-risk-confirmed" as const;
+export type CalendarRecreateConfirmation = typeof CALENDAR_RECREATE_CONFIRMATION;
+export const CALENDAR_DETACH_CONFIRMATION = "calendar-detach-confirmed" as const;
+export const CALENDAR_EVENT_DELETE_CONFIRMATION = "calendar-event-delete-confirmed" as const;
+export type CalendarDetachConfirmation =
+  | typeof CALENDAR_DETACH_CONFIRMATION
+  | typeof CALENDAR_EVENT_DELETE_CONFIRMATION;
+export const CALENDAR_NOTE_DELETE_CONFIRMATION = "event-note-delete-confirmed" as const;
+export type CalendarNoteDeleteConfirmation = typeof CALENDAR_NOTE_DELETE_CONFIRMATION;
+
+export class CalendarPartialActionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CalendarPartialActionError";
+  }
+}
+
+export function isCalendarNoteErrorRecord(
+  event: Pick<CalendarEventRecord, "id" | "notePath" | "syncState">,
+): boolean {
+  return event.syncState === "error"
+    && Boolean(event.notePath)
+    && event.id === `calendar-note-error:${event.notePath}`;
 }
 
 const SYNC_FIELDS = ["title", "start", "end", "allDay", "location", "appleCalendarId"] as const;
@@ -37,6 +70,49 @@ export function classifyLinkedChange(
   return "clean";
 }
 
+export function summarizeCalendarSync(events: CalendarEventRecord[]): CalendarSyncSummary {
+  const summary: CalendarSyncSummary = { conflicts: 0, unavailable: 0, errors: 0, pending: 0 };
+  const recoveryTitles = new Set<string>();
+  for (const event of events) {
+    if (event.source !== "linked") continue;
+    if (event.syncState === "conflict") summary.conflicts += 1;
+    else if (event.syncState === "unavailable") {
+      summary.unavailable += 1;
+      if (event.title.trim()) recoveryTitles.add(event.title.trim());
+    }
+    else if (event.syncState === "error") summary.errors += 1;
+    else if (event.syncState === "pending") summary.pending += 1;
+  }
+  if (recoveryTitles.size) summary.recoveryTitles = [...recoveryTitles];
+  return summary;
+}
+
+export function calendarSyncResultMessage(summary: CalendarSyncSummary): string {
+  const issues = [
+    countLabel(summary.conflicts, "conflict", "conflicts"),
+    countLabel(summary.unavailable, "linked note needs Calendar recovery", "linked notes need Calendar recovery"),
+    countLabel(summary.errors, "error", "errors"),
+    countLabel(summary.pending, "pending event", "pending events"),
+  ].filter((value): value is string => Boolean(value));
+  if (!issues.length) return "Calendar sync complete";
+  const subject = issues.length === 1 ? issues[0] : formatList(issues);
+  const action = summary.conflicts > 0
+    ? "Open the highlighted events to compare versions and choose one."
+    : summary.unavailable > 0
+      ? summary.unavailable === 1
+        ? "Its Calendar copy may have been deleted, moved, or belong to a Calendar that is not selected. Open the highlighted linked note for safe recovery options."
+        : "Their Calendar copies may have been deleted, moved, or belong to Calendars that are not selected. Open the highlighted linked notes for safe recovery options."
+      : summary.errors > 0
+        ? "Open the highlighted events for details, then retry Sync."
+        : "Open the highlighted events to finish syncing them.";
+  const recoveryTitles = summary.recoveryTitles?.slice(0, 3) ?? [];
+  const omittedRecoveryTitles = (summary.recoveryTitles?.length ?? 0) - recoveryTitles.length;
+  const recovery = recoveryTitles.length
+    ? ` Recovery: ${recoveryTitles.join("; ")}${omittedRecoveryTitles > 0 ? `; and ${omittedRecoveryTitles} more` : ""}.`
+    : "";
+  return `Calendar sync needs review: ${subject}. ${action}${recovery}`;
+}
+
 export function mergeExternalIntoLinked(
   vault: CalendarEventRecord,
   external: CalendarEventRecord,
@@ -57,6 +133,7 @@ export function mergeExternalIntoLinked(
     externalModifiedAt: external.externalModifiedAt,
     source: "linked",
     syncState: "clean",
+    unavailableReason: undefined,
     pendingDirection: undefined,
     lastSyncedAt: syncedAt,
     syncHash: eventSyncHash(external),
@@ -66,7 +143,8 @@ export function mergeExternalIntoLinked(
 
 export function calendarIdentityKeys(event: CalendarEventRecord): string[] {
   const keys: string[] = [];
-  if (event.appleItemId) keys.push(`item:${event.appleItemId}`);
+  if (event.clientRequestId) keys.push(`request:${event.clientRequestId}`);
+  if (event.appleItemId) keys.push(`item:${event.appleItemId}:${event.occurrenceDate ?? ""}`);
   if (event.appleExternalId) {
     keys.push(`external:${event.appleExternalId}:${event.occurrenceDate ?? ""}:${event.appleCalendarId ?? ""}`);
   }
@@ -95,6 +173,22 @@ export function findExternalMatch(
 ): CalendarEventRecord | undefined {
   const wanted = new Set(calendarIdentityKeys(linked));
   return external.find((event) => calendarIdentityKeys(event).some((key) => wanted.has(key)));
+}
+
+export function stableExternalCandidates(
+  linked: CalendarEventRecord,
+  external: CalendarEventRecord[],
+): CalendarEventRecord[] {
+  const requestMatches = linked.clientRequestId
+    ? external.filter((event) => event.clientRequestId === linked.clientRequestId)
+    : [];
+  const externalMatches = linked.appleExternalId
+    ? external.filter((event) => (
+      event.appleExternalId === linked.appleExternalId
+      && (!linked.occurrenceDate || event.occurrenceDate === linked.occurrenceDate)
+    ))
+    : [];
+  return [...new Set([...requestMatches, ...externalMatches])];
 }
 
 export function calendarFetchWindow(
@@ -137,16 +231,32 @@ export function classifyLinkedAvailability(
 export function linkedEventSaveBlockReason(event: CalendarEventRecord): string | undefined {
   if (event.source !== "linked") return undefined;
   if (event.syncState === "error") {
-    return "Calendar access failed. Retry Sync before editing this linked event";
+    return "Calendar access failed. Check Calendar setup and Retry Sync before editing this linked event";
   }
   if (event.syncState === "unavailable") {
-    return "This Calendar event is unavailable. Use Recreate or Detach instead of Save";
+    if (event.unavailableReason === "calendar-deselected") {
+      return "Select this calendar in OMD Home settings and Retry Sync, or Detach the note";
+    }
+    if (event.unavailableReason === "setup-or-read-failure") {
+      return "Check Calendar setup and Retry Sync, or Detach the note";
+    }
+    return "Use Retry Sync, Recreate or Detach instead of ordinary Save";
   }
   if (event.syncState === "conflict") {
     return "Resolve the Calendar conflict before editing this linked event";
   }
   if (event.syncState === "pending" && event.pendingDirection === "external") {
     return "Calendar has newer changes. Sync them into the note before editing";
+  }
+  if (
+    event.syncState === "pending"
+    && event.pendingDirection === "vault"
+    && event.clientRequestId
+    && !event.appleItemId
+    && event.syncHash
+    && eventSyncHash(event) !== event.syncHash
+  ) {
+    return "This pending Calendar create changed after it was sent. Restore the original event fields, then Retry Sync or Detach the note";
   }
   return undefined;
 }
@@ -160,10 +270,12 @@ export function detachLinkedEvent(event: CalendarEventRecord): CalendarEventReco
     appleItemId: undefined,
     appleExternalId: undefined,
     occurrenceDate: undefined,
+    clientRequestId: undefined,
     externalModifiedAt: undefined,
     lastSyncedAt: undefined,
     syncHash: undefined,
     syncState: "clean",
+    unavailableReason: undefined,
     pendingDirection: undefined,
     conflictExternal: undefined,
     readOnly: undefined,
@@ -183,6 +295,8 @@ const STORED_CALENDAR_FIELDS = [
   "appleItemId",
   "appleExternalId",
   "occurrenceDate",
+  "clientRequestId",
+  "externalModifiedAt",
   "lastSyncedAt",
   "syncHash",
   "syncState",
@@ -192,4 +306,14 @@ const STORED_CALENDAR_FIELDS = [
 
 function storedCalendarFields(event: CalendarEventRecord): string {
   return JSON.stringify(STORED_CALENDAR_FIELDS.map((field) => event[field] ?? null));
+}
+
+function countLabel(count: number, singular: string, plural: string): string | undefined {
+  return count > 0 ? `${count} ${count === 1 ? singular : plural}` : undefined;
+}
+
+function formatList(values: string[]): string {
+  if (values.length < 2) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
 }
