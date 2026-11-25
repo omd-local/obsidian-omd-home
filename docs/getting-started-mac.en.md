@@ -112,7 +112,7 @@ For the first basic test, turn off **Polish Markdown** and **Review links and ta
 ## 6. Complete your first Capture
 
 1. Click **Capture URL or file** on Home, or run **Command–P → OMD Home: Capture URL or file**.
-2. Enter a simple public page needing no login, such as `https://example.com/`, or drop a small local HTML, PDF, or Markdown (`.md`) file or paste its full path. Submit one source at a time.
+2. Enter a simple public page needing no login, such as `https://example.com/`, or drop a small local HTML or PDF file or paste its full path. Submit one source at a time.
 3. Keep both AI toggles off and press **Capture**.
 4. **Current task** shows progress while work runs; a fast task may appear briefly. After completion, open the Markdown in **Inbox** and check its content and original source.
 
@@ -218,7 +218,7 @@ Preserve `data.json` and replace only the three files from the same plugin relea
 
 | Demo workflow | Completion check |
 |---|---|
-| Basic Capture | A simple webpage and local text file open in Inbox with correct sources |
+| Basic Capture | A simple webpage and local HTML/PDF file open in Inbox with correct sources |
 | Transcription, if used | A real OMD capture has downloaded its selected model and a person has checked the short transcript |
 | Local AI, if used | Check setup passes, answer citations open, and edits are previewed |
 | Calendar, if used | The helper is executable, access is granted, only selected calendars participate, and a test event can be checked |

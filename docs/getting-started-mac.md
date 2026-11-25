@@ -112,7 +112,7 @@ printf '%s\n' "$(brew --prefix omd-local/omd/omd)/bin/omd"
 ## 6. 完成第一次 Capture
 
 1. 在 Home 点 **Capture URL or file**，或运行 **Command–P → OMD Home: Capture URL or file**。
-2. 填无需登录的简单网页，如 `https://example.com/`；或拖入小型本地 HTML、PDF 或 Markdown（`.md`）文件、粘贴完整路径。一次一个来源。
+2. 填无需登录的简单网页，如 `https://example.com/`；或拖入小型本地 HTML 或 PDF 文件、粘贴完整路径。一次一个来源。
 3. 保持两项 AI 开关关闭，点 **Capture**。
 4. **Current task** 在执行时显示进度；快任务可能一闪而过。完成后到 **Inbox** 打开 Markdown，确认正文和原始来源。
 
@@ -218,7 +218,7 @@ cp dist/omd-eventkit "$HOME/Documents/OMD Demo/.obsidian/plugins/omd-home/omd-ev
 
 | 演示项目 | 完成标志 |
 |---|---|
-| 基础 Capture | 简单网页和本地 HTML／PDF／Markdown 都能在 Inbox 打开，来源正确 |
+| 基础 Capture | 简单网页和本地 HTML／PDF 都能在 Inbox 打开，来源正确 |
 | 转录（若使用） | 实际 OMD Capture 已下载所用模型，短音频文字已人工核对 |
 | 本地 AI（若使用） | Check setup 通过，答案引用能打开，修改先预览 |
 | Calendar（若使用） | helper 可执行、权限通过、仅选定日历参与，测试事件可核对 |
