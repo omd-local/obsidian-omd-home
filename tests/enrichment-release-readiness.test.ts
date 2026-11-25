@@ -52,19 +52,41 @@ test("build config externalizes Obsidian and node builtins for release bundles",
   assert.match(readText("src/main.ts"), /import embeddedPythonBridge from "\.\.\/bridge\/omd_home_bridge\.py"/u);
 });
 
-test("README keeps privacy, dependency, and Phase 1a local AI disclosures aligned", () => {
+test("README keeps privacy, dependency, and local and hosted AI disclosures aligned", () => {
   const readme = readText("README.md");
   assert.match(readme, /desktop-only/iu);
   assert.match(readme, /does not install, update,\s*or bundle OMD, Python, Ollama, or the EventKit helper/iu);
   assert.match(readme, /Google Calendar and Outlook Calendar can participate when they have already been added to\s*macOS Calendar/iu);
   assert.match(readme, /Review-first note enrichment sends only bounded note content/iu);
-  assert.match(readme, /Phase 1a local AI allows only the default local Ollama endpoints/iu);
-  assert.match(readme, /requires Ollama Cloud to be disabled/iu);
-  assert.match(readme, /\*\*Refresh\*\* model discovery/iu);
-  assert.match(readme, /\*\*Check\*\* connection, version, and cloud-disabled readiness/iu);
-  assert.match(readme, /\*\*Smoke\*\* checks that do not send vault content/iu);
-  assert.match(readme, /does not auto-pull, auto-install, or auto-select models/iu);
+  assert.match(readme, /endpoint may use `localhost`, `127\.0\.0\.1`, or `\[::1\]` with an explicit custom\s*port/iu);
+  assert.match(readme, /LAN and\s*remote hosts, credentials, paths, queries, fragments, proxies, and redirects\s*are rejected/iu);
+  assert.match(readme, /Local answer mode, note enrichment, Polish Markdown, and local embedding-based\s*retrieval stay on loopback Ollama/iu);
+  assert.match(readme, /every cloud answer request shows a preview with the selected provider,\s*model, and bounded evidence excerpts before anything leaves the device/iu);
+  assert.match(readme, /sends only the question plus the selected local evidence snippets; it never sends the whole vault/iu);
+  assert.match(readme, /there is no silent fallback across providers or auto-switch to another provider/iu);
+  assert.match(readme, /\*\*Check setup\*\* for the selected provider, model, and safety boundary/iu);
+  assert.match(readme, /\*\*Test semantic search\*\* for local retrieval/iu);
+  assert.match(readme, /OMD Home: Refresh local AI models[\s\S]*?without changing the saved selection/iu);
+  assert.match(readme, /Opening settings, checking setup, and asking a question never download\s*a model automatically/iu);
+  assert.match(readme, /does not download models in the background, auto-select models, or\s*auto-switch providers/iu);
+  assert.match(readme, /OMD Home does not require that setting for local model use, and\s*it never writes the file for you/iu);
+  assert.doesNotMatch(readme, /Phase 1a local AI allows only the default local Ollama endpoints|requires Ollama Cloud to be disabled/iu);
   assert.match(readme, /Nothing is written until you explicitly press \*\*Apply\*\*/u);
+});
+
+test("README distinguishes public installation and backend compatibility from development previews", () => {
+  const readme = readText("README.md");
+  const publicVersion = readme.match(/PUBLIC BETA (\d+\.\d+\.\d+)/u)?.[1];
+  assert.ok(publicVersion, "README must identify the public plugin release");
+  assert.match(readme, /\]\(docs\/getting-started-mac\.md\)/u);
+  assert.equal(existsSync(path.join(repoRoot, "docs/getting-started-mac.md")), true);
+  assert.ok(readme.includes(`git clone --branch ${publicVersion} --single-branch https://github.com/omd-local/obsidian-omd-home.git`));
+  assert.match(readme, /public Homebrew backend currently predates some interfaces used by Home/iu);
+  assert.match(readme, /Before basic capture, clear both recognition preferences and turn off\s*> \*\*Polish Markdown\*\* and \*\*Review links and tags\*\*/iu);
+  assert.match(readme, /public b4 backend does\s*not provide all of them/iu);
+  assert.match(readme, /## Development previews\s+These are local development additions after public \*\*[^*]+\*\*, not features in\s*the release downloads or the pinned source-install command/u);
+  assert.match(readme, /Actual iPhone-to-Mac\s*acceptance remains pending/iu);
+  assert.match(readme, /Answer evidence verification[\s\S]*?native acceptance remain separate, unfinished checks/iu);
 });
 
 test("fixture manifest records the synced upstream OMD contract provenance", () => {
