@@ -1,77 +1,117 @@
 <div align="center">
 
-<img src="docs/assets/omd-home-icon.png" alt="OMD Home pixel icon: a doorway inside a Markdown note" width="144">
+<img src="docs/assets/omd-home-icon.png" alt="OMD Home pixel icon: a doorway inside a Markdown note" width="64">
 
 <sub>OMD HOME // PUBLIC BETA 0.2.2</sub>
 
 # OMD Home
 
-**A single doorway for capture, calendars, review, and vault-grounded questions.**
-
-The note is your vault. The doorway is the controlled working surface around it.
-
-Bring sources in. See the day. Ask with evidence. Review AI-suggested changes before they land.
-Your Markdown files remain the source of truth.
-
-[![CI](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml/badge.svg)](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/omd-local/obsidian-omd-home?style=flat-square&label=release)](https://github.com/omd-local/obsidian-omd-home/releases/latest)
-[![Obsidian desktop](https://img.shields.io/badge/Obsidian-desktop-7C3AED?style=flat-square)](https://obsidian.md/)
-[![License: PolyForm Shield](https://img.shields.io/badge/License-PolyForm%20Shield-202124?style=flat-square)](LICENSE)
-
-[![简体中文安装指南](https://img.shields.io/badge/安装指南-简体中文-7C3AED?style=for-the-badge)](docs/getting-started-mac.md)
-[![English setup guide](https://img.shields.io/badge/Setup_guide-English-7C3AED?style=for-the-badge)](docs/getting-started-mac.en.md)
-
-[New here?](docs/getting-started-mac.en.md) ·
-[Install](#install) ·
-[Sources](#source-menu) ·
-[See the rooms](#one-doorway-four-rooms) ·
-[Configure](#choose-your-setup) ·
-[About](#about) ·
-[LinkedIn](https://www.linkedin.com/in/jacquelin-r-915655123/) ·
-[Test](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/manual-test-plan.md) ·
-[Report an issue](https://github.com/omd-local/obsidian-omd-home/issues)
-
 </div>
 
-> [!IMPORTANT]
-> OMD Home requires Obsidian desktop 1.11.4 or newer. It is a desktop-only plugin.
-> Home, Markdown events, capture, and local AI work on supported desktop
-> platforms. Apple Calendar integration requires macOS 14 or newer and the
-> separately built EventKit helper. Until OMD Home is listed in Obsidian
-> Community Plugins, install it from GitHub Releases.
->
-> OMD Home does not install, update, or bundle OMD, Python, Ollama, or the EventKit helper.
-> When OMD is missing, the plugin can copy the official install commands or
-> open the official guide. It never executes those commands for you.
+## About
 
-## Start here / 新用户从这里开始
+OMD Home is an Obsidian desktop plugin for turning files and web pages into
+Markdown notes, seeing what's on your calendar, and asking questions with
+answers grounded in your own notes. Save a source, review suggested links and
+tags, and keep the result in your own vault.
 
-**Mac installation guides: [简体中文](docs/getting-started-mac.md) · [Full English guide](docs/getting-started-mac.en.md).**
-Both cover the complete plugin and backend installation, first capture,
-optional transcription, local AI, selected-calendar setup, upgrades, and recovery.
-The plugin downloads require no source build; the optional Calendar helper
-currently has a separate source-build path.
+Capture needs the separately installed OMD backend. AI and Apple Calendar
+integration are optional.
 
-| Component | Public release | What to expect |
-|---|---|---|
-| **OMD Home plugin** | [0.2.2 public beta](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2) | Three plugin assets; Obsidian desktop 1.11.4+ |
-| **OMD conversion backend** | [0.3.0b5 via Homebrew](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5) | Separate install; matching capture-language, social-access, and local Ollama interfaces |
-| **Optional tools** | Installed separately | Apple Silicon Whisper for speech, Ollama and models for AI, EventKit helper for Apple Calendar |
+**[Get started →](#install)**
 
-The public `main` branches now include this release's source. Use the pinned
-release assets or tags below for a reproducible installation. Capability checks
-and external prerequisites still determine which optional workflows are ready.
-The backend browser UI remains deferred; OMD Home is the desktop interface.
-DeepSeek API remains unavailable under this backend release's verified policy.
+[English installation guide](docs/getting-started-mac.en.md) · [简体中文安装指南](docs/getting-started-mac.md)
 
-## One doorway, four rooms
+[Star this repository on GitHub](https://github.com/omd-local/obsidian-omd-home) · [Follow Jacquelin on LinkedIn](https://www.linkedin.com/in/jacquelin-r-915655123/)
 
-OMD Home is a doorway, not a second vault. Capture, calendar, review, and
-vault Q&A share one controlled entrance while Obsidian remains the source of truth.
+## From a web page to a Markdown note
+
+Paste an article URL into **Capture URL or file**. OMD saves a Markdown note
+in your vault and lists it in **Inbox**. With local AI configured, review its
+suggested links and tags before choosing **Apply**.
+
+<img src="docs/assets/omd-home-capture-flow.svg" alt="Save a URL or file as Markdown, then review optional local AI suggestions before applying links and tags." />
+
+## Install
+
+For a complete Mac walkthrough, follow the [English guide](docs/getting-started-mac.en.md)
+or [简体中文指南](docs/getting-started-mac.md). The steps below pair **OMD Home 0.2.2**
+with **OMD backend 0.3.0b5**. Install the plugin and backend separately; basic
+conversion does not need AI.
+
+<a id="from-a-github-release"></a>
+
+### 1. Install the Obsidian plugin
+
+You need **Obsidian desktop 1.11.4 or newer**. OMD Home is **desktop-only**;
+it does not run on Obsidian Mobile. Until it is listed in Community Plugins,
+install this public beta from GitHub Releases:
+
+1. Download all three assets from [release 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2):
+   [main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js),
+   [manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json), and
+   [styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css).
+2. Create `<your-vault>/.obsidian/plugins/omd-home/` and put the three files directly inside it.
+3. In **Settings > Community plugins**, reload installed plugins and enable **OMD Home**.
+4. Run **OMD Home: Open home** from the command palette.
+
+Use files from the same release. GitHub's **Source code (zip)** is not an
+installable plugin. The plugin files do not include OMD, Python, models, or
+the optional Calendar helper.
+
+### 2. Install the local OMD backend for capture
+
+[OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5)
+performs conversion on your computer. OMD Home does not install, update,
+or bundle OMD, Python, Ollama, or the EventKit helper.
+
+For the Mac Homebrew route, check the guide's **Apple Silicon / macOS 15+**
+prerequisites and install Homebrew first if needed. Then run:
+
+```bash
+brew install omd-local/omd/omd
+omd --version
+omd capabilities --json
+```
+
+The version should be **0.3.0b5**. Homebrew also installs Python 3.12, common
+document converters, ffmpeg, Tesseract and its language packs, and yt-dlp.
+Whisper and its model, Ollama and AI models, and the Calendar helper are
+separate optional setup steps.
+
+In **Settings > OMD Home > OMD**, run **Check setup**. Home normally discovers
+OMD automatically; if it finds an older or different installation, see
+[Connect OMD](#connect-omd). Windows and Linux users can follow the
+[backend quick start](https://github.com/omd-local/markdown-everything#quick-start)
+and [platform support](#platform-support) notes.
+
+### 3. Save your first Markdown note
+
+1. Open **Capture URL or file**.
+2. Paste a simple public URL such as `https://example.com/`, or select a small HTML or PDF file.
+3. For this first conversion test, leave **Polish Markdown** and **Review links and tags** off. Enable them after setting up local AI.
+4. Submit, watch **Current task**, then open the saved note from **Inbox** and check its content and source.
+
+Next, add [OCR languages, audio transcription, local AI or Calendar integration](#choose-your-setup)
+for the workflows you use. The separate backend browser UI is deferred; OMD
+Home provides the Obsidian interface.
+
+**Upgrading:** back up your vault, stop captures and disable the plugin before
+replacing the three plugin files. Preserve `data.json`, your notes and any
+separately installed helper. Update the backend with `brew update` followed by
+`brew upgrade omd-local/omd/omd`. See the Mac guides for recovery and helper upgrades.
+
+## Core workflows
+
+### One doorway, four rooms
+
+Home, Omnibox, Calendar and Inbox are the four rooms behind one doorway into
+your vault. Use each surface for a different part of your day; your Markdown
+files remain the source of truth.
 
 <img src="docs/assets/omd-home-system-overview.svg" alt="OMD Home system overview" />
 
-### Four rooms, one source of truth
+#### Four rooms, one source of truth
 
 | Surface | What it is for |
 |---|---|
@@ -84,12 +124,19 @@ Widgets use a 12-column grid, move occupied cards out of the way, and keep their
 layout per device viewport. Standard sizes are always available from each
 widget menu, so a desktop layout does not have to fit a different screen.
 
-## Source menu
+### Bring sources in. Decide what changes.
 
-Bring a supported URL or local file into your vault through the
-[OMD conversion backend](https://github.com/omd-local/markdown-everything).
-Home accepts **one URL or file at a time**; folder and list batches use the
-backend command line. Available routes depend on installed tools and source access.
+Paste one public URL, paste one local file path, drop one file onto Home, or
+paste a common Douyin or Xiaohongshu / Rednote share message that contains
+exactly one HTTP(S) URL.
+OMD Home starts a managed OMD process, reports progress, and leaves conversion
+ownership with [Markdown Everything](https://github.com/omd-local/markdown-everything).
+
+Local folder and one-item-per-line batch capture are not connected in OMD Home.
+Capture writes the requested Markdown note immediately; only optional link and
+tag changes wait for review.
+
+#### Source menu
 
 <img src="docs/assets/omd-home-source-menu.svg" alt="OMD source menu: documents, OCR images, local audio, webpages, public posts, media URLs, backend-only batches, and separate Douyin and Xiaohongshu cookie access." />
 
@@ -114,92 +161,14 @@ restrictions. Public posts may be deleted, private, quarantined, region-blocked,
 or rate-limited. See the **Douyin and Xiaohongshu / Rednote access** setup below
 for local cookie paths and readiness checks.
 
-## Bring sources in. Decide what changes.
+#### Improve a note without losing the source
 
-Paste one public URL, paste one local file path, drop one file onto Home, or
-paste a common Douyin or Xiaohongshu / Rednote share message that contains
-exactly one HTTP(S) URL.
-OMD Home starts a managed OMD process, reports progress, and leaves conversion
-ownership with [Markdown Everything](https://github.com/omd-local/markdown-everything).
-
-Share-message extraction is deliberately limited to Douyin and Xiaohongshu /
-Rednote. Paste an ordinary webpage URL by itself. Text with no HTTP(S) URL,
-more than one URL, or a non-HTTP(S) scheme is rejected instead of guessing.
-Local folder and one-item-per-line batch capture are not connected in OMD Home.
-Capture writes the requested Markdown note immediately; only optional link and
-tag changes wait for review.
-
-<img src="docs/assets/omd-home-capture-flow.svg" alt="OMD Home capture flow" />
-
-- Public URL capture processes one submitted source, including required
-  redirects and media resources. A local file capture reads only the single
-  file path you submit.
-- Drag and drop, `~/` paths, and shell-escaped spaces are normalized without
-  evaluating a shell command.
-- Capture continues when the Home tab is backgrounded or closed. Cancel,
-  plugin unload, or quitting Obsidian stops plugin-owned child work. On macOS
-  and Linux, cancellation also stops the OMD process group, including nested
-  `yt-dlp`, `ffmpeg`, and Whisper work, with a bounded forced stop if needed.
-- Capture keeps OCR and speech recognition separate. On first use, image text
-  starts with **English** and speech starts with **Auto-detect speech**.
-  Vault-wide defaults live under **Recognition defaults** in Settings. OCR can
-  also use `chi_sim+eng` or `chi_tra+eng`; speech can use explicit `en` or `zh`.
-  Existing saved choices, including **No language preference**, are preserved.
-  Recognition changes in the Capture dialog apply only to that capture, while
-  Retry preserves them without changing the vault defaults.
-- A new vault opens **Welcome to OMD Home** once. Its language-settings link
-  opens and focuses Recognition defaults; OMD setup, optional AI, social access,
-  and Calendar boundaries are summarized without changing any settings.
 - **Review links and tags** is proposal-only. Nothing is written until you explicitly press **Apply**.
   Suggested note topics remain ideas only, new tags start unchecked, and adding the proposal summary is optional.
   Applying suggestions keeps the note in Inbox; **Done reviewing** is the only action that marks it Reviewed.
 - The **Polish Markdown** and **Review links and tags** capture toggles appear
   only in the Capture dialog. New captures remember the last submitted choices. Cancelling the
   dialog does not change them. Polish Markdown is off by default.
-
-### Douyin and Xiaohongshu / Rednote access
-
-These examples can be pasted directly to exercise share-message parsing. The
-Xiaohongshu short link is a format example; replace it with a public post you
-can open when testing a real capture.
-
-```text
-9.74 hoD:/ w@S.YZ :9pm 08/06 9.17 深度理解沃什在议息会议后的发言 https://v.douyin.com/t6DOaFdc39Q/ 复制此链接，打开Dou音搜索，直接观看视频！
-32 复制本条信息，打开【小红书】App查看精彩内容！ http://xhslink.com/a/abcDEF/
-```
-
-Some public posts still require the session from your own browser. Export a
-Netscape-format `cookies.txt`, then set its absolute path under **Settings > OMD
-Home > OMD > Social capture access** or **Site access** in the
-Capture dialog. Douyin and Xiaohongshu / Rednote have separate fields. Both may
-be configured at once; a Douyin request never falls back to the Xiaohongshu
-file, and the reverse is also true.
-
-OMD Home saves only these local paths. It does not read or copy cookie contents
-into plugin settings, notices, logs, the vault, or generated notes. Cookie
-contents are used by local OMD only for matching approved platform HTTPS
-requests; they are never sent to AI providers. Before Capture closes,
-OMD Home runs a bounded source-specific readiness check. Missing, unreadable,
-invalid-format, wrong-domain, and expired cookie files produce short corrective
-messages without showing the full local path.
-
-For a Xiaohongshu short link, the first readiness check is provisional because
-the final post host is known only after redirect. OMD Home shows a brief note,
-and local OMD checks the resolved destination again before using the matching
-cookies. A rejected redirect never receives cookies.
-
-This path is enabled only when OMD capabilities explicitly advertise
-`capture_auth_options.share_text.supported: true`,
-`capture_auth_options.share_text.requires_single_http_url: true`, and
-`capture_auth_options.platform_cookie_flags` with the exact `douyin` value
-`--douyin-cookies` and `xhs` value `--xhs-cookies`. If that contract is missing
-or differs, OMD Home asks you to update OMD and run **Check setup** rather than
-inferring support from a version number. A runtime failure appears in **Needs
-attention** with **Retry capture**. Retry restores the original pasted share
-message and its Capture choices, but reads the current cookie-path settings so
-a repaired or replaced file is used.
-
-### Improve a note without losing the source
 
 Open a note's **AI tools > Improve formatting**, or run **OMD Home: Improve
 note formatting**, to preview a local formatting pass and choose whether to
@@ -211,7 +180,29 @@ When OMD flags an incomplete or problematic transcript, **Review and repair
 transcript** offers a separate review flow. Inspect the proposed repair before
 applying it; automatic tests do not guarantee every speech segment is correct.
 
-## Calendar sync with no silent winner
+### Ask the vault. See the evidence.
+
+Type `@` in the omnibox to ask a question. Vault Q&A is read-only and renders
+its answer in an owned result panel with evidence chips, retrieval mode,
+elapsed time, and **Copy result**.
+
+Open the cited notes to check the evidence before using an answer.
+
+<img src="docs/assets/omd-home-vault-ai.svg" alt="OMD Home vault Q&A flow" />
+
+Keyword + semantic search combines keyword matches with a locally installed embedding
+model. If semantic search fails, OMD Home labels the keyword-only fallback instead of
+claiming a combined result. Optional semantic reranking is off by default.
+
+Vault answers describe the evidence actually retrieved, not the whole Vault. A one-source
+answer begins with **Based on 1 retrieved note.** Direct evidence appears under **From the
+note** (or **From your notes**), while a non-empty interpretation appears under **What this
+may mean**. Each substantive claim must carry an inline source citation. Vault links are
+restored locally after a cloud answer returns.
+
+For model selection and optional hosted answers, see [local AI and cloud answers](#local-ai-and-cloud-answers).
+
+### Calendar sync with no silent winner
 
 Create a vault-only Markdown event or link it to a writable calendar selected
 in settings. OMD Home never enables every calendar by default.
@@ -226,173 +217,17 @@ in settings. OMD Home never enables every calendar by default.
   exclusive calendar date.
 - When both linked copies change before sync, OMD Home asks which side to keep.
 
-## Ask the vault. See the evidence.
-
-Type `@` in the omnibox to ask a question. Vault Q&A is read-only and renders
-its answer in an owned result panel with evidence chips, retrieval mode,
-elapsed time, and **Copy result**.
-
-This room is intentionally conservative. It can inspect bounded evidence, but it
-does not get to silently rewrite the vault.
-
-<img src="docs/assets/omd-home-vault-ai.svg" alt="OMD Home vault Q&A flow" />
-
-Keyword + semantic search combines keyword matches with a locally installed embedding
-model. If semantic search fails, OMD Home labels the keyword-only fallback instead of
-claiming a combined result. Optional semantic reranking is off by default.
-
-OMD Home supports explicit answer-provider setup for local Ollama on this computer,
-Ollama Cloud through the local Ollama app, OpenAI API, and Anthropic API.
-DeepSeek API is visible as a setup choice but remains unavailable under the
-verified policy in OMD 0.3.0b5; requests fail closed.
-
-Local Ollama remains the default answer path. Hosted providers are explicit
-opt-ins: every cloud answer request shows a preview with the selected provider,
-model, and bounded evidence excerpts before anything leaves the device. OMD Home sends only the question plus the selected local evidence snippets; it never sends the whole vault. The UI uses that preview only for the immediately approved request; there is no silent fallback across providers or auto-switch to another provider.
-
-Local-first rules still apply where they matter:
-
-- The live local Ollama path defaults to `http://localhost:11434`. A manual
-  endpoint may use `localhost`, `127.0.0.1`, or `[::1]` with an explicit custom
-  port. Select **Save endpoint** before checking the new daemon; the previous
-  verified setup is invalidated only when that explicit save succeeds. LAN and
-  remote hosts, credentials, paths, queries, fragments, proxies, and redirects
-  are rejected.
-- Local answer mode, note enrichment, Polish Markdown, and local embedding-based
-  retrieval stay on loopback Ollama. Cloud availability does not block local
-  model selection.
-- Hosted answer providers only receive the question plus bounded evidence
-  excerpts after the preview and your explicit approval. They never receive
-  your whole vault.
-- If local semantic search cannot be verified safely, Vault Q&A falls back to
-  keyword search and labels that fallback instead of pretending semantic search worked.
-
-Cloud access is provider-scoped and explicit:
-
-- Ollama Cloud sends the question plus bounded evidence excerpts to Ollama's
-  cloud service after preview approval.
-- Enabled OpenAI and Anthropic requests send the question plus bounded
-  evidence excerpts to their own APIs after preview approval.
-- DeepSeek requests remain blocked in this backend release.
-- OMD Home does not auto-switch providers or send the full vault.
-- Ollama Cloud requires an Ollama account/sign-in; OpenAI and Anthropic
-  require separate developer API access, and consumer subscriptions
-  are separate from API billing.
-
-Settings provide:
-
-- **Check setup** for the selected provider, model, and safety boundary.
-- **Test semantic search** for local retrieval.
-- `OMD Home: Refresh local AI models` from the command palette when you want to
-  rescan local Ollama models without changing the saved selection.
-
-## Install
-
-For a first Mac installation, use the [English guide](docs/getting-started-mac.en.md)
-or [简体中文指南](docs/getting-started-mac.md).
-The steps below install the plugin; capture also needs the separate OMD backend.
-
-### From a GitHub release
-
-1. Download all three assets from [release 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2):
-   [main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js),
-   [manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json), and
-   [styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css).
-2. Create `<your-vault>/.obsidian/plugins/omd-home/`.
-3. Put the three files directly in that folder.
-4. In Obsidian, open **Settings > Community plugins**, reload installed
-   plugins, and enable **OMD Home**.
-5. Run **OMD Home: Open home** from the command palette.
-
-Do not use GitHub's **Source code (zip)** as an installable plugin. When
-upgrading, back up the vault and replace only those three files; preserve
-`data.json`, your notes, and any separately installed helper.
-
-The release tag must exactly match the version in `manifest.json`, without a
-`v` prefix. The plugin release contains no executable helper, model, Python
-runtime, or OMD installation.
-
-### From source
-
-```bash
-git clone --branch 0.2.2 --single-branch https://github.com/omd-local/obsidian-omd-home.git
-cd obsidian-omd-home
-npm ci
-npm run build
-```
-
-This selects the public release source explicitly. Public `main` includes
-this release's source and will continue to change; use the tag to reproduce it.
-
-If you also want to test Apple Calendar integration from source on macOS, build
-the helper before installing into the repository test vault:
-
-```bash
-npm run build:eventkit
-npm run install:test-vault
-```
-
-`npm run install:test-vault` always copies `main.js`, `manifest.json`, and
-`styles.css` into this repository's disposable `test-vault/`, preserving an
-existing plugin `data.json`. It also copies `dist/omd-eventkit` when a built
-executable helper is present. Settings and this optional helper are not release assets.
-
 ## Choose your setup
 
-OMD Home starts with useful vault-only features. Add local tools only for the
-workflows you want.
-
-### Connect OMD
-
-On startup, OMD Home checks the app executable path and safe common locations
-used by Homebrew, MacPorts, user installs, and local Python environments. It
-probes candidates for the compatible OMD capability contract and can continue
-past a missing or outdated candidate to find a current one.
-
-If no compatible install is found, **Settings > OMD Home > OMD** and the Home
-**Needs attention** widget provide **Copy install commands**, **Install guide**,
-and **Check again** actions. On macOS, the copied commands are:
-
-```bash
-brew install omd-local/omd/omd
-omd doctor
-```
-
-The public tap installs **0.3.0b5**, including the interfaces used by this
-release. Follow the [Mac setup guide](docs/getting-started-mac.en.md) for
-recognition defaults and optional transcription, AI, and Calendar prerequisites.
-Capability checks determine readiness; installing OMD alone does not install
-models or verify every workflow.
-
-Windows and Linux receive the official source-install steps instead. OMD Home
-only copies the text or opens the
-[Markdown Everything quick start](https://github.com/omd-local/markdown-everything#quick-start);
-it does not download a release, run a shell, request administrator access, or
-change a Python environment.
-
-Most users should leave **Advanced OMD paths** closed. Open it only to select a
-specific OMD or Python environment when automatic discovery cannot reach the
-right one. Clearing the OMD override restores automatic discovery.
-
-If Terminal and OMD Home appear to use different installs, run `omd --version`
-and `omd capabilities --json` against the executable path shown by OMD Home.
-Keep the version and capability output with a bug report, omitting private
-paths and credentials.
-
-Capture language scope is deliberately narrow. OCR applies to images,
-screenshots, and enabled article-image OCR, not ordinary webpage text or
-ordinary/scanned PDF pages. OMD Home does not promise automatic OCR-language
-detection. **No language preference** sends no explicit language flag, so the
-lower-priority converter setting remains in control. **Auto-detect** explicitly
-requests speech-language detection. Polish Markdown is a post-conversion
-cleanup step; it is neither OCR nor translation. If an OCR
-preset fails, install the named Tesseract language pack and check
-`tesseract --list-langs` before retrying.
+Start with the vault and basic capture, then add tools for the workflows you
+want. The plugin checks each backend capability before enabling its integration.
 
 | Capability | Minimum setup | Boundary |
 |---|---|---|
 | Home, search, commands, quick notes, Markdown events | Obsidian desktop | Current vault only |
 | URL, social share-message, and file capture | A compatible local OMD install, discovered automatically when possible; social captures require the exact capture-auth capability contract and, when needed, a provider-specific Netscape `cookies.txt` | One submitted URL, supported one-URL Douyin/Xiaohongshu share message, or file; URLs contact their source |
+| Image OCR | Tesseract and the selected language packs | Image text; no promise of scanned-PDF OCR |
+| Audio transcription | A local Whisper installation, its model, and ffmpeg | The Mac guide uses Apple Silicon MLX; tools and models are separate from the plugin |
 | Link and tag proposals | A compatible OMD executable and local Ollama | Review-first; no write before Apply |
 | Local Vault Q&A | OMD with retrieval support, a Python interpreter, and local Ollama | Bounded evidence over loopback; read-only |
 | Hosted answer providers | OMD with `ai_service`, provider-model discovery, credential support, and per-question consent grants; DeepSeek unavailable in b5 | Retrieval stays local; after approval the provider receives only the question, bounded excerpts, and opaque source IDs. OMD Home does not add source filenames or paths; text already written inside an approved excerpt is sent exactly as previewed. |
@@ -405,12 +240,44 @@ installed backend's advertised capabilities and optional tools. Public b5
 supplies the matching Mac interfaces; DeepSeek remains blocked by its verified
 provider policy. Start with basic capture, then add the tools you need.
 
-Vault answers describe the evidence actually retrieved, not the whole Vault. A one-source
-answer begins with **Based on 1 retrieved note.** Direct evidence appears under **From the
-note** (or **From your notes**), while a non-empty interpretation appears under **What this
-may mean**. Each substantive claim must carry an inline source citation. Vault links are
-restored locally after a cloud answer returns; internal structured-output field names are not
-shown to the user.
+### OCR and audio transcription
+
+Capture keeps OCR and speech recognition separate. On first use, image text
+starts with **English** and speech starts with **Auto-detect speech**. Set
+vault-wide choices under **Recognition defaults** in Settings, or follow the
+language-settings link in the first-run **Welcome to OMD Home** view. OCR can
+use `chi_sim+eng` or `chi_tra+eng`; speech can use explicit `en` or `zh`.
+Existing saved choices, including **No language preference**, are preserved.
+Changing a language in Capture affects only that capture; Retry preserves the
+choice without changing your vault defaults.
+
+Capture language scope is deliberately narrow. OCR applies to images,
+screenshots, and enabled article-image OCR, not ordinary webpage text or
+ordinary/scanned PDF pages. OMD Home does not promise automatic OCR-language
+detection. **No language preference** sends no explicit language flag, so the
+lower-priority converter setting remains in control. **Auto-detect** explicitly
+requests speech-language detection. Polish Markdown is a post-conversion
+cleanup step; it is neither OCR nor translation. If an OCR
+preset fails, install the named Tesseract language pack and check
+`tesseract --list-langs` before retrying.
+
+The [audio transcription steps](docs/getting-started-mac.en.md#7-optional-local-transcription-on-apple-silicon)
+cover Whisper and its default model. A first model download needs network
+access and disk space; complete a short real capture before a demo.
+
+### Local AI and cloud answers
+
+OMD Home supports explicit answer-provider setup for local Ollama on this computer,
+Ollama Cloud through the local Ollama app, OpenAI API, and Anthropic API.
+DeepSeek API is visible as a setup choice but remains unavailable under the
+verified policy in OMD 0.3.0b5; requests fail closed.
+
+Settings provide:
+
+- **Check setup** for the selected provider, model, and safety boundary.
+- **Test semantic search** for local retrieval.
+- `OMD Home: Refresh local AI models` from the command palette when you want to
+  rescan local Ollama models without changing the saved selection.
 
 <details>
 <summary><strong>ASK VAULT SETUP // local by default, cloud by per-request approval</strong></summary>
@@ -461,7 +328,7 @@ shown to the user.
    beside the launcher or at the root of its `Scripts` environment. For a
    non-standard environment, set an explicit Python executable.
 
-### Ollama Cloud
+#### Ollama Cloud
 
 Ollama Cloud requires an Ollama account and whatever cloud billing or usage rules Ollama applies to cloud models. OMD Home only reads the local Ollama app's cloud state; it does not manage Ollama billing or switch providers for you.
 
@@ -509,9 +376,12 @@ it never writes the file for you.
 
 </details>
 
+### Apple Calendar setup
+
 <details>
 <summary><strong>CALENDAR SETUP // EventKit and selected accounts</strong></summary>
 
+Apple Calendar integration needs macOS 14+ and a separately built EventKit helper.
 Build the helper from the pinned 0.2.2 source on macOS with Swift 6+ and
 Xcode Command Line Tools:
 
@@ -541,6 +411,58 @@ Calendar controls.
 
 </details>
 
+### Douyin and Xiaohongshu / Rednote access
+
+Use separate Netscape `cookies.txt` exports for the two platforms, from
+accounts and content you are authorised to use. Home stores each local file
+path; it does not import your browser session automatically. Never commit the
+cookie files.
+
+<details>
+<summary><strong>Cookie setup, readiness checks and retries</strong></summary>
+
+These examples can be pasted directly to exercise share-message parsing. The
+Xiaohongshu short link is a format example; replace it with a public post you
+can open when testing a real capture.
+
+```text
+9.74 hoD:/ w@S.YZ :9pm 08/06 9.17 深度理解沃什在议息会议后的发言 https://v.douyin.com/t6DOaFdc39Q/ 复制此链接，打开Dou音搜索，直接观看视频！
+32 复制本条信息，打开【小红书】App查看精彩内容！ http://xhslink.com/a/abcDEF/
+```
+
+Some public posts still require the session from your own browser. Export a
+Netscape-format `cookies.txt`, then set its absolute path under **Settings > OMD
+Home > OMD > Social capture access** or **Site access** in the
+Capture dialog. Douyin and Xiaohongshu / Rednote have separate fields. Both may
+be configured at once; a Douyin request never falls back to the Xiaohongshu
+file, and the reverse is also true.
+
+OMD Home saves only these local paths. It does not read or copy cookie contents
+into plugin settings, notices, logs, the vault, or generated notes. Cookie
+contents are used by local OMD only for matching approved platform HTTPS
+requests; they are never sent to AI providers. Before Capture closes,
+OMD Home runs a bounded source-specific readiness check. Missing, unreadable,
+invalid-format, wrong-domain, and expired cookie files produce short corrective
+messages without showing the full local path.
+
+For a Xiaohongshu short link, the first readiness check is provisional because
+the final post host is known only after redirect. OMD Home shows a brief note,
+and local OMD checks the resolved destination again before using the matching
+cookies. A rejected redirect never receives cookies.
+
+This path is enabled only when OMD capabilities explicitly advertise
+`capture_auth_options.share_text.supported: true`,
+`capture_auth_options.share_text.requires_single_http_url: true`, and
+`capture_auth_options.platform_cookie_flags` with the exact `douyin` value
+`--douyin-cookies` and `xhs` value `--xhs-cookies`. If that contract is missing
+or differs, OMD Home asks you to update OMD and run **Check setup** rather than
+inferring support from a version number. A runtime failure appears in **Needs
+attention** with **Retry capture**. Retry restores the original pasted share
+message and its Capture choices, but reads the current cookie-path settings so
+a repaired or replaced file is used.
+
+</details>
+
 ## Platform support
 
 | Platform | Available now |
@@ -549,10 +471,104 @@ Calendar controls.
 | **Windows and Linux desktop** | Home, capture, Inbox, omnibox, Markdown events, and local AI; no Apple Calendar integration |
 | **Mobile** | The plugin is desktop-only. |
 
-## Commands and status
+## Privacy and failure boundaries
+
+- No OMD Home telemetry, ads, account creation, or payment flow.
+- No background helper install, executable update, model download, or model switch.
+  The explicit **Install bge-m3** action requires a click and downloads that model.
+- OMD setup actions copy official text or open an external guide. They never
+  execute an installer or mutate a Python environment.
+- OMD Home reads and writes the current vault. A local file capture reads only
+  the external path you explicitly submit; it does not scan neighboring files.
+- Optional social capture stores separate local cookie paths. See the
+  [cookie access boundaries](#douyin-and-xiaohongshu--rednote-access) before
+  enabling these routes.
+- Optional EventKit integration uses local macOS permissions and only the
+  calendars selected in OMD Home.
+- URL conversion is local-first, not offline: OMD contacts the URL you submit.
+- Review-first note enrichment sends only bounded note content, ranked
+  candidate metadata, and bounded vault tags to the detected local OMD
+  installation.
+- Polish Markdown sends only the captured note content needed for that local
+  cleanup pass.
+- Retrieval, capture, enrichment, and embedding work remain local. Only an
+  explicitly approved cloud answer request sends selected evidence to its
+  provider. Review generated answers, links, and tags before relying on them.
+
+<details>
+<summary><strong>Local AI endpoints and per-request cloud approval</strong></summary>
+
+Local Ollama remains the default answer path. Hosted providers are explicit
+opt-ins: every cloud answer request shows a preview with the selected provider,
+model, and bounded evidence excerpts before anything leaves the device. OMD Home sends only the question plus the selected local evidence snippets; it never sends the whole vault. The UI uses that preview only for the immediately approved request; there is no silent fallback across providers or auto-switch to another provider.
+
+Local endpoint rules:
+
+- The live local Ollama path defaults to `http://localhost:11434`. A manual
+  endpoint may use `localhost`, `127.0.0.1`, or `[::1]` with an explicit custom
+  port. Select **Save endpoint** before checking the new daemon; the previous
+  verified setup is invalidated only when that explicit save succeeds. LAN and
+  remote hosts, credentials, paths, queries, fragments, proxies, and redirects
+  are rejected.
+- Local answer mode, note enrichment, Polish Markdown, and local embedding-based
+  retrieval stay on loopback Ollama. Cloud availability does not block local
+  model selection.
+
+</details>
+
+## Troubleshooting
+
+**Needs attention** shows setup and capture failures with a recovery action.
+Start with the matching check below, or use the [Mac troubleshooting guide](docs/getting-started-mac.en.md#troubleshooting).
+
+| Problem | What to check |
+|---|---|
+| OMD is missing or still reports b4 | Update the backend, run **Check setup**, and check the executable selected under Advanced OMD paths. |
+| OCR language is unavailable | Run `tesseract --list-langs` and install the required language pack. |
+| Audio transcription fails | Check the Whisper program, downloaded model and ffmpeg; follow the Apple Silicon transcription steps in the Mac guide. |
+| Local AI cannot connect or use a model | Start Ollama, confirm a compatible downloaded model, then run **Check setup**. |
+| A social post cannot be captured | Check source access, the matching platform cookie file and the readiness message. A browser login does not guarantee converter access. |
+| Apple Calendar is missing | Check the separate helper, macOS permission and explicitly selected calendars. |
+
+[Report a bug or request a feature](https://github.com/omd-local/obsidian-omd-home/issues)
+with your plugin/backend versions and relevant check output. Remove private
+paths and credentials; never include cookies or API keys. Use the
+[security policy](SECURITY.md) for private vulnerability reports.
+
+### Connect OMD
+
+On startup, OMD Home checks the app executable path and safe common locations
+used by Homebrew, MacPorts, user installs, and local Python environments. It
+probes candidates for the compatible OMD capability contract and can continue
+past a missing or outdated candidate to find a current one.
+
+If no compatible install is found, **Settings > OMD Home > OMD** and the Home
+**Needs attention** widget provide **Copy install commands**, **Install guide**,
+and **Check again**. These actions only copy instructions or open the official
+[backend guide](https://github.com/omd-local/markdown-everything#quick-start);
+they do not download a release, run a shell, request administrator access, or
+change a Python environment.
+
+Most users should leave **Advanced OMD paths** closed. Open it only to select a
+specific OMD or Python environment when automatic discovery cannot reach the
+right one. Clearing the OMD override restores automatic discovery.
+
+If Terminal and OMD Home appear to use different installs, run `omd --version`
+and `omd capabilities --json` against the executable path shown by OMD Home.
+Capability checks determine readiness; a version number alone does not verify
+every optional tool or model.
+
+To launch the bundled bridge, OMD Home may read the detected OMD launcher's
+first line only to identify its Python interpreter. It then starts only the
+local executable you configured or that passed automatic capability checks.
+
+### Commands and status
 
 The command palette exposes the main workflows without requiring the Home view
 to be open:
+
+<details>
+<summary><strong>Commands, task status and cancellation</strong></summary>
 
 - **Open home** and **Focus omnibox**
 - **Open calendar**, **Create event**, and **Sync linked calendar events**
@@ -578,57 +594,66 @@ if a later setup check reports another issue. Missing or incompatible OMD,
 Ollama, model, bridge, and EventKit states surface there instead of failing
 silently.
 
-## Privacy and failure boundaries
+Share-message extraction is deliberately limited to Douyin and Xiaohongshu /
+Rednote. Paste an ordinary webpage URL by itself. Text with no HTTP(S) URL,
+more than one URL, or a non-HTTP(S) scheme is rejected instead of guessing.
 
-- No OMD Home telemetry, ads, account creation, or payment flow.
-- No background helper install, executable update, model download, or model switch.
-  The explicit **Install bge-m3** action requires a click and downloads that model.
-- OMD setup actions copy official text or open an external guide. They never
-  execute an installer or mutate a Python environment.
-- Cloud answer providers are explicit BYOK setup choices. OMD Home retrieves
-  evidence locally, then sends only the question and bounded selected evidence
-  after you approve each cloud answer request. It never falls back to another
-  provider automatically.
-- OMD Home reads and writes the current vault. A local file capture reads only
-  the external path you explicitly submit; it does not scan neighboring files.
-- Optional Douyin and Xiaohongshu / Rednote access stores only separate absolute
-  `cookies.txt` paths. Local OMD sends matching cookies only to approved
-  platform HTTPS requests, never to AI providers. Cookie contents are never
-  copied to the vault, generated notes, notices, or logs. Capture errors
-  and Needs attention labels omit the full local cookie path.
-- To launch the bundled bridge, OMD Home may read the detected OMD launcher's
-  first line only to identify its Python interpreter. It then starts only the
-  local executable you configured or that passed automatic capability checks.
-- Optional EventKit integration uses local macOS permissions and only the
-  calendars selected in OMD Home.
-- URL conversion is local-first, not offline: OMD contacts the URL you submit.
-- Review-first note enrichment sends only bounded note content, ranked
-  candidate metadata, and bounded vault tags to the detected local OMD
-  installation.
-- Polish Markdown sends only the captured note content needed for that local
-  cleanup pass.
-- Local Ollama receives bounded note content and metadata only over an accepted
-  loopback endpoint. Retrieval, capture, enrichment, and embedding work remain
-  local unless you explicitly opt into a cloud answer request. Review generated
-  answers, links, and tags before relying on them.
-- Disabling or reloading the plugin and quitting Obsidian cancel plugin-owned
-  child work. Closing only the Home tab does not.
+- Public URL capture processes one submitted source, including required
+  redirects and media resources. A local file capture reads only the single
+  file path you submit.
+- Drag and drop, `~/` paths, and shell-escaped spaces are normalized without
+  evaluating a shell command.
+- Capture continues when the Home tab is backgrounded or closed. Cancel,
+  plugin unload, or quitting Obsidian stops plugin-owned child work. On macOS
+  and Linux, cancellation also stops the OMD process group, including nested
+  `yt-dlp`, `ffmpeg`, and Whisper work, with a bounded forced stop if needed.
+
+</details>
 
 ## Development and release
 
+[![CI](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml/badge.svg)](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/omd-local/obsidian-omd-home?style=flat-square&label=release)](https://github.com/omd-local/obsidian-omd-home/releases/latest)
+
+### From source
+
+<details>
+<summary><strong>Build the pinned release and install into a test vault</strong></summary>
+
 ```bash
+git clone --branch 0.2.2 --single-branch https://github.com/omd-local/obsidian-omd-home.git
+cd obsidian-omd-home
 npm ci
-npm run typecheck
-npm run lint
-npm test
 npm run build
 ```
 
-Optional helper workflows:
+This selects the public release source explicitly. Public `main` includes
+this release's source and will continue to change; use the tag to reproduce it.
+
+If you also want to test Apple Calendar integration from source on macOS, build
+the helper before installing into the repository test vault:
 
 ```bash
 npm run build:eventkit
 npm run install:test-vault
+```
+
+`npm run install:test-vault` always copies `main.js`, `manifest.json`, and
+`styles.css` into this repository's disposable `test-vault/`, preserving an
+existing plugin `data.json`. It also copies `dist/omd-eventkit` when a built
+executable helper is present. Settings and this optional helper are not release assets.
+
+</details>
+
+### Checks and contract fixtures
+
+<details>
+<summary><strong>Run checks and review backend contract updates</strong></summary>
+
+Run typecheck, lint, tests and the production build:
+
+```bash
+npm run check
 ```
 
 To check the copied OMD enrichment contract fixtures without writing:
@@ -640,6 +665,10 @@ node scripts/sync-omd-contract-fixtures.mjs /path/to/omd
 After reviewing upstream contract and validator changes, accept an intentional
 fixture update with `--accept`.
 
+</details>
+
+### Release and contributor guides
+
 | Read this | When you need it |
 |---|---|
 | [Mac guide: English](docs/getting-started-mac.en.md) / [简体中文](docs/getting-started-mac.md) | Downloads, backend, first capture, optional features, upgrades, and recovery |
@@ -647,6 +676,9 @@ fixture update with `--accept`.
 | [Release checklist](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/release-checklist.md) | Community Plugins packaging, privacy, compatibility, and release gates |
 | [Security policy](SECURITY.md) | Supported versions and private vulnerability reporting |
 | [Third-party notices](THIRD_PARTY_NOTICES) | Licences and notices for bundled third-party components |
+
+<details>
+<summary><strong>Release packaging and acceptance</strong></summary>
 
 GitHub release assets contain exactly `main.js`, `manifest.json`, and
 `styles.css`. External helpers remain optional manual prerequisites and must not
@@ -657,19 +689,19 @@ Verify the three downloaded assets and install them in a clean test vault before
 publishing the draft. Mark releases with incomplete desktop acceptance as
 prereleases and describe the remaining validation gaps in their release notes.
 
-## About
+The plugin release tag must exactly match `manifest.json`, without a `v`
+prefix. Helpers, models and runtimes are separate from the three plugin assets.
 
-OMD Home brings [Markdown Everything](https://github.com/omd-local/markdown-everything)
-into an Obsidian workspace for capture, calendars, review, and questions grounded
-in your notes. The plugin coordinates your tools; your Markdown vault remains
-the source of truth.
+</details>
 
-Maintained by [shion92](https://github.com/shion92) and OMD Local contributors.
-Connect on [LinkedIn](https://www.linkedin.com/in/jacquelin-r-915655123/).
-Use [GitHub Issues](https://github.com/omd-local/obsidian-omd-home/issues) for bugs
-and feature requests, and [the security policy](SECURITY.md) for private reports.
+## Author
+
+OMD Home is maintained by [shion92](https://github.com/shion92) and OMD Local
+contributors. [Follow Jacquelin on LinkedIn](https://www.linkedin.com/in/jacquelin-r-915655123/).
 
 ## License
+
+[![License: PolyForm Shield](https://img.shields.io/badge/License-PolyForm%20Shield-202124?style=flat-square)](LICENSE)
 
 OMD Home is source-available under the
 [PolyForm Shield License 1.0.0](LICENSE). Company-wide internal use is
@@ -685,13 +717,8 @@ components remain under their own licences; see
 
 **CAPTURE ON REQUEST -> REVIEW AI CHANGES -> KEEP THE VAULT YOURS**
 
-[Download](https://github.com/omd-local/obsidian-omd-home/releases/latest) ·
-[Read about OMD](https://github.com/omd-local/markdown-everything) ·
-[English setup](docs/getting-started-mac.en.md) ·
-[中文安装指南](docs/getting-started-mac.md) ·
-[About](#about) ·
-[LinkedIn](https://www.linkedin.com/in/jacquelin-r-915655123/) ·
-[Report a bug](https://github.com/omd-local/obsidian-omd-home/issues) ·
-[PolyForm Shield License](LICENSE)
+[Get started](#install) ·
+[Star on GitHub](https://github.com/omd-local/obsidian-omd-home) ·
+[Follow Jacquelin on LinkedIn](https://www.linkedin.com/in/jacquelin-r-915655123/)
 
 </div>
