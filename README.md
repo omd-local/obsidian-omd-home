@@ -24,6 +24,10 @@ integration are optional.
 
 [Star this repository on GitHub](https://github.com/omd-local/obsidian-omd-home) · [Follow Jacquelin on LinkedIn](https://www.linkedin.com/in/jacquelin-r-915655123/)
 
+<a href="docs/assets/omd-home-preview.png"><img src="docs/assets/omd-home-preview.png" alt="OMD Home in Obsidian with capture actions, upcoming events, and Markdown captures in Inbox." width="100%" /></a>
+
+<sub>Edited Home preview with illustrative demo content. Personal titles have been replaced; the view is cropped to the top dashboard. Click the image to view it at full size.</sub>
+
 ## From a web page to a Markdown note
 
 Paste an article URL into **Capture URL or file**. OMD saves a Markdown note
