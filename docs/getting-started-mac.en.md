@@ -112,7 +112,7 @@ For the first basic test, turn off **Polish Markdown** and **Review links and ta
 ## 6. Complete your first Capture
 
 1. Click **Capture URL or file** on Home, or run **Command–P → OMD Home: Capture URL or file**.
-2. Enter a simple public page needing no login, such as `https://example.com/`, or drop a small local text file or paste its full path. Submit one source at a time.
+2. Enter a simple public page needing no login, such as `https://example.com/`, or drop a small local HTML, PDF, or Markdown (`.md`) file or paste its full path. Submit one source at a time.
 3. Keep both AI toggles off and press **Capture**.
 4. **Current task** shows progress while work runs; a fast task may appear briefly. After completion, open the Markdown in **Inbox** and check its content and original source.
 
@@ -184,7 +184,7 @@ After enabling the selected provider's **Allow … answers**, every question sti
 
 b5 accepts a Douyin or Xiaohongshu / Rednote share message containing **exactly one HTTP(S) URL** in Capture. Paste only the URL for ordinary webpages; multiple sources per submission are unsupported. Platforms may require login or restrict access, so not every post is guaranteed to work.
 
-If needed, export your own account session to a Netscape-format `cookies.txt`. Enter its absolute path for the matching platform under **Settings → OMD Home → OMD → Social capture access**, or **Site access** in Capture. Configure platforms separately; their files are not interchangeable. Only the path is saved, and local OMD uses the contents. Keep cookie files out of your vault, GitHub, and issue reports. Start with a short public item you can open in your own browser; video transcription still requires section 7's program and models.
+If needed, export your own account session to a Netscape-format `cookies.txt`. Enter its absolute path for the matching platform under **Settings → OMD Home → OMD → Social capture access**, or **Site access** in Capture. Configure platforms separately; their files are not interchangeable. Only the path is saved; local OMD sends matching cookies to approved source-platform HTTPS requests, never to AI providers. Keep cookie files out of your vault, GitHub, and issue reports. Start with a short public item you can open in your own browser; video transcription still requires section 7's program and models.
 
 ## 11. Optional: Apple Calendar
 

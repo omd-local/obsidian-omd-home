@@ -112,7 +112,7 @@ printf '%s\n' "$(brew --prefix omd-local/omd/omd)/bin/omd"
 ## 6. 完成第一次 Capture
 
 1. 在 Home 点 **Capture URL or file**，或运行 **Command–P → OMD Home: Capture URL or file**。
-2. 填无需登录的简单网页，如 `https://example.com/`；或拖入小型本地文本文件、粘贴完整路径。一次一个来源。
+2. 填无需登录的简单网页，如 `https://example.com/`；或拖入小型本地 HTML、PDF 或 Markdown（`.md`）文件、粘贴完整路径。一次一个来源。
 3. 保持两项 AI 开关关闭，点 **Capture**。
 4. **Current task** 在执行时显示进度；快任务可能一闪而过。完成后到 **Inbox** 打开 Markdown，确认正文和原始来源。
 
@@ -184,7 +184,7 @@ omd doctor
 
 b5 支持 Capture 中含**恰好一个 HTTP(S) URL** 的抖音或小红书 / Rednote 分享文字。普通网页只贴 URL，不支持一次多个来源。平台可能要求登录或限制抓取，不保证每个帖子可用。
 
-需要登录时，用自己账号导出的 Netscape 格式 `cookies.txt`，在 **Settings → OMD Home → OMD → Social capture access** 或 Capture 的 **Site access** 填对应平台绝对路径。两个平台分别配置，不互相替代。只保存路径，cookie 内容由本地 OMD 使用；不要提交到 Vault、GitHub 或问题报告。先用自己浏览器能打开的短公开内容测试；视频转录仍需第 7 节的程序和模型。
+需要登录时，用自己账号导出的 Netscape 格式 `cookies.txt`，在 **Settings → OMD Home → OMD → Social capture access** 或 Capture 的 **Site access** 填对应平台绝对路径。两个平台分别配置，不互相替代。只保存路径；本地 OMD 会把匹配的 cookie 发送到获准的来源平台 HTTPS 请求，不会发给 AI provider。不要把 cookie 文件提交到 Vault、GitHub 或问题报告。先用自己浏览器能打开的短公开内容测试；视频转录仍需第 7 节的程序和模型。
 
 ## 11. 选装：Apple Calendar
 
@@ -218,7 +218,7 @@ cp dist/omd-eventkit "$HOME/Documents/OMD Demo/.obsidian/plugins/omd-home/omd-ev
 
 | 演示项目 | 完成标志 |
 |---|---|
-| 基础 Capture | 简单网页和本地文本都能在 Inbox 打开，来源正确 |
+| 基础 Capture | 简单网页和本地 HTML／PDF／Markdown 都能在 Inbox 打开，来源正确 |
 | 转录（若使用） | 实际 OMD Capture 已下载所用模型，短音频文字已人工核对 |
 | 本地 AI（若使用） | Check setup 通过，答案引用能打开，修改先预览 |
 | Calendar（若使用） | helper 可执行、权限通过、仅选定日历参与，测试事件可核对 |
