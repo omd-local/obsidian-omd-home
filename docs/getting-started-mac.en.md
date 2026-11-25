@@ -2,45 +2,79 @@
 
 [Back to OMD Home](../README.md) · [简体中文](getting-started-mac.md) · **English**
 
-Start with a result you can check: **install the Obsidian plugin → install the OMD converter → save a webpage or file as Markdown → open the result in Inbox**. Add transcription, AI, or Apple Calendar afterward as needed.
+Follow **prepare a vault → install the plugin → install the OMD backend → save your first webpage**. **Only sections 1–6 are needed for your first capture.** Transcription, AI, and Apple Calendar are optional additions afterward.
 
-This guide covers **OMD Home 0.2.2 + [OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5)**. Both public `main` branches include the source for this release; the pinned tags and downloads below reproduce this version. The plugin, backend, models, and Calendar helper are separate installations. OMD's browser UI is deferred; use OMD Home in Obsidian.
+This guide covers **OMD Home 0.2.2 + [OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5)**. The plugin provides the Obsidian interface; the separate backend converts sources. Installing the plugin does not install the backend or models. OMD's separate browser UI is deferred and is not needed for Home.
+
+| What you want to do | Where to stop |
+|---|---|
+| Explore Home, note search, and Markdown calendar events | Complete section 1, then install the plugin using either section 2 or 3 |
+| Save webpages or files as Markdown | Continue through sections 4–6 |
+| Transcribe audio, use AI, or sync Apple Calendar | After basic Capture succeeds, choose the relevant sections 7–11 |
 
 ## 1. Check your Mac and prepare a vault
 
-1. Open **Apple menu → About This Mac** and check the system and **Chip / Processor**. This guide's supported Homebrew route uses **Apple Silicon and macOS 15 or newer**; Homebrew classifies Intel as Tier 3. The same installation experience is not guaranteed on Intel or older systems. See [Homebrew system requirements](https://docs.brew.sh/Installation).
-2. Install Obsidian desktop **1.11.4 or newer** from the [official download page](https://obsidian.md/download). Check the version in **Settings → General**.
-3. Use **Create new vault**, name it `OMD Demo`, save it in your Documents folder, and open it once so Obsidian creates `.obsidian`.
+1. Open the **Apple menu → About This Mac** and check the chip and macOS version. This guide's Homebrew route supports **Apple Silicon (M series) and macOS 15 or newer**. For Intel or older systems, check [Homebrew system requirements](https://docs.brew.sh/Installation) first; do not copy the Apple Silicon paths unchanged.
+2. If Obsidian is installed, open it. Otherwise, download the Mac version from the [Obsidian website](https://obsidian.md/download), open the download, drag Obsidian into **Applications**, and launch it from there. You need desktop **1.11.4 or newer**.
+3. **Existing vault:** open the vault where you want to use OMD. Plugins are installed per vault; stay in this same vault throughout the instructions.
+4. **New to Obsidian:** in the vault management window, find **Create new vault → Create**, enter `OMD Demo`, use **Browse** to choose your Documents folder, then select **Create**. From an open vault, use the bottom-left vault menu → **Manage Vaults…**. See the [official vault guide](https://obsidian.md/help/manage-vaults).
 
-The examples use `~/Documents/OMD Demo`. `~` means your own home directory. Substitute your actual vault location if different. A vault is an ordinary folder containing your notes.
+A vault is an ordinary folder containing your notes. Obsidian creates its hidden `.obsidian` settings directory when you open it; **you do not need to create that hidden directory yourself**. The recommended BRAT route below avoids finding it altogether.
 
-**Upgrading an existing vault:** back up the whole vault, stop captures, disable the plugin, and keep a separate copy of `.obsidian/plugins/omd-home/`. Replace only the three files below and **preserve the existing `data.json`** and notes. That file holds plugin settings; do not overwrite an existing vault with demo settings.
+The instructions use the English labels shown by OMD. Open **Settings** using the bottom-left gear or **⌘,**. **⌘** means Command, **⇧** means Shift, and Return is the Enter key.
 
-## 2. Download the three plugin files
+## 2. Recommended: install with BRAT, without finding folders
 
-Open the [OMD Home 0.2.2 release](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2) and download these three **Assets**:
+<a id="install-plugin"></a>
 
-| Required file | Pinned download |
+[BRAT](https://community.obsidian.md/plugins/obsidian42-brat) is a separate third-party community plugin by **TfTHacker**. It downloads and places the OMD Home files for you. **OMD Home is not yet listed in Community plugins: search for BRAT first, then use it to install OMD Home.** If you prefer no BRAT, use the [manual method in section 3](#manual-install). Choose one method.
+
+1. In your target vault, open **Settings → Community plugins**. If shown, read the prompt and select **Turn on community plugins**.
+2. Select **Browse**, search for `BRAT`, confirm the author is **TfTHacker**, select **Install**, then **Enable**.
+3. Back in Settings, select **BRAT** in the left sidebar. If it is hard to find, locate BRAT in the installed Community plugins list and select its gear button.
+4. Select **Add beta plugin** and paste this line into the repository address field:
+
+   ```text
+   https://github.com/omd-local/obsidian-omd-home
+   ```
+
+5. Click outside the field and wait for repository verification and the version list. Under **Select a version**, choose **0.2.2**, without a `v`. This is a public repository: **leave GitHub token blank; no GitHub account is required**.
+6. Check **Enable after installing the plugin**, select **Add plugin**, and wait. If it is not enabled, return to **Community plugins → Installed plugins**, refresh the list, and turn on **OMD Home**.
+7. Close Settings, press **⌘P**, type `OMD Home: Open home`, and select that command.
+
+**Success check:** the OMD Home page opens. Go [straight to section 4](#install-backend); skip section 3. The plugin can open now, but Capture still needs the backend.
+
+Selecting **0.2.2** pins that version; OMD Home will not update automatically. BRAT's **Latest version** selection and update checks are a different update option, so do not select Latest accidentally during this installation. BRAT does not install the backend, models, or Calendar helper. If GitHub rate-limits a request, retry later or use the manual method; creating a token is not a required first-install step. See the [BRAT author's guide](https://tfthacker.com/brat-quick-guide).
+
+## 3. Alternative: install the plugin manually
+
+<a id="3-put-the-files-in-the-hidden-plugin-folder"></a>
+
+<a id="manual-install"></a>
+
+**Already opened Home through section 2? Skip this section.** For an existing-vault upgrade, first [back up and disable the plugin as described in section 12](#12-upgrades-backups-and-demo-checks), preserving `data.json`.
+
+### 3A. Download the three files
+
+Open the [OMD Home 0.2.2 release](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2), expand **Assets** near the bottom, and select each of these files, or use the direct links below. Downloads normally appear in Finder's **Downloads** folder.
+
+| Required file | Download |
 |---|---|
 | `main.js` | [Download main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js) |
 | `manifest.json` | [Download manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json) |
 | `styles.css` | [Download styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css) |
 
-All three must come from the same version. Keep the original filenames, without `.txt` or `(1)` suffixes. **Source code (zip)** is source code, not an installable plugin. These files do not include OMD, Python, Whisper, Ollama, or the Calendar helper.
+**Do not choose Source code (zip) or Source code (tar.gz).** These three individual files need no extraction or code editor. All must come from the same version and have exactly these names, without an extra `.txt` or `(1)` suffix. If your browser renames duplicate downloads, check and restore the names above.
 
-## 3. Put the files in the hidden plugin folder
+### 3B. Open the installation location from Obsidian
 
-1. In **Finder**, press **Command–Shift–G** to open **Go to Folder** and enter:
-
-   ```text
-   ~/Documents/OMD Demo/.obsidian/
-   ```
-
-2. Inside `.obsidian`, find or create `plugins`, then create `omd-home` inside it.
-3. Put the three files directly in `omd-home`:
+1. Back in your **target vault**, open **Settings → Community plugins** and turn on community plugins if needed.
+2. Find the **folder icon** beside **Installed plugins** and select it. Finder opens this vault's plugin directory. The icon is documented in [Obsidian's official help](https://help.obsidian.md/community-plugins).
+3. In that directory, press **⌘⇧N** and name the new ordinary folder `omd-home`. If it already exists, open it; **do not create another omd-home inside it**.
+4. Select the three downloaded files in Downloads and press **⌘C**. Open `omd-home` and press **⌘V**. The result should be:
 
    ```text
-   OMD Demo/
+   <your vault>/
    └── .obsidian/
        └── plugins/
            └── omd-home/
@@ -49,80 +83,144 @@ All three must come from the same version. Keep the original filenames, without 
                └── styles.css
    ```
 
-   Leave an existing `data.json` there. Avoid an extra `omd-home/omd-home/` level or copying the whole source directory.
-4. Open **Settings → Community plugins** in Obsidian. If shown, use **Turn on community plugins** after deciding you trust the plugin. Refresh the list; quit and reopen Obsidian if necessary.
-5. Enable **OMD Home** under **Installed plugins**. Press **Command–P** and run **OMD Home: Open home**.
+   This is a location diagram: **do not create a folder literally named `<your vault>`**. Leave any existing `data.json` and `omd-eventkit` in place.
+5. Back in Obsidian's Community plugins settings, select the **refresh icon** beside the installed list. If OMD Home is still absent, use **⌘Q** to quit Obsidian completely, then reopen the same vault.
+6. Turn on **OMD Home**. Close Settings, press **⌘P**, and run **OMD Home: Open home**.
 
-Seeing Home confirms that the plugin is enabled. Capture also needs the backend.
+**Success check:** the Home page opens. Continue to [section 4](#install-backend).
+
+<details>
+<summary><strong>No folder button, no plugins directory, or .obsidian is hidden in Finder?</strong></summary>
+
+`.obsidian` is hidden by default; it is an ordinary usable directory. First open the target vault in Obsidian, then:
+
+1. Open the **actual vault folder** in Finder. For the example vault, this is `OMD Demo` in the Documents location you chose.
+2. Press **⌘⇧.** (Command, Shift, and a period) to show hidden items, then open `.obsidian`. Press the same shortcut afterward to hide them again.
+3. If `plugins` is absent, press **⌘⇧N** **inside .obsidian** to create the ordinary folder `plugins`. Open it and create the ordinary folder `omd-home`. Neither name starts with a dot.
+4. If you know your vault path, Finder's **⌘⇧G** opens **Go to Folder**. Enter the existing settings directory and press Return. Copy the following line **only if you actually created the example vault at that location**:
+
+   ```text
+   ~/Documents/OMD Demo/.obsidian/
+   ```
+
+   `~` means your home directory; use the actual location for a different vault. **Go to Folder opens existing directories; it does not create them.** If `.obsidian` is absent, return to Obsidian and confirm this vault is open; do not create another `.obsidian` in Downloads or another vault.
+5. Return to **step 4 of 3B** to copy the three files.
+
+References: [Obsidian's settings directory](https://obsidian.md/help/data-storage), [Apple's Finder shortcuts](https://support.apple.com/en-sg/102650).
+
+</details>
 
 ## 4. Install the OMD backend
 
-Open **Terminal**:
+<a id="install-backend"></a>
+
+Install the plugin once; **this section is needed for Capture**. Homebrew installs OMD and its Python environment, so do not install Python separately first. These steps use Apple Silicon and macOS 15+.
+
+### 4A. Open Terminal and check for Homebrew
+
+Press **⌘Space** to open Spotlight, type `Terminal`, and press Return. Paste the commands below into this Terminal window, **not Obsidian's search, Capture field, or settings**. Paste one code block at a time and press Return. Wait for completion and the input prompt to return before continuing. Do not type the code block's `bash` label.
 
 ```bash
 brew --version
 ```
 
-If `brew` is unavailable, use the [official Homebrew page](https://brew.sh/), complete the installer's **Next steps** including `brew shellenv`, and check again in a new Terminal. Use a standard installation on your internal disk, avoiding external or network drives and protected folders such as Documents. The formula needs source build tools. If Xcode Command Line Tools are missing, run this and finish the system installation before continuing:
+If it prints `Homebrew` and a version, skip to **4C**. If `brew` is unavailable, follow **4B**.
 
-```bash
-xcode-select --install
-```
+### 4B. First-time Homebrew installation
 
-Copy one line at a time and press Return:
+1. Run this in Terminal:
+
+   ```bash
+   xcode-select --install
+   ```
+
+   If the developer tools window appears, select **Install** and wait until the system finishes. The full Xcode app is unnecessary. If the tools are already installed, continue.
+2. Open the [Homebrew website](https://brew.sh/) and choose its official **.pkg installer**. Open the downloaded `.pkg` and follow the macOS installer. Use your Mac login password if authorization is requested. See [Homebrew's installation requirements](https://docs.brew.sh/Installation).
+3. After the package finishes, paste this **whole block** into Terminal and press Return. It sets Homebrew's path for macOS's default zsh and preserves existing `.zprofile` content; do this once after first installation. If you changed shells yourself, follow the package's **Next steps** for your shell instead.
+
+   ```bash
+   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+   eval "$(/opt/homebrew/bin/brew shellenv)"
+   brew --version
+   ```
+
+**Success check:** Homebrew prints its version. If the website's installation method differs, complete the official installer's **Next steps** for your path, then return to `brew --version`. Do not use `sudo brew install`.
+
+### 4C. Install and connect OMD
+
+Run the installation command first. Downloading conversion tools can take a while; wait for Terminal to become ready for input before continuing.
 
 ```bash
 brew install omd-local/omd/omd
-omd --version
-omd doctor
-omd capabilities --json
 ```
 
-The version should be **0.3.0b5**. The formula installs Python 3.12, ffmpeg/ffprobe, Tesseract, OCR language packs, and yt-dlp; no separate Python installation is needed. See the [public formula](https://github.com/omd-local/homebrew-omd/blob/main/Formula/omd.rb). Install the Whisper program and models, Ollama, cookies, and Calendar helper separately as needed.
+Then check the version:
 
-For an older OMD installation:
+```bash
+omd --version
+```
+
+Expect **0.3.0b5**. The formula also installs Python 3.12, document-conversion dependencies, ffmpeg/ffprobe, Tesseract, OCR language packs, and yt-dlp. Whisper, Ollama, models, and the Calendar helper remain optional. See the [public formula](https://github.com/omd-local/homebrew-omd/blob/main/Formula/omd.rb).
+
+Back in Obsidian, open **Settings → OMD Home**, scroll to **Capture and processing**, and select **Detect OMD** (called **Check again** after a previous check). Continue when you see **OMD is ready** or a ready status. This is separate from the **Check setup** button under AI answers above it.
+
+<details>
+<summary><strong>Old version, OMD not detected, or diagnostics needed?</strong></summary>
+
+For an older version, run these three lines, then select **Check again** under Capture and processing:
 
 ```bash
 brew update
 brew upgrade omd-local/omd/omd
 omd --version
-omd capabilities --json
 ```
 
-Return to **Settings → OMD Home → OMD** and press **Detect OMD** or **Check again**. b5 supplies the recognition-language, social-capture, and local Ollama interfaces used by this Mac release. Each workflow still depends on capability checks and external tools. Missing optional AI or transcription tools in `doctor` do not prevent webpage conversion.
-
-If automatic detection fails, run:
+If the version is correct in Terminal but Home cannot find it, run this line and copy the complete path it prints:
 
 ```bash
 printf '%s\n' "$(brew --prefix omd-local/omd/omd)/bin/omd"
 ```
 
-Paste the complete absolute path into **Advanced OMD paths → OMD executable override**, then check again. Use your Mac's output rather than someone else's `/Users/...` path. Normally leave Python and bridge overrides blank to use the backend environment and bundled bridge.
+Paste it, without quotes, into **Capture and processing → Advanced OMD paths → OMD executable override**. Click outside the field, then select **Check again**. Normally leave **Python executable override** and **OMD Home bridge override** blank; do not copy another person's `/Users/...` path.
 
-**Copy install commands** only copies text, and **Install guide** only opens documentation. The plugin does not execute installation commands. Updating the tap obtains a public release, not unpublished experiments.
+Run diagnostics only when needed for troubleshooting:
+
+```bash
+omd doctor
+omd capabilities --json
+```
+
+Missing optional AI or transcription tools in `doctor` do not mean basic webpage conversion failed. **Copy install commands** only copies text; **Install guide** only opens documentation. The plugin does not execute an installer for you.
+
+</details>
 
 ## 5. Check recognition and first-capture options
 
-Open **Settings → OMD Home → OMD → Recognition defaults**. A new vault starts with **Image text language: English** and **Speech language: Auto-detect speech**. b5 supports these defaults; **you do not need to clear both preferences as older b4 instructions required**.
+Keep the language defaults for the first English-webpage test. For Chinese image OCR, open **Settings → OMD Home → Capture and processing**, expand **Recognition defaults**, and set **Image text language** to simplified or traditional Chinese plus English. **Speech language** defaults to **Auto-detect speech**; explicit English / Chinese are also available.
 
-For Chinese OCR, choose simplified or traditional Chinese plus English. Speech can use automatic detection or explicit English / Chinese. OCR affects supported image-text recognition; it does not translate text or promise automatic OCR for ordinary PDFs. Capture-specific language changes affect only that item, and Retry preserves them.
-
-For the first basic test, turn off **Polish Markdown** and **Review links and tags** in **Capture URL or file**, so conversion can be checked before installing Ollama. These are optional AI actions, rather than compatibility fixes for the new backend; enable them after AI checks pass. Submitting Capture saves the choices; cancelling does not.
+OCR affects supported image recognition, not translation or automatic OCR for ordinary or scanned PDFs. Changing a language in Capture affects only that item; Retry preserves it. b5 needs none of the older b4 preference-clearing workarounds.
 
 ## 6. Complete your first Capture
 
-1. Click **Capture URL or file** on Home, or run **Command–P → OMD Home: Capture URL or file**.
-2. Enter a simple public page needing no login, such as `https://example.com/`, or drop a small local HTML or PDF file or paste its full path. Submit one source at a time.
-3. Keep both AI toggles off and press **Capture**.
-4. **Current task** shows progress while work runs; a fast task may appear briefly. After completion, open the Markdown in **Inbox** and check its content and original source.
+<a id="first-capture"></a>
 
-**The first capture is complete when you can open the note in Inbox.** Files normally go under `Sources/<source type>/` with adjacent `.omd.json` metadata. Capture writes a new note immediately. Optional link and tag proposals need **Apply** before writing; **Done reviewing** marks the item Reviewed.
+1. Close Settings. Press **⌘P**, find and run **OMD Home: Capture URL or file**, or select that button on Home.
+2. Paste `https://example.com/` into **URL, share text, or file path**. Start without login-protected pages or long videos.
+3. Turn off **Polish Markdown** and **Review links and tags**, leaving other optional fields blank. Ollama is not needed for this test.
+4. Select **Capture** to start processing. **Current task** appears only during active work; a fast task may appear briefly.
+5. When it finishes, open **Inbox** on Home, open the new Markdown note, and check its text and source link.
 
-Web capture needs access to its source website; local files do not. On failure, read **Needs attention**, fix the cause, and **Retry capture**. Avoid login-protected, frequently rate-limited, or long videos for the first check.
+**Success check: you can open and read the generated note in Inbox. Basic installation is complete here; everything below is optional.**
+
+For a local file, drag **one small HTML or PDF file** from Finder onto **Drop a local file here** inside the Capture dialog. Confirm its path is filled in, then select **Capture**. No typed file path or separate Choose file button is needed. Submit one source at a time.
+
+Notes normally go under `Sources/<source type>/` with adjacent `.omd.json` metadata. `<source type>` is a generated category, not a placeholder directory to create. Capture writes the new note immediately; optional link/tag proposals require **Apply**, and **Done reviewing** marks the item Reviewed. Submitting saves that capture's toggle choices; cancelling does not. On failure, read **Needs attention**, fix the cause, and select **Retry capture**.
 
 ## 7. Optional: local transcription on Apple Silicon
 
-This requires an **Apple M series chip**; MLX is not the Intel route. The base backend includes ffmpeg, but not the Whisper program or models.
+**Complete basic Capture first.** This route needs an Apple M series chip; MLX is not the Intel route. The backend includes ffmpeg, but the Whisper program and model are separate.
+
+Run this whole block in Terminal, waiting for each line to finish:
 
 ```bash
 brew install pipx
@@ -130,122 +228,149 @@ pipx install --python "$(brew --prefix python@3.12)/bin/python3.12" mlx-whisper
 pipx ensurepath
 ```
 
-Open a new Terminal as instructed, then check:
+As prompted, **close this Terminal window and open a new one**, then run:
 
 ```bash
 command -v mlx_whisper
-omd doctor
 ```
 
-Submit a **10–30 second local audio file** you have permission to use through OMD Home's **Capture URL or file**. Keep **Auto-detect speech** and both AI toggles off. Wait for the Inbox result, open the note, and check the transcript.
+It should print the program path. Then use **⌘Q** to quit and reopen Obsidian; no Whisper executable path needs to be entered.
 
-**Test OMD's own flow.** Its default model is `mlx-community/whisper-large-v3-turbo`; the first run needs network access to download it and enough disk space. A standalone `mlx_whisper` default example may download a different tiny model, which does not prove OMD's model is ready. Complete a successful real capture before a demo. Raw transcription needs no Ollama; AI cleanup is separate. See the [official mlx-whisper instructions](https://pypi.org/project/mlx-whisper/).
+Drop a **10–30 second local audio file** you have permission to use onto **Drop a local file here** in Capture. Keep **Auto-detect speech** and both AI toggles off, then select **Capture**. The default model is `mlx-community/whisper-large-v3-turbo`; its first use requires a network download, disk space, and waiting time. **Success means an Inbox note contains a transcript you can check**, not merely that Terminal printed a program path.
 
-**Intel Macs:** this guide has not verified a complete Home transcription installation on Intel. Installing MLX will not provide this route. Start with webpages or documents and consult [OMD's transcription and manual installation instructions](https://github.com/omd-local/markdown-everything#quick-start) for a platform-appropriate alternative.
+Complete one real OMD capture before a demo; other standalone Whisper examples may download another model. Raw transcription does not need Ollama. See the [official mlx-whisper instructions](https://pypi.org/project/mlx-whisper/). Intel users should check the [backend's other installation routes](https://github.com/omd-local/markdown-everything#quick-start); this guide has not verified a complete Intel transcription setup.
 
 ## 8. Optional: local AI, formatting, and semantic search
 
-1. Install the Mac app from the [Ollama website](https://ollama.com/download), move it to **Applications**, open it, complete CLI setup, and keep it running. It currently requires macOS 14+; Apple M supports CPU/GPU use and Intel uses CPU. See the [system requirements](https://docs.ollama.com/macos).
-2. Download a local text model, for example:
+1. Download the Mac app from the [Ollama website](https://ollama.com/download), open the download, drag Ollama into **Applications**, and launch it from Applications to finish first-run setup. If asked to install the CLI, complete that prompt and keep Ollama running. See [Ollama's Mac requirements](https://docs.ollama.com/macos).
+2. In a **new Terminal window**, download a local text model:
 
    ```bash
    ollama pull qwen3:4b-instruct
    ollama list
    ```
 
-3. Under **Settings → OMD Home → AI answers**, choose **Ollama on this computer**, the downloaded model, and **Check setup**. Run **OMD Home: Refresh local AI models** if the list is stale. Download size and speed depend on your Mac; downloading a model does not verify every workflow.
-4. Under **Advanced AI controls → Local writing tools → Local writing model**, choose a local text model and complete its check. It powers **Improve formatting**, **Polish Markdown**, and **Review links and tags**, without a cloud answer provider. Preview formatting on a test note before choosing **Apply**.
-5. For semantic search, install a separate embedding model:
+   Wait for completion and the model name in the list. If Terminal cannot find `ollama`, finish the app's initial CLI setup, then reopen Terminal; do not change OMD's Python path.
+3. Under **Settings → OMD Home → AI answers**, set **Answer provider** to **Ollama on this computer**. Select **Check setup** to load models, choose the downloaded answer model, and **Check setup** again. If the list is stale, run **OMD Home: Refresh local AI models**.
+4. For formatting or link/tag proposals, expand **Advanced AI controls → Local writing tools** and choose a text model under **Local writing model**. Then **return to Check setup under AI answers above**; the writing-model row has no separate check button. These writing tools use local Ollama only.
+5. For semantic search, download a separate embedding model:
 
    ```bash
    ollama pull bge-m3
    ```
 
-   Select `bge-m3` under **Advanced AI controls → Vault retrieval** and press **Test semantic search**. The explicit **Install bge-m3** button also downloads it; opening settings does not. Turn off **Keyword + semantic search** for keyword-only retrieval, which needs no embedding model. The UI labels any fallback to keywords.
-6. Type `@` and a question answerable from your test notes into Home's omnibox. Check citations and open the original notes. Vault Q&A is read-only.
+   Under **Advanced AI controls → Vault retrieval**, enable **Keyword + semantic search**, select `bge-m3`, and select **Test semantic search**. **Install bge-m3** also downloads it after an explicit click; opening settings does not. For keyword-only search, leave the switch off; no embedding model is needed.
+6. Close Settings and type `@` plus a question answerable from your test notes in Home's omnibox. **Success means an answer has citations that open the original notes.** Vault Q&A is read-only. Preview formatting on a test note before Apply; enable Capture's AI toggles only after the relevant checks pass.
 
-Keep the default endpoint `http://localhost:11434`. Manual endpoints must use a loopback host on this computer and an explicit port; **Save endpoint** before checking. A listed model may still be incompatible with a particular workflow.
+Keep the endpoint `http://localhost:11434`; no Ollama executable path is needed. Custom endpoints require loopback on this Mac and an explicit port; select **Save endpoint** when changing one. A downloaded model may not fit every workflow, so follow each check's result.
 
-Local models do not require disabling all Ollama cloud features. For local-only Ollama, follow the [official instructions](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features): preserve other settings in `~/.ollama/server.json`, add `"disable_ollama_cloud": true`, then quit and reopen Ollama. This also disables Ollama Cloud.
+Local models do not require disabling all Ollama cloud features. If desired, use the [official local-only instructions](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features); that setting also disables Ollama Cloud and is not a required installation step here.
 
 ## 9. Optional: cloud answers
 
-Cloud answers require a separate account or developer API access and may incur charges. Local capture, raw transcription, and local writing do not require them.
+Cloud answers need a separate account or developer API access and may incur charges. Local capture, raw transcription, and local writing do not require them.
 
-| Provider | Setup and checks |
+| Provider | What to do |
 |---|---|
-| **Ollama Cloud** | Run `ollama signin`, prepare a cloud model using the [official Cloud guide](https://docs.ollama.com/cloud), then choose Ollama Cloud, Check setup, and a model under AI answers. Ollama local-only mode must be off. |
-| **OpenAI API / Anthropic API** | Paste a real developer API key into the matching password field, press **Save & check** to store it in macOS Keychain, then select a listed model. ChatGPT / Claude subscriptions do not include API credit. |
-| **DeepSeek API** | The verified policy in this b5 release does not enable it. Requests are rejected even if the option appears; do not use it as an available demo path. |
+| **Ollama Cloud** | Follow the [official Cloud guide](https://docs.ollama.com/cloud) for `ollama signin` and a cloud model. Select Ollama Cloud under AI answers, Check setup, and a model. Ollama local-only mode must be off. |
+| **OpenAI API / Anthropic API** | Select the provider under AI answers, paste a real developer API key into **Developer key**, and select **Save & check** to store it in macOS Keychain and check access; then select a model. ChatGPT / Claude subscriptions do not include API credit. |
+| **DeepSeek API** | The verified b5 policy does not enable it. Requests are rejected even if the option appears; it is not an available installation route. |
 
-After enabling the selected provider's **Allow … answers**, every question still needs inspection of its destination, model, and bounded evidence excerpts before explicit approval. Cancel sends nothing, and no other provider is chosen automatically. Only the question and approved excerpts are sent; retrieval stays local. Formatting, link and tag proposals, and embeddings continue to use local Ollama.
+After enabling the selected provider's **Allow … answers**, inspect each question's destination, model, and bounded evidence excerpts before explicitly approving it. Cancel sends nothing; no other provider is chosen automatically. Only the question and approved excerpts are sent, and retrieval stays local. Writing, link/tag proposals, and embeddings still use local Ollama.
 
 ## 10. Optional: Douyin or Xiaohongshu sources
 
-b5 accepts a Douyin or Xiaohongshu / Rednote share message containing **exactly one HTTP(S) URL** in Capture. Paste only the URL for ordinary webpages; multiple sources per submission are unsupported. Platforms may require login or restrict access, so not every post is guaranteed to work.
+b5 accepts a Douyin or Xiaohongshu / Rednote share message with **exactly one HTTP(S) URL**. Paste only the URL for ordinary webpages. Platforms may require login or restrict conversion; not every post is guaranteed to work. Video transcription still needs section 7's program and model.
 
-If needed, export your own account session to a Netscape-format `cookies.txt`. Enter its absolute path for the matching platform under **Settings → OMD Home → OMD → Social capture access**, or **Site access** in Capture. Configure platforms separately; their files are not interchangeable. Only the path is saved; local OMD sends matching cookies to approved source-platform HTTPS requests, never to AI providers. Keep cookie files out of your vault, GitHub, and issue reports. Start with a short public item you can open in your own browser; video transcription still requires section 7's program and models.
+If a session is needed, export your own account's Netscape-format `cookies.txt`. Find the actual file in Finder, right-click it, hold **Option**, and select **Copy … as Pathname**. Paste that absolute path into settings without quotes. See [Apple's pathname instructions](https://support.apple.com/en-mn/guide/terminal/apd3cf6fe02-3ec8-48f1-951f-866e52955fc8/mac).
+
+Under **Settings → OMD Home → Capture and processing → Social capture access**, paste the path into the matching platform's field; **Site access** in Capture is another entry. Configure each platform separately; the files are not interchangeable. Only the path is saved, and local OMD uses matching cookies for approved source-platform HTTPS requests, never AI providers. Keep cookie files out of your vault, GitHub, and issue reports. Start with a short item you can open in your own browser.
 
 ## 11. Optional: Apple Calendar
 
-Markdown events in the vault need no helper. Syncing Apple Calendar, including Google / Outlook accounts added to macOS Calendar, requires **macOS 14+, the separate EventKit helper, Calendar permission, and explicitly selected calendars**. The three standard plugin files do not include the helper.
+**This is an advanced optional setup. Basic Capture and Markdown events in your vault do not need it.** Apple Calendar sync, including Google / Outlook accounts already added to macOS Calendar, needs **macOS 14+, a separate EventKit helper, Calendar permission, and explicitly selected calendars**. Neither BRAT nor the three standard plugin files include the helper.
 
-Build it locally from the matching plugin tag. Install current Xcode Command Line Tools first (`xcode-select --install`, unless already installed), and check for **Swift 6 or newer** with `swift --version`. Then:
+### 11A. Build the helper
+
+Build on this Mac from the matching plugin tag. Use the Xcode Command Line Tools from section 4B; if you skipped that section and the tools are missing, complete `xcode-select --install` first. Check in Terminal:
 
 ```bash
-brew install node
+swift --version
+```
+
+You need **Swift 6 or newer**; update the developer tools first if older. The helper script uses Swift directly: **no Node.js installation or npm ci is needed for it**.
+
+Paste the whole block into Terminal and press Return. It stops if any step fails and refuses to overwrite an existing source directory. If `~/Developer/omd-home-0.2.2` already exists, change the directory name both at the end of clone and in cd to the same new name, then retry.
+
+```bash
+(
+set -e
 mkdir -p ~/Developer
 cd ~/Developer
 git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git omd-home-0.2.2
 cd omd-home-0.2.2
-npm ci
-npm run build:eventkit
+sh scripts/build-eventkit.sh
+open dist
+)
 ```
 
-Use a different new directory name if that one exists; do not overwrite it. A successful build produces `dist/omd-eventkit`. Copy it to `.obsidian/plugins/omd-home/omd-eventkit` in your actual vault, for example:
+On success, Terminal prints the helper's version and Finder opens `dist` containing the **omd-eventkit** executable. Do not double-click it.
 
-```bash
-cp dist/omd-eventkit "$HOME/Documents/OMD Demo/.obsidian/plugins/omd-home/omd-eventkit"
-```
+### 11B. Copy with Finder, without typing a hidden path
 
-Preserve executable permission. Alternatively, keep it in a stable location and enter its full absolute path under **Settings → OMD Home → Calendar → Advanced Calendar helper**; select the executable, not source code or the `dist` folder.
+1. Select **omd-eventkit** in `dist` and press **⌘C**.
+2. In Obsidian, open **Settings → Community plugins**, select the folder icon, then open **omd-home** in Finder.
+3. Press **⌘V** to copy the helper beside `main.js`, `manifest.json`, and `styles.css`, preserving executable permission. For a helper update, disable OMD Home before replacement and enable it afterward.
+4. Return to **Settings → OMD Home → Calendar**, select **Refresh calendars**, and grant access when macOS asks.
+5. Enable only calendars OMD may access and choose a writable test calendar as **Default calendar**.
+6. Close Settings, press **⌘P**, and run **OMD Home: Create event**. Enter a test title, Start and End; set **Destination** to **Vault + your test calendar name**, then select **Save**.
+7. Check the event in OMD Home Calendar and the system Calendar app, and open its vault note. Creating an ordinary event only in the system Calendar does not automatically create a vault note.
 
-In Calendar settings, press **Refresh calendars** and grant access when macOS asks. Enable only calendars OMD may read and choose a writable **Default calendar**. Create a test event and check the vault and selected calendar. If both copies change, choose which to keep; avoid important calendars for the first test. After denying permission, adjust **System Settings → Privacy & Security → Calendars**.
+**Success check:** selected calendars and the test event load and can be checked. If both copies change, choose which to keep. After denying access, adjust **System Settings → Privacy & Security → Calendars**.
+
+To keep the helper elsewhere, copy the actual executable's pathname into **Calendar → Advanced Calendar helper → Helper override**. Do not select source code or the `dist` directory. Moving its source folder afterward requires updating the override.
 
 ## 12. Upgrades, backups, and demo checks
 
-Preserve `data.json` and replace only the three files from the same plugin release. Build and replace the helper separately if updated. Upgrade the backend using section 4. Reopen Obsidian and recheck OMD plus AI / Calendar features you use. To roll back, disable the plugin and restore backed-up files and settings without deleting notes.
+Before upgrading, back up the whole vault, stop captures, and disable OMD Home in Community plugins. Keep a separate copy of `.obsidian/plugins/omd-home/`, especially `data.json` (settings), your notes, and any installed helper.
+
+- **BRAT installation:** section 2 pins 0.2.2, so later versions will not replace it automatically. When ready to upgrade, change the plugin's version selection in BRAT's plugin list and update to your chosen version; switching to Latest version is unnecessary.
+- **Manual installation:** download the target release's three files and replace only `main.js`, `manifest.json`, and `styles.css`. Preserve `data.json` and `omd-eventkit`; do not delete the entire plugin folder to update it.
+- **Backend:** use section 4's disclosed `brew update` / `brew upgrade` commands; it upgrades separately from the plugin.
+- **Calendar helper:** if updated, build and replace it from the matching tag using section 11.
+
+Enable the plugin again, reopen Obsidian, and recheck OMD and the AI / Calendar features you use. To roll back, disable it and restore backed-up files/settings without deleting notes. Do not overwrite your vault with a demo vault's settings.
 
 | Demo workflow | Completion check |
 |---|---|
-| Basic Capture | A simple webpage and local HTML/PDF file open in Inbox with correct sources |
-| Transcription, if used | A real OMD capture has downloaded its selected model and a person has checked the short transcript |
-| Local AI, if used | Check setup passes, answer citations open, and edits are previewed |
-| Calendar, if used | The helper is executable, access is granted, only selected calendars participate, and a test event can be checked |
-
-Finish downloads and system permission prompts before a demo. Seeing Home or doctor alone does not verify all optional features.
+| Basic Capture | A simple webpage and one local HTML/PDF open in Inbox with correct sources |
+| Transcription, if used | A real OMD capture has downloaded its model and a person has checked the short transcript |
+| Local AI, if used | Check setup passes, citations open, and edits are previewed |
+| Calendar, if used | The helper is executable, permission is granted, selected calendars participate, and a test event can be checked |
 
 ## Troubleshooting
 
-| Symptom | Next step |
+| Where you are stuck | Next step |
 |---|---|
-| OMD Home is absent from Installed plugins | Check filenames, current vault, and folder depth; reopen Obsidian |
-| Terminal cannot find brew | Complete official Next steps / shellenv and open a new Terminal; avoid `sudo brew install` |
-| OMD is missing or still reports b4 | brew update / upgrade, inspect the actual executable override, then Check again |
-| Recognition preference / hardened local Ollama transport check fails | Confirm Home uses b5 and its capabilities. For temporary basic capture on old b4, clear both language preferences and disable both AI toggles; full workflows still require upgrading |
-| An OCR language pack is missing | Check `tesseract --list-langs` and install the pack; b5 does not supply missing external tools by itself |
-| mlx_whisper is unavailable | Check Apple Silicon, the pipx path, and doctor; reopen Obsidian and try a real short-audio capture |
-| AI model or connection fails | Open Ollama, inspect `ollama list`, Refresh local AI models, then Check setup; check text and embedding models separately |
-| DeepSeek is rejected | This policy does not enable it; use a verified provider or local Ollama |
-| Current task disappears after completion | It shows active work only; open the result in Inbox |
-| A webpage returns 403 / needs login | Try a public page, check platform setup, or capture a local copy you have permission to save |
-| Calendar has no results | Check the helper executable, permission, Refresh calendars, and selected calendars |
+| OMD Home is absent from the community directory | It is not yet listed. Follow section 2: find BRAT first, then add the OMD Home repository; or install manually with section 3. |
+| BRAT has no version list or GitHub rate-limits a request | Check the repository address, click outside it, and wait; retry later or install manually. A public repository needs no token. |
+| Finder hides .obsidian or Go to Folder cannot find the path | Start with Obsidian's plugin-folder icon, then section 3's disclosed fallback. Confirm the actual vault location. |
+| OMD Home is absent from Installed plugins | Check the same vault, exact filenames, and one omd-home directory level; refresh, or ⌘Q and reopen. |
+| Terminal cannot find brew | Complete Homebrew's shell path setup and verify brew --version; do not use sudo brew install. |
+| OMD is missing or outdated | Use section 4's diagnostics, update, then Check again under Capture and processing; AI's check button is separate. |
+| An OCR language pack is missing | Check tesseract --list-langs and install the pack; clearing preferences does not install missing dependencies. |
+| mlx_whisper is unavailable | Check Apple Silicon, pipx, and the program path; reopen Obsidian and try a short-audio capture. |
+| Terminal cannot find ollama | Open the app, finish CLI setup, and open a new Terminal; leave OMD/Python overrides alone. |
+| AI setup fails | Keep Ollama running and check the model finished downloading; use Check setup under AI answers and check text/embedding models separately. |
+| Current task disappears after completion | It shows active work only; open the result in Inbox. |
+| A webpage rejects access or requires login | Try a public page needing no login, or capture a local copy you may save; use section 10 for platform-specific setup. |
+| Calendar has no results | Check the helper's folder or executable override, system permission, then Refresh calendars and select calendars. |
 
-Report plugin and OMD versions, capabilities, Mac chip, steps, and error text. Your whole vault, API keys, and cookie contents are unnecessary.
+Report plugin and OMD versions, Mac chip, the failed step, and error text; include diagnostics if needed after removing personal paths. Do not attach your whole vault, API keys, or cookie contents.
 
 ## Developers: build the pinned plugin source
 
-Regular users need no build. To reproduce **0.2.2**, prepare Git and Node.js/npm, then:
+Regular users need no plugin build. Developers with Git and Node.js/npm can reproduce **0.2.2**:
 
 ```bash
 git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
@@ -254,4 +379,4 @@ npm ci
 npm run build
 ```
 
-The output is still the three plugin files, without installing the backend or models. Public main matches this release but will change; a fixed tag is reproducible. See the [0.2.2 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/manual-test-plan.md) for desktop acceptance.
+The output is still the three plugin files, without backend or models. Public main includes this release's source and will change; a fixed tag is reproducible. See the [0.2.2 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/manual-test-plan.md) for desktop acceptance.

@@ -45,19 +45,42 @@ conversion does not need AI.
 
 You need **Obsidian desktop 1.11.4 or newer**. OMD Home is **desktop-only**;
 it does not run on Obsidian Mobile. Until it is listed in Community Plugins,
-install this public beta from GitHub Releases:
+the easiest installation route is **BRAT**, a separate community plugin that
+downloads and places the release files for you:
 
-1. Download all three assets from [release 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2):
+1. Open the vault where you want OMD Home. In **Settings > Community plugins > Browse**,
+   search for **BRAT** by **TfTHacker**, then **Install** and **Enable** it.
+2. In **Settings > BRAT**, select **Add beta plugin** and paste
+   `https://github.com/omd-local/obsidian-omd-home`. Click outside the field and wait for the version list.
+3. Choose **0.2.2**, leave GitHub token blank for this public repository,
+   check **Enable after installing the plugin**, and select **Add plugin**.
+4. Close Settings, press **Command–P**, and run **OMD Home: Open home**.
+
+Choosing **0.2.2** pins that plugin version. BRAT does not install the backend,
+models, or Calendar helper. Follow the full [English](docs/getting-started-mac.en.md#install-plugin)
+or [简体中文](docs/getting-started-mac.md#install-plugin) guide for each click and the manual alternative.
+
+<details>
+<summary><strong>Install manually without BRAT</strong></summary>
+
+1. Download the three assets from [release 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2):
    [main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js),
    [manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json), and
    [styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css).
-2. Create `<your-vault>/.obsidian/plugins/omd-home/` and put the three files directly inside it.
-3. In **Settings > Community plugins**, reload installed plugins and enable **OMD Home**.
-4. Run **OMD Home: Open home** from the command palette.
+2. In the target vault, open **Settings > Community plugins**, turn on community plugins if needed,
+   and select the **folder icon** beside Installed plugins. This opens the current vault's plugin folder.
+3. Create an ordinary folder named `omd-home` there; on Mac use **Command–Shift–N**.
+   Copy the three files directly inside it. Obsidian creates `.obsidian`; you do not need to create a hidden folder yourself.
+4. Back in Community plugins, select the **refresh icon**, enable **OMD Home**,
+   and run **OMD Home: Open home**. If absent, quit and reopen Obsidian.
 
 Use files from the same release. GitHub's **Source code (zip)** is not an
 installable plugin. The plugin files do not include OMD, Python, models, or
-the optional Calendar helper.
+the optional Calendar helper. If the folder icon cannot open a missing directory,
+the [manual Mac steps](docs/getting-started-mac.en.md#manual-install) explain how to enter the existing `.obsidian`
+directory and create only the ordinary `plugins` and `omd-home` folders.
+
+</details>
 
 ### 2. Install the local OMD backend for capture
 
@@ -65,13 +88,13 @@ the optional Calendar helper.
 performs conversion on your computer. OMD Home does not install, update,
 or bundle OMD, Python, Ollama, or the EventKit helper.
 
-For the Mac Homebrew route, check the guide's **Apple Silicon / macOS 15+**
-prerequisites and install Homebrew first if needed. Then run:
+For **Apple Silicon / macOS 15+**, the [Mac guide](docs/getting-started-mac.en.md#install-backend)
+covers opening Terminal, the official Homebrew `.pkg` installer, developer tools,
+and shell path setup. Once `brew --version` works, run this in **Terminal**:
 
 ```bash
 brew install omd-local/omd/omd
 omd --version
-omd capabilities --json
 ```
 
 The version should be **0.3.0b5**. Homebrew also installs Python 3.12, common
@@ -79,8 +102,9 @@ document converters, ffmpeg, Tesseract and its language packs, and yt-dlp.
 Whisper and its model, Ollama and AI models, and the Calendar helper are
 separate optional setup steps.
 
-In **Settings > OMD Home > OMD**, run **Check setup**. Home normally discovers
-OMD automatically; if it finds an older or different installation, see
+In **Settings > OMD Home**, scroll to **Capture and processing** and select
+**Detect OMD** or **Check again**. These backend checks are separate from AI's
+**Check setup**. Home normally discovers OMD automatically; if it finds an older or different installation, see
 [Connect OMD](#connect-omd). Windows and Linux users can follow the
 [backend quick start](https://github.com/omd-local/markdown-everything#quick-start)
 and [platform support](#platform-support) notes.
@@ -88,9 +112,9 @@ and [platform support](#platform-support) notes.
 ### 3. Save your first Markdown note
 
 1. Open **Capture URL or file**.
-2. Paste a simple public URL such as `https://example.com/`, or select a small HTML or PDF file.
+2. Paste a simple public URL such as `https://example.com/`, or drag one small HTML or PDF file from Finder onto **Drop a local file here** inside the dialog.
 3. For this first conversion test, leave **Polish Markdown** and **Review links and tags** off. Enable them after setting up local AI.
-4. Submit, watch **Current task**, then open the saved note from **Inbox** and check its content and source.
+4. Select **Capture**, watch **Current task**, then open the saved note from **Inbox** and check its content and source.
 
 Next, add [OCR languages, audio transcription, local AI or Calendar integration](#choose-your-setup)
 for the workflows you use. The separate backend browser UI is deferred; OMD
@@ -382,29 +406,20 @@ it never writes the file for you.
 <summary><strong>CALENDAR SETUP // EventKit and selected accounts</strong></summary>
 
 Apple Calendar integration needs macOS 14+ and a separately built EventKit helper.
-Build the helper from the pinned 0.2.2 source on macOS with Swift 6+ and
-Xcode Command Line Tools:
+Follow the [complete Calendar steps](docs/getting-started-mac.en.md#11-optional-apple-calendar)
+to clone the pinned 0.2.2 source, build with Swift 6+ and Xcode Command Line
+Tools, and copy `omd-eventkit` through Finder into the actual plugin folder.
+The helper build uses `sh scripts/build-eventkit.sh`; it needs neither Node.js
+nor npm dependencies. Markdown-only events need no helper.
 
-```bash
-npm run build:eventkit
-```
+In **Settings > OMD Home > Calendar**, select **Refresh calendars**, grant the
+requested macOS permission, enable only approved calendars, and choose a writable
+**Default calendar**. Create a test event in OMD Home with **Destination** set to
+**Vault + [your calendar]** and check both copies. A system Calendar event alone
+does not automatically become a vault note.
 
-The [complete Calendar steps](docs/getting-started-mac.en.md#11-optional-apple-calendar)
-include installing build tools, cloning the tag, copying the executable, and
-granting permission. Markdown-only events need no helper.
-
-For the repository test vault, `npm run install:test-vault` installs
-`dist/omd-eventkit` beside the plugin when the built helper is present and
-executable. For another vault, build the helper first, then copy the executable
-to `.obsidian/plugins/omd-home/omd-eventkit` or select its absolute path in OMD
-Home settings.
-
-Then:
-
-1. Grant Calendar permission when macOS asks.
-2. Press **Refresh calendars**.
-3. Enable only the calendars OMD Home may read.
-4. Choose one writable calendar as the default destination for linked events.
+For a helper stored elsewhere, paste its actual executable path into
+**Advanced Calendar helper > Helper override**. Do not select a source directory.
 
 Windows and Linux keep Markdown calendar features but do not expose Apple
 Calendar controls.
@@ -432,7 +447,7 @@ can open when testing a real capture.
 
 Some public posts still require the session from your own browser. Export a
 Netscape-format `cookies.txt`, then set its absolute path under **Settings > OMD
-Home > OMD > Social capture access** or **Site access** in the
+Home > Capture and processing > Social capture access** or **Site access** in the
 Capture dialog. Douyin and Xiaohongshu / Rednote have separate fields. Both may
 be configured at once; a Douyin request never falls back to the Xiaohongshu
 file, and the reverse is also true.
@@ -455,7 +470,7 @@ This path is enabled only when OMD capabilities explicitly advertise
 `capture_auth_options.share_text.requires_single_http_url: true`, and
 `capture_auth_options.platform_cookie_flags` with the exact `douyin` value
 `--douyin-cookies` and `xhs` value `--xhs-cookies`. If that contract is missing
-or differs, OMD Home asks you to update OMD and run **Check setup** rather than
+or differs, OMD Home asks you to update OMD; use **Check again** under **Capture and processing** rather than
 inferring support from a version number. A runtime failure appears in **Needs
 attention** with **Retry capture**. Retry restores the original pasted share
 message and its Capture choices, but reads the current cookie-path settings so
@@ -523,7 +538,7 @@ Start with the matching check below, or use the [Mac troubleshooting guide](docs
 
 | Problem | What to check |
 |---|---|
-| OMD is missing or still reports b4 | Update the backend, run **Check setup**, and check the executable selected under Advanced OMD paths. |
+| OMD is missing or still reports b4 | Update the backend, select **Check again** under **Capture and processing**, and check the executable selected under Advanced OMD paths. |
 | OCR language is unavailable | Run `tesseract --list-langs` and install the required language pack. |
 | Audio transcription fails | Check the Whisper program, downloaded model and ffmpeg; follow the Apple Silicon transcription steps in the Mac guide. |
 | Local AI cannot connect or use a model | Start Ollama, confirm a compatible downloaded model, then run **Check setup**. |
@@ -542,7 +557,7 @@ used by Homebrew, MacPorts, user installs, and local Python environments. It
 probes candidates for the compatible OMD capability contract and can continue
 past a missing or outdated candidate to find a current one.
 
-If no compatible install is found, **Settings > OMD Home > OMD** and the Home
+If no compatible install is found, **Settings > OMD Home > Capture and processing** and the Home
 **Needs attention** widget provide **Copy install commands**, **Install guide**,
 and **Check again**. These actions only copy instructions or open the official
 [backend guide](https://github.com/omd-local/markdown-everything#quick-start);
