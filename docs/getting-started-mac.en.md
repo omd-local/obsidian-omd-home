@@ -2,9 +2,11 @@
 
 [Back to OMD Home](../README.md) · [简体中文](getting-started-mac.md) · **English**
 
+> **Unpublished candidate:** use the supplied local artifacts in a test vault. Versioned BRAT/tag downloads below become available only after publication. The public Home 0.2.2 / OMD 0.3.0b5 pair remains separate. See [candidate acceptance](first-install-beta.md).
+
 Follow **prepare a vault → install the plugin → install the OMD backend → save your first webpage**. **Only sections 1–6 are needed for your first capture.** Transcription, AI, and Apple Calendar are optional additions afterward.
 
-This guide covers **OMD Home 0.2.2 + [OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5)**. The plugin provides the Obsidian interface; the separate backend converts sources. Installing the plugin does not install the backend or models. OMD's separate browser UI is deferred and is not needed for Home.
+This guide covers **OMD Home 0.2.3 + OMD Engine 0.3.0b6 candidate**. The plugin provides the Obsidian interface; the separate backend converts sources. Installing the plugin does not install the backend or models. OMD's separate browser UI is deferred and is not needed for Home.
 
 | What you want to do | Where to stop |
 |---|---|
@@ -14,7 +16,7 @@ This guide covers **OMD Home 0.2.2 + [OMD 0.3.0b5](https://github.com/omd-local/
 
 ## 1. Check your Mac and prepare a vault
 
-1. Open the **Apple menu → About This Mac** and check the chip and macOS version. This guide's Homebrew route supports **Apple Silicon (M series) and macOS 15 or newer**. For Intel or older systems, check [Homebrew system requirements](https://docs.brew.sh/Installation) first; do not copy the Apple Silicon paths unchanged.
+1. Open the **Apple menu → About This Mac** and check the chip and macOS version. The independent document engine requires **macOS 14+** and a matching **arm64** (Apple Silicon) or **x86_64** (Intel) package. Intel and fresh-Mac candidate acceptance remain pending.
 2. If Obsidian is installed, open it. Otherwise, download the Mac version from the [Obsidian website](https://obsidian.md/download), open the download, drag Obsidian into **Applications**, and launch it from there. You need desktop **1.11.4 or newer**.
 3. **Existing vault:** open the vault where you want to use OMD. Plugins are installed per vault; stay in this same vault throughout the instructions.
 4. **New to Obsidian:** in the vault management window, find **Create new vault → Create**, enter `OMD Demo`, use **Browse** to choose your Documents folder, then select **Create**. From an open vault, use the bottom-left vault menu → **Manage Vaults…**. See the [official vault guide](https://obsidian.md/help/manage-vaults).
@@ -38,13 +40,13 @@ The instructions use the English labels shown by OMD. Open **Settings** using th
    https://github.com/omd-local/obsidian-omd-home
    ```
 
-5. Click outside the field and wait for repository verification and the version list. Under **Select a version**, choose **0.2.2**, without a `v`. This is a public repository: **leave GitHub token blank; no GitHub account is required**.
+5. Click outside the field and wait for repository verification and the version list. Under **Select a version**, choose **0.2.3**, without a `v`. This is a public repository: **leave GitHub token blank; no GitHub account is required**.
 6. Check **Enable after installing the plugin**, select **Add plugin**, and wait. If it is not enabled, return to **Community plugins → Installed plugins**, refresh the list, and turn on **OMD Home**.
 7. Close Settings, press **⌘P**, type `OMD Home: Open home`, and select that command.
 
 **Success check:** the OMD Home page opens. Go [straight to section 4](#install-backend); skip section 3. The plugin can open now, but Capture still needs the backend.
 
-Selecting **0.2.2** pins that version; OMD Home will not update automatically. BRAT's **Latest version** selection and update checks are a different update option, so do not select Latest accidentally during this installation. BRAT does not install the backend, models, or Calendar helper. If GitHub rate-limits a request, retry later or use the manual method; creating a token is not a required first-install step. See the [BRAT author's guide](https://tfthacker.com/brat-quick-guide).
+Selecting **0.2.3** pins that version; OMD Home will not update automatically. BRAT's **Latest version** selection and update checks are a different update option, so do not select Latest accidentally during this installation. BRAT does not install the backend, models, or Calendar helper. If GitHub rate-limits a request, retry later or use the manual method; creating a token is not a required first-install step. See the [BRAT author's guide](https://tfthacker.com/brat-quick-guide).
 
 ## 3. Alternative: install the plugin manually
 
@@ -56,13 +58,13 @@ Selecting **0.2.2** pins that version; OMD Home will not update automatically. B
 
 ### 3A. Download the three files
 
-Open the [OMD Home 0.2.2 release](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2), expand **Assets** near the bottom, and select each of these files, or use the direct links below. Downloads normally appear in Finder's **Downloads** folder.
+Open the [OMD Home 0.2.3 release](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.3), expand **Assets** near the bottom, and select each of these files, or use the direct links below. Downloads normally appear in Finder's **Downloads** folder.
 
 | Required file | Download |
 |---|---|
-| `main.js` | [Download main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js) |
-| `manifest.json` | [Download manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json) |
-| `styles.css` | [Download styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css) |
+| `main.js` | [Download main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/main.js) |
+| `manifest.json` | [Download manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/manifest.json) |
+| `styles.css` | [Download styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/styles.css) |
 
 **Do not choose Source code (zip) or Source code (tar.gz).** These three individual files need no extraction or code editor. All must come from the same version and have exactly these names, without an extra `.txt` or `(1)` suffix. If your browser renames duplicate downloads, check and restore the names above.
 
@@ -114,60 +116,55 @@ References: [Obsidian's settings directory](https://obsidian.md/help/data-storag
 
 <a id="install-backend"></a>
 
-Install the plugin once; **this section is needed for Capture**. Homebrew installs OMD and its Python environment, so do not install Python separately first. These steps use Apple Silicon and macOS 15+.
+**Capture needs a separate engine.** The independent document app requires
+macOS 14+ and contains its own Python. Basic installation does not require
+Homebrew, Xcode, Command Line Tools or accepting an Xcode license.
 
-### 4A. Open Terminal and check for Homebrew
+### 4A. Choose the matching independent package
 
-Press **⌘Space** to open Spotlight, type `Terminal`, and press Return. Paste the commands below into this Terminal window, **not Obsidian's search, Capture field, or settings**. Paste one code block at a time and press Return. Wait for completion and the input prompt to return before continuing. Do not type the code block's `bash` label.
+1. In **Apple menu → About This Mac**, check whether you have Apple Silicon
+   (**arm64**) or Intel (**x86_64**).
+2. Open the [official engine releases](https://github.com/omd-local/markdown-everything/releases).
+   Choose the matching **0.3.0b6 OMD Engine** asset when published. A wheel,
+   source archive or downloaded Homebrew dependency is not that app package.
+   For the unpublished candidate, use the separately supplied test artifact.
+3. Open the matching `.pkg`, or unpack the ZIP and move **OMD Engine.app** to
+   **Applications** or your home folder's **Applications**. The ZIP route needs
+   no administrator installation. Candidate artifacts are unsigned, not
+   notarized, and have not passed fresh-Mac/Intel acceptance. Stop and report
+   any Gatekeeper block; this guide does not ask you to disable system protection.
 
-```bash
-brew --version
-```
+### 4B. Connect from Obsidian
 
-If it prints `Homebrew` and a version, skip to **4C**. If `brew` is unavailable, follow **4B**.
+Open **Settings → OMD Home → Capture and processing** and select **Detect OMD**
+or **Check again**. Home discovers both Applications locations without editing
+your shell PATH. Continue when the backend reports ready. This is separate
+from AI answers' **Check setup** button.
 
-### 4B. First-time Homebrew installation
+If an old **Advanced OMD paths** override is set, clear it to resume automatic
+discovery, or explicitly select the new app's `Contents/MacOS/omd` executable.
+Existing overrides are not silently replaced.
 
-1. Run this in Terminal:
+### 4C. Verify a command only when needed
 
-   ```bash
-   xcode-select --install
-   ```
-
-   If the developer tools window appears, select **Install** and wait until the system finishes. The full Xcode app is unnecessary. If the tools are already installed, continue.
-2. Open the [Homebrew website](https://brew.sh/) and choose its official **.pkg installer**. Open the downloaded `.pkg` and follow the macOS installer. Use your Mac login password if authorization is requested. See [Homebrew's installation requirements](https://docs.brew.sh/Installation).
-3. After the package finishes, paste this **whole block** into Terminal and press Return. It sets Homebrew's path for macOS's default zsh and preserves existing `.zprofile` content; do this once after first installation. If you changed shells yourself, follow the package's **Next steps** for your shell instead.
-
-   ```bash
-   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-   eval "$(/opt/homebrew/bin/brew shellenv)"
-   brew --version
-   ```
-
-**Success check:** Homebrew prints its version. If the website's installation method differs, complete the official installer's **Next steps** for your path, then return to `brew --version`. Do not use `sudo brew install`.
-
-### 4C. Install and connect OMD
-
-Run the installation command first. Downloading conversion tools can take a while; wait for Terminal to become ready for input before continuing.
+The ZIP does not create a bare `omd` command. In Terminal, use:
 
 ```bash
-brew install omd-local/omd/omd
+"/Applications/OMD Engine.app/Contents/MacOS/omd" --version
+"/Applications/OMD Engine.app/Contents/MacOS/omd" capabilities --json
 ```
 
-Then check the version:
-
-```bash
-omd --version
-```
-
-Expect **0.3.0b5**. The formula also installs Python 3.12, document-conversion dependencies, ffmpeg/ffprobe, Tesseract, OCR language packs, and yt-dlp. Whisper, Ollama, models, and the Calendar helper remain optional. See the [public formula](https://github.com/omd-local/homebrew-omd/blob/main/Formula/omd.rb).
-
-Back in Obsidian, open **Settings → OMD Home**, scroll to **Capture and processing**, and select **Detect OMD** (called **Check again** after a previous check). Continue when you see **OMD is ready** or a ready status. This is separate from the **Check setup** button under AI answers above it.
+For a user-folder install, replace `/Applications` with `$HOME/Applications`
+inside the quotes. Expect **0.3.0b6** and protocol **1** in this candidate.
+The installer also creates `/usr/local/bin/omd` and `omd-mcp`; it refuses to
+overwrite a different Homebrew/user command. Use the ZIP if a command conflicts.
 
 <details>
-<summary><strong>Old version, OMD not detected, or diagnostics needed?</strong></summary>
+<summary><strong>Existing Homebrew installations and earlier developer-tool errors</strong></summary>
 
-For an older version, run these three lines, then select **Check again** under Capture and processing:
+The previously public **0.3.0b5** Homebrew backend remains compatible with Home
+0.2.3. Existing users may retain it; there is no need to reinstall a working
+backend solely to test the model guidance. Homebrew upgrades remain separate:
 
 ```bash
 brew update
@@ -175,22 +172,12 @@ brew upgrade omd-local/omd/omd
 omd --version
 ```
 
-If the version is correct in Terminal but Home cannot find it, run this line and copy the complete path it prints:
-
-```bash
-printf '%s\n' "$(brew --prefix omd-local/omd/omd)/bin/omd"
-```
-
-Paste it, without quotes, into **Capture and processing → Advanced OMD paths → OMD executable override**. Click outside the field, then select **Check again**. Normally leave **Python executable override** and **OMD Home bridge override** blank; do not copy another person's `/Users/...` path.
-
-Run diagnostics only when needed for troubleshooting:
-
-```bash
-omd doctor
-omd capabilities --json
-```
-
-Missing optional AI or transcription tools in `doctor` do not mean basic webpage conversion failed. **Copy install commands** only copies text; **Install guide** only opens documentation. The plugin does not execute an installer for you.
+Do not assume this installs b6 before its formula is published. If an earlier
+install stopped with **Xcode alone is not sufficient on Tahoe**, a downloaded
+bottle does not mean OMD was installed. Use the independent app route to avoid
+that prerequisite. If intentionally diagnosing Homebrew, include macOS/CLT
+versions and the full error; `install requested` is not proof a tools update
+finished. Do not repeatedly accept licenses or reinstall tools without diagnosis.
 
 </details>
 
@@ -300,15 +287,15 @@ swift --version
 
 You need **Swift 6 or newer**; update the developer tools first if older. The helper script uses Swift directly: **no Node.js installation or npm ci is needed for it**.
 
-Paste the whole block into Terminal and press Return. It stops if any step fails and refuses to overwrite an existing source directory. If `~/Developer/omd-home-0.2.2` already exists, change the directory name both at the end of clone and in cd to the same new name, then retry.
+Paste the whole block into Terminal and press Return. It stops if any step fails and refuses to overwrite an existing source directory. If `~/Developer/omd-home-0.2.3` already exists, change the directory name both at the end of clone and in cd to the same new name, then retry.
 
 ```bash
 (
 set -e
 mkdir -p ~/Developer
 cd ~/Developer
-git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git omd-home-0.2.2
-cd omd-home-0.2.2
+git clone --branch 0.2.3 --depth 1 https://github.com/omd-local/obsidian-omd-home.git omd-home-0.2.3
+cd omd-home-0.2.3
 sh scripts/build-eventkit.sh
 open dist
 )
@@ -334,9 +321,9 @@ To keep the helper elsewhere, copy the actual executable's pathname into **Calen
 
 Before upgrading, back up the whole vault, stop captures, and disable OMD Home in Community plugins. Keep a separate copy of `.obsidian/plugins/omd-home/`, especially `data.json` (settings), your notes, and any installed helper.
 
-- **BRAT installation:** section 2 pins 0.2.2, so later versions will not replace it automatically. When ready to upgrade, change the plugin's version selection in BRAT's plugin list and update to your chosen version; switching to Latest version is unnecessary.
+- **BRAT installation:** section 2 pins 0.2.3, so later versions will not replace it automatically. When ready to upgrade, change the plugin's version selection in BRAT's plugin list and update to your chosen version; switching to Latest version is unnecessary.
 - **Manual installation:** download the target release's three files and replace only `main.js`, `manifest.json`, and `styles.css`. Preserve `data.json` and `omd-eventkit`; do not delete the entire plugin folder to update it.
-- **Backend:** use section 4's disclosed `brew update` / `brew upgrade` commands; it upgrades separately from the plugin.
+- **Backend:** independently obtain a matching newer app package, stop engine tasks, and replace the app; the plugin does not update it. Existing Homebrew users retain section 4's separate upgrade path.
 - **Calendar helper:** if updated, build and replace it from the matching tag using section 11.
 
 Enable the plugin again, reopen Obsidian, and recheck OMD and the AI / Calendar features you use. To roll back, disable it and restore backed-up files/settings without deleting notes. Do not overwrite your vault with a demo vault's settings.
@@ -356,7 +343,7 @@ Enable the plugin again, reopen Obsidian, and recheck OMD and the AI / Calendar 
 | BRAT has no version list or GitHub rate-limits a request | Check the repository address, click outside it, and wait; retry later or install manually. A public repository needs no token. |
 | Finder hides .obsidian or Go to Folder cannot find the path | Start with Obsidian's plugin-folder icon, then section 3's disclosed fallback. Confirm the actual vault location. |
 | OMD Home is absent from Installed plugins | Check the same vault, exact filenames, and one omd-home directory level; refresh, or ⌘Q and reopen. |
-| Terminal cannot find brew | Complete Homebrew's shell path setup and verify brew --version; do not use sudo brew install. |
+| Terminal cannot find omd | A ZIP app install creates no bare command. Use section 4's app executable path, then Check again in Home. |
 | OMD is missing or outdated | Use section 4's diagnostics, update, then Check again under Capture and processing; AI's check button is separate. |
 | An OCR language pack is missing | Check tesseract --list-langs and install the pack; clearing preferences does not install missing dependencies. |
 | mlx_whisper is unavailable | Check Apple Silicon, pipx, and the program path; reopen Obsidian and try a short-audio capture. |
@@ -370,13 +357,13 @@ Report plugin and OMD versions, Mac chip, the failed step, and error text; inclu
 
 ## Developers: build the pinned plugin source
 
-Regular users need no plugin build. Developers with Git and Node.js/npm can reproduce **0.2.2**:
+Regular users need no plugin build. Developers with Git and Node.js/npm can reproduce **0.2.3**:
 
 ```bash
-git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
+git clone --branch 0.2.3 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
 cd obsidian-omd-home
 npm ci
 npm run build
 ```
 
-The output is still the three plugin files, without backend or models. Public main includes this release's source and will change; a fixed tag is reproducible. See the [0.2.2 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/manual-test-plan.md) for desktop acceptance.
+The output is still the three plugin files, without backend or models. Public main includes this release's source and will change; a fixed tag is reproducible. See the [0.2.3 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.3/docs/manual-test-plan.md) for desktop acceptance.

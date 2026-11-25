@@ -783,7 +783,8 @@ test("Python bridge settings prefer the bundled bridge while retaining an explic
 test("OMD setup makes automatic discovery primary and keeps path overrides advanced", () => {
   assert.match(source, /renderOmdSetup\(containerEl\)/u);
   assert.doesNotMatch(source, /OMD Home finds compatible local tools automatically/u);
-  assert.match(source, /OMD not installed/u);
+  assert.match(source, /OMD not found/u);
+  assert.match(source, /Download OMD engine/u);
   assert.match(source, /instructions\.buttonLabel/u);
   assert.match(source, /copyOmdInstallInstructions\(\)/u);
   assert.match(source, /Install guide/u);

@@ -136,6 +136,8 @@ import {
   discoverOmdExecutable,
   isAutomaticOmdExecutable,
   OMD_INSTALL_GUIDE_URL,
+  OMD_MAC_INSTALL_GUIDE_URL,
+  OMD_ENGINE_DOWNLOAD_URL,
   omdInstallInstructions,
   resolveOmdExecutablePath,
   type OmdDiscoveryMode,
@@ -634,7 +636,11 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   openOmdInstallGuide(): void {
-    window.open(OMD_INSTALL_GUIDE_URL, "_blank", "noopener,noreferrer");
+    window.open(process.platform === "darwin" ? OMD_MAC_INSTALL_GUIDE_URL : OMD_INSTALL_GUIDE_URL, "_blank", "noopener,noreferrer");
+  }
+
+  openOmdEngineDownload(): void {
+    window.open(OMD_ENGINE_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
   }
 
   openCloudAiGuide(): void {
@@ -5356,7 +5362,7 @@ function omdReadyMessage(
 function omdUnavailableMessage(error: unknown, automatic: boolean): string {
   if (isEnrichmentError(error) && error.code === "missing_executable") {
     return automatic
-      ? "OMD was not found in the app path or common install locations. Install OMD, then check again."
+      ? "OMD was not found in the app path or common install locations. If already installed, select its executable in Advanced OMD paths. Otherwise install OMD independently, then choose Check again. The plugin can use the engine app without a terminal PATH entry."
       : "The custom OMD executable could not be found. Use automatic discovery or update the override in Advanced OMD paths.";
   }
   if (isEnrichmentError(error)

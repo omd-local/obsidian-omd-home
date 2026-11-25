@@ -1143,3 +1143,133 @@ socket address，推理、embedding、catalog 与 UI probe 共用该 transport�
 旧版保存值末尾 `/` 会在加载时安全迁移，非法旧值回到 Automatic，模型选择不会被清空。Home 定向回归
 与 OMD transport／runtime 定向回归通过；未执行 macOS、Windows、Linux 三平台各自的真实 daemon smoke，
 该项保留在最终发布矩阵而非继续作为实现 backlog。
+
+
+## 首次安装修复候选（0.2.3）
+
+以下保留首次本地实现的现场日志与历史验收记录；它们不等于当前公开候选已完成全部验收。
+本候选范围、安装方法和剩余发布门槛以 [首次安装 beta](first-install-beta.md) 为准。
+
+### ANSWER-07：首次安装缺少本地回答模型时，提供明确的安装与复检引导
+
+**状态：已实现，自动回归通过（2026-11-25）；待发布候选的原生首次安装复测。优先级：P1。**
+
+**证据与背景：** 用户首次安装并下载 Ollama 后，界面提示 `qwen3:4b-instruct is not installed`，
+但没有说明如何安装这个模型，也没有可执行的安装入口或步骤。用户无法从当前错误继续完成设置。
+安装 Ollama 应用不等于已经安装本地回答模型；本项补充 ANSWER-05 的 embedding 引导，单独追踪
+text/completion model 缺失时的恢复路径。错误原文来自用户反馈，尚未独立复现。
+
+**改进方向：** 在缺失模型的提示旁直接解释还需下载所选模型，并提供明确的安装步骤或入口；
+至少提供可复制的 `ollama pull <model-id>` 命令与终端操作说明，model ID 使用经过校验的当前选择。
+完成安装后，引导用户刷新模型列表并重新运行 **Check setup**，形成从错误到可用的连续流程。
+
+**验收标准：**
+
+- 在全新环境中，Ollama 已安装但零模型、或仅缺少当前所选 text/completion model 时，提示同时显示
+  缺失模型名称、原因及具体安装操作，不再停留在 `is not installed`。
+- 安装引导与实际选择的模型一致；若所选 tag 无效或不可下载，明确说明并提供重新选择路径。
+- 如提供一键安装，只有用户主动点击才开始下载，并显示进行中、失败与重试状态；不静默下载或换模型。
+- 安装完成后可直接刷新列表并重新 **Check setup**；只有检查通过才显示 ready，安装失败时保留恢复操作。
+- 文案清楚区分 Ollama 应用、本地回答模型与 embedding model；已完成的 embedding 引导不被误当成本项已解决。
+- 首次安装回归覆盖零模型、仅有 embedding model、缺少所选回答模型、下载失败与安装成功后复检；
+  在窄设置面板中，安装说明和操作保持可见、可读。
+
+**本轮实现与证据（2026-11-25）：** 本地回答与写作模型复用同一个安全命令生成器，在目录已确认缺失时
+显示准确的模型名、终端步骤、**Copy install command** 与 **Check setup**；服务不可达或模型能力不兼容
+各自显示对应恢复状态。保留当前 model／provider，不自动下载或切换。`qwen3:4b-instruct` 已在官方
+Ollama registry 核实为有效 tag。完整插件检查及新增回归通过；真实模型下载与窄面板原生视觉复测
+保留在发布候选验收，不把命令复制成功当成模型安装完成。
+
+## 首次安装与依赖引导
+
+### INSTALL-01：Homebrew 安装被开发工具检查阻断，用户已安装 CLT 仍找不到 omd
+
+**状态：独立预编译安装路径已实现并通过本机运行验证（2026-11-25）；真实 PKG／ZIP 的权限、文件校验、链接与安装预检共 32 项检查通过，未执行系统安装。历史 Homebrew 检测根因仍未独立复现。优先级：P1。**
+
+**证据与背景：** 用户最初反馈下载／安装 OMD 时出现 `your command line develper tools is outdated`
+提示（按用户转述保留），随后反馈还被要求安装“xcode build”并执行
+`sudo xcodebuild -license accept`，认为安装步骤过多。整体安装流程精简另见 INSTALL-02。
+
+**最新现场日志（2026-11-25，用户提供；保留关键内容，省略终端提示符）：**
+
+```text
+✔︎ Bottle yt-dlp (2026.10.26) Downloaded 5.5MB/5.5MB
+✔︎ Bottle python@3.15 (3.15.2) Downloaded 20.3MB/20.3MB
+✔︎ Bottle tesseract-lang (4.1.0) Downloaded 344.9MB/344.9MB
+
+==> Installing omd from omd-local/omd
+
+Error: Xcode alone is not sufficient on Tahoe.
+
+Install the Command Line Tools:
+
+  xcode-select --install
+
+zsh: command not found: omd
+
+zsh: command not found: omd
+
+xcode-select --install
+xcode-select: note: install requested for command line developer tools
+```
+
+**用户最新补充：** 用户明确说明已安装过 Command Line Developer Tools。因此本项应按“用户已安装
+CLT，但当前 Homebrew 安装仍判定工具链不满足要求”追踪，不能直接归因为未安装 CLT。
+
+**当前证据边界：** 安装入口已明确为 Homebrew 的 `omd-local/omd`；若干依赖 bottle 下载完成后，
+在安装 OMD 阶段出现工具链错误，随后当前 shell 两次找不到 `omd`。依赖下载完成不代表 OMD 已安装
+成功；`install requested` 只表明发出了安装请求，没有提供安装完成或版本验证结果。已安装 CLT 的
+实际版本、macOS 具体版本、当前选择的开发者目录、完整安装命令与输出仍待采集；需核实检测失败的
+原因，并区分 OMD 未安装成功与可执行文件未加入 PATH。现有日志不足以确认所有分发方式都需要完整 Xcode。
+
+**改进方向：** 在安装前诊断实际使用的工具链，区分 CLT 缺失、版本不满足要求、开发者目录选择
+及其他检查失败原因；根据结果提供具体恢复步骤。用户报告已安装时，应继续定位失败原因并验证
+恢复结果，避免反复只给出同一个安装命令。完成 OMD 安装后确认当前 shell 能找到命令，再引导后续操作。
+
+**验收标准：**
+
+- 采集实际 Homebrew 安装命令、完整错误与系统／工具链版本，确认失败的具体检查，并建立可重复的复现步骤。
+- 覆盖 Tahoe 下只有完整 Xcode、CLT 缺失／过旧，以及用户已安装 CLT 但检查仍失败的路径；依据实际
+  检查结果给出恢复说明，不能将接受许可证或返回 `install requested` 视为依赖已全部就绪。
+- 工具链恢复后有明确的继续安装／重试入口，并再次验证前置条件与 OMD 安装结果。
+- 通过 `command -v omd` 与 `omd --version` 验证命令可发现且可运行；命令缺失时区分安装未完成与 PATH
+  配置问题，并给出对应恢复指引，避免要求用户在未就绪时反复运行 `omd`。
+- 安装文档与界面指引保持一致；在干净环境及已安装 CLT 的环境记录从依赖失败到安装验证成功的完整结果。
+
+**本轮实施范围与证据（2026-11-25）：** 按用户确认的分发方案，macOS 默认引导改为用户独立安装
+**OMD Engine.app** 的预编译包。包自带 Python 3.12 与基础文档转换；插件只打开官方下载／指南、检查
+安装结果，并发现系统／用户 Applications 路径。真实 app 已在 macOS 26.6.2 arm64 搬移到含空格的路径，
+在无 Homebrew PATH、禁止调用系统 Python／brew／Xcode 工具的 smoke 中完成 HTML、PDF、DOCX 转换、
+Vault Capture、MCP 和 Python bridge；外部 CLI symlink 同样可用。便携 Python 使用 `-I -B`，避免继承
+外部 PYTHONPATH 或改写 app 内缓存。独立安装器会为 CLI 建立链接，并拒绝覆盖其他 Homebrew／用户命令。
+原 Homebrew 日志继续保留为历史证据；本轮通过独立分发消除该前置路径，没有更改 Homebrew 的工具链检测。
+
+### INSTALL-02：精简首次安装，减少开发工具与许可证等手动前置步骤
+
+**状态：独立引擎包、安装器与插件引导已实现（2026-11-25）；本机 Apple Silicon 验证通过，Intel／签名公证／全新系统安装仍属发布验收。优先级：P1。**
+
+**证据与背景：** 用户连续遇到 Ollama 模型缺失、开发工具过旧，以及安装“xcode build”和执行
+`sudo xcodebuild -license accept` 等要求，反馈“这里步骤太多了”。除 INSTALL-01 的具体报错恢复外，
+还需审视首次安装的总步骤与依赖成本，降低普通用户开始使用 OMD 的门槛。最新日志又要求在
+Tahoe 安装独立 Command Line Tools，之后两次找不到 `omd`；用户进一步明确 CLT 已安装过。
+Homebrew 在下载 yt-dlp、Python 与 344.9MB 的 tesseract-lang 后才报告工具链问题，需评估将依赖
+预检提前，减少无效等待。精简范围须覆盖依赖准备、安装、命令可发现性与首次可用的整个流程，
+现场日志与用户说明见 INSTALL-01。
+
+**改进方向：** 梳理当前安装链中哪些环节触发开发工具、源码构建和许可证要求；评估通过预编译
+分发或预构建依赖减少本机编译的可行性。目标是尽量让基础使用无需安装完整 Xcode 或手动运行
+管理员命令，并将可选功能依赖延后到实际启用时引导安装。
+
+**验收标准：**
+
+- 在没有预装开发工具的干净 macOS 环境记录从下载到首次可用的完整流程，明确每个依赖的来源与必要性。
+- 给出最短推荐安装路径，减少独立下载、终端命令与跨应用操作；记录优化前后的手动步骤数量。
+- 核实是否确需完整 Xcode、Command Line Tools 或许可证接受；可消除的前置步骤从基础路径中移除。
+- 必须保留的前置要求在安装开始前集中说明，并提供完成后继续安装的明确入口，避免逐个失败才暴露依赖。
+- 用干净环境验证安装成功、`omd --version` 可运行及基础使用流程；与 INSTALL-01、ANSWER-07 的恢复引导衔接。
+
+**本轮简化与剩余验收（2026-11-25）：** 新推荐路径为“安装插件 → 独立安装匹配架构的引擎 → Check again”，
+本地 AI 按需配置模型。基础引擎不安装 tesseract-lang、ffmpeg、yt-dlp、Whisper、Ollama 或浏览器 UI；
+文档依赖以已锁定 SHA-256 的 wheels 在构建机离线装入，不向用户转嫁本机编译。新增两架构 CI 与打包
+安全／兼容回归。当前交付为 unsigned 本地候选，尚未发布；Developer ID／公证、Intel 原生 CI 执行和
+没有开发工具的全新系统 Installer 安装仍须在正式分发前验收。本机未运行系统安装器，也未更改 Xcode／CLT。

@@ -27,6 +27,7 @@ import {
   localWritingModelOptionLabel,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
+  textModelInstallGuidance,
 } from "./local-ai-readiness";
 import type {
   HostedAiProvider,
@@ -972,7 +973,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
   private modelReadinessRail(
     container: HTMLElement,
     name: string,
-    state: Pick<LocalAiWorkflowDisplayState, "code" | "detail">,
+    state: Pick<LocalAiWorkflowDisplayState, "model" | "code" | "detail">,
     savedUnavailable = false,
   ): void {
     const ready = !savedUnavailable && state.code === "ready";
@@ -995,6 +996,44 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       "omd-settings-model-status",
       ready ? "is-ready" : checking ? "is-checking" : neutral ? "is-neutral" : "is-unavailable",
     );
+    const guidance = textModelInstallGuidance({
+      model: state.model,
+      host: this.plugin.settings.ollamaHost,
+      windows: process.platform === "win32",
+      models: this.plugin.localAiState.models,
+      catalogChecked: typeof this.plugin.localAiState.catalogCheckedAt === "number",
+      connectionCode: this.plugin.localAiState.daemonCode,
+      code: state.code,
+    });
+    if (!guidance) return;
+    const busy = this.plugin.aiSetupBusy();
+    if (guidance.pullCommand) {
+      const command = guidance.pullCommand;
+      status.setDesc(`Ollama and its models are separate downloads. Run this command in a terminal to download ${guidance.model}. When it finishes, choose Check setup below. Download time and space depend on the model.`);
+      status.descEl.createEl("pre").createEl("code", { text: command });
+      status.addButton((button) => button
+        .setButtonText("Copy install command")
+        .setDisabled(busy)
+        .onClick(async () => {
+          try {
+            await navigator.clipboard.writeText(command);
+            new Notice("Model install command copied. Run it in a terminal, then check setup.");
+          } catch {
+            new Notice("Copy failed. Select and copy the displayed install command.");
+          }
+        }));
+    } else {
+      status.setDesc("The selected text model is missing. Find its exact local model id in the Ollama model library, save it above, then run check setup. A safe install command could not be generated for this selection.");
+      status.descEl.createEl("p").createEl("a", { text: "Ollama model library", href: "https://ollama.com/library" });
+    }
+    status.addButton((button) => {
+      button.buttonEl?.setAttribute("data-omd-ai-action", "text-model-check");
+      return button.setButtonText("Check setup")
+        .setDisabled(busy)
+        .onClick(async () => {
+          await this.runAiSetupAction(() => this.plugin.checkLocalAiConnection(), "text-model-check");
+        });
+    });
   }
 
   private settingsDisclosure(container: HTMLElement, label: string, description: string): HTMLDetailsElement {
@@ -1025,7 +1064,13 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           this.display();
         }));
     }
-    if (capability.status === "unavailable" && capability.code === "missing_executable") {
+    if (capability.status === "unavailable" && capability.code === "missing_executable" && process.platform === "darwin" && automatic) {
+      setting.setDesc(`${capability.message} Install the independent OMD Engine package for your Mac, or move its app to Applications, then choose Check again. The engine includes its Python runtime.`);
+      setting.addButton((button) => button
+        .setButtonText("Download OMD engine")
+        .setCta()
+        .onClick(() => this.plugin.openOmdEngineDownload()));
+    } else if (capability.status === "unavailable" && capability.code === "missing_executable" && process.platform !== "darwin") {
       setting.addButton((button) => {
         button.setButtonText(instructions.buttonLabel);
         if (automatic) button.setCta();
@@ -1772,7 +1817,7 @@ function omdStatusTitle(
   if (status === "unavailable" && code === "missing_executable" && mode === "custom") {
     return "Custom OMD path not found";
   }
-  if (status === "unavailable" && code === "missing_executable") return "OMD not installed";
+  if (status === "unavailable" && code === "missing_executable") return "OMD not found";
   if (status === "unavailable" && (code === "unsupported_capability" || code === "unsupported_schema")) {
     return "OMD update required";
   }

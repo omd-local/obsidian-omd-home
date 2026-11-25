@@ -437,6 +437,58 @@ export async function firstVerifiedWindowsPython(
   return null;
 }
 
+export function portableOmdAppContents(executable: string): string | null {
+  const candidate = executable.trim();
+  if (!path.posix.isAbsolute(candidate) || path.posix.basename(candidate) !== "omd") return null;
+  const macos = path.posix.dirname(candidate);
+  const contents = path.posix.dirname(macos);
+  if (path.posix.basename(macos) !== "MacOS" || path.posix.basename(contents) !== "Contents"
+    || path.posix.basename(path.posix.dirname(contents)) !== "OMD Engine.app") return null;
+  return contents;
+}
+
+export async function resolvePortableOmdPython(
+  executable: string,
+  execute: (command: string, args: string[], options?: SpawnOptions) => Promise<SpawnResult>,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const contents = portableOmdAppContents(executable);
+  if (!contents) return null;
+  signal?.throwIfAborted();
+  const candidate = path.join(contents, "MacOS", "python3");
+  try {
+    const [bundleRoot, runtimeRoot, interpreter, launcher] = await Promise.all([
+      realpath(contents),
+      realpath(path.join(contents, "runtime")),
+      realpath(candidate),
+      realpath(executable),
+    ]);
+    if (!isContainedPath(bundleRoot, runtimeRoot) || !isContainedPath(runtimeRoot, interpreter)
+      || !isContainedPath(bundleRoot, launcher)) return null;
+    const probe = await execute(interpreter, ["-I", "-B", "-c", [
+      "import json,os,sys,omd",
+      "print(json.dumps({'version':list(sys.version_info[:2]),'prefix':os.path.realpath(sys.prefix),'module':os.path.realpath(getattr(omd,'__file__',None) or '')}))",
+    ].join("\n")], {
+      signal,
+      shell: false,
+      timeoutMs: WHICH_TIMEOUT_MS,
+      maxStdoutChars: 4_096,
+      maxStderrChars: 4_096,
+    });
+    signal?.throwIfAborted();
+    if (probe.code !== 0) return null;
+    const result = JSON.parse(probe.stdout) as Record<string, unknown> | null;
+    if (!result || typeof result !== "object" || !Array.isArray(result.version) || result.version[0] !== 3
+      || typeof result.version[1] !== "number" || result.version[1] < 12
+      || result.prefix !== runtimeRoot || typeof result.module !== "string"
+      || !isContainedPath(runtimeRoot, result.module)) return null;
+    return interpreter;
+  } catch (error) {
+    if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+    return null;
+  }
+}
+
 export class OmdBridge {
   private readonly omdExecutable: () => string;
   private readonly pythonExecutable: () => string;
@@ -790,7 +842,8 @@ export class OmdBridge {
     const args = pythonBridgeArgs(configuredBridgePath, embeddedBridgeSource);
     let result: SpawnResult;
     try {
-      result = await this.spawnManagedProcess(await this.resolvePythonExecutable(options.signal), args, {
+      const python = await this.resolvePythonExecutable(options.signal);
+      result = await this.spawnManagedProcess(python.executable, python.isolated ? ["-I", "-B", ...args] : args, {
         stdin: pythonBridgeStdin(configuredBridgePath, embeddedBridgeSource, payload),
         timeoutMs: bridgeTimeoutMs(payload),
         signal: options.signal,
@@ -811,9 +864,9 @@ export class OmdBridge {
     return response;
   }
 
-  private async resolvePythonExecutable(signal?: AbortSignal): Promise<string> {
+  private async resolvePythonExecutable(signal?: AbortSignal): Promise<{ executable: string; isolated: boolean }> {
     const configured = this.pythonExecutable().trim();
-    if (configured) return configured;
+    if (configured) return { executable: configured, isolated: false };
     const omd = this.omdExecutable().trim();
     const locator = process.platform === "win32" ? "where.exe" : "which";
     const executable = /[\\/]/u.test(omd)
@@ -843,14 +896,27 @@ export class OmdBridge {
       if (!interpreter) {
         throw new Error("Could not find Python beside the detected OMD launcher. Open Advanced OMD paths to choose the environment's python.exe.");
       }
-      return interpreter;
+      return { executable: interpreter, isolated: false };
+    }
+    const canonicalExecutable = await realpath(executable).catch(() => executable);
+    const portableExecutable = portableOmdAppContents(canonicalExecutable) ? canonicalExecutable : executable;
+    if (portableOmdAppContents(portableExecutable)) {
+      const interpreter = await resolvePortableOmdPython(
+        portableExecutable,
+        async (command, args, options = {}) => await this.spawnManagedProcess(command, args, options),
+        signal,
+      );
+      if (!interpreter) {
+        throw new Error("The OMD Engine runtime could not be verified. Reinstall the independent OMD Engine app, then choose Check again in OMD Home settings.");
+      }
+      return { executable: interpreter, isolated: true };
     }
     const runtimeWindow = window as Window & { require?: (id: string) => typeof import("node:fs") };
     if (!runtimeWindow.require) throw new Error("Desktop file APIs are unavailable");
     const firstLine = runtimeWindow.require("node:fs").readFileSync(executable, "utf8").slice(0, 256);
     const interpreter = parsePythonShebang(firstLine);
     if (!interpreter) throw new Error("Could not determine OMD's Python interpreter. Open Advanced OMD paths to choose it.");
-    return interpreter;
+    return { executable: interpreter, isolated: false };
   }
 
   private assertDesktop(): void {
@@ -1543,6 +1609,9 @@ function bridgeProcessErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") return "OMD Home bridge was cancelled.";
   const detail = error instanceof Error ? error.message : String(error);
   const tokens = normalize(detail);
+  if (tokens.includes("omd engine runtime could not be verified")) {
+    return "The OMD Engine runtime could not be verified. Reinstall the independent OMD Engine app, then choose Check again in OMD Home settings.";
+  }
   if (tokens.includes("could not find the configured omd executable") || tokens.includes("spawn enoent")) {
     return "The detected OMD executable could not be found. Run Check OMD setup and try again.";
   }

@@ -57,7 +57,7 @@ export function normalizeLocalOllamaHost(input: string): string {
   );
 }
 
-export function embeddingModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
+export function localModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
   const model = value.trim();
   const id = /^(?:[A-Za-z0-9][A-Za-z0-9_-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$/u;
   if (model.length > 256 || !id.test(model) || modelIsCloudBacked({ name: model })) return null;
@@ -70,6 +70,28 @@ export function embeddingModelPullCommand(value: string, endpoint: string, windo
   return windows
     ? `cmd.exe /d /c "set OLLAMA_HOST=${host}&& ollama pull ${model}"`
     : `OLLAMA_HOST='${host}' ollama pull ${model}`;
+}
+
+export function embeddingModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
+  return localModelPullCommand(value, endpoint, windows);
+}
+
+export function textModelInstallGuidance(input: {
+  model: string;
+  host: string;
+  windows?: boolean;
+  models: readonly LocalAiModelEntry[];
+  catalogChecked: boolean;
+  connectionCode: LocalAiRuntimeState["daemonCode"];
+  code: LocalAiWorkflowDisplayState["code"];
+}): { model: string; pullCommand: string | null } | null {
+  if (input.connectionCode !== "ready" && input.connectionCode !== "no_models_installed") return null;
+  if (input.code !== "selected_model_missing" && input.code !== "no_models_installed" && input.code !== "unchecked") return null;
+  const model = input.model.trim();
+  if (!model) return null;
+  const missing = input.code === "selected_model_missing" || input.code === "no_models_installed"
+    || (input.catalogChecked && !input.models.some((entry) => localModelNamesMatch(entry.name, model)));
+  return missing ? { model, pullCommand: localModelPullCommand(model, input.host, input.windows ?? false) } : null;
 }
 
 export interface EmbeddingSetupPresentation {

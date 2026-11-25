@@ -2,9 +2,11 @@
 
 [返回 OMD Home 首页](../README.md) · **简体中文** · [English](getting-started-mac.en.md)
 
+> **尚未公开的候选：** 先使用提供的本地文件在测试 Vault 验收；下文固定版本的 BRAT／tag 下载须等实际发布后使用。线上仍是 Home 0.2.2／OMD 0.3.0b5。见[候选验收说明](first-install-beta.md)。
+
 按 **准备 Vault → 安装插件 → 安装 OMD 后端 → 保存第一篇网页** 的顺序操作。**第一次只需完成第 1–6 节**；语音转录、AI 和 Apple Calendar 都是之后的选装项。
 
-本指南对应 **OMD Home 0.2.2 + [OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5)**。插件提供 Obsidian 界面，独立后端负责转换；安装插件不会同时安装后端或模型。OMD 的独立浏览器 UI 暂未发布，也不是使用 Home 的前提。
+本指南对应 **OMD Home 0.2.3 + OMD Engine 0.3.0b6 候选**。插件提供 Obsidian 界面，独立后端负责转换；安装插件不会同时安装后端或模型。OMD 的独立浏览器 UI 暂未发布，也不是使用 Home 的前提。
 
 | 你想做什么 | 安装到哪里为止 |
 |---|---|
@@ -14,7 +16,7 @@
 
 ## 1. 检查 Mac 并准备 Vault
 
-1. 点屏幕左上角 **苹果菜单 → 关于本机（About This Mac）**，查看芯片和 macOS 版本。本指南的 Homebrew 路线适用于 **Apple Silicon（M 系列芯片）、macOS 15 或以上**。Intel 或更旧系统请先查 [Homebrew 系统要求](https://docs.brew.sh/Installation)，不要照搬本指南的 Apple Silicon 路径。
+1. 点屏幕左上角 **苹果菜单 → 关于本机（About This Mac）**，查看芯片和 macOS 版本。独立文档引擎要求 **macOS 14+**；Apple Silicon 对应 **arm64**，Intel 对应 **x86_64**。Intel 与全新 Mac 的候选验收仍待完成。
 2. 已安装 Obsidian 时直接打开。尚未安装时，从 [Obsidian 官网](https://obsidian.md/download)下载 Mac 版，打开下载文件，把 Obsidian 拖到 **Applications / 应用程序**，再从应用程序打开。需要桌面版 **1.11.4 或以上**。
 3. **已有 Vault：** 打开自己打算使用 OMD 的资料库。插件是按 Vault 安装的，要始终在同一个 Vault 中操作。
 4. **第一次用 Obsidian：** 在资料库管理窗口找到 **Create new vault → Create**，名称填 `OMD Demo`，点 **Browse** 选择自己的 Documents 文件夹，再点 **Create**。已在笔记界面时，可从左下角资料库菜单进入 **Manage Vaults…**。详见[官方资料库说明](https://obsidian.md/help/manage-vaults)。
@@ -38,13 +40,13 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
    https://github.com/omd-local/obsidian-omd-home
    ```
 
-5. 点输入框外，等仓库检查和版本列表加载。在 **Select a version / 选择版本** 中选 **0.2.2**，不加 `v`。这是公开仓库，**GitHub token 可以留空，不需要注册 GitHub 账号**。
+5. 点输入框外，等仓库检查和版本列表加载。在 **Select a version / 选择版本** 中选 **0.2.3**，不加 `v`。这是公开仓库，**GitHub token 可以留空，不需要注册 GitHub 账号**。
 6. 勾选 **Enable after installing the plugin / 安装后启用此插件**，点 **Add plugin / 添加插件**，等待完成。若没有自动启用，回 **Community plugins → Installed plugins**，刷新列表并打开 **OMD Home** 的开关。
 7. 关闭设置，按 **⌘P**，输入 `OMD Home: Open home`，点该命令。
 
 **完成标志：** 看到 OMD Home 页面。接下来[直接去第 4 节](#install-backend)，不用再做第 3 节。插件此时可以打开，但 Capture 仍要安装后端。
 
-选择 **0.2.2** 会固定这个版本，不会自动升级 OMD Home。BRAT 的 **Latest version** 选项和更新检查属于另一种更新方式；不要在首次安装时误选。BRAT 也不会替你安装后端、模型或 Calendar helper。遇到 GitHub 请求额度限制时，可以稍后重试或改用手动方法，不必为了首次安装创建 token。参考 [BRAT 作者指南](https://tfthacker.com/brat-quick-guide)。
+选择 **0.2.3** 会固定这个版本，不会自动升级 OMD Home。BRAT 的 **Latest version** 选项和更新检查属于另一种更新方式；不要在首次安装时误选。BRAT 也不会替你安装后端、模型或 Calendar helper。遇到 GitHub 请求额度限制时，可以稍后重试或改用手动方法，不必为了首次安装创建 token。参考 [BRAT 作者指南](https://tfthacker.com/brat-quick-guide)。
 
 ## 3. 备用：手动下载并安装插件
 
@@ -54,13 +56,13 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 
 ### 3A. 下载三个文件
 
-打开 [OMD Home 0.2.2 发布页](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2)，展开页面下方的 **Assets**，分别点击这三个文件；也可以直接用下表链接。文件通常出现在 Finder 的 **Downloads / 下载** 中。
+打开 [OMD Home 0.2.3 发布页](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.3)，展开页面下方的 **Assets**，分别点击这三个文件；也可以直接用下表链接。文件通常出现在 Finder 的 **Downloads / 下载** 中。
 
 | 必需文件 | 下载 |
 |---|---|
-| `main.js` | [下载 main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js) |
-| `manifest.json` | [下载 manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json) |
-| `styles.css` | [下载 styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css) |
+| `main.js` | [下载 main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/main.js) |
+| `manifest.json` | [下载 manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/manifest.json) |
+| `styles.css` | [下载 styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/styles.css) |
 
 **不要选 Source code (zip) 或 Source code (tar.gz)。** 无需解压这三个单独文件，也无需用代码编辑器打开。三个文件必须同版本，名称不能多出 `.txt` 或 `(1)`；Safari 或其他浏览器若给重复下载加了后缀，请先确认并改回上表名称。
 
@@ -112,60 +114,46 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 
 <a id="install-backend"></a>
 
-插件只安装一次；**需要 Capture 才做本节**。Homebrew 会安装 OMD 及其 Python 环境，不用先自己安装 Python。下面是 Apple Silicon、macOS 15+ 的路线。
+**只有 Capture 需要独立引擎。** 文档转换 app 要求 macOS 14+，自带 Python；
+基础安装不要求 Homebrew、Xcode、Command Line Tools 或接受 Xcode 许可证。
 
-### 4A. 打开终端，检查是否已有 Homebrew
+### 4A. 选择对应架构的独立安装包
 
-按 **⌘Space** 打开 Spotlight，输入 `Terminal`，按 Return。下面的代码都粘贴在这个 Terminal 窗口中，**不是 Obsidian 的搜索框、Capture 输入框或设置项**。每次粘贴一个代码框，按 Return；看到命令完成、输入提示符再次出现后，再做下一步。不要把代码框的 `bash` 标记一起输入。
+1. 在 **苹果菜单 → 关于本机** 确认芯片：Apple Silicon 对应 **arm64**，Intel 对应 **x86_64**。
+2. 打开[引擎官方发布页](https://github.com/omd-local/markdown-everything/releases)，
+   正式上传后选择匹配架构的 **0.3.0b6 OMD Engine** 资产。wheel、源码压缩包或
+   Homebrew 已下载的依赖都不是这个独立 app。候选尚未上传时，使用单独提供的测试包。
+3. 运行匹配的 `.pkg`，或解压 ZIP，将 **OMD Engine.app** 放进 **Applications** 或
+   用户目录下的 **Applications**。ZIP 路线无需管理员安装。当前候选未签名、未公证，
+   全新 Mac 和 Intel 验收尚未完成；遇到 Gatekeeper 拦截请记录反馈，不要关闭系统保护。
 
-```bash
-brew --version
-```
+### 4B. 回 Obsidian 检查
 
-看到 `Homebrew` 和版本号，直接跳到 **4C**。找不到 `brew` 时，做 **4B**。
+打开 **Settings → OMD Home → Capture and processing**，点 **Detect OMD** 或
+**Check again**。插件可直接发现两个 Applications 位置，不需要修改终端 PATH。
+后端显示 ready 后继续；这里与 AI answers 的 **Check setup** 是两个独立检查。
 
-### 4B. 首次安装 Homebrew
+如果 **Advanced OMD paths** 留有旧 override，清空以恢复自动发现，或明确选择新 app 内
+`Contents/MacOS/omd`。插件不会悄悄覆盖已有自定义路径。
 
-1. 在 Terminal 运行：
+### 4C. 需要时才检查命令行
 
-   ```bash
-   xcode-select --install
-   ```
-
-   如果系统弹出开发工具窗口，点 **Install / 安装**，等系统明确完成；不必安装整个 Xcode app。若提示工具已安装，继续下一步。
-2. 打开 [Homebrew 官网](https://brew.sh/)，选择官网提供的 **.pkg installer**。打开下载的 `.pkg`，按系统安装器继续并安装；要求授权时用自己的 Mac 登录密码。此包的系统要求见 [Homebrew 安装说明](https://docs.brew.sh/Installation)。
-3. 包安装完成后，在 Terminal 粘贴下面**整个代码框** 并按 Return。它为 macOS 默认的 zsh 设置 Homebrew 路径，保留原有 `.zprofile` 内容；仅首次安装时做一次。已自行更换 shell 时，按 Homebrew 完成页的 **Next steps** 配置自己的 shell。
-
-   ```bash
-   echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-   eval "$(/opt/homebrew/bin/brew shellenv)"
-   brew --version
-   ```
-
-**完成标志：** 出现 Homebrew 版本号。如果官网下载方式不同，按官方安装器最后显示的 **Next steps** 完成路径设置，再回来运行 `brew --version`；不要用 `sudo brew install`。
-
-### 4C. 安装并连接 OMD
-
-先运行安装命令。它会下载转换工具，可能需要一段时间；等 Terminal 回到可输入状态再继续。
+ZIP 不会创建裸 `omd` 命令。在 Terminal 使用完整路径：
 
 ```bash
-brew install omd-local/omd/omd
+"/Applications/OMD Engine.app/Contents/MacOS/omd" --version
+"/Applications/OMD Engine.app/Contents/MacOS/omd" capabilities --json
 ```
 
-然后确认版本：
-
-```bash
-omd --version
-```
-
-应看到 **0.3.0b5**。配方同时安装 Python 3.12、文档转换所需依赖、ffmpeg/ffprobe、Tesseract、OCR 语言包和 yt-dlp；Whisper、Ollama、模型及 Calendar helper 仍是选装项。见[公开配方](https://github.com/omd-local/homebrew-omd/blob/main/Formula/omd.rb)。
-
-回 Obsidian，打开 **Settings → OMD Home**，向下找到 **Capture and processing**，点 **Detect OMD**（已检查过时叫 **Check again**）。看到 **OMD is ready** 或就绪状态后继续。这里**不是** 上方 AI answers 的 **Check setup** 按钮。
+用户目录安装时，将引号内的 `/Applications` 改为 `$HOME/Applications`。当前候选应为
+**0.3.0b6**、protocol **1**。安装器另建 `/usr/local/bin/omd` 和 `omd-mcp`；若已有其他
+Homebrew 或用户命令，它会拒绝覆盖，可改用 ZIP 和 app 完整路径。
 
 <details>
-<summary><strong>版本还是旧的、没检测到 OMD，或需要诊断？</strong></summary>
+<summary><strong>已有 Homebrew 安装，或此前遇到开发工具错误？</strong></summary>
 
-旧版用下面三行升级，再回 Capture and processing 点 **Check again**：
+此前公开的 **0.3.0b5** Homebrew 后端仍兼容 Home 0.2.3。已经可用的安装可以保留，
+仅测试模型安装提示时无需重装后端。Homebrew 自己的升级方式仍是：
 
 ```bash
 brew update
@@ -173,22 +161,10 @@ brew upgrade omd-local/omd/omd
 omd --version
 ```
 
-终端版本正确但 Home 找不到时，运行下面一行，复制输出的完整路径：
-
-```bash
-printf '%s\n' "$(brew --prefix omd-local/omd/omd)/bin/omd"
-```
-
-在 **Capture and processing → Advanced OMD paths → OMD executable override** 中粘贴路径，不加引号。点输入框外，再点 **Check again**。**Python executable override** 和 **OMD Home bridge override** 通常留空；不要复制别人的 `/Users/...` 路径。
-
-需要反馈诊断时再运行：
-
-```bash
-omd doctor
-omd capabilities --json
-```
-
-`doctor` 提到缺少选装 AI 或转录工具，不代表基本网页转换失败。**Copy install commands** 只复制文字，**Install guide** 只打开说明，插件不会替你执行安装。
+配方更新前不要把它当成 b6 的安装方式。此前若卡在 **Xcode alone is not sufficient on Tahoe**，
+下载完成 bottle 不代表 OMD 已安装。独立 app 路线避开这项前置要求；若继续排查 Homebrew，
+提供 macOS、CLT 版本和完整日志。`install requested` 只表示发出了请求，不代表更新完成；
+不要未查明原因就反复接受许可证或重装开发工具。
 
 </details>
 
@@ -298,15 +274,15 @@ swift --version
 
 需要 **Swift 6 或以上**；更旧时先更新开发工具。下面的 helper 脚本直接使用 Swift，**无需为它安装 Node.js 或执行 npm ci**。
 
-将下面整个代码框粘贴进 Terminal 并按 Return。它在任何一步失败时停止，不覆盖已有源码目录。如果提示 `~/Developer/omd-home-0.2.2` 已存在，把下面 clone 末尾和 cd 中的目录名一起换成一个新名字，再重试。
+将下面整个代码框粘贴进 Terminal 并按 Return。它在任何一步失败时停止，不覆盖已有源码目录。如果提示 `~/Developer/omd-home-0.2.3` 已存在，把下面 clone 末尾和 cd 中的目录名一起换成一个新名字，再重试。
 
 ```bash
 (
 set -e
 mkdir -p ~/Developer
 cd ~/Developer
-git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git omd-home-0.2.2
-cd omd-home-0.2.2
+git clone --branch 0.2.3 --depth 1 https://github.com/omd-local/obsidian-omd-home.git omd-home-0.2.3
+cd omd-home-0.2.3
 sh scripts/build-eventkit.sh
 open dist
 )
@@ -332,9 +308,9 @@ open dist
 
 升级前备份整个 Vault，停止 Capture，在 Community plugins 停用 OMD Home。把原 `.obsidian/plugins/omd-home/` 文件夹另存一份，尤其保留 `data.json`（设置）、笔记和已安装 helper。
 
-- **BRAT 安装：** 第 2 节固定在 0.2.2，后续版本不会自动替换它。准备升级时在 BRAT 的插件列表中修改该插件的版本选择；选择要用的新版本后再更新，不必改成 Latest version。
+- **BRAT 安装：** 第 2 节固定在 0.2.3，后续版本不会自动替换它。准备升级时在 BRAT 的插件列表中修改该插件的版本选择；选择要用的新版本后再更新，不必改成 Latest version。
 - **手动安装：** 从目标 release 下载同版本三个文件，只替换 `main.js`、`manifest.json`、`styles.css`，保留 `data.json` 和 `omd-eventkit`。不要删除整个插件文件夹来更新。
-- **后端：** 使用第 4 节展开项中的 `brew update` / `brew upgrade`；与插件分开升级。
+- **后端：** 独立下载匹配的新 app 包，停止任务后替换 app；插件不代为更新。已有 Homebrew 安装仍按第 4 节独立升级。
 - **Calendar helper：** 有更新时按第 11 节从匹配 tag 重新编译并替换。
 
 重新启用插件并重开 Obsidian，检查 OMD 及实际使用的 AI / Calendar。回退时停用插件，恢复备份文件和设置，不删除笔记。不要用演示 Vault 的设置覆盖自己的资料库。
@@ -354,7 +330,7 @@ open dist
 | BRAT 没出现版本列表或请求被限流 | 核对仓库地址，点输入框外并等待；稍后重试，或用手动方法。公开仓库不要求 token。 |
 | Finder 看不到 .obsidian，或前往文件夹找不到路径 | 优先点 Obsidian 的插件文件夹图标；再看第 3 节展开的备用步骤，确认是实际 Vault。 |
 | Installed plugins 没有 OMD Home | 确认同一个 Vault、三个文件名和一层 omd-home 目录；刷新列表，必要时 ⌘Q 后重开。 |
-| Terminal 找不到 brew | 完成 Homebrew 的 shell 路径设置；重新验证 brew --version，不用 sudo brew install。 |
+| Terminal 找不到 omd | ZIP 安装不会创建裸命令；按第 4 节使用 app 内完整路径，再回 Home 点 Check again。 |
 | OMD 没检测到或版本旧 | 看第 4 节诊断，更新后回 Capture and processing 点 Check again；不要用 AI 的检查按钮代替。 |
 | OCR 语言包缺失 | 用 tesseract --list-langs 检查并安装所需包；不要靠清空偏好来掩盖缺失依赖。 |
 | mlx_whisper 不可用 | 检查 Apple Silicon、pipx 和程序路径，重开 Obsidian，再做短音频 Capture。 |
@@ -368,13 +344,13 @@ open dist
 
 ## 开发者：固定版本源码构建
 
-普通用户无需构建插件。开发者准备 Git、Node.js/npm 后，可复现 **0.2.2**：
+普通用户无需构建插件。开发者准备 Git、Node.js/npm 后，可复现 **0.2.3**：
 
 ```bash
-git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
+git clone --branch 0.2.3 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
 cd obsidian-omd-home
 npm ci
 npm run build
 ```
 
-结果仍是三个插件文件，不安装后端或模型。公开 main 包含这次发布的源码，未来仍会变化；固定 tag 方便复现。桌面验收见 [0.2.2 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/manual-test-plan.md)。
+结果仍是三个插件文件，不安装后端或模型。公开 main 包含这次发布的源码，未来仍会变化；固定 tag 方便复现。桌面验收见 [0.2.3 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.3/docs/manual-test-plan.md)。
