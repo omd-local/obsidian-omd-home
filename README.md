@@ -23,6 +23,7 @@ Your Markdown files remain the source of truth.
 
 [New here?](docs/getting-started-mac.en.md) ·
 [Install](#install) ·
+[Sources](#source-menu) ·
 [See the rooms](#one-doorway-four-rooms) ·
 [Configure](#choose-your-setup) ·
 [About](#about) ·
@@ -82,6 +83,36 @@ vault Q&A share one controlled entrance while Obsidian remains the source of tru
 Widgets use a 12-column grid, move occupied cards out of the way, and keep their
 layout per device viewport. Standard sizes are always available from each
 widget menu, so a desktop layout does not have to fit a different screen.
+
+## Source menu
+
+Bring a supported URL or local file into your vault through the
+[OMD conversion backend](https://github.com/omd-local/markdown-everything).
+Home accepts **one URL or file at a time**; folder and list batches use the
+backend command line. Available routes depend on installed tools and source access.
+
+<img src="docs/assets/omd-home-source-menu.svg" alt="OMD source menu: documents, OCR images, local audio, webpages, public posts, media URLs, backend-only batches, and separate Douyin and Xiaohongshu cookie access." />
+
+<details>
+<summary><strong>Text version // formats, sources, and requirements</strong></summary>
+
+| Source | Formats or examples | Requirements and limits |
+|---|---|---|
+| **Documents** | PDF, DOCX, PPTX, XLSX, HTML, CSV, JSON, XML, EPUB, ZIP | MarkItDown and the relevant converters. |
+| **Images** | PNG, JPG, WEBP, TIFF, BMP | Tesseract OCR and the selected language packs. |
+| **Audio** | MP3, WAV, M4A, FLAC, OGG | Local Whisper, its model, and ffmpeg must be installed; see the Mac guide for the Apple Silicon setup. |
+| **Web** | Articles, WeChat, public webpages | A source adapter or web conversion; source access rules apply. |
+| **Public posts** | Reddit, X, Bluesky, Mastodon, Threads, Hacker News, Telegram | Bounded public adapters; browser login does not guarantee converter access. |
+| **Media URLs** | Apple Podcasts, YouTube, TikTok, Bilibili | Metadata and local transcription; install the selected route's tools and model, including yt-dlp for video URLs. Missing tools or source access can stop Capture. |
+| **Local batches** | Folders and saved one-item-per-line lists | Backend CLI only; each item is routed independently. Not connected to Home Capture. |
+| **Douyin / Xiaohongshu (Rednote)** | A URL or supported single-link share message | Normally require separate Netscape-format `cookies.txt` exports from `douyin.com` and `xiaohongshu.com`, respectively. Use only authorised accounts and content; do not reuse cookie files across platforms or commit them. |
+
+</details>
+
+OMD does not bypass paywalls, login gates, captchas, access controls, or platform
+restrictions. Public posts may be deleted, private, quarantined, region-blocked,
+or rate-limited. See the **Douyin and Xiaohongshu / Rednote access** setup below
+for local cookie paths and readiness checks.
 
 ## Bring sources in. Decide what changes.
 

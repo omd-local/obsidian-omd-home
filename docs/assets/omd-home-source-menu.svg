@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 1192" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">OMD source menu // Many sources, one Markdown vault</title>
+  <desc id="desc">OMD Home captures one supported URL or local file at a time. Documents use MarkItDown, images use Tesseract OCR, and audio needs local Whisper and a model. Webpages, public posts and media URLs depend on source access. Folder and list batches are backend CLI only. Douyin and Xiaohongshu normally need separate authorised Netscape cookie exports. OMD does not bypass access restrictions.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>
+    </pattern>
+    <g id="note" fill="none" stroke="currentColor" stroke-width="3">
+      <path d="M2 0H22L32 10V38H2Z M22 0V10H32 M9 19H25 M9 27H25"/>
+    </g>
+    <g id="image" fill="none" stroke="currentColor" stroke-width="3">
+      <path d="M0 4H36V34H0Z M3 29L13 19L21 27L28 20L34 26"/>
+      <path d="M25 10H29V14H25Z" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="audio" fill="none" stroke="currentColor" stroke-width="4">
+      <path d="M1 14V26 M9 5V35 M17 0V40 M25 9V31 M33 15V25"/>
+    </g>
+    <g id="web" fill="none" stroke="currentColor" stroke-width="3">
+      <path d="M0 3H36V35H0Z M0 12H36 M6 7H9 M13 7H16 M20 7H23 M8 20H28 M8 27H23"/>
+    </g>
+    <g id="post" fill="none" stroke="currentColor" stroke-width="3">
+      <path d="M0 2H36V29H17L8 38V29H0Z M8 11H28 M8 19H24"/>
+    </g>
+    <g id="media" fill="none" stroke="currentColor" stroke-width="3">
+      <path d="M0 4H38V34H0Z"/>
+      <path d="M14 12L27 19L14 27Z" fill="currentColor" stroke="none"/>
+    </g>
+    <g id="batch" fill="none" stroke="currentColor" stroke-width="3">
+      <path d="M0 11V3H14L20 9H36V35H0Z M7 18H29 M7 25H29"/>
+    </g>
+    <g id="key" fill="none" stroke="currentColor" stroke-width="3">
+      <path d="M0 10H8V2H24V10H32V26H24V34H8V26H0Z M24 18H40V28 M33 18V25"/>
+      <path d="M10 12H16V18H10Z"/>
+    </g>
+  </defs>
+
+  <rect width="1280" height="1192" fill="#202124"/>
+  <rect width="1280" height="1192" fill="url(#grid)" opacity="0.8"/>
+  <rect x="24" y="24" width="1232" height="1144" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
+  <rect x="24" y="24" width="1232" height="94" fill="#8064F4" stroke="#202124" stroke-width="4"/>
+  <g font-family="Courier New, monospace" fill="#F4F1E8">
+    <text x="56" y="65" font-size="28" font-weight="700">SOURCE MENU // MANY INPUTS, ONE VAULT</text>
+    <text x="56" y="96" font-size="20">OMD HOME + LOCAL OMD</text>
+  </g>
+  <g transform="translate(1188 48)" color="#F4F1E8"><use href="#note"/></g>
+  <text x="56" y="151" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">HOME: ONE URL OR FILE AT A TIME. EXTRA TOOLS AND SOURCE ACCESS MAY BE REQUIRED.</text>
+
+  <g fill="#202124" opacity="0.16">
+    <rect x="64" y="184" width="568" height="178"/>
+    <rect x="664" y="184" width="568" height="178"/>
+    <rect x="64" y="386" width="568" height="178"/>
+    <rect x="664" y="386" width="568" height="178"/>
+    <rect x="64" y="588" width="568" height="178"/>
+    <rect x="664" y="588" width="568" height="178"/>
+    <rect x="64" y="790" width="568" height="178"/>
+    <rect x="664" y="790" width="568" height="178"/>
+  </g>
+  <g fill="#F4F1E8" stroke="#202124" stroke-width="3">
+    <rect x="56" y="176" width="568" height="178"/>
+    <rect x="656" y="176" width="568" height="178"/>
+    <rect x="56" y="378" width="568" height="178"/>
+    <rect x="656" y="378" width="568" height="178"/>
+    <rect x="56" y="580" width="568" height="178"/>
+    <rect x="656" y="580" width="568" height="178"/>
+    <rect x="56" y="782" width="568" height="178"/>
+    <rect x="656" y="782" width="568" height="178"/>
+  </g>
+
+  <g color="#8064F4">
+    <use href="#note" x="80" y="197"/>
+    <use href="#image" x="680" y="197"/>
+    <use href="#audio" x="80" y="399"/>
+    <use href="#web" x="680" y="399"/>
+    <use href="#post" x="80" y="601"/>
+    <use href="#media" x="680" y="601"/>
+    <use href="#batch" x="80" y="803"/>
+    <use href="#key" x="680" y="803"/>
+  </g>
+  <g font-family="Courier New, monospace" fill="#202124">
+    <g font-size="25" font-weight="700">
+      <text x="132" y="224">01 DOCUMENTS</text>
+      <text x="732" y="224">02 IMAGES</text>
+      <text x="132" y="426">03 AUDIO</text>
+      <text x="732" y="426">04 WEB</text>
+      <text x="132" y="628">05 PUBLIC POSTS</text>
+      <text x="732" y="628">06 MEDIA URLS</text>
+      <text x="132" y="830">07 LOCAL BATCHES</text>
+      <text x="732" y="830">08 COOKIE ACCESS</text>
+    </g>
+    <g font-size="22">
+      <text x="80" y="268">PDF / DOCX / PPTX / XLSX / HTML</text>
+      <text x="80" y="299">CSV / JSON / XML / EPUB / ZIP</text>
+      <text x="680" y="268">PNG / JPG / WEBP / TIFF / BMP</text>
+      <text x="680" y="299">Text extraction with Tesseract OCR</text>
+      <text x="80" y="470">MP3 / WAV / M4A / FLAC / OGG</text>
+      <text x="80" y="501">Local Whisper + model required</text>
+      <text x="680" y="470">Articles / WeChat / public pages</text>
+      <text x="680" y="501">Source adapter or web conversion</text>
+      <text x="80" y="672">Reddit / X / Bluesky / Mastodon</text>
+      <text x="80" y="703">Threads / Hacker News / Telegram</text>
+      <text x="680" y="672">Apple Podcasts / YouTube</text>
+      <text x="680" y="703">TikTok / Bilibili</text>
+      <text x="80" y="874">Folders / one-item-per-line lists</text>
+      <text x="80" y="905">Each source processed independently</text>
+      <text x="680" y="874">Douyin / Xiaohongshu (Rednote)</text>
+      <text x="680" y="905">Separate Netscape cookies.txt exports</text>
+    </g>
+    <g font-size="19" font-weight="700" fill="#5940B2">
+      <text x="80" y="331">MARKITDOWN</text>
+      <text x="680" y="331">OCR LANGUAGE PACKS REQUIRED</text>
+      <text x="80" y="533">OPTIONAL LOCAL TRANSCRIPTION</text>
+      <text x="680" y="533">SOURCE ACCESS STILL APPLIES</text>
+      <text x="80" y="735">BOUNDED PUBLIC ADAPTERS</text>
+      <text x="680" y="735">TRANSCRIPTION NEEDS LOCAL TOOLS</text>
+      <text x="80" y="937">BACKEND CLI ONLY; NOT HOME CAPTURE</text>
+      <text x="680" y="937">AUTHORISED ACCESS; NEVER COMMIT COOKIES</text>
+    </g>
+  </g>
+
+  <rect x="56" y="996" width="1168" height="74" fill="#8064F4" stroke="#202124" stroke-width="3"/>
+  <g font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#F4F1E8" text-anchor="middle">
+    <text x="206" y="1041">YOUR SOURCE</text>
+    <text x="456" y="1041">LOCAL OMD</text>
+    <text x="776" y="1041">MARKDOWN NOTES</text>
+    <text x="1100" y="1041">YOUR VAULT</text>
+  </g>
+  <g fill="none" stroke="#F4F1E8" stroke-width="3">
+    <path d="M310 1033H344 M336 1025L344 1033L336 1041"/>
+    <path d="M558 1033H592 M584 1025L592 1033L584 1041"/>
+    <path d="M956 1033H990 M982 1025L990 1033L982 1041"/>
+  </g>
+  <g font-family="Courier New, monospace" font-size="20" fill="#202124">
+    <text x="56" y="1110">NO BYPASS: paywalls, login gates, captchas, access controls or platform restrictions.</text>
+    <text x="56" y="1140">Public posts may be removed, private, region-blocked or rate-limited.</text>
+  </g>
+</svg>
