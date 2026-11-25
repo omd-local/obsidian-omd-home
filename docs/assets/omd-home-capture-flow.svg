@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
   <title id="title">OMD Home // Bring Sources In, Decide What Changes</title>
-  <desc id="desc">Capture workflow showing a submitted URL or local file entering OMD Home, becoming recoverable Markdown, and optionally going through a review-first proposal path.</desc>
+  <desc id="desc">Capture workflow for public beta0.2.1 showing immediate note creation, optional local Polish Markdown, and separate review-first summary, link and tag proposals.</desc>
   <defs>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>
@@ -24,7 +24,7 @@
 
   <rect x="80" y="150" width="1440" height="286" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
   <rect x="80" y="150" width="1440" height="48" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
-  <text x="104" y="182" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">CAPTURE PATH</text>
+  <text x="104" y="182" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">CAPTURE PATH // NOTE SAVED WITHOUT APPLY</text>
 
   <rect x="106" y="244" width="250" height="118" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
   <rect x="402" y="244" width="250" height="118" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
@@ -32,23 +32,23 @@
   <rect x="1046" y="244" width="250" height="118" fill="#8064F4" stroke="#202124" stroke-width="3"/>
   <rect x="1342" y="244" width="150" height="118" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
 
-  <text x="231" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">URL OR</text>
+  <text x="231" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">URL / SHARE TEXT</text>
   <text x="231" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">LOCAL FILE</text>
 
   <text x="527" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">OMD HOME</text>
-  <text x="527" y="318" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Normalize path.</text>
+  <text x="527" y="318" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Check source/access.</text>
   <text x="527" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Start owned process.</text>
 
-  <text x="849" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">MANAGED LOCAL</text>
-  <text x="849" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">OMD CAPTURE</text>
-  <text x="849" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Home tab may close.</text>
+  <text x="849" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">LOCAL CONVERSION</text>
+  <text x="849" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#202124">OPTIONAL POLISH</text>
+  <text x="849" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Local model, if enabled.</text>
 
   <text x="1171" y="286" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#F4F1E8">MARKDOWN +</text>
-  <text x="1171" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#F4F1E8">RECOVERY</text>
-  <text x="1171" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="16" fill="#F4F1E8">Readable output + trace.</text>
+  <text x="1171" y="316" text-anchor="middle" font-family="Courier New, monospace" font-size="21" font-weight="700" fill="#F4F1E8">TRACE FILE</text>
+  <text x="1171" y="340" text-anchor="middle" font-family="Courier New, monospace" font-size="16" fill="#F4F1E8">Readable .md + trace.</text>
 
   <text x="1417" y="294" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">VAULT</text>
-  <text x="1417" y="324" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Saved note</text>
+  <text x="1417" y="324" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#202124">Saved now</text>
 
   <line x1="356" y1="303" x2="402" y2="303" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
   <line x1="652" y1="303" x2="698" y2="303" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
@@ -59,7 +59,7 @@
 
   <rect x="80" y="478" width="1440" height="302" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
   <rect x="80" y="478" width="1440" height="48" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
-  <text x="104" y="510" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">OPTIONAL PROPOSAL PATH</text>
+  <text x="104" y="510" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">OPTIONAL LOCAL PROPOSALS // SUMMARY, LINKS + TAGS</text>
 
   <rect x="106" y="576" width="250" height="120" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
   <rect x="402" y="576" width="250" height="120" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
@@ -67,19 +67,19 @@
   <rect x="994" y="576" width="190" height="120" fill="#8064F4" stroke="#202124" stroke-width="3"/>
   <rect x="1230" y="576" width="262" height="120" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
 
-  <text x="231" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">SUGGEST</text>
+  <text x="231" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">SUMMARY +</text>
   <text x="231" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">LINKS + TAGS</text>
 
   <text x="527" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">BOUNDED</text>
-  <text x="527" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">PROPOSAL</text>
+  <text x="527" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">LOCAL PROPOSAL</text>
 
   <text x="823" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">REVIEW</text>
-  <text x="823" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">SCREEN</text>
+  <text x="823" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">SELECTIONS</text>
 
   <text x="1089" y="632" text-anchor="middle" font-family="Courier New, monospace" font-size="26" font-weight="700" fill="#F4F1E8">APPLY</text>
 
-  <text x="1361" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">VALIDATED</text>
-  <text x="1361" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">VAULT WRITE</text>
+  <text x="1361" y="618" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">APPLY KEEPS</text>
+  <text x="1361" y="646" text-anchor="middle" font-family="Courier New, monospace" font-size="20" font-weight="700" fill="#202124">INBOX STATUS</text>
 
   <line x1="356" y1="636" x2="402" y2="636" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
   <line x1="652" y1="636" x2="698" y2="636" stroke="#202124" stroke-width="5" marker-end="url(#arrow)"/>
@@ -88,6 +88,6 @@
 
   <rect x="106" y="820" width="620" height="72" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
   <rect x="874" y="820" width="618" height="72" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
-  <text x="416" y="864" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">NO APPLY = NO WRITE</text>
-  <text x="1183" y="864" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">FAILURE KEEPS CAPTURED MARKDOWN</text>
+  <text x="416" y="864" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">PROPOSALS WRITE ONLY AFTER APPLY</text>
+  <text x="1183" y="864" text-anchor="middle" font-family="Courier New, monospace" font-size="22" font-weight="700" fill="#202124">DONE REVIEWING MARKS REVIEWED</text>
 </svg>
