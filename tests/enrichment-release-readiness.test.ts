@@ -39,7 +39,7 @@ test("release artifacts are ignored in git and emitted exactly by the release wo
   assert.match(workflow, /subject-path:\s*\|\s*\n\s*main\.js\s*\n\s*manifest\.json\s*\n\s*styles\.css/u);
   assert.match(workflow, /gh release create "\$tag"[\s\S]*main\.js manifest\.json styles\.css/u);
   assert.match(workflow, /--verify-tag/u);
-  assert.doesNotMatch(workflow, /--draft/u);
+  assert.match(workflow, /--draft/u);
   assert.doesNotMatch(workflow, /steps\.styles/u);
 });
 
@@ -50,6 +50,28 @@ test("build config externalizes Obsidian and node builtins for release bundles",
   assert.match(esbuild, /external:\s*\[[\s\S]*"node:\*"/u);
   assert.match(esbuild, /loader:\s*\{\s*"\.py":\s*"text"\s*\}/u);
   assert.match(readText("src/main.ts"), /import embeddedPythonBridge from "\.\.\/bridge\/omd_home_bridge\.py"/u);
+});
+
+test("production bundles embed the licenses for every shipped third-party runtime", () => {
+  const esbuild = readText("esbuild.mjs");
+  const notices = readText("THIRD_PARTY_NOTICES");
+
+  assert.match(esbuild, /readFileSync\(new URL\("\.\/node_modules\/fullcalendar\/LICENSE\.md", import\.meta\.url\), "utf8"\)/u);
+  assert.match(esbuild, /readFileSync\(new URL\("\.\/node_modules\/preact\/LICENSE", import\.meta\.url\), "utf8"\)/u);
+  assert.match(esbuild, /banner:\s*production\s*\?\s*\{\s*js:/u);
+  assert.match(esbuild, /https:\/\/polyformproject\.org\/licenses\/shield\/1\.0\.0/u);
+  assert.match(esbuild, /Required Notice: Copyright 2026 OMD Local contributors\./u);
+  for (const bundledPackage of [
+    "fullcalendar",
+    "@fullcalendar/core",
+    "@full-ui/headless-calendar",
+    "temporal-polyfill",
+    "temporal-utils",
+    "preact",
+  ]) {
+    assert.match(notices, new RegExp(bundledPackage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"));
+  }
+  assert.match(notices, /production `main\.js` banner/u);
 });
 
 test("README keeps privacy, dependency, and local and hosted AI disclosures aligned", () => {
@@ -74,19 +96,91 @@ test("README keeps privacy, dependency, and local and hosted AI disclosures alig
   assert.match(readme, /Nothing is written until you explicitly press \*\*Apply\*\*/u);
 });
 
-test("README distinguishes public installation and backend compatibility from development previews", () => {
+
+test("Mac installation guides match the plugin and paired backend release", () => {
   const readme = readText("README.md");
-  const publicVersion = readme.match(/PUBLIC BETA (\d+\.\d+\.\d+)/u)?.[1];
-  assert.ok(publicVersion, "README must identify the public plugin release");
-  assert.match(readme, /\]\(docs\/getting-started-mac\.md\)/u);
-  assert.equal(existsSync(path.join(repoRoot, "docs/getting-started-mac.md")), true);
-  assert.ok(readme.includes(`git clone --branch ${publicVersion} --single-branch https://github.com/omd-local/obsidian-omd-home.git`));
-  assert.match(readme, /public Homebrew backend currently predates some interfaces used by Home/iu);
-  assert.match(readme, /Before basic capture, clear both recognition preferences and turn off\s*> \*\*Polish Markdown\*\* and \*\*Review links and tags\*\*/iu);
-  assert.match(readme, /public b4 backend does\s*not provide all of them/iu);
-  assert.match(readme, /## Development previews\s+These are local development additions after public \*\*[^*]+\*\*, not features in\s*the release downloads or the pinned source-install command/u);
-  assert.match(readme, /Actual iPhone-to-Mac\s*acceptance remains pending/iu);
-  assert.match(readme, /Answer evidence verification[\s\S]*?native acceptance remain separate, unfinished checks/iu);
+  const version = String(readJson<Record<string, unknown>>("manifest.json").version);
+  assert.equal(readme.match(/PUBLIC BETA (\d+\.\d+\.\d+)/u)?.[1], version);
+  assert.ok(readme.includes(`git clone --branch ${version} --single-branch https://github.com/omd-local/obsidian-omd-home.git`));
+  for (const guide of ["docs/getting-started-mac.md", "docs/getting-started-mac.en.md"]) {
+    assert.ok(readme.includes(`](${guide})`));
+    const content = readText(guide);
+    for (const asset of ["main.js", "manifest.json", "styles.css"]) {
+      assert.ok(content.includes(`/releases/download/${version}/${asset}`), `${guide} must pin ${asset} to ${version}`);
+    }
+    assert.match(content, /0\.3\.0b5/u);
+    assert.doesNotMatch(content, /iphone-direct-capture\.md|evidence-verification\.md/u);
+  }
+  assert.match(readme, /markdown-everything\/releases\/tag\/v0\.3\.0b5/u);
+  assert.doesNotMatch(readme, /public Homebrew backend currently predates|clear both recognition preferences|iphone-direct-capture\.md|evidence-verification\.md/iu);
+  for (const prototype of ["src/direct-capture.ts", "src/evidence-verification.ts", "src/evidence-verification-schema.ts"]) {
+    assert.equal(existsSync(path.join(repoRoot, prototype)), false, `${prototype} must stay outside the Mac release`);
+  }
+});
+
+test("release docs keep social single-source and local-batch boundaries explicit", () => {
+  const readme = readText("README.md");
+  const captureFlow = readText("docs/assets/omd-home-capture-flow.svg");
+  const backlog = readText("docs/ui-backlog.md");
+  const releaseChecklist = readText("docs/release-checklist.md");
+
+  assert.match(
+    readme,
+    /paste a common Douyin or Xiaohongshu \/ Rednote share message that contains\s+exactly one HTTP\(S\) URL/iu,
+  );
+  assert.match(
+    readme,
+    /Share-message extraction is deliberately limited to Douyin and Xiaohongshu \/\s+Rednote\. Paste an ordinary webpage URL by itself/iu,
+  );
+  assert.match(
+    readme,
+    /saves only these local paths[\s\S]{0,180}Cookie\s+contents are used by local OMD only for matching approved platform HTTPS\s+requests; they are never sent to AI providers/iu,
+  );
+  assert.match(readme, /Local folder and one-item-per-line batch capture are not connected in OMD Home/iu);
+  assert.match(captureFlow, /Check source\/access/iu);
+  assert.match(captureFlow, /URL \/ SHARE TEXT/iu);
+  assert.match(captureFlow, /LOCAL FILE/iu);
+
+  for (const issue of ["CAPTURE-01", "CAPTURE-02"]) {
+    const start = backlog.indexOf(`### ${issue}`);
+    assert.notEqual(start, -1, `${issue} must remain in the backlog`);
+    const end = backlog.indexOf("\n### ", start + 4);
+    const section = backlog.slice(start, end === -1 ? undefined : end);
+    assert.match(section, /\*\*状态：[^\n]*(?:待复测|待完成)[^\n]*\*\*/u);
+    assert.match(section, /\*\*验收标准：\*\*/u);
+  }
+
+  const batchStart = backlog.indexOf("### CAPTURE-03");
+  assert.notEqual(batchStart, -1, "CAPTURE-03 must remain in the backlog");
+  const batchSection = backlog.slice(batchStart, backlog.indexOf("\n## ", batchStart + 4));
+  assert.match(batchSection, /\*\*状态：Deferred。优先级：P2/u);
+  assert.match(batchSection, /Local batches/iu);
+
+  assert.match(
+    releaseChecklist,
+    /Douyin\/XHS share text is accepted only with one HTTP\(S\) URL and the exact advertised provider cookie flag/iu,
+  );
+  assert.match(releaseChecklist, /Folder\/list batches remain explicitly unsupported/iu);
+});
+
+test("deferred Obsidian graph enhancements remain in the P2 backlog", () => {
+  const backlog = readText("docs/ui-backlog.md");
+  for (const issue of ["UI-07", "UI-08", "UI-09", "UI-10", "UI-11"]) {
+    const start = backlog.indexOf(`### ${issue}`);
+    assert.notEqual(start, -1, `${issue} must remain in the backlog`);
+    const end = backlog.indexOf("\n### ", start + 4);
+    const section = backlog.slice(start, end === -1 ? undefined : end);
+    assert.match(section, /\*\*状态：Deferred。优先级：P2/u);
+    assert.match(section, /\*\*验收标准：\*\*/u);
+  }
+});
+
+test("Markdown metadata changes refresh Home workflow status", () => {
+  const main = readText("src/main.ts");
+  assert.match(
+    main,
+    /metadataCache\.on\("changed", \(file\) => \{[\s\S]*if \(file\.extension === "md"\) this\.refreshHomeViews\(\);[\s\S]*\}\)\)/u,
+  );
 });
 
 test("fixture manifest records the synced upstream OMD contract provenance", () => {

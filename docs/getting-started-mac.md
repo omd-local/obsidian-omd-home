@@ -1,44 +1,43 @@
-# 在 Mac 上安装并完成第一次 Capture / Mac getting started
+# 在 Mac 上安装并完成第一次 Capture
 
-[返回 OMD Home 首页 / Back to README](../README.md)
+[返回 OMD Home 首页](../README.md) · **简体中文** · [English](getting-started-mac.en.md)
 
-这份指南先帮你完成一个可检查的基础流程：**安装 Obsidian 插件 → 安装 OMD 转换后端 → 把一个网页或文件保存成 Markdown → 在 Inbox 找到结果**。首次测试不需要 Ollama、AI 模型、API key、日历权限或网站 cookies。
+先完成一个可以检查的流程：**安装 Obsidian 插件 → 安装 OMD 转换后端 → 把网页或文件保存成 Markdown → 在 Inbox 打开结果**。之后按需增加转录、AI 或 Apple Calendar。
 
-本文按 **2026-11-25** 核实的公开版本编写：OMD Home **0.2.1**、OMD 后端 **0.3.0b4**。两者分别安装；插件不是后端安装器。公开后端暂未包含当前开发版的全部接口，下面的兼容设置是首次 Capture 的必要步骤。
+本指南对应 **OMD Home 0.2.2 + [OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5)**。两个项目的公开 `main` 已同步这次发布的源码；下面用固定 tag 和下载链接复现这个版本。插件、后端、模型和 Calendar helper 分别安装。OMD 的浏览器 UI 暂未发布；使用 Obsidian 的 OMD Home 即可。
 
-## 1. 准备一个演示 Vault / Prepare a demo vault
+## 1. 检查 Mac 并准备 Vault
 
-1. 从 [Obsidian 官网](https://obsidian.md/download)安装 Mac 桌面版，版本需为 **1.11.4 或以上**。可在 **Settings → General** 查看版本。
-2. 在 Vault 选择窗口使用 **Create new vault**，命名为 `OMD Demo`，保存在自己的 **Documents** 文件夹。本文以 `~/Documents/OMD Demo` 为例；如果你选了其他位置，后面的路径都换成自己的 Vault 位置。
-3. 先打开这个 Vault 一次，让 Obsidian 建立 `.obsidian` 配置文件夹。
+1. 在 **Apple menu → About This Mac** 查看系统和 **Chip / Processor**。本指南 Homebrew 路线以 **Apple Silicon、macOS 15 或以上**为受支持环境；Homebrew 将 Intel 列为 Tier 3。旧系统和 Intel 的安装体验不在本指南保证范围内。见 [Homebrew 系统要求](https://docs.brew.sh/Installation)。
+2. 从 [Obsidian 官网](https://obsidian.md/download)安装桌面版 **1.11.4 或以上**；在 **Settings → General** 查看版本。
+3. 用 **Create new vault** 创建 `OMD Demo`，保存在自己的 Documents 文件夹，再打开一次，让 Obsidian 建立 `.obsidian`。
 
-`~` 代表你自己的用户目录，不用输入其他人的用户名。Vault 就是保存笔记的普通文件夹。
+本文以 `~/Documents/OMD Demo` 为例。`~` 是你自己的用户目录；位置不同时换成自己的 Vault 路径。Vault 就是保存笔记的普通文件夹。
 
-**如果是在已有 Vault 中升级：**先备份整个 Vault；停止进行中的 Capture，再停用 OMD Home。另存一份现有的 `.obsidian/plugins/omd-home/` 文件夹，方便回退。更新只替换下面三个插件文件，**保留原来的 `data.json`**，它保存现有插件设置。不要把演示 Vault 的配置覆盖到自己的资料库。
+**升级已有 Vault：**先备份整个 Vault，停止 Capture，停用插件，另存 `.obsidian/plugins/omd-home/` 文件夹。更新只替换下面三个文件，**保留原来的 `data.json`** 和笔记；该文件保存插件设置。不要用演示设置覆盖已有资料库。
 
-## 2. 下载三个插件文件 / Download the plugin assets
+## 2. 下载三个插件文件
 
-打开 [OMD Home 0.2.1 发布页](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.1)，下载 **Assets** 中的这三个文件，也可以使用固定版本直链：
+打开 [OMD Home 0.2.2 发布页](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2)，下载 **Assets** 中三个文件：
 
-| 必需文件 | 下载 |
+| 必需文件 | 固定版本下载 |
 |---|---|
-| `main.js` | [Download main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.1/main.js) |
-| `manifest.json` | [Download manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.1/manifest.json) |
-| `styles.css` | [Download styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.1/styles.css) |
+| `main.js` | [Download main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js) |
+| `manifest.json` | [Download manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json) |
+| `styles.css` | [Download styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css) |
 
-使用发布页的文件名，避免浏览器保存成 `main.js.txt`、`manifest.json.txt` 或带有 `(1)` 的名字。**Source code (zip)** 是源码，不是可直接安装的插件包。这里三个文件都来自同一个 `0.2.1` 版本。
+三个文件必须来自同一版本。保留原文件名，避免 `.txt` 或 `(1)` 后缀。**Source code (zip)** 是源码，不能直接当插件安装。三个文件不包含 OMD、Python、Whisper、Ollama 或 Calendar helper。
 
-## 3. 放进隐藏的插件文件夹 / Put the files in the right folder
+## 3. 放进隐藏的插件文件夹
 
-1. 打开 **Finder**，按 **Command–Shift–G**，打开 **Go to Folder**。
-2. 输入自己的 Vault 配置目录；如果按上面的示例创建，输入：
+1. 在 **Finder** 按 **Command–Shift–G** 打开 **Go to Folder**，输入：
 
    ```text
    ~/Documents/OMD Demo/.obsidian/
    ```
 
-3. 在 `.obsidian` 内找到或新建 `plugins` 文件夹，再在 `plugins` 内新建 `omd-home`。
-4. 把下载的三个文件直接放进 `omd-home`。正确结构是：
+2. 在 `.obsidian` 内找到或新建 `plugins`，再在里面新建 `omd-home`。
+3. 把三个文件直接放进 `omd-home`：
 
    ```text
    OMD Demo/
@@ -50,144 +49,209 @@
                └── styles.css
    ```
 
-   升级时，这里还可以有原来的 `data.json`，保留它即可。不要多套一层 `omd-home/omd-home/` 或把源码目录整个放进去。
+   已有的 `data.json` 留在这里。不要多套一层 `omd-home/omd-home/`，也不要放整个源码目录。
+4. 在 Obsidian 打开 **Settings → Community plugins**。如有 **Turn on community plugins**，信任插件后启用；刷新列表，必要时退出并重开 Obsidian。
+5. 在 **Installed plugins** 启用 **OMD Home**。按 **Command–P**，运行 **OMD Home: Open home**。
 
-5. 回到 Obsidian，打开 **Settings → Community plugins**。如果看到 **Turn on community plugins**，在确认信任这个插件后启用社区插件；刷新已安装插件列表，必要时退出并重新打开 Obsidian。
-6. 在 **Installed plugins** 中启用 **OMD Home**。按 **Command–P** 打开命令面板，运行 **OMD Home: Open home**。
+看到 Home 页面说明插件已启用；Capture 还需要后端。
 
-此时看到 Home 页面只证明插件已启用；Capture 还需要下一步的 OMD 后端。
+## 4. 安装 OMD 后端
 
-## 4. 安装 OMD 后端 / Install the converter
-
-先打开 Mac 的 **Terminal**，运行：
+打开 **Terminal**：
 
 ```bash
 brew --version
 ```
 
-如果出现 `command not found: brew`，先按 [Homebrew 官方安装说明](https://brew.sh/)安装，并完成安装器显示的 **Next steps**，然后新开一个 Terminal 窗口再检查。Homebrew 当前的受支持安装要求见[官方 Installation 页面](https://docs.brew.sh/Installation)：macOS 15 或以上、Apple Silicon；Intel 属于 Tier 3 配置，旧系统或 Intel Mac 不应预期与这个入门流程有同样的安装体验。
+若找不到 `brew`，按 [Homebrew 官方页面](https://brew.sh/)安装，完成安装器的 **Next steps**（包括 `brew shellenv`），再新开 Terminal 检查。使用内部磁盘的标准安装位置，避免外置盘、网络盘或受保护的 Documents 等目录。配方需要源码构建工具；如提示缺少 Xcode Command Line Tools，运行并完成系统安装后继续：
 
-安装后端，每次复制一行并按 Return：
+```bash
+xcode-select --install
+```
+
+每次复制一行并按 Return：
 
 ```bash
 brew install omd-local/omd/omd
+omd --version
 omd doctor
 omd capabilities --json
 ```
 
-这个项目自己的 Homebrew tap 会安装 OMD 和常用文档转换工具，包括 Python、ffmpeg、Tesseract、语言包和 yt-dlp。音视频的 Whisper 模型、Ollama、网站 cookies 和日历 helper 另行准备。具体依赖以[公开配方](https://github.com/omd-local/homebrew-omd/blob/main/Formula/omd.rb)为准。
+应看到 **0.3.0b5**。配方同时安装 Python 3.12、ffmpeg/ffprobe、Tesseract、OCR 语言包和 yt-dlp；无需另装 Python。见[公开配方](https://github.com/omd-local/homebrew-omd/blob/main/Formula/omd.rb)。Whisper 程序和模型、Ollama、cookies、Calendar helper 按需另装。
 
-已经安装过 OMD 的用户可以使用：
+已有旧版时运行：
 
 ```bash
 brew update
 brew upgrade omd-local/omd/omd
+omd --version
+omd capabilities --json
 ```
 
-升级只会取得 tap 当前发布的版本，不会把本机变成最新开发版。
+回到 **Settings → OMD Home → OMD**，点 **Detect OMD** 或 **Check again**。b5 提供本次 Mac 工作流使用的语言、社交抓取及本地 Ollama 接口；具体可用性仍取决于 capability 检查和外部工具。`doctor` 中缺少可选 AI 或转录工具不代表网页转换不可用。
 
-回到 **Settings → OMD Home → OMD**，使用 **Detect OMD** 或 **Check again**。如果自动发现失败，在 Terminal 运行：
+自动发现失败时运行：
 
 ```bash
 printf '%s\n' "$(brew --prefix omd-local/omd/omd)/bin/omd"
 ```
 
-将输出的一整行绝对路径填到 **Advanced OMD paths → OMD executable override**，再检查。使用你这台 Mac 的实际输出；Apple Silicon 和 Intel 的 Homebrew 位置可能不同，不要复制别人的 `/Users/...` 路径。`omd doctor` 中未安装的可选 AI 或转录工具，不代表普通网页转换也不可用。
+将输出的完整绝对路径填到 **Advanced OMD paths → OMD executable override**，再检查。使用本机输出，不复制别人的 `/Users/...` 路径。Python 和 bridge override 通常留空，使用后端环境与插件自带 bridge。
 
-OMD Home 中的 **Copy install commands** 只复制命令，**Install guide** 只打开说明；两者都不会替你下载后端或执行安装。
+**Copy install commands** 只复制，**Install guide** 只打开说明，插件不会执行安装。更新 tap 取得公开发布版，不包含未发布实验。
 
-## 5. 首次 Capture 前的公开版本兼容设置 / Public beta compatibility
+## 5. 确认语言与首次 Capture 选项
 
-> [!IMPORTANT]
-> 截至本文日期，Homebrew 安装的后端仍是 **0.3.0b4**。它能做基础转换，但缺少 Home 0.2.1 用于识别语言、社交抓取和部分本地 AI 工作流的新接口。插件显示 OMD ready，并不表示这些功能全部可用。
+打开 **Settings → OMD Home → OMD → Recognition defaults**。新 Vault 默认 **Image text language: English**、**Speech language: Auto-detect speech**；b5 可直接使用，**无需按旧 b4 指南清除两项偏好**。
 
-**先做下面的设置，再提交第一次 Capture：**
+中文 OCR 可选简体或繁体加英文；语音可自动检测或明确选 English / Chinese。OCR 影响支持的图片文字识别，不翻译正文，也不代表普通 PDF 会自动 OCR。单次 Capture 改语言只作用于该项，Retry 保留该项选择。
 
-1. 打开 **Settings → OMD Home → OMD → Recognition defaults**。
-2. 在 **Image text language** 一行按 **Clear preference**，使它变成 **No language preference**。
-3. 在 **Speech language** 一行也按 **Clear preference**，使它变成 **No language preference**。如果已经是这个值，保留即可。旧后端下下拉框可能不可用，使用旁边的 **Clear preference** 按钮。
-4. 打开 **Capture URL or file**，关闭 **Polish Markdown** 和 **Review links and tags**，再提交。提交后的选择会被记住；仅关闭弹窗不会保存选择。
+首次基础测试在 **Capture URL or file** 关闭 **Polish Markdown** 和 **Review links and tags**，先验证转换，无需先装 Ollama。这是选装 AI 工作，不是新后端的兼容补丁；AI 检查通过后可开启。提交 Capture 才保存本次开关选择，取消不保存。
 
-首次安装默认是 English OCR、Auto-detect speech，而且链接标签建议可能已开启，所以这几项不能跳过。**No language preference** 的含义是让转换器使用自己的默认值，并不保证所有旧适配器都自动检测语言。
+## 6. 完成第一次 Capture
 
-这个基础路线先使用普通公开网页或本地文件。**抖音、小红书分享文字、Improve formatting、链接标签建议以及 Capture polish，需要与插件匹配的较新后端**；仅重装同一个 b4 或安装 Ollama 不能补齐接口。不要通过关闭插件的兼容检查绕过它。接口依据可查看 [b4 capabilities](https://github.com/omd-local/markdown-everything/blob/v0.3.0b4/omd/capabilities.py) 和 [Home 0.2.1 capability checks](https://github.com/omd-local/obsidian-omd-home/blob/0.2.1/src/enrichment/capability.ts)。
+1. 在 Home 点 **Capture URL or file**，或运行 **Command–P → OMD Home: Capture URL or file**。
+2. 填无需登录的简单网页，如 `https://example.com/`；或拖入小型本地 HTML 或 PDF 文件、粘贴完整路径。一次一个来源。
+3. 保持两项 AI 开关关闭，点 **Capture**。
+4. **Current task** 在执行时显示进度；快任务可能一闪而过。完成后到 **Inbox** 打开 Markdown，确认正文和原始来源。
 
-## 6. 完成第一次抓取 / Make your first capture
+**在 Inbox 能打开生成笔记才算完成。**文件通常在 `Sources/<source type>/`，旁边有 `.omd.json` 元数据。Capture 立即写入新笔记；可选链接标签建议按 **Apply** 才写入，**Done reviewing** 才标记 Reviewed。
 
-1. 在 Home 点 **Capture URL or file**，或用 **Command–P → OMD Home: Capture URL or file**。
-2. 先填一个无需登录的简单公开网页，例如 `https://example.com/`。也可以拖入一个小型本地文本文件，或粘贴它在自己 Mac 上的完整路径。一次只提交一个来源。
-3. 确认两项语言偏好已清除，**Polish Markdown** 与 **Review links and tags** 都关闭，再点 **Capture**。
-4. Home 的 **Current task** 会在执行时显示状态；很快的任务可能一闪而过。完成后去 **Inbox** 找到此次结果，并打开生成的 Markdown，确认正文和原始来源。
+网页抓取需要访问来源网站；本地文件无需访问来源网站。失败时看 **Needs attention**，修复后 **Retry capture**。首次检查避免需登录、频繁限流或很长的视频。
 
-**看到生成的笔记且可以打开，才算完成第一次 Capture。** 文件一般位于 Vault 的 `Sources/<source type>/`，另有相邻的 `.omd.json` 元数据。捕获会立即写入新笔记；可选 AI 修改才需要另外预览与确认。
+## 7. 选装：Apple Silicon 本地语音转录
 
-普通网页抓取需要网络，但本地文件测试不需要访问来源网站。如果任务失败，查看 **Needs attention** 的原因；修复后使用 **Retry capture**。不要用一个需要登录、频繁限流或很长的视频作为首次安装检查。
-
-## 7. 选装：Apple Silicon 本地转录 / Optional transcription
-
-先在 **Apple menu → About This Mac** 看 **Chip** 是否为 Apple M 系列。下面的 `mlx-whisper` 路线仅用于 **Apple Silicon**；它不是 Intel Mac 的转录安装方法。
-
-在已经完成基础 Capture 的 Mac 上运行：
+需要 **Apple M 系列芯片**；MLX 不是 Intel 路线。基础后端已有 ffmpeg，但没有 Whisper 程序和模型。
 
 ```bash
 brew install pipx
-pipx install mlx-whisper
+pipx install --python "$(brew --prefix python@3.12)/bin/python3.12" mlx-whisper
 pipx ensurepath
 ```
 
-按 `pipx ensurepath` 的提示新开 Terminal，检查：
+按提示新开 Terminal，再检查：
 
 ```bash
 command -v mlx_whisper
 omd doctor
 ```
 
-先用自己有权使用的一段 **10–30 秒短音频**测试：在 Capture 中提交本地音频文件，继续保持两项语言偏好为 **No language preference**，关闭两项 AI 开关。第一次转录可能需要联网下载 Whisper 模型，耗时和磁盘占用与网络、模型有关；在演示前完成下载并成功跑完一次。语音转录本身不需要 Ollama，原始转录与 AI 整理是不同步骤。
+用自己有权使用的 **10–30 秒本地音频**，通过 OMD Home 的 **Capture URL or file** 测试。保持 **Auto-detect speech**，关闭两项 AI 开关；等 Inbox 出结果，打开笔记并核对转录文字。
 
-对于 **Intel Mac**，不要安装 MLX 后期待同样的效果。项目有其他转录后端的开发接口，但本指南没有验证 Intel 上 Home 0.2.1 的完整安装流程；先用文档或网页演示，并按 [OMD 官方手动安装与转录说明](https://github.com/omd-local/markdown-everything#quick-start)核对适合系统的路径。
+**必须测试 OMD 自己的流程。**默认模型是 `mlx-community/whisper-large-v3-turbo`，首次需联网下载并准备足够磁盘空间。单独运行 `mlx_whisper` 默认示例可能下载另一个 tiny 模型，不能证明 OMD 模型已就绪。演示前先成功完成真实 Capture。原始转录无需 Ollama，AI 整理另配。见 [mlx-whisper 官方说明](https://pypi.org/project/mlx-whisper/)。
 
-## 8. 以后再加 AI、日历和 iPhone / Optional features
+**Intel Mac：**本指南未验证其完整 Home 转录安装路线。不要安装 MLX 后预期同样效果；先演示网页或文档，参考 [OMD 转录与手动安装说明](https://github.com/omd-local/markdown-everything#quick-start)选择适合平台的方案。
 
-| 想增加的功能 | 还需要什么 |
+## 8. 选装：本地 AI、格式整理和语义检索
+
+1. 从 [Ollama 官网](https://ollama.com/download)安装 Mac app，放进 **Applications** 并打开，完成 CLI 设置，保持 app 运行。当前要求 macOS 14+；Apple M 支持 CPU/GPU，Intel 使用 CPU。见[系统说明](https://docs.ollama.com/macos)。
+2. 下载本地文本模型，例如：
+
+   ```bash
+   ollama pull qwen3:4b-instruct
+   ollama list
+   ```
+
+3. 在 **Settings → OMD Home → AI answers** 选 **Ollama on this computer**、已下载模型，再 **Check setup**。列表未刷新时运行 **OMD Home: Refresh local AI models**。下载大小和速度取决于机器；下载完成不等于每项工作流都检查通过。
+4. 在 **Advanced AI controls → Local writing tools → Local writing model** 选本地文本模型并完成检查。它用于 **Improve formatting**、**Polish Markdown** 和 **Review links and tags**，不使用云端 answer provider。先对测试笔记预览格式建议，再决定 **Apply**。
+5. 要语义检索时再装独立的 embedding model：
+
+   ```bash
+   ollama pull bge-m3
+   ```
+
+   在 **Advanced AI controls → Vault retrieval** 选 `bge-m3`，按 **Test semantic search**。也可明确点击 **Install bge-m3** 下载；打开设置不自动下载。只需关键词时关闭 **Keyword + semantic search**，无需 embedding model。语义检索失败会标明关键词回退。
+6. 在 Home omnibox 输入 `@` 和能从测试笔记回答的问题，检查引用并打开原笔记。Vault Q&A 只读。
+
+保留默认 endpoint `http://localhost:11434` 即可。手动地址只接受本机 loopback 主机和明确端口，需 **Save endpoint** 再检查。模型出现在列表也可能不兼容特定功能。
+
+本地模型不要求关闭全部 Ollama cloud 功能。若希望 Ollama 自身进入 local-only，按[官方说明](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features)在 `~/.ollama/server.json` 保留其他设置并加入 `"disable_ollama_cloud": true`，退出再重开 Ollama。这也会禁用 Ollama Cloud。
+
+## 9. 选装：云端答案
+
+云端答案需独立账号或开发者 API 权限，可能计费；本地 Capture、原始转录、本地写作不需要它。
+
+| Provider | 配置与检查 |
 |---|---|
-| 本地摘要、格式改善、链接标签建议、Vault Q&A | 与 Home 兼容的 OMD 后端，以及相应 Ollama 模型和通过的 **Check setup**；安装模型不会修复旧后端接口缺失 |
-| 语义检索 | 另外安装 embedding model，并完成检索检查；先让基础 Capture 工作 |
-| Apple Calendar 同步 | macOS 14+、单独构建的 EventKit helper、Calendar 权限，并明确选择允许的日历；三个插件下载文件不包含 helper |
-| iPhone 分享后让 Mac 开始 Capture | 目前是未发布开发功能，见下文；公开 0.2.1 没有这个入口 |
+| **Ollama Cloud** | 运行 `ollama signin`，按[官方 Cloud 说明](https://docs.ollama.com/cloud)准备云模型；在 AI answers 选择 Ollama Cloud、Check setup 和模型。须关闭 Ollama local-only 模式。 |
+| **OpenAI API / Anthropic API** | 在对应密码框填真实开发者 API key，点 **Save & check** 存入 macOS Keychain，再选择列出的模型。ChatGPT / Claude 订阅不等于 API 余额。 |
+| **DeepSeek API** | 此次 b5 验证策略尚未放行；即使界面有选项也会拒绝请求，不作为可用演示路线。 |
 
-本地的 `omd-home-iphone-direct-capture-dev.zip` 可以作为未来 GitHub Release 的开发预览附件，但**截至本文日期还不是公开发布资产**。它包含插件、说明和校验信息，**没有 OMD 后端、模型或可直接安装的快捷指令**，不属于一体安装器。下载公开 0.2.1 的三个文件也不会得到 iPhone 开发入口。
+开启所选 provider 的 **Allow … answers** 后，每次仍需查看目的地、模型和有限证据片段，明确确认才发送；取消不发送，也不自动换 provider。只发送问题和批准片段，检索仍在本地。格式整理、链接标签建议和 embedding 仍用本地 Ollama。
 
-GitHub 读者无法打开开发者电脑上的 `/Volumes/...` 链接。共享下载必须先有真实可访问的 HTTPS Release asset；不能把本地文件路径写成一个对外可用的下载按钮。
+## 10. 选装：抖音或小红书来源
 
-开发版 iPhone 路线使用 **Run Script over SSH** 把请求交给 Mac，要求 Mac 唤醒、登录、可达且已打开对应 Vault。**Remote Login** 会允许获准用户远程登录这台 Mac，权限不限于发送一条 OMD 链接；只给需要的账户开通，不要公开登录凭据或配对地址，不使用时撤销配对并按需关闭 Remote Login。实际 iPhone→Mac 联调仍待验证，不能把自动化测试通过当成手机端已验证。详见 [iPhone direct capture setup / 开发版配置与限制](iphone-direct-capture.md)及 [Apple 的 Remote Login 说明](https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac)。
+b5 支持 Capture 中含**恰好一个 HTTP(S) URL** 的抖音或小红书 / Rednote 分享文字。普通网页只贴 URL，不支持一次多个来源。平台可能要求登录或限制抓取，不保证每个帖子可用。
 
-## 常见问题 / Troubleshooting
+需要登录时，用自己账号导出的 Netscape 格式 `cookies.txt`，在 **Settings → OMD Home → OMD → Social capture access** 或 Capture 的 **Site access** 填对应平台绝对路径。两个平台分别配置，不互相替代。只保存路径；本地 OMD 会把匹配的 cookie 发送到获准的来源平台 HTTPS 请求，不会发给 AI provider。不要把 cookie 文件提交到 Vault、GitHub 或问题报告。先用自己浏览器能打开的短公开内容测试；视频转录仍需第 7 节的程序和模型。
 
-| 看到的情况 | 下一步 |
-|---|---|
-| Installed plugins 没有 OMD Home | 检查三个文件名、所在 Vault，以及是否多套了一层文件夹；重开 Obsidian |
-| `brew: command not found` | 完成 Homebrew 官方安装和 Next steps，新开 Terminal 后重试 |
-| OMD executable 未发现 | 使用本机 `brew --prefix` 生成的绝对路径，填入 Advanced OMD paths 并重新检查 |
-| 提示 recognition preference 需要较新 OMD | 清除 Image text language 和 Speech language 两项偏好；不是只清除其中一项 |
-| `cannot prove hardened local Ollama transport` | 当前后端缺少 AI 接口；基础 Capture 关闭 Polish Markdown、Review links and tags，完整 AI 流程需升级到兼容后端 |
-| 社交分享链接失败或要求升级 | b4 缺少相应 capability；先改用普通网页或文件测试，cookies 不能解决接口缺失 |
-| 抓取完成但没有 Current task 卡片 | 任务结束后卡片会消失；到 Inbox 检查生成笔记 |
-| 转录提示 `mlx_whisper` missing | 确认是 Apple Silicon，完成 pipx 安装、PATH 提示和 doctor 检查；普通网页 Capture 可先继续用 |
-| 某网页被拒绝、需登录或返回 403 | 换无需登录的公开页，或保存自己获准使用的本地副本再 Capture |
+## 11. 选装：Apple Calendar
 
-反馈问题时，提供插件版本、OMD capabilities 中的版本、Mac 芯片、操作步骤和错误文字即可；不需要提交整个 Vault、账号 cookies 或 SSH 凭据。
+Vault 内的 Markdown 事件无需 helper。同步 Apple Calendar，以及已加入 macOS Calendar 的 Google / Outlook 账户，需要 **macOS 14+、独立 EventKit helper、Calendar 权限和明确选定的日历**。三个标准插件文件不含 helper。
 
-## 开发者：固定版本源码构建 / Build the pinned plugin tag
-
-普通用户使用上面的三个发布文件即可。需要从源码复现公开插件时，使用同一个 `0.2.1` tag，而不是不断变化的 `main`：
+目前从同一插件 tag 本机编译。先有最新 Xcode Command Line Tools（`xcode-select --install`，已装则不重复），用 `swift --version` 确认 **Swift 6 或以上**，然后：
 
 ```bash
-git clone --branch 0.2.1 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
+brew install node
+mkdir -p ~/Developer
+cd ~/Developer
+git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git omd-home-0.2.2
+cd omd-home-0.2.2
+npm ci
+npm run build:eventkit
+```
+
+同名目录已存在时换一个新的名字，不覆盖。成功后有 `dist/omd-eventkit`。复制到实际 Vault 的 `.obsidian/plugins/omd-home/omd-eventkit`，本例为：
+
+```bash
+cp dist/omd-eventkit "$HOME/Documents/OMD Demo/.obsidian/plugins/omd-home/omd-eventkit"
+```
+
+保留可执行权限。也可留在固定位置，在 **Settings → OMD Home → Calendar → Advanced Calendar helper** 填完整绝对路径；不要填源码或 `dist` 文件夹。
+
+回 Calendar 设置点 **Refresh calendars**，在 macOS 提示时授予权限；只打开允许 OMD 读取的日历，选一个可写 **Default calendar**。先建测试事件，核对 Vault 和指定日历。双方都改动时需选择保留哪边；首次不要用重要日历。拒绝权限后可到 **System Settings → Privacy & Security → Calendars** 调整。
+
+## 12. 升级、备份与演示前检查
+
+插件更新保留 `data.json`，只替换同版本三个文件；helper 有更新时另行构建替换。后端用第 4 节的 Homebrew upgrade。重开 Obsidian，重新检查 OMD 及所用 AI / Calendar。回退时停用插件，恢复备份的文件和设置，不删除笔记。
+
+| 演示项目 | 完成标志 |
+|---|---|
+| 基础 Capture | 简单网页和本地 HTML／PDF 都能在 Inbox 打开，来源正确 |
+| 转录（若使用） | 实际 OMD Capture 已下载所用模型，短音频文字已人工核对 |
+| 本地 AI（若使用） | Check setup 通过，答案引用能打开，修改先预览 |
+| Calendar（若使用） | helper 可执行、权限通过、仅选定日历参与，测试事件可核对 |
+
+演示前完成模型下载和系统授权；仅看到 Home 或 doctor 不代表选装功能全部可用。
+
+## 常见问题
+
+| 情况 | 下一步 |
+|---|---|
+| Installed plugins 没有 OMD Home | 查文件名、当前 Vault、文件夹层次，重开 Obsidian |
+| Terminal 找不到 brew | 完成官方 Next steps / shellenv，新开 Terminal；不用 `sudo brew install` |
+| OMD 未发现或仍是 b4 | brew update / upgrade，检查实际 executable override，再 Check again |
+| recognition preference / hardened local Ollama transport 检查失败 | 确认实际用 b5 及其 capabilities；旧 b4 临时基础抓取可清除两项语言偏好并关闭两项 AI，完整流程仍需升级 |
+| OCR 语言包缺失 | `tesseract --list-langs` 检查，安装所需包；b5 不会补齐缺失外部工具 |
+| mlx_whisper 不可用 | 查 Apple Silicon、pipx 路径和 doctor；重开 Obsidian，再做真实短音频 Capture |
+| AI 模型或连接失败 | 打开 Ollama，查 `ollama list`，Refresh local AI models，再 Check setup；文本与 embedding 分别检查 |
+| DeepSeek 被拒绝 | 本次策略未放行，改用已验证 provider 或本地 Ollama |
+| 完成后 Current task 消失 | 卡片只显示执行中工作，到 Inbox 打开结果 |
+| 网页 403 / 需登录 | 换公开页、检查相应平台配置，或 Capture 自己获准保存的本地副本 |
+| Calendar 无结果 | 查 helper 可执行文件、权限、Refresh calendars 及选定日历 |
+
+反馈提供插件和 OMD 版本、capabilities、Mac 芯片、操作及错误文字即可；无需整个 Vault、API key 或 cookie 内容。
+
+## 开发者：固定版本源码构建
+
+普通用户无需构建。复现 **0.2.2** 时准备 Git、Node.js/npm，然后：
+
+```bash
+git clone --branch 0.2.2 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
 cd obsidian-omd-home
 npm ci
 npm run build
 ```
 
-这需要另外准备 Node.js/npm；构建结果仍是三个插件文件，**不会安装 OMD 后端，也不会加入 tag 之后的 iPhone 功能**。公共后端 `main` 当前同样不等于本机最新开发后端，不能用一个源码 clone 命令承诺完整功能。
-
-**English quick path:** install Obsidian desktop ≥1.11.4; create a demo vault; install all three pinned 0.2.1 release assets directly in `.obsidian/plugins/omd-home/`; install OMD with Homebrew. With public backend 0.3.0b4, clear both Recognition defaults and turn off Polish Markdown and Review links and tags before testing a simple webpage. Optional MLX transcription is Apple-Silicon-only and needs a successful short test before a demo. iPhone direct capture is an unreleased development addition.
+结果仍是三个插件文件，不安装后端或模型。公开 main 与本次发布同步，未来仍会变化；固定 tag 方便复现。桌面验收见 [0.2.2 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/manual-test-plan.md)。

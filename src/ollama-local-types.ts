@@ -1,8 +1,9 @@
 export const LOCAL_OLLAMA_HOSTS = ["http://localhost:11434", "http://127.0.0.1:11434"] as const;
 
 export type SupportedLocalAiProvider = "ollama";
-export type StoredAiProvider = SupportedLocalAiProvider | "openai" | "anthropic" | "deepseek";
-export type LocalAiProviderMode = "ollama" | "legacy-disabled";
+export type HostedAiProvider = "openai" | "anthropic" | "deepseek";
+export type StoredAiProvider = SupportedLocalAiProvider | "ollama-cloud" | HostedAiProvider;
+export type LocalAiProviderMode = "ollama" | "cloud";
 export type LocalAiWorkflowId = "qa" | "enrichment" | "capture";
 export type LocalAiReadinessCode =
   | "invalid_host"
@@ -12,15 +13,23 @@ export type LocalAiReadinessCode =
   | "cloud_features_enabled"
   | "cloud_features_unknown"
   | "no_models_installed"
+  | "credentials_invalid"
+  | "credentials_missing"
+  | "provider_unreachable"
+  | "provider_catalog_unavailable"
+  | "disclosure_unavailable"
+  | "model_unavailable"
   | "selected_model_missing"
   | "selected_model_incompatible"
   | "selected_model_remote_blocked"
   | "snapshot_mismatch"
+  | "provider_destination_mismatch"
   | "smoke_failed"
   | "unchecked"
   | "ready";
 
-export type LocalAiDisplayState = LocalAiReadinessCode | "checking" | "partial" | "legacy-disabled";
+export type LocalAiDisplayState = LocalAiReadinessCode | "checking" | "partial" | "cloud-provider";
+export type AnswerModelCompatibilityStatus = "supported" | "unsupported" | "unverified";
 
 export interface LocalAiModelEntry {
   name: string;
@@ -29,6 +38,9 @@ export interface LocalAiModelEntry {
   capabilities: string[];
   remoteModel?: string;
   remoteHost?: string;
+  answerCompatibility?: AnswerModelCompatibilityStatus;
+  answerCompatibilityReason?: string;
+  answerContract?: string | null;
 }
 
 export interface LocalAiVersionInfo {
@@ -106,7 +118,19 @@ export interface LocalAiWorkflowDisplayState {
   checkedAt?: number;
 }
 
+export interface LocalAiEmbeddingProbe {
+  host: string;
+  model: string;
+  revision?: string;
+  code: LocalAiReadinessCode;
+  detail: string;
+  checkedAt: number;
+  vectorCount?: number;
+  dimensions?: number;
+}
+
 export interface LocalAiRuntimeState {
+  connectionCode: LocalAiReadinessCode;
   providerMode: LocalAiProviderMode;
   providerValue: StoredAiProvider;
   normalizedHost?: string;
@@ -118,13 +142,53 @@ export interface LocalAiRuntimeState {
   workflows: Record<LocalAiWorkflowId, LocalAiWorkflowDisplayState>;
   models: LocalAiModelEntry[];
   modelChecks: Record<string, LocalAiCheckedModel>;
-  activeAction: "" | "refresh-models" | "check-connection" | "test-embeddings" | `smoke:${LocalAiWorkflowId}`;
+  activeAction: "" | "refresh-models" | "check-connection" | "install-embedding" | "test-embeddings" | `smoke:${LocalAiWorkflowId}`;
 }
 
 export interface LocalAiActionFeedback {
   tone: "neutral" | "success" | "error";
   message: string;
   at: number;
+}
+
+export interface HostedAiCredentialState {
+  provider: HostedAiProvider;
+  envVar: string;
+  source: "missing" | "env" | "keychain";
+  keychainSupported: boolean;
+  envPresent: boolean;
+  keychainPresent: boolean;
+}
+
+export interface HostedAiCatalog {
+  provider: StoredAiProvider;
+  destinationDomain: string;
+  models: string[];
+  credential?: HostedAiCredentialState;
+  elapsedSeconds?: number;
+}
+
+export interface HostedAiCheckResult extends HostedAiCatalog {
+  model: string;
+  available: boolean;
+  alternativeModels: string[];
+  answerCompatibility: AnswerModelCompatibilityStatus;
+  answerCompatibilityReason: string;
+  answerContract: string | null;
+}
+
+export interface HostedAiRuntimeState {
+  provider: HostedAiProvider;
+  checkedAt?: number;
+  checkedModel?: string;
+  checkedAnswerCompatibility?: AnswerModelCompatibilityStatus;
+  checkedAnswerContract?: string | null;
+  code: LocalAiDisplayState;
+  detail: string;
+  models: LocalAiModelEntry[];
+  activeAction: "" | "refresh-models" | "check-connection" | "save-key" | "delete-key";
+  credential: HostedAiCredentialState | null;
+  destinationDomain: string;
 }
 
 export class LocalAiError extends Error {

@@ -1,4 +1,21 @@
-import { ItemView, Menu, Notice, WorkspaceLeaf, getAllTags, setIcon, type TFile } from "obsidian";
+import { ItemView, Menu, Modal, Notice, TFile, WorkspaceLeaf, getAllTags, setIcon, type App } from "obsidian";
+import { aiProviderLabel } from "./ai-provider.ts";
+import type { CaptureFailureRecord } from "./capture-request";
+import { omdHomeStatus } from "./inbox.ts";
+import {
+  buildHomeNoteSnapshot,
+  filterHomeNoteRows,
+  formatFullHomeNoteTime,
+  formatRelativeHomeNoteTime,
+  homeNoteDisplayTime,
+  homeNoteTagFilterOptions,
+  prioritizePinnedHomeNotes,
+  sortHomeNoteRows,
+  visibleHomeNoteTags,
+  type HomeNoteRow,
+} from "./home-note-list.ts";
+import { canOpenOllamaDesktopApp } from "./ollama-app";
+import { EVENT_SOURCE_ORDER, eventSourcePresentation } from "./calendar-ui";
 import type OmdHomePlugin from "./main";
 import type { CalendarEventRecord, WidgetId, WidgetPlacement } from "./model";
 import { DEFAULT_LAYOUT, GRID_COLUMNS, movePlacement } from "./layout";
@@ -14,11 +31,21 @@ export class OmdHomeView extends ItemView {
   private grid!: HTMLElement;
   private manageWidgetsButton?: HTMLElement;
   private manageWidgetsBadge?: HTMLElement;
+  private greetingEl?: HTMLElement;
+  private dateEl?: HTMLElement;
   private readonly widgetEls = new Map<WidgetId, HTMLElement>();
   private readonly widgetBodies = new Map<WidgetId, HTMLElement>();
   private omnibox?: Omnibox;
   private omniboxExpanded = false;
   private renderTimer: number | null = null;
+  private clockTimer: number | null = null;
+  private clockDay: string | null = null;
+  private eventSourceKeyModal?: EventSourceKeyModal;
+  private noteSnapshot: HomeNoteRow<TFile>[] = [];
+  private readonly noteTagFilters: Record<"inbox" | "recent", Set<string>> = {
+    inbox: new Set(),
+    recent: new Set(),
+  };
 
   constructor(leaf: WorkspaceLeaf, plugin: OmdHomePlugin) {
     super(leaf);
@@ -31,6 +58,8 @@ export class OmdHomeView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.render();
+    if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
+    this.clockTimer = window.setInterval(() => this.refreshClock(), 60_000);
     this.registerEvent(this.app.vault.on("create", () => this.scheduleRender()));
     this.registerEvent(this.app.vault.on("delete", () => this.scheduleRender()));
     this.registerEvent(this.app.vault.on("rename", () => this.scheduleRender()));
@@ -39,6 +68,7 @@ export class OmdHomeView extends ItemView {
 
   render(): void {
     if (!this.grid?.isConnected) this.buildShell();
+    this.refreshClock();
     this.syncManageWidgetsButton();
     this.syncWidgets();
     this.refreshWidgets();
@@ -46,6 +76,14 @@ export class OmdHomeView extends ItemView {
 
   async onClose(): Promise<void> {
     if (this.renderTimer !== null) window.clearTimeout(this.renderTimer);
+    this.renderTimer = null;
+    if (this.clockTimer !== null) window.clearInterval(this.clockTimer);
+    this.clockTimer = null;
+    const eventSourceKeyModal = this.eventSourceKeyModal;
+    this.eventSourceKeyModal = undefined;
+    eventSourceKeyModal?.close();
+    this.omnibox?.dispose();
+    this.omnibox = undefined;
   }
 
   private scheduleRender(): void {
@@ -63,34 +101,46 @@ export class OmdHomeView extends ItemView {
     const header = contentEl.createDiv({ cls: "omd-home-header" });
     const title = header.createDiv({ cls: "omd-home-title" });
     title.createSpan({ cls: "omd-home-mark", text: "OMD" });
-    title.createEl("h1", { text: greeting() });
-    title.createEl("p", { text: longDate() });
+    this.greetingEl = title.createEl("h1", { text: greeting() });
+    title.createEl("p", {
+      cls: "omd-home-purpose",
+      text: "Capture links and files, review notes, and keep events in sync.",
+    });
+    this.dateEl = title.createEl("p", { cls: "omd-home-date", text: longDate() });
     const controls = header.createDiv({ cls: "omd-home-controls" });
-    const capture = controls.createEl("button", { cls: "omd-action-button", type: "button", text: "Capture URL or file" });
-    capture.addEventListener("click", () => this.plugin.openCaptureModal());
-    const event = controls.createEl("button", { cls: "omd-action-button mod-cta", type: "button", text: "Create event" });
-    event.addEventListener("click", () => void this.plugin.createCalendarEvent());
     this.manageWidgetsButton = controls.createEl("button", {
       cls: "omd-action-button omd-widget-manager",
       type: "button",
-      attr: { "aria-label": "Manage widgets" },
+      attr: {
+        "aria-label": "Customize OMD Home widgets",
+        title: "Show, hide, or reset home widgets",
+      },
     });
-    this.manageWidgetsButton.createSpan({ text: "Widgets" });
+    this.manageWidgetsButton.createSpan({ text: "Customize" });
     this.manageWidgetsBadge = this.manageWidgetsButton.createSpan({ cls: "omd-widget-manager-badge" });
     this.manageWidgetsButton.addEventListener("click", (event) => this.openWidgetManagerMenu(event));
-    const reset = controls.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Reset widget layout" } });
-    setIcon(reset, "rotate-ccw");
-    reset.addEventListener("click", () => {
-      void this.plugin.saveDeviceLayout(DEFAULT_LAYOUT.map((item) => ({ ...item }))).then(() => {
-        this.render();
-        new Notice("OMD Home layout reset");
-      });
-    });
 
     this.grid = contentEl.createDiv({ cls: "omd-widget-grid" });
   }
 
   focusOmnibox(): void { this.omnibox?.focus(); }
+
+  private refreshClock(): void {
+    const now = new Date();
+    const day = now.toDateString();
+    const dayChanged = this.clockDay !== null && this.clockDay !== day;
+    this.clockDay = day;
+    const nextGreeting = greeting(now);
+    const nextDate = longDate(now);
+    if (this.greetingEl && this.greetingEl.textContent !== nextGreeting) this.greetingEl.setText(nextGreeting);
+    if (this.dateEl && this.dateEl.textContent !== nextDate) this.dateEl.setText(nextDate);
+    this.refreshRenderedNoteTimes();
+    if (dayChanged) {
+      const body = this.widgetBodies.get("today");
+      body?.empty();
+      if (body) this.renderWidgetBody("today", body);
+    }
+  }
 
   private syncManageWidgetsButton(): void {
     if (!this.manageWidgetsBadge) return;
@@ -100,6 +150,8 @@ export class OmdHomeView extends ItemView {
   }
 
   private syncWidgets(): void {
+    const active = this.grid.ownerDocument.activeElement;
+    const focused = active && this.grid.contains(active) ? active as HTMLElement : null;
     const visible = this.runtimeLayout().filter((item) => !item.hidden);
     const visibleIds = new Set(visible.map((item) => item.id));
     for (const [id, element] of this.widgetEls) {
@@ -114,12 +166,30 @@ export class OmdHomeView extends ItemView {
       applyPlacement(widget, placement);
       this.grid.appendChild(widget);
     }
+    if (focused?.isConnected && focused.ownerDocument.activeElement !== focused) {
+      focused.focus({ preventScroll: true });
+    }
   }
 
   private refreshWidgets(): void {
+    this.noteSnapshot = buildHomeNoteSnapshot(
+      this.app.vault.getMarkdownFiles(),
+      (file) => {
+        const cache = this.app.metadataCache.getFileCache(file);
+        return {
+          frontmatter: cache?.frontmatter,
+          tags: cache ? getAllTags(cache) ?? [] : [],
+        };
+      },
+    );
     for (const [id, body] of this.widgetBodies) {
       if (id === "omnibox") {
-        this.omnibox ??= new Omnibox(this.app, this.plugin, (visible) => this.setOmniboxExpanded(visible));
+        this.omnibox ??= new Omnibox(
+          this.app,
+          this.plugin,
+          (visible) => this.setOmniboxExpanded(visible),
+          () => this.openEventSourceKeyModal(),
+        );
         this.omnibox.mount(body);
         continue;
       }
@@ -134,7 +204,19 @@ export class OmdHomeView extends ItemView {
     const header = widget.createDiv({ cls: "omd-widget-header" });
     const label = header.createEl("h2", { text: widgetTitle(placement.id) });
     const controls = header.createDiv({ cls: "omd-widget-controls" });
-    if (placement.id === "today" || placement.id === "upcoming") {
+    if (placement.id === "inbox" || placement.id === "recent") {
+      const context = placement.id;
+      label.createSpan({ cls: "omd-note-list-total", attr: { "aria-hidden": "true" } });
+      const filter = controls.createEl("button", {
+        cls: "clickable-icon omd-note-filter",
+        type: "button",
+        attr: { "aria-label": `Filter ${label.textContent} by tag` },
+      });
+      setIcon(filter, "list-filter");
+      filter.createSpan({ cls: "omd-note-filter-count" });
+      filter.addEventListener("click", (event) => this.openNoteFilterMenu(event, context));
+    }
+    if (placement.id === "today") {
       const add = controls.createEl("button", { cls: "clickable-icon omd-widget-action", attr: { "aria-label": "Create event" } });
       setIcon(add, "plus");
       add.addEventListener("click", () => void this.plugin.createCalendarEvent());
@@ -147,9 +229,10 @@ export class OmdHomeView extends ItemView {
     const menuButton = controls.createEl("button", { cls: "clickable-icon", attr: { "aria-label": `Options for ${label.textContent}` } });
     setIcon(menuButton, "more-horizontal");
     menuButton.addEventListener("click", (event) => this.openWidgetMenu(event, placement.id));
-    const drag = controls.createEl("button", { cls: "clickable-icon omd-widget-drag", attr: { "aria-label": `Move ${label.textContent}` } });
+    const drag = controls.createEl("button", { cls: "clickable-icon omd-widget-drag", type: "button", attr: { "aria-label": `Move ${label.textContent}. Use arrow keys or drag.` } });
     setIcon(drag, "grip");
     this.bindPointerTransform(drag, widget, placement.id, "move");
+    this.bindKeyboardMove(drag, placement.id);
     const body = widget.createDiv({ cls: "omd-widget-body" });
     const resize = widget.createDiv({
       cls: "omd-widget-resize",
@@ -168,21 +251,30 @@ export class OmdHomeView extends ItemView {
   }
 
   private renderWidgetBody(id: WidgetId, body: HTMLElement): void {
-    if (id === "today" || id === "upcoming") {
+    if (id === "today") {
       const now = Date.now();
-      const end = id === "today" ? endOfToday() : now + 7 * 86_400_000;
-      const events = this.plugin.calendarEvents
-        .filter((event) => new Date(event.end).getTime() >= now && new Date(event.start).getTime() <= end)
-        .sort((a, b) => a.start.localeCompare(b.start))
-        .slice(0, id === "today" ? 8 : 6);
+      const events = homeCalendarEvents(this.plugin.calendarEvents, now);
       if (!events.length) {
-        return emptyAction(body, "No events in this range", "+ Create event", () => void this.plugin.createCalendarEvent());
+        return emptyAction(body, "No events in the next 7 days", "+ Create event", () => void this.plugin.createCalendarEvent());
       }
       for (const event of events) {
-        const row = body.createEl("button", { cls: "omd-event-row", type: "button" });
-        row.createSpan({ cls: `omd-source-mark is-${event.source}`, attr: { "aria-label": event.source } });
-        row.createSpan({ cls: "omd-event-time", text: event.allDay ? "ALL" : shortTime(event.start) });
-        row.createSpan({ cls: "omd-event-title", text: event.title });
+        const source = eventSourcePresentation(event.source);
+        const timing = upcomingEventTiming(event, now);
+        const status = homeCalendarStatusLabel(event.syncState);
+        const accessibleLabel = [
+          event.title,
+          eventAccessibleTiming(event),
+          `Source: ${source.label}. ${source.description}.`,
+          status ? `Status: ${status}.` : null,
+        ].filter(Boolean).join(" ");
+        const row = body.createEl("button", {
+          cls: "omd-event-row",
+          type: "button",
+          attr: { "aria-label": accessibleLabel, title: accessibleLabel },
+        });
+        row.createSpan({ cls: `omd-source-mark is-${event.source}`, attr: { "aria-hidden": "true" } });
+        row.createSpan({ cls: "omd-event-time", text: timing });
+        row.createSpan({ cls: "omd-event-title", text: event.title, attr: { dir: "auto", title: event.title } });
         if (event.syncState === "conflict") row.addClass("has-conflict");
         row.addEventListener("click", () => event.notePath
           ? void this.app.workspace.openLinkText(event.notePath, "", false)
@@ -190,24 +282,25 @@ export class OmdHomeView extends ItemView {
       }
       return;
     }
-    if (id === "inbox") return this.renderInbox(body, this.plugin.listInboxFiles().slice(0, 7));
-    if (id === "recent") return this.renderFileList(body, [...this.app.vault.getMarkdownFiles()].sort((a, b) => b.stat.mtime - a.stat.mtime).slice(0, 7), "No recent notes");
-    if (id === "continue") {
-      const file = this.app.workspace.getActiveFile();
-      if (!file) return emptyState(body, "Nothing open yet", "Choose a recent note to continue.");
-      return this.renderFileList(body, [file], "Nothing open yet");
-    }
-    if (id === "pinned") {
-      const files = this.plugin.settings.pinnedNotes.map((path) => this.app.vault.getFileByPath(path)).filter((file): file is TFile => Boolean(file));
-      return this.renderFileList(body, files, "Right-click a note, then choose Pin to OMD Home");
-    }
+    if (id === "inbox") return this.renderInbox(body);
+    if (id === "recent") return this.renderRecent(body);
     if (id === "processing") {
+      if (this.plugin.enrichmentPhase === "review" && !this.plugin.captureActive) {
+        return emptyState(body, "Ready to review", "Choose suggestions in the OMD review pane.");
+      }
+      if ((this.plugin.enrichmentPhase === "applying" || this.plugin.enrichmentPhase === "finishing") && !this.plugin.captureActive) {
+        const label = this.plugin.enrichmentPhase === "finishing" ? "Finishing review" : "Applying suggestions";
+        return this.renderProcessingSection(body, "Active now", [{ label, value: "working", tone: "active" }]);
+      }
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
       if (!activity.active) return emptyState(body, "No task running", "Captures continue when this tab is in the background.");
       if (activity.active) {
-        const controls = body.createDiv({ cls: "omd-process-actions" });
-        const cancel = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Cancel" });
-        cancel.addEventListener("click", () => void (this.plugin as OmdHomePlugin & { cancelActiveOmd?: () => Promise<void> | void }).cancelActiveOmd?.());
+        const canCancel = this.plugin.captureCancelable || this.plugin.enrichmentCancelable;
+        if (canCancel) {
+          const controls = body.createDiv({ cls: "omd-process-actions" });
+          const cancel = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Cancel" });
+          cancel.addEventListener("click", () => void this.plugin.cancelActiveOmd());
+        }
         this.renderProcessingSection(body, "Active now", [activity.active]);
       }
       return;
@@ -219,12 +312,23 @@ export class OmdHomeView extends ItemView {
       const capabilityIssue = this.plugin.enrichmentCapability.status === "unavailable";
       const localAiNeedsAttention = this.plugin.localAiState.daemonCode !== "ready"
         && !this.plugin.localAiState.activeAction;
+      const hostedAnswerNeedsAttention = this.plugin.hostedAiState
+        && this.plugin.hostedAiState.code !== "ready"
+        && !this.plugin.hostedAiState.activeAction;
       const localAiOwnsLastError = localAiNeedsAttention && this.plugin.lastErrorContext === "ai";
-      if (!attention.length && !this.plugin.lastError && !capabilityIssue && !localAiNeedsAttention) {
+      const captureFailure = this.plugin.currentCaptureFailure();
+      const captureFailureForIssue = this.plugin.captureFailureForCurrentIssue();
+      const hasIndependentCaptureFailure = Boolean(captureFailure && captureFailure !== captureFailureForIssue);
+      if (!attention.length && !this.plugin.lastError && !capabilityIssue && !localAiNeedsAttention
+        && !hostedAnswerNeedsAttention && !hasIndependentCaptureFailure) {
         return emptyState(body, "Nothing needs attention", "Sync and processing are healthy.");
       }
-      if (this.plugin.lastError && !localAiOwnsLastError) this.renderLastIssue(body);
+      if (this.plugin.lastError && !localAiOwnsLastError) this.renderLastIssue(body, this.plugin.currentIssueId());
       if (localAiNeedsAttention) this.renderLocalAiAttention(body);
+      if (hostedAnswerNeedsAttention) this.renderHostedAiAttention(body);
+      if (captureFailure && hasIndependentCaptureFailure) {
+        this.renderIndependentCaptureFailure(body, captureFailure);
+      }
       if (capabilityIssue) {
         const item = body.createDiv({ cls: "omd-attention-item" });
         const header = item.createDiv({ cls: "omd-attention-header" });
@@ -233,6 +337,39 @@ export class OmdHomeView extends ItemView {
           header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(this.plugin.enrichmentCapability.checkedAt) });
         }
         item.createDiv({ cls: "omd-attention-detail", text: this.plugin.enrichmentCapability.message });
+        const controls = item.createDiv({ cls: "omd-process-actions" });
+        if (!this.plugin.usesAutomaticOmdDiscovery()) {
+          const automatic = controls.createEl("button", {
+            cls: "omd-inline-action",
+            type: "button",
+            text: "Use automatic",
+          });
+          automatic.addEventListener("click", () => void this.plugin.useAutomaticOmdDiscovery().then((ready) => {
+            new Notice(ready ? "OMD was found automatically." : this.plugin.enrichmentCapability.message);
+          }));
+        }
+        if (this.plugin.enrichmentCapability.code === "missing_executable") {
+          const copy = controls.createEl("button", {
+            cls: "omd-inline-action",
+            type: "button",
+            text: "Copy install steps",
+          });
+          copy.addEventListener("click", () => void this.plugin.copyOmdInstallInstructions());
+        }
+        const guide = controls.createEl("button", {
+          cls: "omd-inline-action",
+          type: "button",
+          text: this.plugin.enrichmentCapability.code === "missing_executable" ? "Install guide" : "Update guide",
+        });
+        guide.addEventListener("click", () => this.plugin.openOmdInstallGuide());
+        const check = controls.createEl("button", {
+          cls: "omd-inline-action",
+          type: "button",
+          text: "Check again",
+        });
+        check.addEventListener("click", () => void this.plugin.checkEnrichmentCapability(true).then((ready) => {
+          new Notice(ready ? "OMD is ready." : this.plugin.enrichmentCapability.message);
+        }));
       }
       for (const event of attention.slice(0, 5)) {
         const row = body.createEl("button", { cls: "omd-attention-item", type: "button" });
@@ -242,10 +379,7 @@ export class OmdHomeView extends ItemView {
       return;
     }
     if (id === "tags") {
-      const tags = this.app.vault.getMarkdownFiles().flatMap((file) => {
-        const cache = this.app.metadataCache.getFileCache(file);
-        return cache ? getAllTags(cache) ?? [] : [];
-      });
+      const tags = this.noteSnapshot.flatMap((note) => note.tags);
       const groups = groupTagCounts(tags).slice(0, 12);
       if (!groups.length) return emptyState(body, "No tags yet", "Add #tags or frontmatter tags to your notes.");
       const list = body.createDiv({ cls: "omd-tag-groups" });
@@ -269,11 +403,13 @@ export class OmdHomeView extends ItemView {
     }
     if (id === "status") {
       const activity = summarizeProcessingEvents(this.plugin.processingEvents, this.captureActive);
-      statusLine(body, "OMD", activity.active ? "active" : activity.recent.length ? "idle" : "ready");
+      statusLine(body, "OMD", this.plugin.enrichmentPhase === "review" ? "awaiting review" : activity.active ? "active" : activity.recent.length ? "idle" : "ready");
       statusLine(body, "OMD executable", this.plugin.enrichmentCapability.status);
       if (activity.recent[0]) statusLine(body, "Last run", activity.recent[0].value);
       statusLine(body, "Calendar", this.plugin.externalCalendars.length ? "connected" : "vault only");
       statusLine(body, "Local AI", this.plugin.localAiState.daemonCode);
+      statusLine(body, "Answer provider", aiProviderLabel(this.plugin.settings.aiProvider));
+      if (this.plugin.hostedAiState) statusLine(body, "Answer setup", this.plugin.hostedAiState.code);
       if (this.plugin.localAiState.version) statusLine(body, "Ollama", this.plugin.localAiState.version);
       if (this.plugin.localAiFeedback) {
         statusLine(body, "AI last action", `${this.plugin.localAiFeedback.tone} ${formatIssueTime(this.plugin.localAiFeedback.at)}`);
@@ -283,46 +419,232 @@ export class OmdHomeView extends ItemView {
         statusLine(body, workflow.label, workflow.code);
       }
       if (this.plugin.localAiState.daemonCode === "unchecked") {
+        const aiSetupBusy = this.plugin.aiSetupBusy();
         const controls = body.createDiv({ cls: "omd-process-actions" });
         const check = controls.createEl("button", {
           cls: "omd-inline-action",
           type: "button",
-          text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check connection",
+          text: aiSetupBusy ? "Checking…" : "Check setup",
         });
-        check.disabled = Boolean(this.plugin.localAiState.activeAction);
+        check.disabled = aiSetupBusy;
         check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
       }
     }
   }
 
   private get captureActive(): boolean {
-    return this.plugin.captureActive || this.plugin.enrichmentActive;
+    const phase = this.plugin.enrichmentPhase;
+    return this.plugin.captureActive
+      || phase === "capability" || phase === "catalog" || phase === "generating" || phase === "applying" || phase === "finishing";
   }
 
-  private renderInbox(body: HTMLElement, files: TFile[]): void {
-    if (!files.length) return emptyState(body, "Inbox is clear", "New OMD captures and legacy Inbox notes appear here.");
-    for (const file of files) {
-      const row = body.createDiv({ cls: "omd-inbox-row" });
-      const open = row.createEl("button", {
-        cls: "omd-note-row omd-inbox-open",
-        type: "button",
-        attr: { "aria-label": `Open ${file.basename}` },
-      });
-      open.createSpan({ cls: "omd-note-title", text: file.basename });
-      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
-      open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
-      const suggest = row.createEl("button", {
-        cls: "clickable-icon omd-inbox-suggest",
-        type: "button",
-        attr: {
-          title: "Ask local AI for review-first links and tags",
-          "aria-label": `Suggest links and tags for ${file.basename}. Review before applying.`,
-        },
-      });
-      setIcon(suggest, "sparkles");
-      suggest.createSpan({ text: "AI tags" });
-      suggest.addEventListener("click", () => void this.plugin.suggestLinksAndTags(file));
+  private renderInbox(body: HTMLElement): void {
+    this.renderWorkflowNoteList(body, "inbox");
+  }
+
+  private renderRecent(body: HTMLElement): void {
+    this.renderWorkflowNoteList(body, "recent");
+  }
+
+  private renderWorkflowNoteList(body: HTMLElement, context: "inbox" | "recent"): void {
+    const source = context === "inbox"
+      ? this.noteSnapshot.filter((note) => note.inbox)
+      : this.noteSnapshot;
+    const ordered = prioritizePinnedHomeNotes(
+      sortHomeNoteRows(source, context),
+      (path) => this.plugin.isNotePinned(path),
+    );
+    const filtered = filterHomeNoteRows(ordered, this.noteTagFilters[context]);
+    this.syncNoteFilterButton(context, filtered.length, source.length);
+
+    if (!filtered.length) {
+      if (this.noteTagFilters[context].size) {
+        return emptyAction(body, "No notes match these tags", "Clear filters", () => {
+          this.noteTagFilters[context].clear();
+          this.refreshNoteWidgets();
+        });
+      }
+      const detail = context === "inbox"
+        ? "Reviewed notes remain available in Recent notes."
+        : "This panel fills itself as you work.";
+      return emptyState(body, context === "inbox" ? "Inbox is clear" : "No recent notes", detail);
     }
+
+    const list = body.createDiv({ cls: "omd-note-list" });
+    for (const note of filtered.slice(0, 7)) this.renderWorkflowNoteRow(list, note, context);
+  }
+
+  private renderWorkflowNoteRow(
+    list: HTMLElement,
+    note: HomeNoteRow<TFile>,
+    context: "inbox" | "recent",
+  ): void {
+    const row = list.createDiv({ cls: "omd-note-list-row" });
+    const statusLabel = note.status === "inbox" ? "Inbox" : note.status === "reviewed" ? "Reviewed" : null;
+    const open = row.createEl("button", {
+      cls: "omd-note-row omd-note-list-open",
+      type: "button",
+      attr: {
+        "aria-label": statusLabel && context === "recent"
+          ? `Open ${note.title}. Status: ${statusLabel}.`
+          : `Open ${note.title}`,
+        title: note.path,
+      },
+    });
+    this.createNoteTitle(open, note.title, note.path);
+    open.createSpan({ cls: "omd-note-path", text: note.parentPath, attr: { dir: "auto" } });
+    const metadata = open.createSpan({ cls: "omd-note-metadata" });
+    if (context === "recent" && statusLabel) {
+      metadata.createSpan({ cls: `omd-note-status is-${note.status}`, text: statusLabel });
+    }
+    this.renderNoteTime(metadata, note, context);
+    const visibleTags = visibleHomeNoteTags(note.tags);
+    for (const tag of visibleTags.visible) {
+      metadata.createSpan({ cls: "omd-note-tag", text: `#${tag}`, attr: { dir: "auto" } });
+    }
+    if (visibleTags.remaining) {
+      metadata.createSpan({
+        cls: "omd-note-tag-more",
+        text: `+${visibleTags.remaining}`,
+        attr: { "aria-label": `${visibleTags.remaining} more tags` },
+      });
+    }
+    open.addEventListener("click", () => void this.app.workspace.openLinkText(note.path, "", false));
+
+    const actions = row.createDiv({ cls: "omd-note-tools" });
+    this.createAiToolsButton(actions, note.file);
+    this.createPinButton(actions, note.file);
+  }
+
+  private renderNoteTime(parent: HTMLElement, note: HomeNoteRow, context: "inbox" | "recent"): void {
+    const display = homeNoteDisplayTime(note, context);
+    const label = display.kind === "captured" ? "Captured" : "Updated";
+    const full = formatFullHomeNoteTime(display.timestamp);
+    parent.createEl("time", {
+      cls: "omd-note-time",
+      text: `${label} ${formatRelativeHomeNoteTime(display.timestamp)}`,
+      attr: {
+        datetime: new Date(display.timestamp).toISOString(),
+        title: full,
+        "aria-label": `${label} ${full}`,
+        "data-omd-time-kind": display.kind,
+        "data-omd-timestamp": String(display.timestamp),
+      },
+    });
+  }
+
+  private refreshRenderedNoteTimes(): void {
+    for (const element of Array.from(this.contentEl.querySelectorAll<HTMLElement>(".omd-note-time[data-omd-timestamp]"))) {
+      const timestamp = Number(element.dataset.omdTimestamp);
+      if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+      const label = element.dataset.omdTimeKind === "captured" ? "Captured" : "Updated";
+      const full = formatFullHomeNoteTime(timestamp);
+      element.setText(`${label} ${formatRelativeHomeNoteTime(timestamp)}`);
+      element.setAttribute("title", full);
+      element.setAttribute("aria-label", `${label} ${full}`);
+    }
+  }
+
+  private createAiToolsButton(parent: HTMLElement, file: TFile): HTMLButtonElement {
+    const label = `AI tools for ${file.basename}`;
+    const button = parent.createEl("button", {
+      cls: "omd-note-tool omd-ai-tools",
+      type: "button",
+      attr: {
+        title: `${label}: improve formatting or generate summary, link, and tag suggestions`,
+        "aria-label": `${label}. Improve formatting or generate summary, link, and tag suggestions.`,
+        "aria-haspopup": "menu",
+        "aria-expanded": "false",
+      },
+    });
+    setIcon(button, "sparkles");
+    button.createSpan({ text: "AI tools" });
+    button.addEventListener("click", (event) => this.openAiToolsMenu(event, file, button));
+    return button;
+  }
+
+  private generateNoteProposal(file: TFile): void {
+    void this.plugin.suggestLinksAndTags(file);
+  }
+
+  private openAiToolsMenu(event: MouseEvent, file: TFile, trigger: HTMLButtonElement): void {
+    event.preventDefault();
+    const menu = new Menu();
+    let actionChosen = false;
+    menu.addItem((item) => item
+      .setTitle("Improve formatting")
+      .setIcon("text")
+      .onClick(() => {
+        actionChosen = true;
+        void this.plugin.improveNoteFormatting(file);
+      }));
+    menu.addItem((item) => item
+      .setTitle("Generate suggestions · summary, links, tags")
+      .setIcon("sparkles")
+      .onClick(() => {
+        actionChosen = true;
+        this.generateNoteProposal(file);
+      }));
+    menu.onHide(() => {
+      trigger.setAttribute("aria-expanded", "false");
+      if (!actionChosen) trigger.focus();
+    });
+    const bounds = trigger.getBoundingClientRect();
+    trigger.setAttribute("aria-expanded", "true");
+    menu.showAtPosition({ x: bounds.left, y: bounds.bottom, width: bounds.width });
+  }
+
+  private openNoteFilterMenu(event: MouseEvent, context: "inbox" | "recent"): void {
+    const source = context === "inbox" ? this.noteSnapshot.filter((note) => note.inbox) : this.noteSnapshot;
+    const selected = this.noteTagFilters[context];
+    const options = homeNoteTagFilterOptions(source);
+    const menu = new Menu();
+    for (const tag of options) {
+      menu.addItem((item) => item
+        .setTitle(`#${tag}`)
+        .setChecked(selected.has(tag))
+        .onClick(() => {
+          if (selected.has(tag)) selected.delete(tag);
+          else selected.add(tag);
+          this.refreshNoteWidgets();
+        }));
+    }
+    if (!options.length) menu.addItem((item) => item.setTitle("No tags available").setIcon("info"));
+    if (selected.size) {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle("Clear filters").setIcon("x").onClick(() => {
+        selected.clear();
+        this.refreshNoteWidgets();
+      }));
+    }
+    menu.showAtMouseEvent(event);
+  }
+
+  private refreshNoteWidgets(): void {
+    for (const context of ["inbox", "recent"] as const) {
+      const body = this.widgetBodies.get(context);
+      if (!body) continue;
+      body.empty();
+      this.renderWidgetBody(context, body);
+    }
+  }
+
+  private syncNoteFilterButton(context: "inbox" | "recent", visible: number, total: number): void {
+    const widget = this.widgetEls.get(context);
+    const button = widget?.querySelector<HTMLButtonElement>(".omd-note-filter");
+    if (!button) return;
+    const totalLabel = widget?.querySelector<HTMLElement>(".omd-note-list-total");
+    if (totalLabel) totalLabel.setText(` ${total}`);
+    const selected = this.noteTagFilters[context].size;
+    const count = button.querySelector<HTMLElement>(".omd-note-filter-count");
+    if (count) {
+      count.textContent = selected ? `${visible}/${total}` : "";
+      count.hidden = selected === 0;
+    }
+    button.toggleClass("is-active", selected > 0);
+    button.setAttribute("aria-label", selected
+      ? `Filter ${widgetTitle(context)} by tag. ${visible} of ${total} notes shown with ${selected} filters.`
+      : `Filter ${widgetTitle(context)} by tag. ${total} notes.`);
   }
 
   private renderProcessingSection(body: HTMLElement, title: string, rows: ProcessingRow[]): void {
@@ -335,14 +657,54 @@ export class OmdHomeView extends ItemView {
     }
   }
 
-  private renderFileList(body: HTMLElement, files: TFile[], empty: string): void {
+  private renderFileList(body: HTMLElement, files: TFile[], empty: string, showWorkflowStatus = false): void {
     if (!files.length) return emptyState(body, empty, "This panel fills itself as you work.");
     for (const file of files) {
-      const row = body.createEl("button", { cls: "omd-note-row", type: "button" });
-      row.createSpan({ cls: "omd-note-title", text: file.basename });
-      row.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/" });
-      row.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
+      const status = showWorkflowStatus
+        ? omdHomeStatus(this.app.metadataCache.getFileCache(file)?.frontmatter)
+        : null;
+      const statusLabel = status === "inbox" ? "Inbox" : status === "reviewed" ? "Reviewed" : null;
+      const row = body.createDiv({ cls: "omd-note-action-row" });
+      const open = row.createEl("button", {
+        cls: "omd-note-row",
+        type: "button",
+        attr: {
+          "aria-label": statusLabel ? `Open ${file.basename}. Status: ${statusLabel}.` : `Open ${file.basename}`,
+          title: file.path,
+        },
+      });
+      this.createNoteTitle(open, file.basename, file.path);
+      open.createSpan({ cls: "omd-note-path", text: file.parent?.path ?? "/", attr: { dir: "auto" } });
+      if (statusLabel) open.createSpan({ cls: "omd-note-status", text: statusLabel });
+      open.addEventListener("click", () => void this.app.workspace.openLinkText(file.path, "", false));
+      this.createPinButton(row, file);
     }
+  }
+
+  private createPinButton(parent: HTMLElement, file: TFile): HTMLButtonElement {
+    const pinned = this.plugin.isNotePinned(file.path);
+    const label = pinned ? "Unpin" : "Pin";
+    const button = parent.createEl("button", {
+      cls: `omd-pin-action${pinned ? " is-active" : ""}`,
+      type: "button",
+      attr: {
+        title: `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`,
+        "aria-label": `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`,
+        "aria-pressed": String(pinned),
+      },
+    });
+    setIcon(button, "pin");
+    button.addEventListener("click", () => void this.plugin.toggleNotePinned(file.path));
+    return button;
+  }
+
+  private createNoteTitle(parent: HTMLElement, title: string, path: string): void {
+    const line = parent.createSpan({ cls: "omd-note-title-line" });
+    if (this.plugin.isNotePinned(path)) {
+      const pin = line.createSpan({ cls: "omd-note-title-pin", attr: { "aria-hidden": "true" } });
+      setIcon(pin, "pin");
+    }
+    line.createSpan({ cls: "omd-note-title", text: title, attr: { dir: "auto" } });
   }
 
   private openWidgetMenu(event: MouseEvent, id: WidgetId): void {
@@ -362,6 +724,13 @@ export class OmdHomeView extends ItemView {
       }));
       this.render();
     }));
+    if (id === "today") {
+      menu.addSeparator();
+      menu.addItem((item) => item
+        .setTitle("Event source key…")
+        .setIcon("info")
+        .onClick(() => this.openEventSourceKeyModal()));
+    }
     const hidden = this.plugin.deviceLayout.filter((placement) => placement.hidden);
     if (hidden.length) {
       menu.addSeparator();
@@ -376,6 +745,15 @@ export class OmdHomeView extends ItemView {
       this.render();
     }));
     menu.showAtMouseEvent(event);
+  }
+
+  private openEventSourceKeyModal(): void {
+    this.eventSourceKeyModal?.close();
+    const modal = new EventSourceKeyModal(this.app, () => {
+      if (this.eventSourceKeyModal === modal) this.eventSourceKeyModal = undefined;
+    });
+    this.eventSourceKeyModal = modal;
+    modal.open();
   }
 
   private openWidgetManagerMenu(event: MouseEvent): void {
@@ -410,6 +788,7 @@ export class OmdHomeView extends ItemView {
     mode: "move" | "resize",
   ): void {
     handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
       if (!this.allowLayoutEditing()) return;
       event.preventDefault();
       const placement = this.plugin.deviceLayout.find((item) => item.id === id);
@@ -444,8 +823,13 @@ export class OmdHomeView extends ItemView {
         widget.removeClass("is-moving", "is-resizing");
         this.grid.removeClass("is-rearranging");
         this.grid.querySelectorAll<HTMLElement>(".is-displaced").forEach((element) => element.removeClass("is-displaced"));
-        await this.plugin.saveDeviceLayout(previewLayout);
-        this.render();
+        try {
+          if (end.type !== "pointercancel") await this.plugin.saveDeviceLayout(previewLayout);
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : "Could not save widget layout");
+        } finally {
+          this.render();
+        }
       };
       const onEndWrapper = (end: PointerEvent): void => {
         void onEnd(end);
@@ -486,6 +870,24 @@ export class OmdHomeView extends ItemView {
     });
   }
 
+  private bindKeyboardMove(handle: HTMLElement, id: WidgetId): void {
+    handle.addEventListener("keydown", (event) => {
+      if (!event.key.startsWith("Arrow") || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (!this.allowLayoutEditing()) return;
+      const placement = this.plugin.deviceLayout.find((item) => item.id === id);
+      if (!placement) return;
+      event.preventDefault();
+      const next = {
+        ...placement,
+        x: placement.x + (event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0),
+        y: placement.y + (event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0),
+      };
+      void this.plugin.saveDeviceLayout(movePlacement(this.plugin.deviceLayout, id, next))
+        .then(() => this.render())
+        .catch((error: unknown) => new Notice(error instanceof Error ? error.message : "Could not move widget"));
+    });
+  }
+
   private runtimeLayout(): WidgetPlacement[] {
     if (!this.omniboxExpanded) return this.plugin.deviceLayout;
     const omnibox = this.plugin.deviceLayout.find((placement) => placement.id === "omnibox");
@@ -511,23 +913,71 @@ export class OmdHomeView extends ItemView {
     return false;
   }
 
-  private renderLastIssue(body: HTMLElement): void {
+  private renderLastIssue(body: HTMLElement, issueId: number): void {
     const item = body.createDiv({ cls: "omd-attention-item" });
     const header = item.createDiv({ cls: "omd-attention-header" });
-    header.createEl("strong", { text: issueTitle(this.plugin.lastErrorContext) });
-    header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(this.plugin.lastErrorAt) });
+    const title = issueTitle(this.plugin.lastErrorContext);
+    header.createEl("strong", { text: title });
+    const meta = header.createDiv({ cls: "omd-attention-header-actions" });
+    meta.createSpan({ cls: "omd-attention-time", text: formatIssueTime(this.plugin.lastErrorAt) });
+    this.createAttentionDismissButton(meta, `Dismiss ${title} issue`, () => this.plugin.dismissIssue(issueId));
     if (this.plugin.lastErrorSource) {
       item.createDiv({ cls: "omd-attention-source", text: safeSourceLabel(this.plugin.lastErrorSource) });
     }
     item.createDiv({ cls: "omd-attention-detail", text: this.plugin.lastError });
-    if (this.plugin.lastErrorContext === "capture") {
-      const retry = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
-      retry.addEventListener("click", () => this.plugin.openCaptureModal(this.plugin.lastErrorSource));
+    const failure = this.plugin.captureFailureForCurrentIssue();
+    const canOpenSourceNote = this.plugin.lastErrorContext === "inbox" || this.plugin.lastErrorContext === "ai";
+    const sourceFile = canOpenSourceNote && this.plugin.lastErrorSource
+      ? this.app.vault.getAbstractFileByPath(this.plugin.lastErrorSource)
+      : null;
+    const sourcePath = sourceFile instanceof TFile ? sourceFile.path : "";
+    const canCheckLocalAi = this.plugin.lastErrorContext === "ai";
+    if (!failure && !sourcePath && !canCheckLocalAi) return;
+
+    const controls = item.createDiv({ cls: "omd-process-actions" });
+    if (failure) {
+      const retry = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
+      retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
     }
-    if (this.plugin.lastErrorContext === "inbox" && this.plugin.lastErrorSource) {
-      const open = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Open note" });
-      open.addEventListener("click", () => void this.app.workspace.openLinkText(this.plugin.lastErrorSource, "", false));
+    if (sourcePath) {
+      const open = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Open note" });
+      open.addEventListener("click", () => void this.app.workspace.openLinkText(sourcePath, "", false));
     }
+    if (canCheckLocalAi) {
+      const check = controls.createEl("button", {
+        cls: "omd-inline-action",
+        type: "button",
+        text: this.plugin.aiSetupBusy() ? "Checking…" : "Check local AI",
+      });
+      check.disabled = this.plugin.aiSetupBusy();
+      check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
+    }
+  }
+
+  private renderIndependentCaptureFailure(body: HTMLElement, failure: CaptureFailureRecord): void {
+    const item = body.createDiv({ cls: "omd-attention-item" });
+    const header = item.createDiv({ cls: "omd-attention-header" });
+    header.createEl("strong", { text: "Capture can be retried" });
+    const meta = header.createDiv({ cls: "omd-attention-header-actions" });
+    meta.createSpan({ cls: "omd-attention-time", text: formatIssueTime(failure.failedAt) });
+    this.createAttentionDismissButton(meta, "Dismiss capture retry", () => this.plugin.dismissCaptureFailure(failure.id));
+    item.createDiv({ cls: "omd-attention-source", text: safeSourceLabel(failure.request.source) });
+    item.createDiv({
+      cls: "omd-attention-detail",
+      text: failure.detail,
+    });
+    const retry = item.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
+    retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
+  }
+
+  private createAttentionDismissButton(parent: HTMLElement, label: string, onDismiss: () => void): void {
+    const dismiss = parent.createEl("button", {
+      cls: "clickable-icon omd-attention-dismiss",
+      type: "button",
+      attr: { "aria-label": label, title: label },
+    });
+    setIcon(dismiss, "x");
+    dismiss.addEventListener("click", onDismiss);
   }
 
   private renderLocalAiAttention(body: HTMLElement): void {
@@ -546,20 +996,90 @@ export class OmdHomeView extends ItemView {
       });
     }
     const controls = item.createDiv({ cls: "omd-process-actions" });
+    const failure = this.plugin.captureFailureForCurrentIssue();
+    if (failure?.issueContext === "ai") {
+      const retry = controls.createEl("button", { cls: "omd-inline-action", type: "button", text: "Retry capture" });
+      retry.addEventListener("click", () => this.plugin.retryFailedCapture(failure.id));
+    }
+    const ollamaCanBeOpened = canOpenOllamaDesktopApp()
+      && this.plugin.localAiState.daemonCode === "daemon_unreachable";
+    if (ollamaCanBeOpened) {
+      const open = controls.createEl("button", {
+        cls: "omd-inline-action mod-cta",
+        type: "button",
+        text: "Open Ollama",
+      });
+      open.addEventListener("click", () => void this.plugin.openOllamaApp());
+    }
     const check = controls.createEl("button", {
       cls: "omd-inline-action",
       type: "button",
-      text: this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check connection",
+      text: this.plugin.aiSetupBusy() ? "Checking…" : "Check setup",
     });
-    check.disabled = Boolean(this.plugin.localAiState.activeAction);
+    check.disabled = this.plugin.aiSetupBusy();
     check.addEventListener("click", () => void this.plugin.checkLocalAiConnection());
-    const refresh = controls.createEl("button", {
+  }
+
+  private renderHostedAiAttention(body: HTMLElement): void {
+    const state = this.plugin.hostedAiState;
+    if (!state) return;
+    const item = body.createDiv({ cls: "omd-attention-item" });
+    const header = item.createDiv({ cls: "omd-attention-header" });
+    header.createEl("strong", { text: "AI answers need attention" });
+    if (state.checkedAt) {
+      header.createSpan({ cls: "omd-attention-time", text: formatIssueTime(state.checkedAt) });
+    }
+    item.createDiv({
+      cls: "omd-attention-detail",
+      text: `${aiProviderLabel(state.provider)}: ${state.detail}`,
+    });
+    const controls = item.createDiv({ cls: "omd-process-actions" });
+    const activeAction = this.plugin.localAiState.activeAction || state.activeAction;
+    const aiSetupBusy = this.plugin.aiSetupBusy();
+    const check = controls.createEl("button", {
       cls: "omd-inline-action",
       type: "button",
-      text: this.plugin.localAiState.activeAction === "refresh-models" ? "Refreshing…" : "Refresh models",
+      text: activeAction ? "Checking…" : "Check setup",
     });
-    refresh.disabled = Boolean(this.plugin.localAiState.activeAction);
-    refresh.addEventListener("click", () => void this.plugin.refreshLocalAiCatalog(true));
+    check.disabled = aiSetupBusy;
+    check.addEventListener("click", () => void this.plugin.checkHostedAiConnection());
+  }
+}
+
+class EventSourceKeyModal extends Modal {
+  constructor(app: App, private readonly afterClose: () => void) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("omd-source-key-modal");
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: "Event source key" });
+    this.contentEl.createEl("p", {
+      cls: "omd-source-key-intro",
+      text: "The marker beside each event shows where it is stored.",
+    });
+    const list = this.contentEl.createDiv({
+      cls: "omd-source-key-list",
+      attr: { role: "list", "aria-label": "Calendar event sources" },
+    });
+    for (const source of EVENT_SOURCE_ORDER) {
+      const presentation = eventSourcePresentation(source);
+      const row = list.createDiv({ cls: "omd-source-key-row", attr: { role: "listitem" } });
+      row.createSpan({
+        cls: "omd-source-key-glyph",
+        text: presentation.glyph,
+        attr: { "aria-hidden": "true" },
+      });
+      const copy = row.createDiv({ cls: "omd-source-key-copy" });
+      copy.createEl("strong", { text: presentation.label });
+      copy.createDiv({ cls: "omd-source-key-description", text: presentation.description });
+    }
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    this.afterClose();
   }
 }
 
@@ -569,7 +1089,7 @@ function applyPlacement(element: HTMLElement, value: WidgetPlacement): void {
 }
 
 function widgetTitle(id: WidgetId): string {
-  return ({ omnibox: "Omnibox", today: "Today", inbox: "OMD Inbox", processing: "Current task", recent: "Recent notes", continue: "Continue", upcoming: "Upcoming", pinned: "Pinned", attention: "Needs attention", tags: "Vault tags", status: "System" })[id];
+  return ({ omnibox: "Omnibox", today: "Today & Upcoming", inbox: "OMD Inbox", processing: "Current task", recent: "Recent notes", continue: "Continue", upcoming: "Upcoming", pinned: "Pinned", attention: "Needs attention", tags: "Vault tags", status: "System" })[id];
 }
 
 function emptyState(container: HTMLElement, title: string, detail: string): void {
@@ -593,21 +1113,151 @@ function statusLine(container: HTMLElement, label: string, value: string): void 
   row.createSpan({ cls: "omd-status-value", text: value });
 }
 
-function greeting(): string {
-  const hour = new Date().getHours();
+function greeting(now = new Date()): string {
+  const hour = now.getHours();
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
 
-function longDate(): string {
-  return new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(new Date());
+function longDate(now = new Date()): string {
+  return new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(now);
 }
 
 function shortTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
-function endOfToday(): number {
-  const date = new Date();
+function upcomingEventTiming(event: Pick<CalendarEventRecord, "start" | "end" | "allDay">, now: number): string {
+  const start = eventDate(event.start);
+  if (!start) return event.allDay ? "ALL" : "Time unavailable";
+  const startLabel = relativeEventDayLabel(start, now);
+  if (!event.allDay) {
+    const startTiming = `${startLabel} · ${shortTime(event.start)}`;
+    const end = eventDate(event.end);
+    if (!end || sameLocalDate(start, end)) return startTiming;
+    return `${startTiming}–${relativeEventDayLabel(end, now)} · ${shortTime(event.end)}`;
+  }
+
+  const inclusiveEnd = allDayInclusiveEnd(event.start, event.end);
+  if (!inclusiveEnd || sameLocalDate(start, inclusiveEnd)) return `${startLabel} · ALL`;
+  return `${startLabel}–${relativeEventDayLabel(inclusiveEnd, now)} · ALL`;
+}
+
+function homeCalendarEvents(events: readonly CalendarEventRecord[], now: number): CalendarEventRecord[] {
+  const todayStart = startOfToday(now);
+  const todayEnd = endOfToday(now);
+  const horizon = now + 7 * 86_400_000;
+  const byStart = (left: CalendarEventRecord, right: CalendarEventRecord) => left.start.localeCompare(right.start);
+  const today = events
+    .filter((event) => eventOccursInRange(event, todayStart, todayEnd))
+    .sort(byStart);
+  const todaySet = new Set(today);
+  const upcoming = events
+    .filter((event) => !todaySet.has(event) && eventOccursInRange(event, todayEnd + 1, horizon))
+    .sort(byStart);
+  return [...today.slice(0, 8), ...upcoming.slice(0, 6)];
+}
+
+function eventAccessibleTiming(event: Pick<CalendarEventRecord, "start" | "end" | "allDay">): string {
+  const start = eventDate(event.start);
+  if (!start) return event.allDay ? "All day; date unavailable." : "Time unavailable.";
+  if (event.allDay) {
+    const inclusiveEnd = allDayInclusiveEnd(event.start, event.end) ?? start;
+    if (sameLocalDate(start, inclusiveEnd)) return `All day on ${fullLocalDate(start)}.`;
+    return `All day from ${fullLocalDate(start)} through ${fullLocalDate(inclusiveEnd)}.`;
+  }
+  const end = eventDate(event.end);
+  if (!end) return `Starts ${fullLocalDateTime(start)}.`;
+  return `From ${fullLocalDateTime(start)} to ${fullLocalDateTime(end)}.`;
+}
+
+function relativeEventDayLabel(value: Date, now: number): string {
+  const difference = localDayNumber(value) - localDayNumber(new Date(now));
+  if (difference === 0) return "Today";
+  if (difference === 1) return "Tomorrow";
+  return new Intl.DateTimeFormat("en-NZ", {
+    weekday: "short", day: "numeric", month: "short",
+  }).format(value).replace(",", "");
+}
+
+function eventDate(value: string): Date | null {
+  const date = isCalendarDate(value) ? localCalendarDate(value, 12) : new Date(value);
+  if (!date) return null;
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function eventOccursInRange(
+  event: Pick<CalendarEventRecord, "start" | "end" | "allDay">,
+  rangeStart: number,
+  rangeEnd: number,
+): boolean {
+  const start = eventBoundaryDate(event.start, event.allDay);
+  const end = eventBoundaryDate(event.end, event.allDay);
+  if (!start || !end || end.getTime() < start.getTime()) return false;
+  // All-day `end` is the first excluded local calendar date. A one-day event
+  // ending at today's midnight must therefore not leak into today's list.
+  const hasNotEnded = event.allDay ? end.getTime() > rangeStart : end.getTime() >= rangeStart;
+  return hasNotEnded && start.getTime() <= rangeEnd;
+}
+
+function eventBoundaryDate(value: string, allDay: boolean): Date | null {
+  if (allDay && isCalendarDate(value)) return localCalendarDate(value, 0);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/u.test(value);
+}
+
+function localCalendarDate(value: string, hour: number): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day, hour);
+  if (year >= 0 && year < 100) date.setFullYear(year);
+  return date.getFullYear() === year
+    && date.getMonth() === month - 1
+    && date.getDate() === day
+    ? date
+    : null;
+}
+
+function allDayInclusiveEnd(start: string, end: string): Date | null {
+  const startDate = eventDate(start);
+  const endDate = eventDate(end);
+  if (!startDate || !endDate) return startDate;
+  const inclusiveEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - 1, 12);
+  return inclusiveEnd.getTime() < startDate.getTime() ? startDate : inclusiveEnd;
+}
+
+function sameLocalDate(left: Date, right: Date): boolean {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function localDayNumber(value: Date): number {
+  return Math.floor(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / 86_400_000);
+}
+
+function fullLocalDate(value: Date): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(value);
+}
+
+function fullLocalDateTime(value: Date): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(value);
+}
+
+function startOfToday(now = Date.now()): number {
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function endOfToday(now = Date.now()): number {
+  const date = new Date(now);
   date.setHours(23, 59, 59, 999);
   return date.getTime();
 }
@@ -617,6 +1267,11 @@ function attentionLabel(state: CalendarEventRecord["syncState"]): string {
   if (state === "pending") return "Pending sync";
   if (state === "error") return "Sync paused";
   return "Unavailable";
+}
+
+function homeCalendarStatusLabel(state: CalendarEventRecord["syncState"]): string | null {
+  if (!state || state === "clean") return null;
+  return attentionLabel(state);
 }
 
 function sameGeometry(a: WidgetPlacement, b: WidgetPlacement): boolean {

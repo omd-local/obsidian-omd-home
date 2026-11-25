@@ -1,442 +1,4061 @@
-# OMD Home v0.1 Test Plan
+# OMD Home v0.2.1 人工测试计划
 
-Use a disposable vault. Install the current build with `npm run install:test-vault`, enable
-OMD Home, and configure the OMD executable, loopback Ollama endpoint/model, and optional
-EventKit helper. Keep Obsidian's developer console open for unexpected errors.
+> **2026-11-25 公开版说明：**当前配套安装版本为 Home **0.2.2** 与 OMD 后端
+> **0.3.0b5**，新用户请使用[中文安装指南](getting-started-mac.md)或
+> [English guide](getting-started-mac.en.md)。本计划保留此前 0.2.1 的人工测试步骤和
+> 历史记录；记录中的完成状态不是这次配套发布已重新执行全部原生 UI 测试的证明。
+> DeepSeek 的开发版验收记录不适用于公开 b5：公开版仍会阻止其未验证 disclosure，
+> 不应继续发送请求。iPhone 直送和实验性回答 verifier 均不属于这次公开 Mac 发布。
 
-## Release-candidate pass
+本文件用于 OMD Home 发布候选版（Release Candidate，简称 RC）的人工验收。请先在可丢弃的
+vault 中完成安装和基础测试，再决定是否在日常 vault 中复测。不要用唯一一份重要 vault
+直接做删除、冲突、模型卸载或失败注入测试。
 
-Run the core cases first. Use the extended cases when you want deeper local AI and retrieval
-coverage before release.
+OMD Home 是桌面插件。Calendar / EventKit 测试只适用于 macOS 14 或更新版本；其他模块仍可
+在不安装 EventKit helper 的情况下测试。
 
-| Pass | Case IDs | Result | Notes |
+## 0. 先理解这些名称和路径
+
+- `OMD Home 源码目录`：包含 `package.json`、`src/`、`main.js` 的 Git 仓库。
+- `vault 根目录`：包含笔记以及隐藏目录 `.obsidian` 的文件夹。
+- `插件安装目录`：`$PLUGIN_DIR`，也就是测试 vault 下的
+  `.obsidian/plugins/omd-home`。
+- `仓库 test-vault`：默认使用 `$REPO_ROOT/test-vault`，专门用于隔离测试；也可以把
+  `$TEST_VAULT` 指向其他可丢弃 vault。
+- `data.json`：该 vault 的 OMD Home 设置、布局和模型选择。它不是发布资产。
+- `发布资产`：只包括 `main.js`、`manifest.json`、`styles.css`。
+- `EventKit helper`：可选的 macOS 可执行文件 `omd-eventkit`，不属于三项 Community
+  Plugins 基础资产。
+- `源码 checkout`：从某个 Git commit 构建出的候选版。
+- `GitHub Release`：已经打 tag 并公开发布的安装资产。它与源码分支不是同一概念。
+
+Obsidian 没有一个必须清理的“全局插件目录”。每个 vault 都有自己的
+`.obsidian/plugins/omd-home`。如果你还创建过其他 sandbox/test vault，只清理那个 vault
+自己的插件目录；不要删除整个 `.obsidian`、`.obsidian/plugins`、vault 或源码仓库。
+
+开始测试前，在 Terminal 进入 clone 下来的仓库，然后设置本计划使用的路径变量：
+
+```bash
+cd "/absolute/path/to/obsidian-omd-home"
+export REPO_ROOT="$PWD"
+export TEST_VAULT="$REPO_ROOT/test-vault"
+export PLUGIN_DIR="$TEST_VAULT/.obsidian/plugins/omd-home"
+export OMD_BIN="/absolute/path/to/omd"
+export RELEASE_DIR="$REPO_ROOT/../omd-home-0.2.1-clean"
+```
+
+`OMD_BIN` 必须指向本轮实际测试的 OMD executable；如果使用 Automatic discovery，可以保留
+占位值，但不要把它粘贴进 Settings。`RELEASE_DIR` 只用于 REL-01 的解压／构建资产目录。
+
+本文命令中的 `$REPO_ROOT`、`$TEST_VAULT`、`$PLUGIN_DIR`、`$OMD_BIN`、`$RELEASE_DIR`、
+`<version>` 和 `/absolute/path/...` 都是变量或占位符：
+
+- `$REPO_ROOT` 是 clone 下来的 `obsidian-omd-home` 文件夹。
+- `$TEST_VAULT` 必须是可丢弃的测试 vault，不能指向唯一一份重要 vault。
+- `<version>` 要换成 Release 页面显示的准确版本，例如 `0.2.1`。
+- 路径含空格时保留外层双引号，不要自己在双引号内再加入 `\ `。
+
+Shell 命令会展开上述变量。需要把 fixture 路径粘贴进 Obsidian 时，先在 Terminal 运行例如
+`printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"`，再复制输出的
+绝对路径；不要把文字 `$REPO_ROOT` 原样粘进 Capture。
+
+本文所有 vault 安装、清理和验证命令都使用 `$TEST_VAULT`。执行任何删除或替换前先运行
+`printf 'REPO_ROOT=%s\nTEST_VAULT=%s\nPLUGIN_DIR=%s\n' "$REPO_ROOT" "$TEST_VAULT" "$PLUGIN_DIR"`
+核对路径；不要把 `$REPO_ROOT` 本身当作 vault 删除。
+
+不知道 vault 路径时，在 Obsidian 的 vault switcher 中找到该 vault，选择 **Show in system
+explorer / Reveal in Finder**；也可以在 Finder 中找到 vault 文件夹后，把它拖进 Terminal，
+Terminal 会自动填入路径。macOS Finder 按 `Command + Shift + .` 可以显示或隐藏 `.obsidian`。
+
+<a id="guide-test-preparation"></a>
+
+## 1. 测试前准备
+
+### 1.1 软件与环境
+
+至少准备：
+
+- Obsidian Desktop 1.11.4 或更新版本。
+- Node.js 24 与 npm（从源码构建时使用，和 GitHub CI 一致）。
+- 一个可丢弃的测试 vault。
+- 需要 Capture / Enrichment / Vault Q&A 时：兼容当前 contract 的 OMD。
+- 需要本地 AI 时：正在运行的 Ollama，以及本地模型。
+- 需要 Apple Calendar 时：macOS 14+、Swift/Xcode Command Line Tools 和 EventKit helper。
+
+从源码目录检查自动化基线：
+
+```bash
+node --version
+npm --version
+npm ci
+npm run check
+npm audit --omit=dev
+```
+
+预期：typecheck、lint、全部自动测试和 production build 通过；production vulnerability 为 0。
+如果 `npm ci` 失败，不要继续人工测试，先记录完整错误。
+
+### 1.2 打开 Obsidian 开发者控制台
+
+1. 打开要测试的 vault。
+2. macOS 按 `Command + Option + I`；Windows/Linux 按 `Ctrl + Shift + I`。
+3. 打开 **Console**。
+4. 清空旧日志，再开始每个测试阶段。
+5. 出现异常时记录：测试编号、时间、完整可见错误、Console 错误和截图。
+
+普通的缺少 OMD/Ollama/EventKit 提示不是 Console crash。未捕获异常、重复报错循环、插件无法
+加载或 Obsidian 卡死才属于阻塞问题。
+
+### 1.3 记录本次测试身份
+
+### 1.3A 当前 Calendar recovery／Upcoming 候选（2026-10-21 NZST）
+
+当前源码候选把 EventKit helper contract 提升到 **protocol v3**。v3 的只读 event lookup 会把
+`occurrenceNotLocated` 表达为 `event: null`；Update／Delete 仍按 exact identity 与 compare-and-swap
+fail closed。Calendar UI 还把 **Delete event note** 与 **Delete Calendar copy/event** 分成不同确认，
+并在删除已经提交但 refresh 失败时先移除当前 stale UI。插件 unload 会停止 helper child，等待中的
+删除在最后写入前还要重新检查 lifecycle 与目标版本。
+
+当前 production Home bundle 与 protocol v3 helper 已安装到 test-vault，源码与安装资产的 SHA-256
+逐项一致，`data.json` 安装前后未改变；helper 的直接 CLI probe 返回 protocol v3。Community plugins
+Force Reload 已完成。`CAL-03 Recovery Fixture` 的 E.14 Cancel／Confirm 已原生通过：确认框显示准确的
+Title、Time、Target calendar 与 Note path，Cancel 零写入，Confirm 后原 note path 不变且 Calendar 只有一条
+同名 event，再次 Sync 后保持 linked／clean。release owner 后续已确认 E.15 Detach、E.16 Calendar
+取消选择／恢复与 Destination 显示均为 **PASS**，不再重复这些步骤。2026-10-21 agent-assisted smoke 又完成
+Community plugins 停用／启用、Settings 中 Automatic helper ready 与 **Refresh calendars**（载入 10 个
+Calendar）；实际 OMD Calendar **Sync** 仍留给 release owner，避免自动化误写真实 Calendar。
+2026-10-05 的 bundle、helper hash、protocol v2 probe 与 777 / 777 自动门禁只证明下方历史候选；它们已被
+v3 contract 取代，不能作为当前候选证据。
+
+| 字段 | 2026-10-21 候选状态 |
+| --- | --- |
+| EventKit helper contract | protocol v3；v2 及更早版本必须显示 **Update Calendar helper** 并在读取／写入前 fail closed |
+| 自动证据 | **829 / 829** tests、TypeScript、零 warning ESLint、production build、EventKit helper protocol v3 CLI probe、`git diff --check`；其中 **255 / 255** Calendar／Home／runtime 定向测试覆盖 Recreate 的完整 selection 快照、note／identity CAS、已提交 pending stage 的精确恢复、自己的 pending refresh、并发 full Sync／metadata-only 稳定化／unload、全天本地日期边界、跨日时间与窄 Upcoming |
+| 原生安装 | test-vault 已安装并 Force Reload；`main.js` `c8ddf18be4ec7917b8276537f94ae1c72a6938e6adccffc279494d79f28ce2ce`、`styles.css` `4a17977bad8efe2f1f18d9d1c3071ccdb4287d7f06efb85b23f84265695fef34`、`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`、helper `88fdb4733f5cdc91b8b212061d14edb0e447f5779d49f0792c3438a56947e2fe`；`data.json` 安装前后均为 `97a63791df2a1aed505c12f160d369e60caa4731f55e12b53413a7836ccf6206`；helper CLI 返回 protocol v3；Home 原生 reload 后 Upcoming 日期与 **Event source key…** modal smoke 通过 |
+| 必做人工差额 | Q0–Q3 已由 release owner 确认通过；Calendar Core + UI 不再重测，下一项从 Q4 开始 |
+
+### 1.3B 上一已安装候选与历史入口（2026-10-05 NZST；已被 v3 取代）
+
+Douyin 整段分享文字与独立 cookies bridge、Xiaohongshu／Rednote cookies bridge 已完成 review，
+Home 的 compact Settings、统一 Site access 状态和 cookie 文件拖放，以及 OMD 对混有单条无效记录的
+浏览器 cookie export 兼容修复也已完成自动门禁。`test-vault` 已换成下表的新 Home bundle 与 EventKit
+protocol v2 helper；2026-10-05 已在 Community plugins 中停用／启用 OMD Home 并完成当时的原生候选复核。
+`data.json` 哈希保持不变，Current task 为 **No task running**。此前 AI-03、Answer、Calendar 等实际结果
+全部保留，不因换 bundle 自动改写或重跑。
+
+| 字段 | 本轮准确值 |
+| --- | --- |
+| Home 源码候选 | branch `agent/omd-home-baseline`；当前 test-vault UI/runtime code `04d7d13`；Calendar safety/UX 基线 `45b75e3`，状态排版修复 `1835d1d`，helper recovery 显隐修复 `04d7d13` |
+| OMD 后端候选 | branch `agent/release-ux-compat`；当前 hosted contract code `5c99f10`；cookie/social 基线保留 |
+| 测试 vault | `$TEST_VAULT`；只保留现有笔记与 `data.json`，不要清空 |
+| 当前已安装候选 bundle | 从 `04d7d13` production build：`main.js` `07c56003b8963e743ee9a6b3fc914b1b04ee4b52a12db1e1793e873110c6c6e4`；`styles.css` `a75d04acc159f961ecddeadc1ea12cf5ade2c57064fc0c0824025068e651a4d9`；`manifest.json` `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`；`omd-eventkit` `46f21ce8400830b5dcfd796b56f6428be163e40941b3268becf78733e9a02ca1`，protocol v2 |
+| OMD executable | 必须解析到当前 `5c99f10` checkout 的 executable，或返回完全相同的 exact capability contract；旧 Miniconda／Homebrew OMD 不能代替 |
+| AI 设置 | 安装与原生 reload 均未改写 `data.json`；当前 provider 与模型选择保留，未完成的 provider setup 仍按对应测试单独检查 |
+| 自动门禁 | Home 777 / 777、TypeScript、零 warning ESLint、production build；EventKit release build 与 protocol v2 probe；`git diff --check`；独立最终 review APPROVE |
+| 原生安装门禁 | PASS；2026-10-05 只替换发布资产与可选 helper，`data.json` SHA-256 前后均为 `307c49913765543c3fbee1dde3c68ce253893db2f0a5c0bd3a595f2b08f44346`；Community plugins 停用／启用后新 Calendar UI 与 protocol v2 helper 已加载 |
+| 尚未覆盖 | 这是已被 v3 取代的历史行；当时的 Calendar 差额后来已由 release owner 完成。当前只按 1.3C 的 Q3–Q12 执行 |
+
+安装时只替换 `main.js`、`manifest.json`、`styles.css` 与可选 `omd-eventkit`；不要删除 `data.json`、
+笔记、Pin、历史结果或 cookie 源文件。安装后必须原生 reload，并重新执行 **Check setup**。旧 bundle 上已完成的 AI-03
+失败证据继续保留；最新 bundle 安装成功并不会把历史 FAIL 自动变成 PASS。
+
+状态词统一如下：
+
+- **REQUIRED PREP**：不是功能结论；完成后才能测试本轮候选。
+- **RETEST**：本轮代码改变了该路径，必须重新人工验证。
+- **TARGETED RETEST**：只重测本轮实际改变的子路径；未受影响的既有结论保留。
+- **KEEP RESULT**：测试者已走过该项；保留原 `PASS / FAIL / NOT RUN`，不因安装新候选而重跑。
+- **FIRST PASS**：以前没有完整的原生结果，本轮首次按整项给出结论。
+- **NOT RUN**：缺少 cookies、公开帖子、第二环境或外部权限；写清原因，不算失败，也不算通过。
+- **DEFERRED / P2**：本轮明确不测、不实现。
+
+#### 当前详细状态索引（2026-10-21；查证用，不按此表排序）
+
+2026-10-05 候选已经安装并通过 Community plugins 停用／启用完成原生 reload；这份 v2 结果只作为历史
+基线。当前 v3 Home bundle 与 helper 已重新安装到 test-vault，并已完成 Force Reload；
+`CAL-03 Recovery Fixture` 的 E.14–E.16 与 Destination 显示均已通过。Local AI／Answer
+setup 仍按各自未完成的 case 单独检查；此前已取得的结果继续有效。下表只用于查证各 case 的当前状态，
+实际执行以紧随其后的 **Q0–Q12 最短人工队列** 为唯一顺序。
+
+| 索引 | 状态 | Case | 本轮只做什么 | 可直接使用的例子 |
+| --- | --- | --- | --- | --- |
+| 1 | PARTIAL / FINAL SYNC ONLY | [候选构建与安装](#guide-plugin-assets) + [CAL-00](#test-cal-00) | build/install、helper v3 CLI probe、原生停用／启用、当前 v3 的 invalid override → Use bundled → Check helper、Automatic helper ready 与 Refresh 10 个 Calendar 已完成；只剩真实 Calendar **Sync** | Settings 不显示 literal `protocol v3`；版本证据来自 `"$PLUGIN_DIR/omd-eventkit" version` |
+| 2 | DONE / NATIVE | [OMD-01](#test-omd-01) + [CAP-07 A.2](#test-cap-07) | 2026-10-03 原生 Check setup 后 Needs attention 为 healthy、Settings／System 为 OMD ready、Local AI ready；Current task 基线为 No task running | exact contract 仍沿用已通过的 Terminal 证据 |
+| 3 | DONE / NATIVE | [CAP-07 A.1、A.4、A.5](#test-cap-07) | 2026-11-18 warning card、窄窗／150% 与普通本地文件 control PASS | 完整绝对 `small-local-file.html` 路径已验证 |
+| 4 | DONE / NATIVE | [CAP-07 B.2](#test-cap-07) | 2026-11-18 两个 cookies 字段输入 → Clear → 再输入 PASS；Clear 清空后立即隐藏 | 不重测 |
+| 5 | DONE / NATIVE + ARTIFACT AUDIT | [CAP-07 C.2](#test-cap-07) | Rednote metadata／正文、非空 transcript、Inbox／Recent 与唯一 tag 由 release owner 确认；最终 output、sidecar 与持久化隐私由只读检查确认 | 2026-11-22；访问查询值未写入报告 |
+| 6 | DONE / NATIVE + AUTOMATION | [CAP-07 C.1、C.3／C.4、D](#test-cap-07) | Douyin、wrapper runtime failure／Retry、真实嵌套进程 Cancel／unload 与 cookies 隐私均通过 | 2026-11-23；两个真实进程组均在 10 秒内退出，忽略 SIGTERM 的回归 1／1 PASS |
+| 7 | DONE / NATIVE PASS | [ANSWER-02-R1](#test-answer-02-r1) | OpenAI、Claude 与修复后的 DeepSeek Flash 均用单篇 `amber lighthouse checklist` 完成事实／推论分离、逐项 citation 与安全 preview／Cancel／Send 合同 | Q6 已关闭；不重发 hosted 固定题 |
+| 8 | DONE / NATIVE PASS | [CAL-03 E.14–16](#test-cal-03) | Recreate、Detach、Calendar 取消选择／恢复与 Destination 显示都保留 PASS，不重跑 | release owner 原生结果 |
+| 9 | DONE / AUTOMATED LIFECYCLE GATE | [AI-06](#test-ai-06) | 生产入口的同一 active 时间窗并发与 unload／fresh-instance 生命周期已由确定性回归覆盖；正常 Settings 操作不会启动重叠 request | 2026-11-24；无需再制造不稳定的手工时间窗 |
+| 10 | DONE / NATIVE PASS | [AI-08](#test-ai-08) | P01–P06 全部达到门槛；P04、P06 source hygiene 修复后各连续 3 次为 4／4 | `test-vault/Sources/Benchmark/` |
+| 11 | DONE / NATIVE PASS；POST-RELEASE AI-10 | AI-09／10 | release owner 已完成 `all-minilm:22m` 与 `bge-m3` 两轮质量矩阵、cache marker 与持久化边界；AI-10 destructive model removal 留发布后维护 | `bge-m3` 保留，不重测 |
+| 12 | DONE / NATIVE PASS | [AI-11](#test-ai-11) | release owner 已确认 pending preview disable/quit 生命周期与 Recognition defaults 只影响下一次 Capture | 不重测 |
+| 13 | 最后执行 | [REL-01](#test-rel-01) | disposable clean vault、三项 bundle、reload、cold restart | 不复用有历史数据的当前 test-vault 作为 clean-vault 证据 |
+
+### 1.3C 现在从这里继续：最短人工队列（2026-11-15）
+
+Q0–Q2 已由 release owner 完成并确认，不再安排重测；CAL-03 E.14–E.16 与 Destination 显示也保留 PASS。
+不要重跑 fault injection、长音频、Answer model catalog 或旧 v2 helper。当前首发范围明确包含
+section-aware answer quality、semantic rerank 与多语言检索，因此 Q8、Q9 都是必做质量门禁；AI-10 的
+destructive model removal 仍留到发布后维护测试。Q3、Q5、Q7、Q9、Q10、Q11 已通过并关闭；只继续核对 Q4，完成后
+才执行 Q12。每完成一行
+就在本节后面的结果表写一行结论。
+
+| 顺序 | 类型 | 预计人工时间 | Case | 只做这些步骤 | 可直接使用的例子／完成条件 |
+| --- | --- | ---: | --- | --- | --- |
+| Q0 | **DONE / NATIVE PASS** | 0 | [CAL-00](#test-cal-00) v3 | release owner 已确认完成 | 不重测 |
+| Q1 | **DONE / NATIVE PASS** | 0 | [CAL-03 F.17–18](#test-cal-03) | release owner 已确认完成 | 不重测 |
+| Q2 | **DONE / NATIVE PASS** | 0 | [CAL-03 G](#test-cal-03) | release owner 已确认完成 | 不重测 |
+| Q3 | **DONE / NATIVE PASS** | 0 | [CAL-01 steps 4／5／7／8](#test-cal-01)、[CAL-02 steps 4／5](#test-cal-02)、[CALENDAR-06](ui-backlog.md#backlog-calendar-06) | release owner 已确认 Calendar Core + UI 全部通过 | linked 本地时间、all-day、空 Start、混合 LTR／RTL conflict、三种来源／最后一项不可关闭、Upcoming 日期与跨日范围、窄栏、150%、深浅主题和 VoiceOver 均不重测 |
+| Q4 | **DONE / NATIVE PASS；FOLLOW-UP TARGETED RETEST** | 3 checks | [UI-01／02／03](ui-backlog.md)、[UI-14](ui-backlog.md#backlog-ui-14)、[RC-P2-04](#test-rc-p2-04)、[CAP-07 A.1／A.4／A.5、B.2](#test-cap-07) | baseline UI／Capture 已通过；source-language／翻译／人工 tags／新控件响应式也已通过 | Capture warning、普通本地文件、cookies Clear 与普通 formatting lifecycle 不重测；只补 Transcript cleanup、两按钮 row、零 Apply 的 Done confirmation |
+| Q5 | **DONE / NATIVE PASS** | 0 | [CAP-07 C／D](#test-cap-07) | Douyin、Rednote、wrapper runtime failure／Retry、Cancel／unload 与进程树／cookies 隐私均通过 | 两个真实嵌套进程组均清理；唯一 tag 均为 0；无 partial note、stale task、Retry failure 或未处理 rejection |
+| Q6 | **DONE / NATIVE PASS** | 0 | [AI-03](#test-ai-03)、[AI-04](#test-ai-04)、[AI-05](#test-ai-05)、[ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答) | OpenAI、Claude、DeepSeek Flash 固定题以及 zero-evidence、secret scan、provider memory／reload 均通过；DeepSeek preview 的 disclosure、Cancel 零发送与新 preview 后 Send 也已通过 | 2026-11-21 DeepSeek 结果为 1 retrieved note；事实、审慎推论和每项 citation 均合格，无 `[S#]`／`[E#]`；不重测 |
+| Q7 | **DONE / AUTOMATED PASS** | 0 | [AI-06](#test-ai-06) | 真实 production methods 的 overlap、abort、stale-result 与 fresh-instance 回归通过，并覆盖 Refresh models／Check setup 的迟到结果 | 这些 local setup 动作使用可取消 HTTP request，没有 OS child；正常用户只可能在极快重复 hotkey／慢请求中触发 busy 防护，无需再做不稳定手工复测 |
+| Q8 | **DONE / NATIVE PASS** | 0 | [AI-08](#test-ai-08) | P01–P04、P06 均为 3／3 × 4／4；P05 为 3／3 × 3／4，达到其门槛 | P04 只列 Rules primary note；P06 在全新会话及前序查询后都只列 Cloud Setup primary note；无 distractor 或 placeholder 泄漏 |
+| Q9 | **DONE / NATIVE PASS** | 0 | [AI-09](#test-ai-09) | `all-minilm:22m` 与 `bge-m3` 两轮 D01／M01／B04、rerank、keyword-only、cache marker 与持久化边界均已完成 | release owner 2026-11-22 确认；AI-10 留发布后，不重测 |
+| Q10 | **DONE / NATIVE PASS** | 0 | [AI-11](#test-ai-11) | pending preview disable/reload／完全退出与 Recognition defaults 下一次 Capture 边界已完成 | release owner 2026-11-22 确认，不重测 |
+| Q11 | **DONE / NATIVE PASS** | 0 | [CALENDAR-05](ui-backlog.md#backlog-calendar-05) | release owner 已确认最后一条 linked recovery note 删除后 summary 消失且 Calendar 主体保持可用 | Month／Week／Day／List 与日期导航已通过；不重测 |
+| Q12 | **最终发布 FIRST PASS** | 10–15 分钟 | [REL-01](#test-rel-01) | 在 disposable clean vault 只安装三项 Marketplace 资产，完成 enable、disable／enable 与 cold restart；仅在 dependency-free host／隔离 profile 可用时验证无依赖状态，否则该子项记 `NOT RUN` | 必须最后执行；不要把当前有历史数据的 test-vault 当 clean-vault 证据，也不要卸载日常依赖来模拟缺失 |
+
+**2026-11-16 Q11 定向重测：`0.2.0` NATIVE FAIL；`0.2.1` NATIVE PASS。** 删除已经失去 Calendar copy 的
+最后一条 recovery note 后，note 正确移入 Trash，但 summary 的 `display:none` 使自动排布的 Calendar host
+落入第二个 `auto` grid row，真正的第三个 `1fr` row 留空；Month／Week／Day／List 共用的日期主体因此
+只有零高度。`0.2.1` 把 topbar／recovery／Calendar 固定到命名 grid areas，使 hidden summary 的 row
+自然收缩而 Calendar 始终占据 `1fr` row。release owner 已确认删除后 note 进入 Trash、summary 消失、
+当前日期与 view 保持，日期网格立即恢复，Month／Week／Day／List 及日期导航仍可用；Q11 关闭为 PASS。
+
+#### 真正需要 release owner 操作的完整步骤
+
+下面汇总尚未取得有效原生结论的步骤。任何真实 Calendar 的 Sync、权限交互、写入、编辑与删除，以及
+跨 Obsidian／macOS Calendar 的版本操作都必须由 release owner 执行；Calendar 测试中的 agent-assisted
+操作仅限只读 UI 检查与 Vault-only fixture。真实站点 cookies、hosted provider 发送批准与完全退出 Obsidian 也必须由 release owner
+执行；其余本地 UI 步骤可委托给 agent-assisted 原生操作。
+已由自动回归覆盖的内部 fault injection／note byte-CAS 不再要求手工模拟；release owner 已确认
+Q0–Q3 的原生 Calendar 安全与 Core + UI 流程通过。不要修改插件文件、`data.json` 或测试 note 的内部 linkage ID。
+
+1. **Q0–Q2 Calendar P0（DONE / NATIVE PASS，不重做）**
+   release owner 已确认 final Sync、Vault-only／linked note 删除，以及 Cancel、Calendar delete CAS、
+   modal 打开时 disable／enable 三项安全 smoke 通过。这些步骤保留在 CAL-03 历史案例中供回归定位，
+   不再进入本候选的剩余执行队列。
+2. **Calendar Core + UI smoke（DONE / NATIVE PASS，不重做）**
+   release owner 已确认下列六组步骤全部通过；保留为回归合同，不再进入当前候选的剩余执行队列。
+   1. 在 CAL-01 的未来测试周新建或复用 linked `CAL-01 Timed Fixture`，保存后重新打开；OMD editor 与
+      macOS Calendar 都应保持同一组本地时间，没有时区偏移。开启 **All day**，Start 设为某日、exclusive
+      End 设为下一日；保存／重开后仍显示为一天。再清空 Start 并点 Save：Save 被阻止、错误与焦点都落在
+      Start；恢复有效值后错误清除。
+   2. 新建 linked `CAL-01 Mixed Direction Conflict` 并 Sync 到 clean 基线。然后打开对应普通 Markdown note
+      的 **Source mode**，只改 YAML 的 `title:` 为 `مراجعة CAL-01 Orchid محطة`、`location:` 为
+      `会议室 Room 7 — غرفة`；不要使用 OMD Calendar editor，也不要改 linkage／sync 字段。同时只在 macOS
+      Calendar 把同一 event 的 Title 改为 `CAL-01 مراجعة Harbor`、Location 改为
+      `Room 9 — قاعة会议`，然后 Sync。conflict 比较框两列都必须完整保留 LTR／RTL／CJK 文本，不镜像字段、
+      不截断或把 Title／Location 串行；timed 时间必须带设备时区。点 Cancel 后两侧值都保持，不能静默选边。
+   3. 准备 `CAL-02 Vault Only`、`CAL-02 Linked`、`CAL-02 Calendar Only` 三类 fixture，并对照 Calendar view
+      与真实 note／Calendar 对象。依次隐藏／恢复来源；只剩一个来源时，该项必须 disabled 并说明至少保留
+      一个来源，不能显示可点击却无响应的 Hide。日期范围和 Week view 不得在筛选时重置。
+   4. 缺少范围样例时，再建立一条跨两个日期的 timed event 和一条至少跨两日的 all-day event；可用
+      Vault-only 避免额外外部写入。回到 Home 的 Upcoming，确认今天显示 **Today**、次日显示
+      **Tomorrow**、更晚项目显示具体日期；timed
+      跨日 event 显示可理解的起止日期／时间，all-day 多日 event 的界面结束日按用户看到的最后一天显示，
+      不把存储用的 exclusive End 错当成多一天。
+   5. **E. VoiceOver／Event source key**：Home 搜索框右侧应以 `□ ■ ◧` 替代旧的 `> + @` 提示。按
+      `Command-F5` 开启 macOS VoiceOver，用 `VO-Right` 移到该单一按钮；应依次朗读 **Event source key**、
+      **Vault only · Markdown event note**、**Calendar only · macOS Calendar event**、
+      **Linked · Note synced with Calendar**。按 `VO-Space` 打开说明 modal，逐项确认相同名称与含义；按
+      `Esc` 关闭后焦点应回到 `□ ■ ◧` 按钮。再分别检查 Today／Upcoming 行本身的辅助技术名称包含 Source，
+      视觉 glyph 不被重复朗读。没有可用读屏环境时把本子项明确记为 NOT RUN。
+   6. 缩窄 Obsidian 主窗口或 Home widget，再用 **View → Zoom in** 到约 150%；分别切换深色与浅色主题。
+      日期、全天／时间、标题与轻量来源 marker 应换行而不重叠、截断或产生横向滚动。完成后 Reset zoom，
+      只清理本步骤新建的专用 fixtures。
+3. **UI／Capture（约 35–50 分钟，含一次受控原生 conflict）**
+   1. 记录当前 Answer provider 与 Ollama endpoint。分别在正常宽度与约 500px Settings 面板检查：同级
+      section heading／helper 文字层级一致；切到 DeepSeek 时 **Developer key** 与 **Allow DeepSeek API
+      answers** 的 label、说明、控件列和垂直间距一致，opt-in 不被弱化。不要输入或截图 key；完成后恢复
+      原 provider。云端 destination 应直接写在 **Allow … answers** 的说明和逐题 preview 中，不再占用独立
+      **Request destination** 卡片；preview 仍须显示准确域名。
+   2. 展开 **Advanced AI controls → Ollama troubleshooting**，输入一个不允许的 endpoint，例如
+      `http://example.invalid:11434`。错误必须在字段下方独立整行显示并通过 `aria-invalid` 关联，不能挤压
+      输入框或卡片留白；无效值不得覆盖先前有效 endpoint。点击 **Use automatic** 应恢复
+      `http://localhost:11434`、清除字段错误、保存并隐藏该按钮。宽、窄、150% 与深浅主题都不得重叠、贴边
+      或横向溢出。
+   3. 在 Home 输入一个单独 HTTPS URL 并按 Enter，应开始 Capture；输入普通问题文字并按 Enter，应进入
+      Ask vault。输入文字中的普通 Space 只插入空格，不触发提交、source key 或其他动作；`@` 前缀继续可用。
+   4. Needs attention 至少保留两种**独立类型**的可关闭项，例如一条 Capture retry 与一条 AI／Inbox issue；
+      连续制造两次 Capture failure 只会更新最新 Retry，不能当作双卡 fixture。用键盘 Tab 聚焦一条的 × 并按
+      Enter，只移除目标项，另一条保持；缩窄主窗口并放大到约 150%，× 仍可见、有 accessible label 且不遮正文。
+   5. 在一篇有足够正文的 Recent／Inbox note 选择 **AI tools → Improve formatting**。Preview 出现前 note
+      不得变化；点 Cancel 后仍逐字一致。换可用的 local writing model 后再生成一次并 Apply，只允许写入
+      preview 中的格式变化。窄窗和 150% 下 Preview／Cancel／Apply 不重叠。最后复制一份为
+      `RC P2 Improve Formatting Conflict.md`：生成 preview 后先不 Apply，在 Terminal 对该文件追加
+      `MANUAL-FORMAT-CONFLICT-KEEP-826`，再回旧 preview 点 Apply。必须拒绝旧 baseline，保留追加行、原
+      marker／URL／多语言内容与 Inbox 状态；重新 Generate 才能应用。
+   6. Capture 普通文件时粘贴完整路径
+      `/path/to/omd-home/docs/manual-test-fixtures/capture/small-local-file.html`；关闭
+      Polish Markdown 与 Review links and tags，Tags 填 `cap-07-control-local`。应只生成一条 Inbox note，
+      Search `tag:#cap-07-control-local` 恰好为 1，正文含 `OMD-CAPTURE-SMALL-826`，不能报 file not found。
+   7. Settings 的 Douyin 与 Rednote cookies 字段各做“输入有效绝对路径 → Clear”。字段立即为空，Clear
+      立即隐藏，焦点回到可继续输入的位置；Capture modal 中相同行为一致。
+   8. 打开 **Capture URL or file**，分别粘贴计划提供的 Douyin 与 Rednote 整段分享文字但先不要提交。
+      **Site access**／warning card 应沿用 Home 现有 warning/error 的颜色、边框与间距，长说明正常换行；仅
+      粘贴文字不得启动 Current task。展开 Site access 后，cookies 路径、Clear 与提示均可用键盘到达。
+   9. Cancel 并关闭 Settings，尽量把 Obsidian 主窗口缩到系统允许的最窄宽度，重新打开 Capture，粘贴一段
+      较长分享文字，再用 **View → Zoom in** 到约 150%。textarea、Site access、cookies 行、warning 和底部
+      Cancel／Capture 应纵向换行或滚动，不重叠、不裁切且没有横向滚动；Reset zoom 后点 Cancel。不得生成
+      note、Needs attention 或 active task。
+4. **真实平台 Capture（需要测试者自己的公开素材与有效 cookies）**
+   1. Douyin 粘贴整段分享文字并加唯一 tag `cap-07-douyin-retest`；预览应只提取一个 HTTPS URL。提交后
+      Inbox／Recent 恰好一条，正文包含可用 metadata 与非空 transcript；失败时记录 yt-dlp 的准确可操作原因。
+   2. Rednote 使用公开视频与 tag `cap-07-xhs-video-retest`。最终 note、sidecar 与 transcript 对账；
+      transcript 非空，持久化 source 不保留 token／query／fragment，Inbox／Recent 各只指向同一 note。
+   3. 按 CAP-07 C.3 创建 runtime-failure wrapper：`capabilities`／`inspect` 委托 Settings 当前显示的真实
+      OMD，仅让 `capture` exit 17；在 **Advanced OMD paths** 选择它并 Check setup。提交完整 Douyin
+      分享文字后，preflight 应通过、Current task 回 idle，Needs attention 只显示 canonical URL 与 Retry。
+      随后清除 override 恢复 Automatic，把 Douyin cookies 改为另一条有效路径，再点 Retry；原 source、
+      tag、OCR／ASR 与 AI 选择恢复，但只能读取当前 cookies 设置。最后删除 wrapper。
+   4. 对较长素材再做一次 Cancel，并在 active 时做一次 plugin disable；10 秒后用 CAP-07 D 的
+      `ps -axo pid=,ppid=,pgid=,command=` 命令确认新增 `omd`／`yt-dlp`／`ffmpeg`／Whisper process group
+      全部退出。Retry 必须恢复原输入与选项，但读取当前 cookies 设置。
+5. **Hosted AI（每次都检查 preview，再由测试者批准发送）**
+   1. 先提交 `@zzqvnoevidence7391`。不得打开 preview 或发送 model request；主文案为
+      **No relevant vault evidence was found. No model request was sent.**。若 embedding 降级，附加文案必须是
+      **This evidence check used keyword search only.**，不能再写 “this answer”。
+   2. 优先选择当前 catalog 中 ready 的 **OpenAI API** compatible model，运行 Check setup 并记录结果 header
+      的 exact model ID；同一次提交固定 `amber lighthouse checklist` 问题即可补完 ANSWER-02，无需额外发送。
+      没有有效 OpenAI key／model 时写 `NOT RUN — no compatible OpenAI access`，再用一个已 ready 的直连
+      hosted provider 完成本步骤。Preview 必须只含本次 question、
+      provider／model／destination 与一篇获批证据；批准后回答写出 Morgan、Thursday 10:30 与有标签的审慎
+      inference，每项 claim 有邻近 citation。点击 **Copy result** 并粘贴到临时 note：复制内容必须保留同样的
+      **From the note** 与题目要求时的 **What this may mean** 分区、邻近 wiki-link 与去重后的 Sources，
+      且没有原始 JSON、内部字段名、`[S1]`／`[E1]`。结构／引用失败时保留 fail-closed 结论，不反复碰运气发送。
+   3. AI-04 D2 保持同一 provider/model，开启 hybrid、选择 `bge-m3`，退出本地 Ollama 后重复固定题。结果
+      必须仍是 hosted answer＋**Keyword search**，warning 为 local Ollama unreachable，只显示
+      **Use keyword search by default** 与 **Open retrieval settings**，不得出现 Install model。完成后重开 Ollama。
+   4. 再打开一次 preview 但不要批准；核对 provider／model／destination 与 Settings 完全一致。Cancel 后切换
+      provider 或 model，再提交同一问题：必须产生新的 preview，旧批准状态失效，不能跨 provider fallback，
+      result header 只能显示本次实际选择。这个边界只需要比较 preview；除非本轮本来就要覆盖该 provider，
+      不需要为每个 provider 额外付费发送。
+   5. AI-05 只需切换三个 provider 并确认各自 model memory，reload 后再核对一次；自动 secret scan 已通过，
+      不要把 key 粘贴进报告或截图。
+6. **AI lifecycle（约 15 分钟）**
+   1. AI-06 已由 production-method 回归关闭：重复入口只建立一个 active request，打开的 Settings 会同步
+      busy／disabled，unload 会 abort，迟到结果不能发布，fresh instance 建立新状态。这里没有普通用户可稳定
+      制造的额外手工差额，不再抢极短时间窗；若将来改动 action mutex／Settings 订阅，再重跑该自动门禁。
+   2. AI-11 打开 hosted evidence preview 但不要批准，disable plugin；modal 应关闭且零发送。重新启用后同一
+      问题必须得到新的 preview。再重复一次并完全退出／重开 Obsidian，结论相同。
+   3. 启动本地 `@` fixture 问题，在等待回答时只更改 OCR／ASR 默认语言；问答继续。随后新建一次真实
+      Capture，确认它使用新默认值；恢复默认值后再做一条新 Capture。旧 request 不得被追溯修改。
+7. **AI-08／AI-09（本次首发必做质量门禁）**
+   1. 三篇 Phase 2 fixtures 已复制到 `test-vault/Sources/Benchmark/`，hard preflight 为三行 **READY**。
+      Home Recent 已显示三篇；开始前确认它们仍可从 Quick switcher 或 Search 找到，然后执行 P01–P06；
+      按 `docs/benchmark-vault/benchmark-cases.md` 评分。此前缺 fixture 的答案保持 INVALID SETUP，不参与结论。
+   2. AI-08 达标后，先用 `all-minilm:22m` 执行 AI-09A，再安装并保留 `bge-m3` 执行 AI-09B；
+      两轮都按 AI-09 的 D01／M01／B04 阈值评分。不要执行 `ollama rm`，AI-10 留发布后。
+8. **CALENDAR-05 发布决策与最终 clean-vault**
+   1. CALENDAR-05 是本次首发门禁：Calendar view 必须有持久、可点击的 recovery summary 与
+      **Review event**，并通过 Q11 原生验收。不能用临时 Notice、完成其他测试或“接受已知限制”关闭本项。
+   2. 最后新建 disposable vault，仅安装 `manifest.json`、`main.js`、`styles.css`。Enable，disable／enable，
+      连续 reload，再完全退出／cold restart。clean vault 不能模拟当前 host 上不存在 OMD／Ollama／EventKit；
+      该子项只能在第二台依赖缺失的 host／隔离 profile 按 REL-01 做，当前没有这种环境就明确写
+      `NOT RUN — no dependency-free host`。不得通过破坏日常安装来伪造缺失。完成后才填写 REL-01 verdict。
+
+`CAL-01 UI validation preview` 是早期自动操作留下的临时 Vault-only fixture，不属于测试前置。等 Q1 的
+删除路径通过后，可在界面中单独确认并清理；不要为了清理它阻塞当前测试，也不要触及其他 fixture。
+
+#### 已经测过，本轮不要重复
+
+| Case | 保留的结论 |
+| --- | --- |
+| OMD-01、CAP-07 A.2 exact capability | KEEP PASS；当前 OMD ready 与 share-text／cookies contract 已有证据 |
+| RC-P2-01／02、RC-P2-03 的时间／状态／tags／filter／Pin／Unpin／长文件名 | KEEP PASS；只由 Q4 验证新的 AI tools 与 formatting 入口 |
+| CAP-01A、CAP-06 B／C／D、114 秒 WAV | KEEP RESULT；普通本地文件 control 失败时才把 CAP-01A 升级为 RETEST |
+| AI-02 local Ollama、AI-06 Refresh／Check／三项 smoke／embedding | KEEP PASS；Q7 生命周期差额已经由确定性 production-method 回归关闭 |
+| ANSWER-02-R1 hosted matrix、provider 自动 setup 与既有 blue-key 答案 | DONE / KEEP PASS；OpenAI、Claude 与修复后的 DeepSeek Flash 固定单篇 `amber lighthouse checklist` 结果均通过事实／推论、单来源 citation 与结构合同；Q6 已关闭 |
+| CAL-03 E.14–E.16、Destination、F.17–21 与 Q0–Q2 安全 smoke | KEEP PASS；release owner 已确认，不重做 |
+| UI-12 Inbox／Reviewed、ANSWER-04 DeepSeek Pro／Flash | DONE；原生证据已足够，backlog 已关闭，不重测 |
+| 829 / 829 自动套件、255 / 255 Calendar／Home／runtime 定向矩阵 | AUTOMATED PASS；不要人工制造 queued-refresh failure、错误 confirmation token、helper crash、selection race、full-Sync finalization 或 note byte-CAS race |
+
+已完成或不受本轮改动影响的结果保留在这里，不重新执行：
+
+| Case | 处理 |
+| --- | --- |
+| RC-P2-01／02 | KEEP PASS；2026-09-24 独立 QA vault 原生通过 |
+| RC-P2-03 | KEEP PASS：时间、状态、tags、筛选、Pin／Unpin、长文件名与旧响应式证据保留；旧 AI tags／Summarize 动作布局已由 RC-P2-04 取代 |
+| CAP-01A | KEEP RESULT；只有 CAP-07 A 的普通本地文件 control 失败时才升级为整项回归 |
+| CAP-06 B／C／D | KEEP RESULT；不重新运行 114 秒 WAV，只补录已有 verdict |
+| AI-02 本地 Ollama | KEEP RESULT；social bridge 没有改变本地 Answer 请求合同 |
+| 2026-09-25 AI-03 三次记录 | KEEP RESULT；metadata partial pass、post-send 通用错误 FAIL、`gpt-oss:20b-cloud` 两段结构 FAIL 都保留 |
+
+在这里记录本轮新增结果；未执行的行保持空白：
+
+| Case | PASS / FAIL / NOT RUN | 时间 | 截图／日志 | 一句备注 |
+| --- | --- | --- | --- | --- |
+| 2026-10-21 agent-assisted release smoke | PASS / PARTIAL | 2026-10-21 | 263 / 263 UI／Capture targeted；33 / 33 AI lifecycle／provider targeted；原生 Community plugins disable／enable＋Calendar v3 override recovery／Refresh＋source-key keyboard smoke | invalid helper path 立即显示统一错误，Use bundled＋Check helper 恢复 Automatic ready 与 10 calendars，`data.json` hash 未变；Upcoming 显示 Tomorrow／后续日期，Event source key 三类文字可读且 Escape 后焦点返回 Options；真实 Calendar Sync 因会写入用户 Calendar 留给 release owner |
+| CAL-03 E.15／E.16＋Destination | PASS | 2026-10-21 | release owner 原生反馈 | Detach、Calendar 取消选择／恢复与 Destination 显示均已通过，不再重跑 |
+| CAL-03 E.14 Recreate 修复候选 | PASS | 2026-10-18 | 818 / 818 complete；226 / 226 targeted；TypeScript／ESLint／build／diff check；两路独立 review APPROVE；原生 Cancel／Confirm／再次 Sync | 确认框显示 Title、Time、Target calendar `Activity` 与准确 Note path；Cancel 零写入；Confirm 后原 note path 不变、月视图只有一条同名 event，frontmatter 与再次 Sync 均为 linked／clean；E.15／E.16 后续也已通过 |
+| CAL-03 F.18–21 原生进度 | PARTIAL；F.19 note-side PASS，F.20 healthy lane PASS，F.21 target-removal PASS；F.18 UX RETEST | 2026-10-12 | 截图 1–4＋vault frontmatter＋EventKit 定向 read-only lookup | Calendar copy 删除后 note 已为 `event-source: vault` / `sync-state: clean` 且无 Apple linkage；healthy note 已写入 `Healthy lane B` 并保持 clean；`Missing Does Not Block` note 已消失。后续 `1 unavailable event` 来自旧 `CAL-03 Conflict Fixture – calendar`，不是目标 note 复活。刚创建 linked note 即出现 `Calendar has newer changes` 与无指名的 recovery Notice 转 CALENDAR-05 |
+| 2026-10-06 Calendar delete/missing candidate | HISTORICAL / SUPERSEDED；当时 automated PASS | 2026-10-06 | 805 / 805 tests；200 / 200 Calendar／EventKit targeted；TypeScript／ESLint／production build／helper build；asset hashes＋CLI probe | 这是旧候选证据；当时的 broad native pending scope 已被当前 v3 证据与 1.3C 队列取代，不能再解释成 CAL-00／03 全部待测 |
+| 2026-10-05 最终 bundle 重装 | PASS | 2026-10-05 | 原生 Obsidian | 三项 hash 与上表一致；`data.json` SHA-256 前后不变；原生停用／启用完成，新 Calendar UI 可见，Current task 为 No task running |
+| Settings Answer setup 窄窗布局 | PASS | 2026-10-05 | 原生 Obsidian | 说明完整换行；Check setup 独立占一行，不覆盖文字且无横向滚动 |
+| hosted provider 自动 setup | PASS | 2026-10-05 | 原生 Obsidian | DeepSeek → Anthropic 自动验证并加载完整目录；canonical `claude-opus-5-5` 可见；切回 DeepSeek 自动恢复 `deepseek-flash` ready |
+| OMD exact capability contract | PASS | 2026-10-01 | Terminal | 实际 executable 的两个布尔值与两个 flag 精确匹配 |
+| OMD native setup baseline | PASS | 2026-10-03 | 原生 Obsidian | Check setup 后 healthy；OMD ready、Local AI ready、Current task 为 No task running |
+| repeated Force Reload stability | RETEST IN REL-01 | 2026-10-03 | 原生 Obsidian | 首次 reload 正常；第二次连续 Force Reload 曾空白超过 16 秒，完整退出重开后恢复且 `data.json` 未变；在 REL-01 重复 reload／cold restart 后再定结论 |
+| CAP-07 A.3 零／非 HTTP／多 URL | PASS | 2026-10-01 | 人工反馈 | 都显示明确原因且没有启动任务 |
+| CAP-07 A.1／A.4 布局 | PASS | 2026-11-18 | release owner 原生 Obsidian | Capture warning 在窄窗口与 150% zoom 下不贴边、不截断、不重叠 |
+| CAP-07 A.5 普通文件 control | PASS | 2026-11-18 | release owner 原生 Obsidian | 使用完整绝对 `small-local-file.html` 路径完成普通本地文件 control |
+| CAP-07 B.2 动态 Clear | PASS | 2026-11-18 | release owner 原生 Obsidian | 两个 cookies 字段均完成输入 → Clear → 再输入；清空后按钮立即隐藏，重新输入后再次出现 |
+| CAP-07 B provider 隔离／preflight 其余子项 | KEEP RESULT | 2026-10-03 | 人工反馈 | 保留已取得结果；未执行项仍按原计划记录，不由 B.2 修复代替 |
+| CAP-07 C.1 Douyin 成功 | PASS / CLOSED | 2026-11-22 | release owner 原生 Obsidian | 公开 Douyin 样本完成 Capture；成功路径、最终 note 与非空 transcript 均通过，不再出现旧候选的笼统 post-fetch 错误 |
+| CAP-07 C.2 Rednote 视频与 output 对账 | PASS / CLOSED | 2026-11-22 | release owner 原生 Obsidian＋agent read-only artifact audit | metadata／正文、非空 Transcript、唯一 tag、Inbox／Recent 与 Home reconciliation 通过；sidecar JSON 有效，`output` 精确指向存在的最终 note，没有 planned filename 或 `.raw.md` 副本；note 与 sidecar 仅保留帖子路径，不含 query、fragment、`xsec_token`、`xsec_source` 或 cookies 路径 |
+| CAP-07 C.3／C.4 runtime failure／Retry | PASS / CLOSED | 2026-11-23 | release owner 原生 Obsidian | wrapper 的 capabilities／inspect 与 preflight 通过；正式 Capture 在写 note 前失败并显示 canonical URL 与 Retry。界面不要求逐字显示内部 `exit 17`。恢复 Automatic 后 Retry 成功，未再次触发 forced failure；临时 wrapper 已删除 |
+| CAP-07 D Cancel／unload／隐私 | PASS / CLOSED | 2026-11-23 | agent 原生 Obsidian＋进程表＋自动回归 | Cancel 实测 OMD PID 30491 与嵌套 yt-dlp PID 30848 同属 PGID 30491；disable 实测 OMD PID 41254 与嵌套 yt-dlp PID 41549 同属 PGID 41254。两组均在 10 秒内退出；重新 enable 后无 stale task、partial note、Retry failure 或 Console unhandled rejection，两个唯一 tag 均为 0。忽略 SIGTERM 的嵌套 converter 回归 1／1 PASS；vault 中 `data.json` 之外未发现 cookies 路径泄漏 |
+| Q4 UI／Capture checkpoint | PASS / CLOSED | 2026-11-18 | release owner 原生 Obsidian | Settings／Home routing、Needs attention、AI tools、Capture warning、普通本地文件与两个 cookies Clear 的 targeted retest 全部通过；cookie 绝对路径不写入发布文档 |
+| RC-P2-04 AI tools／Improve formatting | BASELINE PASS；2026-11-20 follow-up PARTIAL | 2026-11-20 | release owner 原生 Obsidian＋自动 CAS 回归 | Preview／Cancel／Apply、format quality、exact-baseline conflict 与 Reviewed 状态保持继续 PASS；source-language／English 翻译、人工 tags、新控件窄窗／150% 已原生 PASS。Transcript 曾因把 capture metadata 一并交给模型而安全拒绝；已改为只处理 `## Transcript`，并统一 Capture polish 路径。安装后只补 Transcript、两按钮 row 与零 Apply 的 Done confirmation |
+| RC-P2-04 protected-content failure UX | FAIL-SAFE PASS / UI RETEST | 2026-11-22 | release owner screenshot＋真实 Ollama 根因复现＋自动回归 | `qwen3:4b-instruct` 把候选中的 `2 years` 改成 `-2 years`；OMD 数字保护正确拒绝，原 note 未改变。旧 modal 仍视觉显示不可用的 Apply，且恢复入口不直接；修复候选需原生确认 Apply 完全隐藏、明确说明 note 未变，并提供 Change local model／Try again。 |
+| AI-03 grounded answer contract（历史候选） | HISTORICAL FAIL / SUPERSEDED；fail-closed safety PASS | 2026-10-05 | 人工反馈 | 旧候选返回 `did not cite every claim` 且安全阻断；后续 Q6 的 OpenAI、Claude 与 DeepSeek Flash 固定题均已原生通过，因此不再代表当前候选结论 |
+| AI-03 zero-evidence safety | PASS / CLOSED | 2026-11-18 | release owner 原生反馈＋自动回归 | `@zzqvnoevidence7391` 未打开 preview、未发送 model request；keyword fallback 只描述 evidence check，不再暗示已生成 answer。Q6 不重测此分支 |
+| Q6 hosted `amber lighthouse checklist` | PASS / CLOSED | 2026-11-21 | release owner 原生答案 | OpenAI、Claude 与修复后的 DeepSeek Flash 均为 **Based on 1 retrieved note**；Thursday 10:30、Morgan 与 stable phrase 在 Source states，审慎计划只在 Model inference，所有 claim 指向同一批准来源且无 `[S#]`／`[E#]`。DeepSeek disclosure、Cancel 零发送、新 preview 与最终 Send 一并通过 |
+| DeepSeek keyword fallback 子分支（历史、已被后续固定题取代） | HISTORICAL PARTIAL / SUPERSEDED | 2026-10-05 | 截图 2／3 | model missing 与 daemon unreachable 的 fallback PASS；旧 prompt 曾把直接事实重复写入 Model inference。后续固定 blue-key 题的 Pro／Flash 两次原生 PASS 已取代这条 provenance 结论，见下一行与 ANSWER-04 CLOSED |
+| AI-05 local workflow isolation | PASS / CLOSED | 2026-11-18 | 人工反馈＋自动 state scan | hosted key 不可用时 Generate AI tags 仍通过本地 writing model；provider model memory／reload 与 `data.json` secret scan PASS。Q6 不再重测 |
+| ANSWER-02-R1 定向补测 | PASS / CLOSED | 2026-11-21 | release owner 原生答案＋既有截图／回归 | OpenAI、canonical `claude-opus-5-5` 与修复后的 DeepSeek Flash 单篇 lighthouse 答案均通过结构、citation 与事实／推论分离；既有 DeepSeek Pro／Flash blue-key 结果继续保留。旧候选 citation FAIL 与 fail-closed safety PASS 作为回归证据；retired model 缺席为 NOT RUN |
+| CAL-00 helper override | CURRENT v3 NATIVE PASS；final Sync pending | 2026-10-21 | 原生 Obsidian＋自动回归 | 当前 helper CLI v3、disable／enable、Automatic helper ready 与 Refresh 10 个 Calendar 已通过；agent-assisted 原生输入 `/tmp/omd-home-missing-eventkit-v3` 后立即出现统一错误，旧 ready 消失，Use bundled 清空 override，Check helper 恢复 ready／10 calendars，`data.json` hash 仍为 `97a63791…6206`；只剩真实 Sync |
+| CAL-01 targeted UI | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | datetime-local、设备时区、linked 本地时间、all-day exclusive End、empty Start validation 与 mixed LTR／RTL／中文 conflict 全部通过 |
+| CAL-02 source UX | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | Vault-only／Linked／Calendar-only 三类 fixture 对账、来源筛选、最后一个来源 disabled、日期与 Week view 保持及 Event source key 全部通过 |
+| CALENDAR-06 Upcoming／source key | PASS / CLOSED | 2026-11-16 | release owner 原生 Obsidian | Today／Tomorrow／具体日期、timed 跨日、all-day 多日、窄栏、150%、深浅主题、键盘与 VoiceOver 全部通过 |
+| CAL-03 safety shell | HISTORICAL SNAPSHOT / SUPERSEDED | 2026-10-05 | 原生 Obsidian | 当时只验证 Pending sync shell；后续 A–E、跨 Calendar、Recreate／Detach、F.17／F.18 与 Q0–Q2 已有 release owner 证据，不再重做 |
+| CAL-01 UI validation preview 清理 | OPTIONAL CLEANUP | 2026-10-05 | 原生 Obsidian | 原生控件自动化试验误建一条 Vault-only 临时记录；这不是产品缺陷，不阻塞 Q0–Q12。Q1 删除路径通过后可由界面单独清理，不要触及其他 fixture |
+| AI-06 | PASS；native baseline + automated lifecycle gate | 2026-11-24 | 原生 Obsidian＋production-method 回归 | 模型刷新、Check setup、三项 synthetic smoke 与 embedding 基线保留；同一 active 时间窗的 mutex、真实 `onunload` abort、迟到成功／失败丢弃、Refresh／Check 生命周期和 fresh-instance 状态均通过 |
+| AI-08 Phase 2 benchmark | DONE / NATIVE PASS | 2026-11-22 | P01–P04、P06 均 3／3 × 4／4；P05 三次均 3／4，达到门槛 | P04／P06 的历史 3／4 结果保留在证据块；修复后最终 Sources 只保留本次回答实际引用的 primary note，全套 P01–P06 门禁关闭 |
+| AI-11.8 pending consent unload | PASS / CLOSED | 2026-11-22 | 自动回归＋release owner 原生确认 | pending preview 时 disable/reload 与完全退出均结束旧 consent；重新启用建立新 preview，无旧批准复用、orphan 或 unhandled rejection |
+| AI-11.10 Recognition defaults isolation | PASS / CLOSED | 2026-11-22 | 自动回归＋release owner 原生确认 | 本地 Ask 继续完成；OCR／ASR 变更只作用于下一次 Capture，恢复默认后后续 Capture 使用恢复值 |
+| AI-09 | PASS / CLOSED | 2026-11-22 | release owner 原生质量矩阵＋自动持久化边界 | `all-minilm:22m` 与 `bge-m3` 的 D01／M01／B04、rerank 与 keyword-only 均达门槛；cache marker 可更新并在撤销后失效，fixtures 未持久化 embedding/query/cache 数据；AI-10 留发布后 |
+| CALENDAR-05 persistent recovery summary | PASS / CLOSED | 2026-11-16 | 自动 selector／UI contract 回归＋release owner 原生复测 | 持久 summary 显示问题 note 与 **Review event**；删除最后一条 recovery note 后 summary 消失，Calendar 日期主体保持可见，Month／Week／Day／List 与日期导航仍可用 |
+| REL-01 |  |  |  |  |
+
+**下一步：** 只按上方收敛后的队列执行。ANSWER-02-R1 的非 OpenAI matrix、E.14–E.16、Destination 与
+F.19–21 与 Q0–Q2 不重复；Q8／Q9 的首发质量门禁和 Q10 lifecycle 已通过并关闭。
+只核对 Q4；REL-01 始终最后执行。每完成一项，立即写
+PASS／FAIL／PARTIAL／SKIPPED 和证据，不要只在截图文件名中留记录。
+
+
+<a id="test-rc-p2-01"></a>
+
+#### RC-P2-01：Capture 留白与 viewport（UI-13）
+
+1. 在 Terminal 解析 fixture 的绝对路径，然后打开 **Capture URL or file**，粘贴输出但不要提交：
+
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
+   ```
+
+2. 展开 Recognition，逐项检查 **Image text language** 与 **Speech language**。下拉框底部到分隔线应
+   有完整留白；把 Image text language 改成 **No language preference**、**简体中文 + English**、
+   **繁體中文 + English** 各看一次。Speech language 再依次检查 **No language preference**、
+   **Auto-detect speech**、**English** 与 **Chinese**；这些是语音选项，不应显示 OCR 语言组合。
+3. 检查 Optional local AI 的 **Polish Markdown** 与 **Review links and tags**。最后一行 helper 到卡片
+   底边应与语言控件一致，开关 on／off 都不能压缩底部留白。
+4. Capture modal 没有拖动 resize handle。请缩窄 **Obsidian 主窗口**，重新打开 Capture，再用
+   **View → Zoom in** 到约 150%。内容可以纵向滚动，不能横向滚动、遮挡或截断底部操作。运行
+   **View → Actual Size**（或命令面板的 Reset zoom）后点击 Cancel；不得产生 note 或改变这次以前
+   保存的默认值。
+
+<a id="test-rc-p2-02"></a>
+
+#### RC-P2-02：Review 侧栏、短 note、summary 与等待动效（ENRICH-01／UI-15／18／19）
+
+**A. 准备可重置 fixture**
+
+在 Terminal 执行以下命令；只覆盖本节的四个测试副本，不清空 vault：
+
+```bash
+mkdir -p "$TEST_VAULT/OMD Manual Tests"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Short.md"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review Short.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Conflict.md"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review Multilingual Long Filename 中文 العربية.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md"
+cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Review User Summary Collision.md" "$TEST_VAULT/OMD Manual Tests/RC P2 User Summary Collision.md"
+```
+
+等 Obsidian File explorer 出现四份 note。它们都应进入 OMD Inbox 和 Recent；若旧副本已经
+Reviewed，重新执行以上 copy 并等待 metadata 刷新，不要另做 Capture 生成随机 `-4` 后缀。
+
+**B. Review 与 Generate 分离**
+
+1. 对 **RC P2 Short** 点击 **Review**。主编辑区应打开目标 note，右侧出现 OMD review pane；此时
+   不调用模型，状态仍为 Inbox。关闭侧栏或点 **Keep in Inbox** 都不得写 `reviewed`。
+2. 再次 Review，点击 **Generate suggestions**。等待 badge 应显示一个独立的 12–14px 细环和完整
+   **Generating suggestions… Please wait.**，圆环不覆盖首字，宽度不抖动。重复点击不能启动第二份
+   proposal；reduced motion 下圆环静止但仍占位。
+3. 短 note 必须得到可审查 proposal 或具体、可操作的模型格式错误。若模型返回未知内部 `tag-N`，只
+   省略该 tag 并显示简短 warning，其他有效 summary／links／tags 仍保留。自由文本的新 tag 应作为
+   默认未选中的 **New tag**，不能冒充 existing。模型本轮未触发这些分支时记录 `NOT EXERCISED`；
+   确定性自动回归仍作为发布证据。
+4. **Suggested note topics** 只显示未来可建笔记的想法；没有 checkbox，也不会自动成为 tag。
+
+**C. 可选 summary 与明确完成 Review**
+
+1. Proposal summary 中 **Add summary to note** 默认关闭。先只选择一个 link 或 tag 并 Apply；note
+   仍为 Inbox，正文不得出现空 Summary heading 或 summary marker。
+2. Generate again，勾选 **Add summary to note**，把最后一行改成
+   `Manual edit 中文 العربية 923`。取消其他建议，使 summary 成为唯一选择；Apply 必须可用。
+3. 打开 note 验证出现且只出现一次：
+
+   ```markdown
+   <!-- omd-home:summary:start -->
+   ## Summary
+   ...Manual edit 中文 العربية 923...
+   <!-- omd-home:summary:end -->
+   ```
+
+   区块位于受管 Related notes／`## Full Content` 之前；Apply 后仍为 Inbox。再次对相同内容 Apply
+   不得追加第二个区块。**Copy summary** 复制的内容应与 textarea 一致。
+4. 最后点击 **Done reviewing**。只有这一步把 Property 改为 `omd_home_status: reviewed`；note 从
+   Inbox 消失，但仍在 Recent，状态显示 Reviewed。Apply、Generate、Cancel、关闭侧栏都不能代替它。
+
+**D. 冲突与用户内容保护**
+
+1. 对 **RC P2 Conflict** Generate；保持侧栏打开，在主编辑器末尾加入
+   `MANUAL-CONFLICT-KEEP-923` 并保存，再从旧 proposal 点 Apply。应显示 conflict，保留新行，不写旧
+   summary／links／tags，状态仍为 Inbox。非 modal 侧栏使这一步可以完全在 Obsidian 内完成。
+2. 对 **RC P2 User Summary Collision** Generate，勾选 Add summary to note 后 Apply。应明确说明该
+   note 已有 OMD 不管理的 Summary；`USER-AUTHORED-SUMMARY-KEEP-923` 必须原样保留，不新增 managed
+   summary，也不标记 Reviewed。Copy／Open note 等安全出口仍可使用。
+
+<a id="test-rc-p2-03"></a>
+
+#### RC-P2-03：Inbox／Recent、时间、tags 与响应式操作（UI-16／UI-17）
+
+1. 在 RC-P2-02 C 点 Done 前检查：Inbox 标题数量包含三／四个新 fixture；Recent 同时包含 Inbox、
+   Reviewed 和普通 note，最新 Updated／Captured 在前。Done 后只有对应 note 从 Inbox 数量中移除。
+2. Recent 的 Inbox／Reviewed chip 必须有文字；普通 note 无空 badge。Inbox 不重复显示 Inbox chip。
+   Hover 或键盘 focus 时间可见带时区的完整时间，行内相对时间在等待一分钟后能自行更新。
+3. 每行最多显示两个 tag token 和 `+N`。点 widget header 的 filter，先选 `#review`，再选
+   `#language`：多选使用 AND，父 tag 可匹配 `review/multilingual`、`language/中文` 等 nested tag；
+   计数随筛选更新。Clear filters 恢复原列表，不修改 note Properties。
+4. 2026-09-24 已通过的旧布局是 Review、AI tags、Summarize、Pin／Unpin；其中 AI tags 与 Summarize
+   实际触发同一个 summary／links／tags proposal，现已由 [RC-P2-04](#test-rc-p2-04) 的 **AI tools**
+   层级取代。本项不重测旧按钮名称，也不把旧布局继续当成发布合同；时间、状态、tags、筛选、
+   Pin／Unpin 与长文件名的既有 PASS 证据继续保留。
+5. 用深／浅主题、100%／150% 和多语言长文件名检查。title 保留主要宽度，path、time、status、tags
+   自动换行或省略；不得横向滚动、重叠、仅靠 hover 才能操作或让 Pin／Unpin 列错位。
+
+<a id="test-rc-p2-04"></a>
+
+#### RC-P2-04：AI tools 与 review-first Improve formatting（UI-21）
+
+**状态：BASELINE NATIVE PASS；2026-11-20 FOLLOW-UP TARGETED RETEST。** 原有 preview／Cancel／Apply／
+conflict／响应式矩阵保持 PASS。source-language summary、可选 English 翻译、人工 tags 与新增控件在窄窗／
+150% 下已由 release owner 原生确认 PASS；只补测 Transcript scope 修复、精简后的 row actions，以及
+Done reviewing 未 Apply 时的内联确认。
+
+**A. 准备可重置 fixture 与 baseline**
+
+1. 结束当前 Hosted／Answer／Calendar／Extended AI 操作后，安装最终候选并 reload。不要在这些测试
+   仍 active 时替换 bundle。然后在 Terminal 复制两份 fixture，并为第二份设置 Reviewed：
+
+   ```bash
+   mkdir -p "$TEST_VAULT/OMD Manual Tests"
+   cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Improve Formatting Transcript.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.md"
+   cp "$REPO_ROOT/docs/manual-test-fixtures/vault-notes/OMD Improve Formatting Transcript.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting Reviewed.md"
+   perl -0pi -e 's/omd_home_status: inbox/omd_home_status: reviewed/' "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting Reviewed.md"
+   printf '%s\n' '{"fixture":"OMD-IMPROVE-SIDECAR-KEEP-826"}' > "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.omd.json"
+   shasum -a 256 "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.md" "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.omd.json"
+   perl -0777 -ne 'print $1 if /\A(---\R.*?\R---\R)/s' "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting.md" | shasum -a 256
+   ```
+
+2. 记录 note、sidecar 与 frontmatter 三个 hash。打开 Inbox 与 Recent：第一份应为 Inbox，第二份只在
+   Recent 显示 Reviewed。确认
+   fixture 含 `OMD-IMPROVE-KEEP-826`、`00:42`、完整
+   `https://example.com/reference?id=KEEP-826`、简体中文、English、العربية 和 fenced code block。
+
+**B. 动作层级、响应式与 suggestion 语义**
+
+1. 宽窗口下，每个 note row 只显示 **AI tools**、**Pin**／**Unpin**；不再显示独立的 **Review**／
+   **Review again**，也不能出现独立 **AI tags** 或 **Summarize**。Review 由 **AI tools → Generate
+   suggestions · summary, links, tags** 打开。打开 **AI tools**，菜单必须正好有两个诚实命名的项目，
+   顺序为 **Improve formatting**、**Generate suggestions · summary, links, tags**。
+2. 用 Tab 聚焦 AI tools，以 Enter／Space 打开，用方向键移动并以 Enter 选择；Escape 关闭菜单后焦点
+   回到 trigger。每个控件有可读 accessible name 与可见 focus，不能只靠 icon 或 hover 说明用途。
+3. 缩窄 Obsidian 主窗口并用 **View → Zoom in** 到约 150%，再以深／浅主题各看一次。两个行级动作可
+   换行或稳定收纳，但不得重叠、截断、产生横向滚动或挤乱长文件名、status、tags、time 与 Pin 列。
+   最后运行 **View → Actual Size**。
+4. 选择 **Generate suggestions · summary, links, tags**。它必须打开现有的 combined Review surface，
+   同时呈现 proposal summary、links 与 tags；生成、关闭或 Cancel 都不写 note，也不改变 Inbox／
+   Reviewed。只有用户在 Review 中明确选择并 Apply 才写入相应内容；Apply 仍不自动完成 Review。
+5. 在新生成的 proposal 中不要 Apply，直接选择 **Done reviewing**。侧栏 footer 必须原地显示
+   **No suggestions were applied**，并提供 **Keep reviewing** 与 **Mark reviewed anyway**；不能只显示
+   短暂 Notice，也不能写入 Needs attention。选择 **Keep reviewing** 后 proposal 与选择状态保留。成功
+   Apply 至少一项后再选择 Done reviewing，应直接完成，不重复显示“零 Apply”确认。
+6. Capture 的 **Polish Markdown** 与 AI tools 的 **Improve formatting** 使用同一 formatting 能力；前者
+   只是 conversion 后自动触发。Capture 的 **Review links and tags** 与 Generate suggestions 使用同一份
+   source-language summary／links／tags proposal；Capture helper 必须明确说明内容在 review + Apply 前
+   不会写入。含 `## Transcript` 的 Capture polish 也必须使用 Transcript cleanup，不能只在 AI tools 生效。
+
+**C. Improve formatting：进度、preview、Cancel 与 Apply**
+
+1. 对 Inbox fixture 选择 **Improve formatting**。生成期间 modal 与 Current task 应持续显示明确的
+   **Improving formatting…**，提供可键盘操作的 **Cancel**，并阻止同一 note 的重复提交。立刻 Cancel；
+   等待 Current task 回到 **No task running**，重新运行上述完整 note、sidecar 与 frontmatter hash，
+   必须与 baseline 完全一致。
+2. 再次运行并等待 **Formatting preview**。Preview 必须显示完整候选 Markdown，可滚动并以键盘读取，
+   明确说明 Apply 前 note 未改变；关闭 modal／按 Escape 后 hash 仍不变，状态仍为 Inbox，也没有新
+   `.raw.md`。
+3. 第三次生成后点击 **Apply formatting**。正文应得到更清楚的段落／Markdown 结构，但以下内容各自
+   仍完整且拼写不变：`OMD-IMPROVE-KEEP-826`、`00:42`、完整 URL、简体中文、English、العربية 与
+   fenced code block。`omd_home_status: inbox`、`captured_at`、tags 与整个 frontmatter 必须逐字节保留；
+   重跑 frontmatter 与 sidecar 的 hash 必须不变；下面命令无输出，note 仍在 Inbox。Improve formatting
+   本身不能标记 Reviewed。
+
+   ```bash
+   find "$TEST_VAULT/OMD Manual Tests" -name 'RC P2 Improve Formatting*.raw.md' -print
+   ```
+4. 对 Reviewed fixture 重复一次成功 Apply；它必须继续显示 Reviewed，不能重新进入 Inbox，也不能
+   因格式改善暗中改变工作流状态。
+
+**D. Exact baseline conflict**
+
+1. 重新复制一份为 `RC P2 Improve Formatting Conflict.md`，生成 preview 后先不要 Apply。在 Terminal
+   对准确 fixture 路径追加一行：
+
+   ```bash
+   printf '\nMANUAL-FORMAT-CONFLICT-KEEP-826\n' >> "$TEST_VAULT/OMD Manual Tests/RC P2 Improve Formatting Conflict.md"
+   ```
+
+2. 回到旧 preview 点击 **Apply formatting**。原 modal 必须保持打开并在其中显示 note 在 preview 后已改变；
+   **Apply formatting** 隐藏，由自动聚焦的 **Generate again** 取代，且不能只依赖会消失的 Notice 或新增
+   Needs attention。手工追加行、原 marker／URL／多语言文字与 Inbox 状态全部保留。点击
+   **Generate again** 后旧 modal 关闭，并基于最新 note 内容生成新 preview。
+
+**E. Missing model、runtime error 与 no-op**
+
+1. 在 Settings 记录当前 Local writing model，选择 **Custom…** 并保存一个确认不存在的 model ID；对
+   fresh fixture 运行 Improve formatting。应显示具体 missing／unavailable 原因，不产生 preview 或写入，
+   hash 不变，Current task 回到 **No task running**。恢复原 model 并 **Check setup**。
+2. 若本轮能安全停止本地模型服务，用 fresh fixture 形成一次运行期连接错误；否则记
+   `NOT RUN — no safe runtime-error fixture`。错误必须可操作，note／status／sidecar 不变，Current task
+   回到 idle；恢复服务并 Check setup 后继续。若 OMD 以退出码 0 保留原文但同时报告 structured
+   skipped／failed warning，Home 仍必须按错误处理，不能显示成 **No formatting changes suggested**。
+3. no-op 只在模型返回与 baseline 完全相同的 Markdown 时成立；出现时应说明没有 formatting changes，
+   不打开可 Apply 的空 preview、不写 note，并回到 idle。真实模型未稳定产生 no-op 时记
+   `NOT EXERCISED — deterministic automatic regression only`，不能为了 PASS 修改生产 note 或模型输出。
+
+**F. Incomplete transcript：同步播放器、选区重转录与原文备份**
+
+1. 重新运行 `npm run build && npm run install:test-vault` 后 reload OMD Home。安装脚本会重置以下专用
+   fixture；不要用已修复过的副本代替：
+
+   ```bash
+   export TRANSCRIPT_REPAIR_NOTE="$TEST_VAULT/OMD Manual Tests/OMD Incomplete Transcript Range Repair.md"
+   export TRANSCRIPT_REPAIR_SIDECAR="$TEST_VAULT/OMD Manual Tests/OMD Incomplete Transcript Range Repair.omd.json"
+   cp "$TRANSCRIPT_REPAIR_NOTE" "/tmp/OMD Incomplete Transcript Range Repair.before.md"
+   shasum -a 256 "$TRANSCRIPT_REPAIR_NOTE" "$TRANSCRIPT_REPAIR_SIDECAR"
+   ```
+
+   记录两项 hash。note 必须含 marker `OMD-INCOMPLETE-RANGE-REPAIR-113855`、Duration `113.855s`，
+   Timestamped 只到 `00:12`；sidecar 的 source 必须是当前 checkout 内实际存在的
+   `slow-bilingual-speech.wav` 绝对路径。
+2. 打开该 note。只有有 transcript warning 的 note header 才显示 **Review and repair transcript**；点击后
+   modal 必须持续显示，不依赖短暂 Notice。OMD 应自动把 `00:12–01:53` 标成 likely incomplete interval，
+   原音频播放器可播放，timestamped rows 与播放器同步；点击任一 row 应跳到对应时间，播放中的 row 与
+   当前选区有不同的可见状态。若 source 不可用，应在 modal 内显示可恢复错误且 note 零写入。
+3. 分别拖动 Start／End；选区摘要应即时更新且不能交叉。把播放器移到约 `00:20`，点击
+   **From here to end**，Start 应变成当前播放位置、End 变成媒体结尾。再用 slider 恢复
+   `00:12–01:53`；也验证 **Set start to player**、**Set end to player** 与
+   **Play selected range** 可用。窄窗与 150% 下播放器、两列 transcript、sliders 和按钮必须改为单列，
+   不重叠或产生横向滚动。
+4. 先点 **Keep original**。再次运行第 1 步的两项 hash，必须完全相同；不得创建 backup。重新打开 modal，
+   保持 `00:12–01:53`，点 **Re-transcribe selected range**。界面必须说明使用前后各 8 秒本机 context，
+   长操作期间按钮禁用且错误持续留在 modal。完成后必须同时显示 **Current text** 与
+   **New local transcript**；旧文本对缺失 tail 应明确写无 timestamped text，新文本带选区内 timestamps。
+   Preview 前 note、frontmatter 与 sidecar 均不变化。
+5. 确认 preview 后点 **Replace selected range**。OMD 必须先在
+   `$PLUGIN_DIR/transcript-backups/` 写一份完整 `.original.md`，再以 exact-baseline CAS 应用。应用后：
+   - `00:00–00:06`、`00:06–00:12` 两个原 timestamp rows 逐字不变；
+   - 只在选区插入／替换新 transcript rows，`## Manual test marker` 与 frontmatter 不变；
+   - incomplete warning 移除，状态变为 `Repaired after review`，并记录本机局部重转录范围；
+   - sidecar hash 与 baseline 相同；
+   - 自动 backup 与 `/tmp/OMD Incomplete Transcript Range Repair.before.md` 的 SHA-256 相同。
+
+   ```bash
+   rg -n '00:00 → 00:06|00:06 → 00:12|OMD-INCOMPLETE-RANGE-REPAIR-113855|Transcript repair|Repaired after review' "$TRANSCRIPT_REPAIR_NOTE"
+   shasum -a 256 "$TRANSCRIPT_REPAIR_SIDECAR"
+   find "$PLUGIN_DIR/transcript-backups" -name 'OMD Incomplete Transcript Range Repair-*.original.md' -print
+   export TRANSCRIPT_REPAIR_BACKUP="$(find "$PLUGIN_DIR/transcript-backups" -name 'OMD Incomplete Transcript Range Repair-*.original.md' -print | sort | tail -1)"
+   shasum -a 256 "/tmp/OMD Incomplete Transcript Range Repair.before.md" "$TRANSCRIPT_REPAIR_BACKUP"
+   ```
+6. Conflict：再次运行 `npm run install:test-vault` 重置 fixture，生成 replacement preview 后，先在 Terminal
+   追加 `MANUAL-TRANSCRIPT-RANGE-CONFLICT-KEEP-113855`，再点旧 **Replace selected range**。modal 必须持久
+   显示 changed-after-preview conflict；追加行保留，旧 preview 零写入，sidecar 不变。关闭后重开才可生成
+   新 preview。最后关闭 modal 后，session audio cache 应清理；完整 backup 只保留在明确 Apply 的分支。
+
+通过条件：行级只保留 AI tools、Pin／Unpin；AI tools 只有两个准确动作；未 Apply 时 Done reviewing 有
+内联二次确认；Capture 与 AI tools 的两项能力语义一致；formatting 始终先生成完整 preview，Cancel／
+关闭／失败／no-op／conflict 均零写入；Apply 只改变经确认的正文格式，
+不改变文字、frontmatter、sidecar 或 Review 状态，也不在 vault 留下 `.raw.md`。Incomplete transcript
+必须先自动建议区间、允许用户调整并同步播放，只把获批区间交给本机 Whisper；old/new preview、完整原文
+backup 与 exact-baseline conflict 三项缺一不可。
+
+<a id="test-rc-ui-01"></a>
+
+#### 历史 RC-UI-01：旧候选 UI 增量回归（归档）
+
+A. **Recent 状态与长文件名（UI-12）**
+
+1. 回到 OMD Home，查看 Recent notes。
+2. `Sources/Audio/slow-bilingual-speech.md` 应显示 **Inbox**；
+   `Sources/Documents/Small local capture fixture-4.md` 应显示 **Reviewed**。
+3. `OMD Captures.md`、`.raw.md` 等没有 `omd_home_status` 的普通 note 不显示状态占位，也不能因此改变
+   标题、路径或 Pin 列对齐。
+4. 在深色和浅色主题、正常宽度与窄窗口分别检查一次；长文件名应省略但不能推挤 Pin / Unpin。
+
+B. **生成等待状态（UI-04）**
+
+1. 在 `Small local capture fixture-4` 行点击 **AI tags**。
+2. 生成期间必须持续显示 **Generating suggestions…**、活动标识和“请等待”的含义；屏幕阅读器状态应
+   更新。连续按两次触发键不能启动两个 proposal。
+3. 等待到 Review 或明确错误后再继续；不能把尚未完成显示成空白或卡死。
+
+C. **Capture 留白与响应式布局（UI-13）**
+
+1. 在 Terminal 解析 fixture 的绝对路径，然后打开 **Capture URL or file**，粘贴输出但不要提交：
+
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
+   ```
+
+2. 对照 Source、Tags、Recognition、Optional local AI 与底部操作区：标题、说明、dropdown、toggle
+   和分隔线都要有一致的垂直留白，顶部文字不能贴着卡片底边。
+3. Capture 弹窗本身没有拖动缩放手柄；请缩窄 **Obsidian 主窗口**（需要时先 Cancel、缩窄后再打开
+   Capture），再用 **View → Zoom in** 逐步放大到约 150%。弹窗应随可用 viewport 收窄并允许纵向
+   滚动；按钮应换行或堆叠，不能重叠、截断或产生横向滚动，底部操作始终可到达。最后运行
+   **View → Actual Size**（或命令面板的 Reset zoom），点击 Cancel，不产生 note。
+
+D. **关闭单条历史错误（UI-14）**
+
+1. 在 Terminal 解析以下确定不存在的路径，再把输出粘贴进 Capture：
+
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/ui-14-dismiss-me.html"
+   ```
+
+2. 等待 Needs attention 出现这一个 **Capture can be retried** 卡片；确认卡片有可读名称的 `×`，用
+   Tab 聚焦并按 Enter 关闭。Space 保留为普通输入，不作为本项快捷键。
+3. 只有这一条历史 Retry 消失；其他 issue 保留。当前 setup / daemon 等实时健康问题不能靠 `×`
+   隐藏，恢复健康后应自行消失。
+
+E. **Settings 统一排版（UI-01／02）**
+
+按 AI-00 第 1–14 步只做视觉、键盘和响应式检查。重点检查 Recognition 的
+**No language preference**、**Review links and tags**、provider model 状态和长 executable 路径；
+不要在本项粘贴 key 或发起 hosted 请求。
+
+<a id="test-cap-02-r1"></a>
+
+#### 历史 CAP-02-R1：旧候选 Enrichment 回归（归档）
+
+1. 保持 OMD executable 为本节顶部记录的后端候选，Local writing model 为
+   `qwen3:4b-instruct`，先运行 **Check setup**。
+2. 从 Home 对 `Sources/Documents/Small local capture fixture-4.md` 点击 **AI tags**；也可以新 Capture
+   `small-local-file.html`，但不要同时做两个入口。
+3. 生成时完成 RC-UI-01 B。进入 Review 后确认：
+   - existing links / tags 默认选中，new tags 默认未选；
+   - **Summary preview** 只解释 proposal，不会写进 note；
+   - **Suggested note topics**／**Idea only** 是未来可建笔记的主题，Apply 不会创建 note，也不会自动
+     当作 tag；只有模型同时在 New tags 提出同名 tag 时，它才是可选择的 tag；
+   - 透明的新 tag 即使被小模型错误归到 existing catalog，也应被恢复成可审查的新 tag；不得再次只
+     因“outside current vault catalog”使整个 proposal 失败。保留形式或无法验证的 opaque ID 仍应拒绝。
+4. 只选一个 link 和一个 new tag 后 Apply。终态应显示 **Applied** 与 **Status · Reviewed**；目标 note
+   只新增所选 link / tag，并写入 `omd_home_status: reviewed`。回到 Recent，该 note 显示
+   **Reviewed**。
+5. 如果模型本轮没有产生“新 tag 错放 existing”的输出，把这一小分支记录为 `NOT EXERCISED`
+   而不是 PASS；其余确定性 UI 与 Apply 结果仍可独立判定。
+
+<a id="test-answer-02-r1"></a>
+
+#### ANSWER-02-R1：精确 hosted model contract
+
+本节只在对应 provider 已有合法 developer key 时做实网检查；没有 key 就完成文案与禁用态，然后把
+实网分支记为 `NOT RUN — no test credential`。不要把 key 写进截图、笔记或 Console。
+
+1. 切换到 hosted provider 时，如果该 provider 已有 Keychain 或环境变量 credential，Settings 应自动
+   执行与 **Check setup** 相同的模型发现与验证并加载下拉列表；**Check setup** 保留为明确的人工
+   重试。没有 credential 时不得请求 catalog。快速连续切换 provider 时，旧检查结果不得覆盖当前
+   provider。模型目录中“存在”不等于可回答；只有状态为 supported 且带非空 answer contract 才能
+   ready。
+2. 当前后端的可复制例子如下；只测试当前 catalog 实际返回的 ID，catalog 没有该 ID 时记
+   `NOT RUN — model absent from current catalog`，不要伪造可用性：
+
+   | Provider | 应支持的例子 | 应阻止的例子 | 未知例子 |
+   | --- | --- | --- | --- |
+   | OpenAI | `gpt-4.1` | `gpt-5.4-pro`（无所需 strict schema） | `future-openai-model` |
+   | Anthropic | `claude-opus-5-5`、`claude-sonnet-5-5`、`claude-sonnet-5`、`claude-opus-4-5-20251101` | catalog 中已退休的 `claude-sonnet-4-20250514` | observed `claude-opus-5.5`、`future-claude-model` |
+   | DeepSeek | `deepseek-flash`、`deepseek-v4-pro` | 已退休且通常不在 catalog 的 `deepseek-chat` | `future-deepseek-model` |
+
+3. 不支持和未验证型号必须在发送前被拦截，说明准确原因；不得自动切换、降级到另一个 model 或沿用
+   上一次 ready。支持型号应显示 provider、model 和 contract 已验证。
+4. 在宽 Settings 面板和约 500px 的窄面板分别关闭 **Answer provider** 下拉框。当前选项必须仍可
+   完整读出，不能只剩箭头、空白框或被说明列挤掉；页面不得出现横向滚动。依次查看五个 provider，
+   不要求粘贴 key。
+5. 只对一个 supported model 打开 `@` 问题 preview，使用：
+
+   ```text
+   @According to the retrieved notes, which station uses the blue key, and on what day?
+   ```
+
+   核对 destination、问题和 evidence excerpts 后点击 Cancel；本步骤不要求发送真实问题。预期
+   **From your notes** 回答 Orchid station／Tuesday；题目没有要求推论，因此不应显示空的
+   **What this may mean** 或 **None**。每条事实都应带本次结果中的合法 note link，不得出现 `Example placeholder removed` 等
+   schema／placeholder 元说明。不要再使用 “Which fixture…”：fixture 可能被模型理解为文件名，也
+   可能被理解为内容中的地点，不能稳定检验事实／推论合同。
+6. 有 DeepSeek 测试 key 时，先选择 `deepseek-v4-pro` 并重新 **Check setup**，再提交同一个问题、
+   检查 preview 并批准。结果应完整返回经过校验的结构化答案，不能出现 **DeepSeek stopped before
+   completing the answer**。随后对 `deepseek-flash` 重复一次；两个结果必须各自显示实际 model，
+   不得静默切换。当前目录缺少某个 ID 或 key 无该型号权限时，将该型号记为 `NOT RUN`。
+
+   OMD 对要求 JSON schema 的 DeepSeek 问答会显式关闭 provider 默认 thinking，把有限输出预算留给
+   最终 JSON；普通非结构化 DeepSeek 请求不受本条影响。若修复后仍出现 incomplete response，保留
+   provider/model、耗时和安全错误类别，不记录 key、原始响应或 evidence excerpt。
+
+   有效 JSON、完整渲染、合法 citation 与正确 provider/model 只证明 transport/schema 合同。直接来自
+   evidence 的事实必须留在 **From your notes**；若同一事实被改写后放进 **What this may mean**，人工
+   provenance 判定仍为 FAIL，不能把该 run 记为 grounded answer PASS。
+
+**2026-10-05 已取得证据：** OpenAI run PASS，但 exact model ID 仍待补录；`claude-sonnet-5` 为
+setup ready／answer NOT RUN；截图实际 ID `claude-opus-4-5-20251101` 的完整回答通过 output contract，
+用户口头所说 “Opus 4.4” 不作为 model ID。拼错的 `claude-opus-5.5` 保持 unverified 并被正确
+fail-closed，不得静默正规化。随后官方 `claude-opus-5-5` 的真实原生 answer 返回 **did not cite every
+claim**；未经验证正文未显示，因此 fail-closed safety PASS，但 grounded answer FAIL。
+
+受控复现取得的原始结构包含空 `citations`，并混入 `Example placeholder removed`。本次候选把
+`source_states` 非空、每条 claim 至少一个 citation、citation 只能取本次检索的 `S1…Sn` 写入 provider
+JSON schema；同一真实 Opus model 的受控重试已经通过。在当时尚未取得原生复测前，最终判定仍要求安装
+新 Home 与 OMD、选择 `claude-opus-5-5`、确认 **Check setup** ready，再发送第 5 步固定问题。下方
+2026-10-05 原生定向复测已经完成并取代这条 pending 要求；当前队列不再重复发送 Opus 5.5。若未来 Settings
+显示旧 OMD 不能执行 citation-safe answer，应先更新 OMD；此时不得出现 preview，也不得发送 evidence。
+
+**2026-10-05 Claude Opus 5.5 原生定向复测：PASS。** 修复后的 `claude-opus-5-5` 返回
+Orchid station／Tuesday；唯一事实位于 **Source states** 并邻接合法 wikilink，**Model inference** 为
+**None**，未出现 `Example placeholder removed` 或原始 `S#`。结果说明检索到三篇笔记，底部 Sources
+列出三篇检索清单，而正文只采用其中一篇；这符合合同，因为每条已显示的事实都必须有引用，但无需
+强迫模型为每篇检索笔记生成事实。
+
+**2026-10-05 DeepSeek 定向复测：PASS。** `deepseek-v4-pro` 与 `deepseek-flash` 均基于同三篇 blue-key
+笔记返回四条直接事实；事实全部位于 **Source states**，每条均有合法 wikilink citation，
+**Model inference** 均为 **None**，底部 Sources 去重为三篇笔记。两次结果 header 必须分别显示实际
+model，且不得静默切换。该证据取代旧 prompt 下的 provenance FAIL／RETEST；不再重复此子项。
+
+#### 已完成结果归档（KEEP PASS，不重复）
+
+| Case / 子项 | 已确认结果 | 本轮处理 |
+| --- | --- | --- |
+| CAP-03 | 缺失模型、idle、Retry、设置恢复与 Automatic 状态全部 PASS | 不重复失败注入 |
+| CAP-06 A、D | Home tab 后台继续；Cmd+Q 取消与重开清理 PASS | B／C 如已执行只补录原 verdict，不因本次安装重跑 |
+| CAP-02 正常 Apply、UI-05、UI-06 | Apply、原生写入和 review 终态已有 PASS | 旧证据保留；新实现改由 RC-P2-02 完整复测 |
+| CAP-01A 扫描 PDF | image-only PDF 显示明确不支持边界且不生成空 note | 不重复；这不代表支持扫描 PDF OCR |
+| CAP-01A 缺语言 pack 隔离 | 缺 `chi_sim` 时错误列出 requested / missing / available 与安装提示 | 不重复 wrapper 测试 |
+| 语音总体验收 | 用户已确认 PASS | 逐模式结果如已执行只补录原证据，不因本次安装重跑 |
+| Automatic candidate 优选 | 能跳过 enrich-only Homebrew candidate 并找到带 Recognition contract 的 OMD | 当前精确后端路径已 ready；REL-01 仍做 clean-vault 安装门禁 |
+| Minimal 与 Pin 对齐 | Pin / Unpin、长标题、正常与 150% 列宽回归已有 PASS | 旧证据保留；新 note row 改由 RC-P2-03 完整复测 |
+| ANSWER-02-R1 DeepSeek Pro／Flash 与 canonical Opus 5.5 | 三个实际 model 均通过结构、citation 与事实／推论分离；Model inference 为 None | KEEP PASS；Q6 只随固定题补录 OpenAI exact model |
+
+#### 仍未完成、留在后续队列
+
+UI-07–11 中仍标为 Deferred 的 Graph / Local Graph / Backlinks / Search / Bases 建议，以及 folder /
+one-item-per-line batch 继续保留在 `ui-backlog.md`；ANSWER-01 已在当前候选关闭。Douyin／XHS share text 与 cookies bridge 已实现并移到
+[CAP-07](#test-cap-07) 做首次原生验收；在结果表完成前只能写“实现完成、人工验收待定”，不能记为
+PASS。CAP-01A、CAP-06 B／C、OMD-01／AI-02 如结果表仍空，只补录此前实际 verdict 与证据，不重新
+执行。Hosted 定向回归、Calendar、Extended AI、CAP-07 与 clean-vault release gate 继续按上表顺序。
+其余 Deferred 项目不是本轮失败，也不能在发布说明中写成已经接入。
+
+下面的 2026-09-17／19／20 候选身份与交接只作历史证据；不要从其中的“现在继续”恢复执行。
+
+### 1.3A.1 2026-09-17 22:54 历史交接
+
+本次按用户要求安装之前完成的 OCR 图片入口、识别选项排版及 Suggested note topics / Idea only 文案修复。
+使用已通过 `npm run check` 565 项测试、类型检查、ESLint、构建的相同源码；安装资产与构建哈希一致。
+原生停用 / 启用插件后，Check setup ready，图片路径先打开预填 Capture、Recognition 自动展开，
+简中选择完整可见；取消再打开恢复默认。前后 23 份 Markdown 与插件设置内容一致。
+
+- `main.js`：`9f809a4cd8a9e6f7705e7f7d2c1a899e7bf07594040881dee0b0da1be548e903`
+- `styles.css`：`4ce5a0511df5db332b459095bf363494d6ebfa3bd2a7da0307e7e928801cb857`
+- `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
+
+语音测试：**PASS（用户确认）**；未把未提供的逐模式细项自动填为 PASS。
+CAP-02 已停在 `capture/small-local-file.html` 的 Capture 草稿，Review links and tags 开启、
+Polish Markdown 关闭、Tags 留空，尚未提交。模型仍为 qwen3:0.6b。
+
+本轮功能验收使用原有已验证的 `$OMD_BIN`。
+自动发现探测解析到一份旧的 Homebrew launcher；其最小能力响应支持 enrich_note v1，但无 package / protocol 身份，
+不能确认含本轮后端修复；已恢复原路径。**自动发现与旧安装跳过子项仍待单独验收**，不计入本次功能通过。
+原生交接记录保存在非公开的本地 QA 证据集中。
+
+### 1.3A.2 2026-09-17 20:45 历史候选
+
+本节保留 20:45 安装身份；当前身份见 1.3A，22:54 交接见 1.3A.1。后面的 2026-09-13 记录同样保留为历史。不要为继续测试重新安装、清空 vault 或重置 Settings。
+
+| 字段 | 当前记录 |
+| --- | --- |
+| 构建 / 原生复测时间 | 2026-09-17 20:43–20:45 NZST |
+| 候选来源 | HEAD `bb531beb20fbc4f84d41fb0b8cf980c95da44b04` 加当前未提交修复；下面资产哈希才是本轮准确安装身份，并非已发布 Release |
+| manifest / Obsidian | `0.1.1` / `1.13.7` |
+| 测试 vault | `$TEST_VAULT` |
+| 自动化 | `npm run check`：563 / 563，TypeScript / ESLint / production build 通过；`git diff --check` 通过。上一轮后端 1627 项通过；本次 CSS 修正未重复运行后端 |
+| UI 复测 | minimal 风格恢复；48 组浏览器布局检查通过；插件停用 / 启用后原生 Pin、Settings、Capture、Event 校验通过 |
+| 数据状态 | 原生复测前后 22 份 Markdown 与插件设置内容一致；无运行中的任务 |
+| 测试边界 | 未将 OCR / ASR、云请求、真实日历写入等尚未实测项目标为 PASS；未重跑 dependency audit |
+
+当前安装资产 SHA-256：
+
+- `main.js`：`9c17c6764603be67020876f42fde7a3a479a82964e9658950767408600a6cf6b`
+- `styles.css`：`d1b7ee54247f6763d6ffeb0d31ffba3ad5dc1f34497fe7b099fd85b079787784`
+- `manifest.json`：`7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb`
+
+**当时建议的续测入口：CAP-01A 第 1、2 步。** 先检查 Recognition defaults 与 Capture 的语言选项，再分别使用 `eng`、`chi_sim+eng`、`chi_tra+eng` 转换三张现成图片。当前续测范围与状态以 1.3A 为准；素材与预期见 `docs/manual-test-fixtures/README.md` 和 CAP-01A。
+
+保留当前模型与环境，暂不为本轮补下载 `bge-m3`；按既有 AI-03 / AI-04 缺模型与 AI-09 安装顺序执行。不要把未执行的旧案例自动改成 PASS。后续若更换插件资产，应另记新的哈希和复测范围。
+
+### 1.3B 历史身份（2026-09-13）
+
+开始前运行：
+
+```bash
+git rev-parse HEAD
+node -p 'require("./manifest.json").version'
+```
+
+记录：
+
+| 字段 | 值 |
+| --- | --- |
+| 日期与时间 | 2026-09-13 22:37 NZST |
+| 测试者 | manual tester |
+| 上一轮已记录 baseline commit | `6adac24442caa450a76184c728284ca26bdb086f` |
+| 当前安装候选来源 | branch `agent/omd-home-baseline`，代码与测试 commit `8849dc7`；包含 hosted-answer、embedding recovery、grounding contract、隐私边界、错误分类、Ollama Cloud alias、malformed model metadata fail-closed、hosted key Save & check、检索方式英文文案与 Settings UI-01–03 修复；2026-09-13 22:37 NZST 重新构建并安装到 test-vault；准确 bundle 身份以下方 SHA-256 为准 |
+| manifest 版本 | `0.1.1` |
+| Obsidian 版本 | `1.13.7` |
+| macOS 版本 | `26.6.2` |
+| vault 绝对路径 | `$TEST_VAULT` |
+| OMD 版本/commit | `0.3.0b2` / `0d8765fca55ff7a93bd970a00a2d7c0d20b50fe4`；一份旧 Homebrew launcher 不兼容，兼容候选来自另一份本地安装与源码 `.venv/bin/omd`；人工测试时仍以 Settings 实际解析路径为准 |
+| Ollama 版本 | client / daemon `0.33.3`；`/api/status` 为 `cloud.disabled: false`、`source: none`；Cloud 状态仅作环境记录，本地模型测试不要求 `cloud.disabled: true` |
+| Completion model | `qwen3:4b-instruct` 与 `qwen3:0.6b`（本地已安装）；另有 cloud-backed `gpt-oss:20b-cloud`，不得出现在 local-only model 路径 |
+| Embedding model | Settings 已保存 `bge-m3`，但尚未安装；执行 AI-09 前再运行 `ollama pull bge-m3` |
+| 自动化门禁 | `npm run check` 通过：TypeScript、ESLint、`495/495` 自动测试与 production build；`git diff --check` 通过。`npm audit --omit=dev` 本轮因外部 registry 访问被安全审查拒绝，不能据上次结果宣称本轮无漏洞；发布前需另行获准运行或由 CI 执行 |
+
+不要只写“最新版本”；commit SHA 才能准确复现。
+
+当前安装到 test-vault 的候选资产 SHA-256（2026-09-13 22:37 NZST 重新执行
+`npm run build` 与 `npm run install:test-vault`；source 与 test-vault 安装副本已逐项核对一致）：
+
+| 资产 | SHA-256 |
+| --- | --- |
+| `main.js` | `fb7ea4ef8c3622a50f95ab2ad47e99ddd07de23427f8c0ce2825c08c79f6d3a3` |
+| `manifest.json` | `7ca5b07471306bc45acfefc09a2ed47c5d9508f55ef6b638c80b552c87d0f5cb` |
+| `styles.css` | `8eaab08b7a639beb57fabc9ff892f90d351fcd6c1e491026ee1e3f91d8e4188d` |
+| `omd-eventkit` | `78db9fd4c4df14602adcbc5d888406f4ac51185b3bc798697551ed580444a33c` |
+
+`data.json` 仍保留既有测试身份与设置，未作为发布资产重新生成；当前 SHA-256 为
+`4715cd9dea18878c7c78ffbee52e083c70d0ecb87d1263b9f16a2360046285b6`。
+
+2026-09-11 上一轮安装后的安全检查只读取字段名和凭证是否存在，不读取凭证值：当时 `data.json` 没有
+secret-like 字段名或已知 key pattern；准确的 OpenAI Keychain entry 当前为 **PRESENT**，启动本次
+Terminal 的 `OPENAI_API_KEY` 为 **UNSET**。兼容 OMD bridge 已成功从 Keychain 识别凭证，读取
+`api.openai.com` 的 model catalog，并确认 `o3-mini` 可用；preview-only smoke test 也成功生成了只含
+1 条本地检索证据的 consent preview，未执行 provider answer。继续 AI-04 B/C 前只需在插件内
+**Check setup**；除非要替换 key，否则不要重复 **Save & check**。
+
+2026-09-07 的首次安装曾准备到 **Install-00 第 4 步完成**：当时插件目录只有三项基础资产，
+尚无 `data.json`。这是历史基线，不是当前目录应满足的清理条件。当前测试已推进到
+**AI-02 暂时记为 `NOT RUN`**，这是 2026-09-07 的历史进度；当前 local Ollama 主链已经 PASS，不得用
+这句旧状态覆盖 1.3C。继续测试时保留现有 `data.json`、笔记和测试进度；Q4 只补 endpoint error 的
+视觉／可访问性，不重跑 clean install。
+更新候选版只替换同一次 build 的 `main.js`、`manifest.json`、`styles.css`；可选
+`omd-eventkit` 可以另行保留或安装，不计入三项发布资产。当前源目录中的
+`dist/omd-eventkit` 是可选 helper 的构建产物。`Manual Test Notes/` 中预装的 5 篇 Markdown fixtures 是受控
+测试素材，不是从用户 vault 恢复的数据。上一轮完整 test-vault 没有永久删除，保存在：
+
+历史备份保存在测试机的非公开本地备份目录；该位置不是发布资产，也不是复测输入。
+
+不要为恢复测试而把旧备份覆盖回活动 vault。`npm run install:test-vault` 会保留现有
+`data.json`，但在 helper 已构建时也会安装它；只有专门重测“无 helper 的首次安装”时才按
+Install-00 建立新的干净基线。`_attachments/`、`Index/` 和 `Sources/` 在初始准备时为空，
+后续 Capture/index 测试可以正常在其中生成产物。
+
+<a id="guide-test-fixtures"></a>
+
+### 1.4 本轮已经准备的测试素材
+
+素材总说明位于
+`$REPO_ROOT/docs/manual-test-fixtures/README.md`。所有内容都是
+synthetic，可安全编辑、转换和删除，不包含个人资料。
+
+| 测试 | 素材位置 | 当前状态 |
+| --- | --- | --- |
+| HOME-01 / Pin / Vault tags | `test-vault/Manual Test Notes/` | 5 篇已预装；首次打开即可使用 |
+| CAP-01 普通路径、空格路径、拖放 | `docs/manual-test-fixtures/capture/` 与 `generated/` | 已生成 |
+| `~/` 路径 | `~/Desktop/OMD Home Test Fixtures/survival analysis sample.html` | 已复制 |
+| Desktop 空格绝对路径 | 运行 `printf '%s\n' "$HOME/Desktop/OMD Home Test Fixtures/survival analysis sample.html"` 后复制输出 | 已复制 |
+| CAP-01A OCR / scanned PDF / ASR | `docs/manual-test-fixtures/generated/` | 3 PNG、1 PDF、2 WAV 已验证 |
+| AI-08 / AI-09 RAG | `docs/benchmark-vault/` | 保留在 vault 外；到相应 Case 才按步骤导入 |
+
+短 WAV 约 7 秒，用于 ASR 正确性；`slow-bilingual-speech.wav` 约 114 秒，用于 CAP-06
+后台生命周期。扫描 PDF 是一页 image-only 文档，已确认没有文本层。不要在 HOME-01 前导入
+benchmark fixtures，以免改变 Recent notes 和基础检索结果。
+
+以下内容故意不预先创建：`retry-source.html`（必须先缺失才能测试 Retry）、Calendar events
+（需要通过真实 UI/EventKit 创建）、hosted provider developer keys、旧版 OMD executable，以及
+待删除的 Ollama model。这些项目涉及真实权限、凭证或破坏性故障注入，应只在对应 Case 中操作。
+
+<a id="guide-plugin-assets"></a>
+
+## 2. 如何取得要测试的插件文件
+
+下面三种方式只选一种。不要把不同 commit 或不同版本的文件混在一起。
+
+### 方式 A：从当前源码 checkout 构建（发布前 RC 推荐）
+
+如果已有源码 checkout：
+
+```bash
+cd "/absolute/path/to/obsidian-omd-home"
+git status --short
+git fetch origin
+git switch main
+git pull --ff-only
+npm ci
+npm run build
+```
+
+- `git status --short` 必须为空。如果有自己的未提交修改，不要强行切分支或覆盖；改用新的 clone。
+- 要测试指定 commit 时，用 `git switch --detach <commit-sha>`，再运行 `npm ci` 和
+  `npm run build`。
+- 构建成功后，三项候选资产位于源码目录根部：
+  `main.js`、`manifest.json`、`styles.css`。
+- 用 `git rev-parse HEAD` 记录 commit。
+- 测试结束后，如需返回主分支，运行 `git switch main`。
+
+没有源码 checkout 时：
+
+```bash
+git clone https://github.com/omd-local/obsidian-omd-home.git
+cd obsidian-omd-home
+git switch main
+npm ci
+npm run build
+```
+
+### 方式 B：下载 GitHub Release 资产（tag 已发布后使用）
+
+浏览器操作：
+
+1. 打开 <https://github.com/omd-local/obsidian-omd-home/releases>。
+2. 进入你要测试的**准确版本**，例如 `0.2.1`。
+3. 展开 **Assets**。
+4. 分别下载 `main.js`、`manifest.json`、`styles.css`。
+5. 不要下载 **Source code (zip)** 或 **Source code (tar.gz)** 当作插件包；源码压缩包不等于
+   已构建的 Community Plugins 安装资产。
+6. 打开下载的 `manifest.json`，确认 `version` 与 Release tag 完全相同，tag 不带 `v` 前缀。
+7. 三个文件必须来自同一个 Release，不能保留旧版本的任意一个文件。
+
+如已安装 GitHub CLI，也可以：
+
+```bash
+mkdir -p "/absolute/path/to/release-assets"
+gh release download <version> \
+  --repo omd-local/obsidian-omd-home \
+  --pattern main.js \
+  --pattern manifest.json \
+  --pattern styles.css \
+  --dir "/absolute/path/to/release-assets"
+```
+
+如果目标版本尚未出现在 Releases（发布前 RC 通常如此），不要拿旧 Release 冒充新版本；改用
+方式 A 从指定 commit 构建。
+
+### 方式 C：安装到仓库自带的 test-vault
+
+必须在源码目录运行：
+
+```bash
+cd "$REPO_ROOT"
+npm run build
+npm run install:test-vault
+```
+
+`npm run install:test-vault` 固定安装到 `$REPO_ROOT/test-vault/.obsidian/plugins/omd-home`。因此只在
+`$TEST_VAULT` 保持默认值时使用该脚本；若 `$TEST_VAULT` 指向其他可丢弃 vault，请按下方手动复制
+三项发布资产的步骤安装，不要误以为脚本会读取自定义变量。默认配置下，安装位置就是
+`$PLUGIN_DIR`。
+
+它会：
+
+- 总是复制 `main.js`、`manifest.json`、`styles.css`。
+- 只有 `dist/omd-eventkit` 存在、是普通文件并且可执行时，才额外复制 helper。
+- 已有 `data.json` 时不会覆盖它。
+- 第一次安装且找到相邻 OMD launcher 时，可能写入一个初始 `data.json`。
+- 把 `omd-home` 加入 test-vault 的 `.obsidian/community-plugins.json` enabled list。
+- 在 test-vault 缺少 `.obsidian/app.json` 时创建空的 `app.json`。
+- 不会安装到你的日常 vault，也不会全局安装插件。
+- 不会启动或 reload Obsidian。
+
+此脚本不是 clean 命令：它会覆盖三项 bundle，但不会先删除旧插件目录。假如旧目录中已有
+`data.json` 或旧 `omd-eventkit`，它们可能继续保留。需要测试真正的首次安装或“没有 helper”
+分支时，必须先按第 3 节把整个旧目录移走，再运行脚本。
+
+然后在 Obsidian 中选择 **Open folder as vault**，打开
+`$TEST_VAULT`。
+
+<a id="guide-clean-install"></a>
+
+## 3. 如何安全、完整地移除旧安装
+
+### 3.1 先决定是否保留旧设置
+
+`$PLUGIN_DIR/data.json`
+包含本地设置和布局。
+
+- 要模拟真正的首次安装：把整个 `omd-home` 文件夹移出插件目录，不恢复 `data.json`。
+- 要测试升级/重装：保留 `data.json`，只覆盖三项发布资产。
+- 不确定时先备份。没有备份而永久删除后，旧设置无法恢复。
+
+### 3.2 Finder 操作（推荐，可恢复）
+
+1. 如果插件还能正常出现在 Obsidian 中，先打开 **Settings → Community plugins → Installed
+   plugins → OMD Home**，从其菜单选择 **Uninstall**。这一步会让 Obsidian 同时更新 enabled
+   plugins 记录；按钮名称会因 Obsidian 版本略有差异。
+2. 完全退出 Obsidian；只关闭窗口不一定会卸载插件进程。
+3. 在 Finder 按 `Command + Shift + G`。
+4. 输入测试 vault 的准确路径，例如：
+   `$TEST_VAULT/.obsidian/plugins`。
+5. 找到文件夹 `omd-home`。如果 Obsidian 的 Uninstall 已经把它删掉，这里看不到是正常的。
+6. 如果仍存在，把整个文件夹移动到 vault 外部的备份位置或废纸篓。
+7. 确认 `.obsidian/plugins` 中不再有 `omd-home`。
+8. 不要移动或删除其他插件文件夹。
+
+把整个 `omd-home` 目录移出 vault 已经是“完整移除这个 vault 的插件安装”：三项 bundle、
+`data.json`、可选 `omd-eventkit` 和目录内其他残留都会一起离开。它不会删除源码仓库、OMD、
+Ollama、模型或其他 vault 中的独立安装；这些也不应该在本测试中被删除。确认不再需要备份后，
+可以稍后从 Finder 删除备份或清空废纸篓。
+
+### 3.3 Terminal 操作（推荐移动备份，不直接 rm）
+
+先检查目标，确认输出的确是要测试的 vault：
+
+```bash
+ls -la "$PLUGIN_DIR"
+```
+
+然后把旧插件移到 vault 外的备份位置：
+
+```bash
+mv "$PLUGIN_DIR" \
+   "/absolute/path/outside-vault/omd-home-backup-before-test"
+```
+
+- 备份目标不能已经存在；如果存在，换一个明确的新名字。
+- 如果 `ls` 显示 “No such file or directory”，表示这个 vault 没有旧安装，可以跳过移动。
+- 不要把备份留在 `.obsidian/plugins` 内，否则 Obsidian 可能仍把它识别为插件。
+- 不要运行针对 `$TEST_VAULT`、`.obsidian` 或 `plugins`
+  上级目录的递归删除命令。
+
+确认已经从 vault 移除：
+
+```bash
+test ! -e "$PLUGIN_DIR" \
+  && echo "Old OMD Home install is absent"
+```
+
+如果你是手动移动目录而不是使用 Obsidian 的 Uninstall，
+`$TEST_VAULT/.obsidian/community-plugins.json`
+中可能仍保留字符串 `"omd-home"`。这不会让缺失的代码
+继续运行，但会影响“用户需要手动 Enable”的首次安装测试。普通重装可以保留它；真正的 onboarding
+测试应优先用 UI Uninstall。如果 UI 无法使用，只在 Obsidian 已退出且已经备份该文件时，用文本
+编辑器从 JSON 数组中删除准确的一项 `"omd-home"`，不要删除整个文件或其他插件 ID。重新打开文件，
+确认 JSON 仍是类似 `["another-plugin"]` 的有效数组。
+
+### 3.4 手动安装三项候选资产
+
+以下是重做首次干净安装时的操作模板，不是 AI-02 暂停后的恢复步骤。继续本轮测试应保留
+`data.json`，只更新三项资产。首次安装使用两个不同目录，不能混淆：
+
+- **候选资产来源（干净 checkout）**：
+  `$RELEASE_DIR`
+- **插件安装目标（实际测试 vault）**：
+  `$PLUGIN_DIR`
+
+不要在原始 working repo 内再次运行 `git clone`。也不要在
+`omd-home-0.2.1-clean` 中运行 `npm run install:test-vault`：那会安装到干净 checkout 自己的
+`test-vault`，而不是本轮指定的 vault。
+
+#### 第一步：确认 Obsidian 已退出，目标仍是干净状态
+
+```bash
+test ! -e "$PLUGIN_DIR" \
+  && echo "Ready: no previous OMD Home install"
+```
+
+必须看到 `Ready: no previous OMD Home install`。没有输出表示旧安装仍在，返回第 3.2 或 3.3 节
+处理，不要直接覆盖。
+
+#### 第二步：确认候选源码身份并重新构建
+
+```bash
+cd "$RELEASE_DIR"
+git status --short
+git rev-parse HEAD
+node -p 'require("./manifest.json").version'
+npm ci
+npm run build
+```
+
+预期：
+
+- `git status --short` 没有输出。
+- `git rev-parse HEAD` 与 `git rev-list -n 1 0.2.1` 输出相同，且
+  `git describe --exact-match --tags` 输出 `0.2.1`。
+- manifest 版本是 `0.2.1`。
+- `npm ci` 和 `npm run build` 成功。
+
+确认三个源文件存在：
+
+```bash
+ls -lh \
+  "$RELEASE_DIR/main.js" \
+  "$RELEASE_DIR/manifest.json" \
+  "$RELEASE_DIR/styles.css"
+```
+
+#### 第三步：创建目标插件目录
+
+```bash
+mkdir -p "$PLUGIN_DIR"
+```
+
+#### 第四步：复制同一次 build 的三个文件
+
+```bash
+cp "$RELEASE_DIR/main.js" \
+   "$PLUGIN_DIR/main.js"
+cp "$RELEASE_DIR/manifest.json" \
+   "$PLUGIN_DIR/manifest.json"
+cp "$RELEASE_DIR/styles.css" \
+   "$PLUGIN_DIR/styles.css"
+```
+
+#### 第五步：确认安装完整且没有混入另一版本
+
+外接磁盘可能自动生成隐藏的 AppleDouble `._*` 元数据；它们不是插件资产，也不能进入 GitHub
+Release。下面的命令忽略这些元数据，只列出实际插件文件：
+
+```bash
+find "$PLUGIN_DIR" \
+  -maxdepth 1 -type f ! -name '._*' -print | sort
+```
+
+首次 Community-style 安装必须只列出 `main.js`、`manifest.json`、`styles.css`。再确认安装后的
+manifest：
+
+```bash
+node -p "require(process.env.PLUGIN_DIR + '/manifest.json').version"
+```
+
+预期为 `0.2.1`。最后逐项比较源文件和安装文件：
+
+```bash
+cmp -s \
+  "$RELEASE_DIR/main.js" \
+  "$PLUGIN_DIR/main.js" \
+  && echo "main.js matches"
+cmp -s \
+  "$RELEASE_DIR/manifest.json" \
+  "$PLUGIN_DIR/manifest.json" \
+  && echo "manifest.json matches"
+cmp -s \
+  "$RELEASE_DIR/styles.css" \
+  "$PLUGIN_DIR/styles.css" \
+  && echo "styles.css matches"
+```
+
+必须看到三个 `matches`。
+
+#### 第六步：打开准确的 vault 并 Enable
+
+1. 打开 Obsidian vault switcher。
+2. 选择 **Open folder as vault**。
+3. 只选择 `$TEST_VAULT`。
+4. 打开 **Settings → Community plugins**，允许 Community plugins。
+5. 在 Installed plugins 中找到 **OMD Home** 并 Enable。
+6. 如果列表没有出现 OMD Home，完全退出并重开 Obsidian，再检查目标目录与 manifest。
+
+不要打开 `$RELEASE_DIR/test-vault`；它不是本轮测试目标。
+
+#### 后续测试“保留设置的重装”时
+
+第一次安装不应存在 `data.json`。只有完成首次启动、插件已经创建设置后，才在再次复制前后运行：
+
+```bash
+shasum -a 256 "$PLUGIN_DIR/data.json"
+```
+
+预期：覆盖三项资产后，`data.json` hash 不变。
+
+## 4. Release Candidate 测试顺序
+
+测试编号按功能分组，并不代表执行顺序。请按下面的依赖顺序测试：先证明干净安装与无依赖 UI，
+再加入 OMD、EventKit 和本地 AI；云端 provider 放在本地链路稳定之后；故障注入和最终 bundle
+验收放在最后。点击 Case 名称可直接跳到对应步骤。
+
+开始 Case 前依次完成：[测试前准备](#guide-test-preparation) →
+[取得候选插件文件](#guide-plugin-assets) →
+[移除旧安装](#guide-clean-install)。需要输入文件时查看
+[已准备的测试素材](#guide-test-fixtures)。
+
+> **历史说明（已被 1.3C 取代）：** 早期轮次曾把 **[AI-02](#test-ai-02)** 暂记为 `NOT RUN`；当前
+> local Ollama、有效 endpoint、模型隔离与三条 workflow rail 已有 PASS。现在只按 1.3C 的 Q4 补
+> UI-03 endpoint error 视觉／可访问性，不重新跑 AI-02 主链。上方 SHA-256 是当前已安装候选的身份；
+> 此后如果再次 rebuild/reinstall，必须同步更新时间和 hash。
+
+### 阶段 A：干净安装与无外部依赖 UI
+
+1. **[Install-00：首次干净安装与重装](#test-install-00)**（Core）— 建立可信的 RC 安装基线。
+2. **[HOME-01：默认布局和文字对齐](#test-home-01)**（Core）— 先验证默认 Home，不让外部工具状态干扰布局判断。
+3. **[HOME-02：移动、推挤与 Resize 可发现性](#test-home-02)**（Core）— 在默认布局通过后再验证布局持久化。
+4. **[CMD-01：Obsidian core/community commands 与 Recorder](#test-cmd-01)**（Core）— 验证基础命令注册和第三方命令兼容。
+
+### 阶段 B：OMD 与基础 Capture
+
+5. **[OMD-01：首次自动发现、缺失引导和高级覆盖](#test-omd-01)**（Core）— 后续 Capture 和 AI bridge 的共同前置条件。
+6. **[CAP-01：URL、普通路径、空格路径与拖放](#test-cap-01)**（Core）— 先证明不依赖 AI 的转换主链路。
+7. **[CAP-03：失败归属与 Setup health](#test-cap-03)**（Core）— 有成功基线后再注入 OMD/path 失败，错误归属更容易判断。
+8. **[CAP-07：Douyin／Xiaohongshu 分享文字与 cookies bridge](#test-cap-07)**（Core）— 使用最终 Home 与 OMD 候选验证 source-specific access、Retry、隐私和取消。
+
+### 阶段 C：Calendar / EventKit
+
+9. **[CAL-00：Helper、权限、明确选择 Calendar](#test-cal-00)**（Core）— 先安装 helper 并建立权限和 calendar selection 基线。
+10. **[CAL-01：Start / End 与 All day](#test-cal-01)**（Core）— 先验证单个事件编辑。
+11. **[CAL-02：Vault / Calendar / Linked filters](#test-cal-02)**（Core）— 有事件后再验证来源与筛选。
+12. **[CAL-03：Linked sync 与双向冲突](#test-cal-03)**（Core）— 最后测试依赖前述事件和 filter 的双向同步。
+
+### 阶段 D：本地 AI、Capture 增强与 RAG
+
+13. **[AI-00：Settings 信息架构、文案与响应式布局](#test-ai-00)**（Core）— 先验证 AI 设置主流程的结构。
+14. **[AI-01：本地 Ollama、模型目录与默认 local-only 选择](#test-ai-01)**（Core）— 建立本地 daemon 和 text model 基线。
+15. **[AI-02：Ollama daemon、endpoint 与本地模型隔离](#test-ai-02)**（Core）— 在正常连接通过后验证 daemon/endpoint/model 状态分离。
+16. **[AI-07：本地 Omnibox 结果、证据、复制与返回用时](#test-ai-07)**（Core）— 先证明真实本地问答主链路可用。
+17. **[CAP-02：本地 AI 生成 links/tags，Review 后才写入](#test-cap-02)**（Core）— 同时依赖成功 Capture 与可用本地模型。
+18. **[AI-06：Command Palette 诊断、busy 状态与生命周期](#test-ai-06)**（Extended）— 当前候选已由原生基线与确定性 production-method 生命周期回归关闭；不再人工抢极短 active 时间窗。
+19. **[CAP-06：后台继续、unload 和退出取消](#test-cap-06)**（Core）— 复用已经验证的后台任务生命周期。
+20. **[AI-08：新的 Section-aware Vault Q&A benchmark](#test-ai-08)**（Required release gate）— 在基本 RAG 可用后执行 P01–P06 质量门禁。
+
+### 阶段 E：云端回答与多 Provider 隔离
+
+21. **[AI-03：Ollama Cloud 设置入口与逐题 preview](#test-ai-03)**（Core）— 保持 `bge-m3` 未安装，先验证 Cloud preview 和“未安装”降级。
+22. **[AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口](#test-ai-04)**（Core）— 保持 `bge-m3` 未安装，逐一验证 credential、preview、发送边界和准确的 embedding 降级原因。
+23. **[AI-09：Multilingual hybrid retrieval 与 semantic rerank](#test-ai-09)**（Required release gate）— AI-03/04 完成 missing-model 分支后，安装并保留 `bge-m3`，完成两轮 Keyword + semantic search 质量矩阵。
+24. **[AI-05：Provider 切换、每个 provider 的 model 记忆与本地工作流隔离](#test-ai-05)**（Core）— 必须在多个 provider 已配置后执行。
+25. **[AI-11：Credential 状态、逐题证据与并发取消回归](#test-ai-11)**（Core）— 在正常本地/hosted 路径通过后测试状态刷新、provider 切换与待批准请求的取消。
+
+### 阶段 F：恢复与发布资产
+
+26. **[AI-10：Stale model、reload/unload 与故障恢复](#test-ai-10)**（Extended）— 故障注入可能改变当前环境，因此放在所有正常路径之后。
+27. **[REL-01：干净 vault 与三项 bundle](#test-rel-01)**（Core）— 使用最终 clean build 做最后发布验收。
+
+本轮首发范围包含 section-aware answer quality、semantic rerank 与多语言检索，因此 AI-08（20）和
+AI-09（23）不能按旧的 Extended 分类跳过；只有 AI-10（26）的破坏性模型移除留到发布后维护测试。
+AI-06（18）的重复点击、unload 与 fresh-instance 发布门禁已由确定性回归关闭，不再安排人工复测。
+若没有可用 hosted developer key，仍完成
+AI-04 的无 key与 opt-in 关闭边界；需要有效 key/model 的 catalog、preview、cancel 和真实网络
+分支记录为 `NOT RUN`，不得假装无 key 也能打开发送 preview。
+
+每个案例记录：
+
+| Case | PASS / FAIL / NOT RUN | 用时 | 截图/日志 | 备注 |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+
+`NOT RUN` 必须写清原因，例如“没有第二个 Ollama 环境，不愿删除现有模型”，不能当作 PASS。
+
+## 5. Home 与 Omnibox
+
+<a id="test-install-00"></a>
+
+### Install-00：首次干净安装与重装
+
+1. 完全退出 Obsidian。
+2. 按第 3 节，将目标 vault 的旧 `omd-home` 安装移出插件目录。
+3. 按第 2 节取得同一 build 的 `main.js`、`manifest.json`、`styles.css`。
+4. 按第 3.4 节只安装这三项文件。
+5. 启动 Obsidian，打开目标 vault。
+6. 打开 **Settings → Community plugins**：
+   - 如果 OMD Home 已在 Installed plugins 中，先关闭再开启一次。
+   - 如果看不到，确认目录名是 `omd-home`、`manifest.json` 可读取，并重启 Obsidian。
+7. 用命令面板（`Command + P`）运行 **OMD Home: Open home**。
+8. 确认：
+   - 没有启动 crash 或无限重载。
+   - Home 与 Settings 可以打开。
+   - 缺少 OMD/Ollama/EventKit 时显示可操作提示，而不是“插件损坏”。
+   - Home 中不存在重复的同一条错误。
+9. 在不安装可选 helper 时先跑 `HOME-01`、`HOME-02`、`CMD-01`，以及
+   `CAP-03` 的第 1–2 步。
+10. 再配置需要的依赖：
+    - OMD：先不要填写路径；等待主状态卡自动发现，再完成 `OMD-01`。
+    - Advanced OMD paths：默认保持折叠；只有自动发现失败的诊断测试才打开。
+    - Python executable override：先留空；macOS/Linux 测试从检测到的 OMD shebang 自动发现，Windows 测试从 OMD launcher 所在的虚拟环境自动发现 `python.exe`。
+    - OMD Home bridge override：先留空，使用打包在 `main.js` 内的 bridge。自定义 bridge 属于
+      开发／恢复路径；它的 answer JSON 必须包含 `grounding_contract_version: 1`，否则插件应在
+      发送任何模型结果前拒绝该输出，并提示改回 bundled bridge 或升级自定义 bridge。
+    - EventKit helper：只在 Calendar 阶段安装。
+    - Ollama 与模型：只在 Local AI 阶段启动。
+11. 完成 `AI-00` 至 `AI-05` 以及 `AI-07`。没有 hosted developer key 时，将 `AI-04` 中需要
+    catalog、preview / cancel 或真实发送的分支记录为 `NOT RUN`；仍完成无 key 与 provider
+    opt-in 关闭边界，但不得绕过 credential 前置条件来伪造 preview。
+12. 测试保留设置的重装：
+    - 不删除 `data.json`。
+    - 记录其 SHA-256。
+    - 再次覆盖同一 build 的三项资产。
+    - 重载插件并重复步骤 7–11。
+    - 确认 `data.json` SHA-256 不变。
+
+通过条件：首次安装和保留设置重装都能加载；失败显示在 Needs attention 且可以 Retry；
+Current task 不长期残留已结束的任务；插件不要求把布局或设置写到 vault 外部。
+
+<a id="test-omd-01"></a>
+
+### OMD-01：首次自动发现、缺失引导和高级覆盖
+
+#### A. 普通用户主流程
+
+1. 确保本机已有兼容 OMD，但不要在 OMD Home 中填写 executable 路径。
+2. 打开 **Settings → OMD Home → OMD**。
+3. 首次打开时允许状态短暂显示 **Detecting OMD**，随后应变为 **OMD ready**。
+4. 确认状态说明是自动发现，并显示实际候选路径，或说明通过 app executable path 找到。
+5. 确认 **Advanced OMD paths** 默认折叠；不展开它也能 Capture 和 Suggest links and tags。
+6. 完全退出并重新打开 Obsidian，重复步骤 2–5；不应要求再次手填路径。
+
+#### B. 缺失和错误路径引导
+
+不要删除正在使用的 OMD。展开 **Advanced OMD paths**，在 **OMD executable override** 临时填入：
+
+```text
+/tmp/omd-home-does-not-exist/omd
+```
+
+1. 输入路径时确认主状态立即变为 **OMD check needed**，说明会在离开输入框后验证；按 `Tab`
+   或点击输入框外部。
+2. 确认插件自动完成验证并显示 custom executable 找不到。若界面仍在 checking，可点击
+   **Check again** 重试。错误状态应同时出现：
+   - **Use automatic**
+   - **Copy install commands**（macOS）或 **Copy install steps**（Windows/Linux）
+   - **Install guide**
+   - **Check again**
+3. 点击 Copy；macOS 剪贴板内容必须是：
+
+```bash
+brew install omd-local/omd/omd
+omd doctor
+```
+
+4. 点击 **Install guide**，确认打开官方
+   `https://github.com/omd-local/markdown-everything#quick-start`。
+5. 确认插件没有自动打开 Terminal、没有执行 Homebrew/pip、没有弹管理员授权，也没有修改
+   OMD/Python 安装。
+6. 点击 **Use automatic**；确认 override 视觉上恢复为空，并重新找到原来的兼容 OMD。
+
+如需验证真正的 **OMD not installed** 状态，只能在没有任何 OMD 的干净测试账户/虚拟机中进行；
+不要为了这个 case 删除日常使用的安装。该状态也必须提供 Copy、Install guide 和 Check again。
+
+#### C. 旧版候选
+
+如果保留了一个可安全测试的旧版 OMD，可把它的绝对路径临时填入 override，再点击 **Check again**。
+应显示 **OMD update required** 和 **Update guide**，而不是误报 not installed。完成后清空 override，
+点击 **Use automatic** 或 **Check again** 恢复。
+
+通过条件：默认流程不要求路径；自动发现能跳过 missing/old candidate 并选择兼容候选；缺失与旧版
+状态不同；复制/外链行为明确且插件从不执行安装命令；手动路径只存在于折叠的 Advanced 区域。
+
+<a id="test-home-01"></a>
+
+### HOME-01：默认布局和文字对齐
+
+1. 在 Home 右上角打开 widget/layout 菜单，选择重置布局。
+2. 确认默认布局：
+   - Today 与 OMD Inbox 是两列一行。
+   - Current task 与 Needs attention 是两列一行。
+   - Recent notes 与 Upcoming 是两列一行。
+   - Pinned、Vault tags、System 是三列一行。
+   - 默认没有 Continue widget。
+3. 使用已经预装在 `Manual Test Notes/` 的 5 篇 Markdown fixtures，观察 Recent notes：
+   - `A.md`：最短文件名。
+   - `English Markdown Note.md`：英文正文和 `language/en`、`project/omd-home` nested tags。
+   - `中文 Markdown 测试笔记.md`：中文标题、正文和 `language/zh` nested tag。
+   - `This is an intentionally very long English Markdown filename used to test truncation alignment and pin controls.md`：长文件名。
+   - `Synthetic OMD Inbox Capture.md`：带 `omd_home_status: inbox`，用于 Inbox Pin/Unpin；它是人工 fixture，不用于证明真实 Capture 成功。
+4. 在以下三个入口分别测试可见的 **Pin** 按钮：
+   - Recent notes 的一篇 Markdown 笔记。
+   - OMD Inbox 的一篇 capture 笔记。
+   - 在 omnibox 输入文件名后出现的 vault 搜索结果。
+5. 每个入口都确认：点击 **Pin** 不会打开笔记；按钮变为 **Unpin**；笔记只在 Pinned
+   出现一次；右下角出现 `Pinned to OMD Home.` 确认信息。
+6. 在任一入口点击 **Unpin**，确认按钮恢复为 **Pin**、笔记从 Pinned 消失，并出现
+   `Unpinned from OMD Home.`；再用文件列表右键菜单重复一次 Pin/Unpin。
+7. 分别点击三个入口中的笔记标题区域，确认它仍会正常打开笔记。
+8. 保持 Obsidian 左侧栏打开，逐步缩窄主内容区域。
+
+通过条件：每条标题和路径从同一左边界开始；不会按文字长度产生不同缩进；窄窗口先堆叠，
+不裁掉右列；三个入口都能直接 Pin/Unpin 且不会误打开笔记或产生重复项；Pinned 是用户主动
+收藏，OMD Inbox 是新 capture 的 review queue，两者不重叠。
+
+<a id="test-home-02"></a>
+
+### HOME-02：移动、推挤与 Resize 可发现性
+
+1. Hover widget，确认 drag grip、边框或移动状态清楚可见。
+2. 把 widget 拖到已有 widget 的位置并释放。
+3. 确认被占位置的 widget 会自然移开，不重叠、不消失。
+4. 拖动右下角 resize handle。
+5. 让 handle 获得键盘焦点后使用方向键。
+6. 从 widget 菜单选择 **Use standard size**。
+
+通过条件：移动/resize 中有明确 outline；其他模块会被推开；标准尺寸能恢复；刷新或重开
+Obsidian 后，该设备的布局仍被保存。
+
+## 6. AI answers 与 Vault Q&A
+
+本节把两种能力分开验收：
+
+- **本地回答**：选择 **Ollama on this computer** 后，`@` 问题可以读取有界 Vault 证据，并只发送到
+  本机 loopback Ollama。Ollama 的 Cloud 可用状态本身不应阻止本地模型使用。
+- **云端回答入口**：Ollama Cloud、OpenAI API、Anthropic API、DeepSeek API 都是
+  provider-scoped 的显式 opt-in。每次真正发送之前都必须先显示 preview，并由用户逐次
+  确认；选择一个 provider 不会自动启用另一个 provider。
+
+任何设置检查都不得读取笔记正文。Vault Q&A 的本地检索、local enrichment、Polish Markdown
+和 local embedding retrieval 会处理有界 Vault 内容；hosted 回答只在逐题批准后接收预览中的
+question 与选定证据片段。
+
+### 共用前置条件
+
+1. 完成 `OMD-01`，确认 **Settings → OMD Home → OMD** 显示 **OMD ready**。
+2. 普通测试保持以下 override 为空：
+   - **OMD executable override**
+   - **Python executable override**
+   - **OMD Home bridge override**
+3. 如需核对 OMD contract，在 Terminal 使用 OMD Home 状态卡显示的 executable 路径：
+
+```bash
+"/path/shown/by/omd-home" capabilities --json
+```
+
+输出必须是 JSON，且 `enrich_note.supported` 为 `true`、schema version 为 `1`、
+`local_ollama_transport.version` 为 `1`。最后一项证明该 OMD 会在连接时把本地 Ollama 固定到已验证的
+loopback socket；缺失时，Polish Markdown、Improve formatting 与 links/tags 不得发送笔记内容，并应提示
+更新 OMD、运行 **Check setup**。
+4. 启动 Ollama App并检查 daemon：
+
+```bash
+open -a Ollama
+curl -sS http://localhost:11434/api/status
+ollama list
+```
+
+`curl` connection refused 表示 daemon 没有运行。`ollama list` 用来对照本机已经下载的模型，
+不是让 OMD Home 自动下载模型。Cloud 可用与否只记录为环境信息，不会阻止本地模型测试。
+5. 云端 provider 测试会联系设置页明确显示的 destination。只使用你愿意用于测试的 developer
+API key。ChatGPT 或 Claude 的消费者订阅不等于 API 额度。没有可用 developer key 时，把对应
+网络案例记为 `NOT RUN`，不要使用个人主账号密钥截图或粘贴进测试记录。
+6. 验证本地模型和 AI-02 时，不修改 Ollama 的 Cloud 设置。只有进入 AI-03、且
+   测试者自己曾用 `server.json` 或 `OLLAMA_NO_CLOUD` 强制 local-only 时，才撤销自己设置的
+   override。不要为了制造另一种 Cloud 状态而改动用户全局配置。
+
+<a id="test-ai-00"></a>
+
+### AI-00：Settings 信息架构、文案与响应式布局
+
+1. 打开 **Settings → OMD Home**。
+2. 确认顶层顺序稳定：**Startup → OMD → AI answers → Calendar**。
+3. 在 **AI answers** 主流程中只应看到：
+   - **Answer provider**
+   - 当前云端 provider 下的 **Allow … answers** 授权开关；固定 destination 域名写在该行说明中
+   - Hosted API 时的 **Developer key**
+   - **Answer model**（本地 Ollama 或当前云端 provider）
+   - **Answer setup** 与唯一主操作 **Check setup**
+   在宽面板与约 500px 的窄面板分别保持 **Answer provider** 下拉框关闭；当前 provider 名称必须
+   完整可读，控件不能被左侧说明挤成空白或只剩箭头，也不能引起页面横向滚动。
+4. 确认本地或云端边界说明直接写在主描述文案里，而不是单独再出现一个
+   **Local-only boundary** 或 **Cloud boundary** setting。
+5. 确认设置页没有单独的 **Refresh models**、**Model catalog** 或三组 Smoke 按钮。
+   这些低频诊断只保留在 Command Palette。
+   **Check setup** 结果必须把「本机模型总数」与「可用于回答的 text/completion 模型」明确
+   分开；不能把「已下载」暗示成可回答。本地 **Answer model** 下拉框应列出每个本机已下载
+   模型：可回答的模型可以选择，embedding-only、thinking-only 或已确认不兼容的模型保留可见但
+   必须禁用，并直接在 option label 解释原因。Cloud-backed 条目不混入这份本机列表。
+6. **Advanced AI controls** 默认折叠。展开后只包含：
+   - Vault retrieval
+   - Local writing tools，以及唯一的 **Local writing model**
+   - Ollama troubleshooting
+   Settings 中不得再出现 **Polish Markdown** 或 **Review links and tags** 的 capture 开关副本。
+   **Local writing model** 同样应显示全部本机已下载模型。旧版 Ollama 若未在 `/api/tags` 返回
+   capability metadata，本机模型应标为 **completion support unverified**，允许选择后通过
+   **Check setup** / 执行前检查确认；已确认 embedding-only 或 thinking-only 的条目可见但禁用，
+   remote-backed 条目不混入本机列表。如果这些模型之一已经保存在旧设置中，仍应显示原值和
+   醒目的 unavailable 状态，并提示选择其他本地 completion model 或运行 **Check setup**，不得
+   静默替换。
+7. 打开 **Capture URL or file**。确认两个 capture 动作只在 **Optional local AI** 下出现：
+   **Polish Markdown** 与 **Review links and tags**。说明文字应明确两者共用 Local writing model、
+   新 capture 会记住最近一次已提交的选择，并且 Retry 保留失败任务的选择。
+8. 来回选择五个 provider。确认 section 只局部更新，不闪回页面顶部，不改变外层滚动位置，
+   也不显示上一个 provider 的成功或错误反馈。
+9. 对任一已通过检查的 provider 更换 **Answer model**。旧的成功状态应立即失效，并提示重新
+   **Check setup**，不能继续把上一个 model 显示为 ready。未检查的 **Unchecked** 使用中性的
+   相邻状态条，不得伪装成错误；成功 **Ready** 与缺少模型、daemon 不可达等真实错误使用更醒目、
+   可区分的相邻状态条。不得只靠颜色区分，也不得把状态词藏在一大段说明文字中。
+10. 先缩窄整个 Obsidian 窗口，再在宽窗口里单独缩窄 Settings 内容面板（例如加宽左侧设置导航栏），
+    最后恢复。两种情况下都应按内容面板宽度切到单列；确认 label 字号和左边界不变化，dropdown、
+    secret input 与按钮自然换行，不盖住说明文字，也不产生横向滚动。
+11. 对照 **Startup → OMD → AI answers → Calendar** 四个同级 section：标题的字号、字重、
+    间距保持一致；紧随标题的说明使用同一较弱但清楚可读的字体层级。再对照 **Advanced AI
+    controls** 内的 **Vault retrieval**、**Local writing tools**、**Ollama troubleshooting**：同级
+    小标题及其说明各自一致，且不与字段 label、错误或成功状态混淆。宽、窄面板均不能截断、
+    重叠或让说明贴到控件边缘。
+12. 选择 **DeepSeek API**，对照 **Allow DeepSeek API answers** 与 **Developer key** 两张设置卡：
+    label、说明和右侧开关／密钥操作采用一致的左右对齐与垂直间距。在宽面板及缩窄到单列后
+    分别检查；password 输入、**Save & check**、帮助文字及开关都应完整显示，不覆盖
+    彼此，且授权开关的显式 opt-in 含义仍清楚可见。不要在本项粘贴真实 key。
+13. 用键盘 Tab 遍历 dropdown、secret input、button、toggle 与 disclosure；焦点必须可见。
+14. 检查文案一致性：主流程统一使用 **Check setup**，不混用 Refresh、Smoke 或 Check connection。
+
+通过条件：普通用户不展开 Advanced 也能选择 provider、选择 model 并检查 setup；setup 摘要能
+区分已下载、answer-eligible 与 embedding 模型，所有 eligible text model 均可选；高级参数不抢
+主流程视觉层级；readiness 状态靠近相关控件且操作反馈带时间戳、不会跨 provider 残留。
+
+<a id="test-ai-01"></a>
+
+### AI-01：本地 Ollama、模型目录与默认 local-only 选择
+
+1. **Answer provider** 选择 **Ollama on this computer**。
+2. 确认 provider 说明文案明确写出：Vault evidence 与 answer generation stays on this computer，
+   并说明 Cloud availability 不会改变当前所选本地模型。
+3. 点击 **Check setup**。第一次检查应同时读取 daemon 版本、`/api/status` 和本地 model catalog。
+4. 对照 `ollama list` 与 **Check setup** 结果，确认目录完整且分类正确：
+   - 结果给出本机 model 总数与 answer-eligible 数量；
+   - **Answer model** 下拉列出全部本机已下载 model；已确认 answer-eligible 的 text model
+     和缺少 capability metadata、标为 unverified 的本机 model 可选择，后者须经 Check setup
+     或执行前检查；已确认 embedding-only、thinking-only 或非 text-capable model 可见、禁用并带原因；
+   - 同时报告 `thinking` 与 `completion` 的 model 仍属于 answer-eligible，不得误标为
+     thinking-only；只有缺少 completion 能力，或已知无法稳定返回 OMD Home 可见答案的
+     alias 才能禁用；UI 不向普通用户暴露内部 token budget 术语；
+     默认应优先落在 `qwen3:4b-instruct` 这类 instruct model；
+   - 插件不会隐藏、自动 pull 或静默替换 model。
+5. 选择另一个已安装 text model，再点 **Check setup**。
+6. 选择 **Custom model id…**，输入一个已安装 model 的准确 ID 并检查。
+7. 输入不存在的 ID，确认显示 missing/unavailable；恢复有效 model。
+8. 可选诊断：Command Palette 运行 **OMD Home: Refresh local AI models**。设置页 dropdown
+   应更新，但页面不跳动。
+9. 如果 Ollama App 此时显示 Cloud 可用，本地 **Ollama on this computer** 仍应保持可检查、
+   可运行，不需要先把 `cloud.disabled` 重新改回 `true`。
+
+通过条件：本地 model catalog 与 daemon 一致；摘要清楚分开 downloaded、answer-eligible text
+与 embedding 模型；所有 eligible text model 均可选择，所选 model 不被静默改写；成功反馈包括
+model、版本或 readiness 与时间戳。
+
+<a id="test-ai-02"></a>
+
+### AI-02：Ollama daemon、endpoint 与本地模型隔离
+
+本节验证 OMD Home 能否把 daemon、endpoint 和 model 问题准确分开。核心流程不会修改
+`~/.ollama/server.json` 或 `OLLAMA_NO_CLOUD`；Ollama Cloud 的启用流程由 AI-03 单独验证。
+本地 provider 的 answer model 与 embedding 都依赖同一个 daemon；daemon 停止时，本地答案本身
+也无法生成，因此不要在本节把 answer failure 误判成 embedding fallback。Hosted answer 仍可生成
+时的 embedding-to-keyword 降级在 AI-04 D 验证。
+
+1. **Answer provider** 选择 **Ollama on this computer**，**Answer model** 选择一个已安装、
+   answer-eligible 的本地模型。保持 endpoint 为 `http://localhost:11434`，点击
+   **Check setup**。记录成功状态、时间戳、Ollama 版本和模型名称。
+2. 完全退出 Ollama。只关窗口不一定停止 daemon。先从 Ollama 菜单选择 **Quit Ollama**，然后运行：
+
+```bash
+curl -sS --max-time 2 http://localhost:11434/api/status
+```
+
+只有 connection refused/failed 才证明 daemon 已停止。若 App 拒绝退出，可在 Activity Monitor
+中退出名称为 `Ollama` 或 `ollama` 的相关进程。不要结束其他不相关进程。
+3. 此时点击 **Check setup**。应显示 daemon unreachable，而不是 model unavailable；在 macOS
+   应提供 **Open Ollama app**。点击后等待 daemon 启动，再点 **Check setup**。
+4. 确认恢复后显示同一个 **Answer model** 可用，model catalog 与 `ollama list` 一致，停止 daemon
+   期间产生的旧错误不会继续覆盖新的成功状态。
+
+   **暂停／交接点（第 4 步后）**：若要在这里退出测试，确认 Ollama 已重新启动，记录当前
+   Answer model、daemon 状态和最后一次 Check setup 的时间。恢复测试时，先重新打开
+   **Settings → OMD Home → AI answers** 并运行 **Check setup**。只有这一步通过后，才继续
+   第 5 步或后续 AI-07/CAP-02。
+5. 在 **Advanced AI controls → Ollama troubleshooting** 把 endpoint 临时改成
+   `http://192.168.1.20:11434`。输入后应立即在输入框下方的独立整行区域显示醒目的 invalid
+   endpoint 提示，并说明只允许 `localhost`、`127.0.0.1` 或 `[::1]` 加显式有效端口；提示不得与
+   输入框并排争抢宽度。缩窄再加宽设置面板，确认
+   错误文字、输入框和卡片边缘留白正常，无重叠、贴边、横向溢出或异常断行。错误出现时焦点
+   应留在可编辑输入框；用键盘或辅助功能检查，该字段应呈现 invalid 状态，且错误与字段有关联
+   （例如 `aria-invalid` 和 `aria-describedby`），不能只靠颜色表达错误。该无效值不得覆盖最后
+   一个有效设置，也不必等待发送任何内容。离开再重新打开设置，确认字段恢复为最后一个有效
+   endpoint。
+6. 把 endpoint 改成格式合法但通常没有 daemon 的自定义值 `http://localhost:9999`，确认 validation
+   error 立即消失、字段不再呈现 invalid 状态，并显示 **Save endpoint**；旧 setup 状态不得继续冒充
+   新端口的验证结果。点击 **Save endpoint** 后，保存值和当前 model 选择应保留，再点击 **Check setup**；
+   应准确显示该 endpoint 无法连接，而不是把它说成格式不受支持、自动切回 11434、尝试远程 fallback
+   或提供 **Install model**。随后点击 **Use automatic**，确认恢复 `http://localhost:11434`，再次
+   **Check setup** 成功；不得把 `:9999` 留给后续测试。若本机另有真实自定义端口，可再用该端口重复
+   Check setup 与 Test semantic search；不要为了测试修改日常 Ollama daemon。
+7. 确认 `gpt-oss:20b-cloud` 等 cloud-backed model 不会出现在本地 **Answer model** 的正常可选
+   列表中。只有当 `ollama list` 或当前 daemon catalog 已显示一个 cloud-backed model 时，
+   才用 **Custom…** 输入它的准确 ID；**Check setup** 必须明确显示该 model 被本地路径
+   阻止，且此检查不得读取或发送 Vault 内容。当前 daemon 没有这类 model 时，把该
+   手动子测试记为 `NOT RUN`，不得为此 pull Cloud model，也不得把 `selected_model_missing`
+   误判为隔离失败。随后恢复本地 model。
+8. 只观察当前 Cloud 状态，不为本节修改配置：
+
+```bash
+curl -sS http://localhost:11434/api/status
+```
+
+命令只输出 JSON，不会额外打印 PASS。记录 `cloud.disabled`：若当前为 `false`，再次确认本地
+**Answer model** 仍可通过 **Check setup**；若当前为 `true`，本节不为了制造另一个状态而修改
+用户配置，把 Cloud-available 的 GUI 覆盖留给 AI-03。自动化测试应继续覆盖 `true`、`false`、
+缺少 Cloud 字段三种 status 均不改变已验证本地 model 的 eligibility。
+
+通过条件：daemon unreachable、invalid endpoint、model unavailable 和 cloud-backed model blocked
+得到彼此准确的提示；invalid endpoint 不会被保存；两个允许的 loopback endpoint 均可恢复连接；
+同时具备 `thinking + completion` 的本地 model 可正常选择；Cloud availability 不会自动改变或阻止
+所选本地 model，也不会导致任何 Vault 内容被发送；不得把 completion model 与 embedding model
+的错误混为一谈。
+
+<a id="test-ai-03"></a>
+
+### AI-03：Ollama Cloud 设置入口与逐题 preview
+
+1. 在 Ollama App 登录，然后运行 `curl -sS http://localhost:11434/api/status`，确认
+   `cloud.disabled` 为 `false`。已经是 `false` 时直接继续，不要编辑配置。
+
+   只有当它是 `true`，而且测试者确认是自己此前为测试 local-only 而创建的
+   override，才执行以下恢复；如果不知道配置来源，把 AI-03 记为 `NOT RUN`，不要改动
+   用户环境：
+
+   1. 完全退出 Ollama daemon。
+   2. 如果 `~/.ollama/server.json` 由测试者改过且包含
+      `"disable_ollama_cloud": true`，先备份：
+
+      ```bash
+      cp ~/.ollama/server.json ~/.ollama/server.json.omd-home-backup
+      ```
+
+      在有效 JSON 中只移除 `disable_ollama_cloud` 这一个 key，保留所有无关 key；不要删除
+      整个文件。
+   3. 如果测试者此前设置过 launchd 环境变量，运行：
+
+      ```bash
+      launchctl unsetenv OLLAMA_NO_CLOUD
+      launchctl getenv OLLAMA_NO_CLOUD
+      ```
+
+      第二条应无输出。
+   4. 重启 Ollama，再查 `/api/status`，只有 `cloud.disabled: false` 才继续 AI-03。
+
+   这是 AI-03 使用 Cloud provider 的前置恢复，不是 AI-02 额外的状态分支测试。
+2. **Answer provider** 选择 **Ollama Cloud**。
+3. 不选 model，先点 **Check setup**：
+   - OMD Home 读取本地 Ollama App 返回的 Cloud 状态与 model metadata；
+   - 如果本地还没有 Cloud model metadata，提示先在 Ollama 中运行一次 cloud model；
+   - 只有 metadata 同时报告 remote model，且 remote host 严格为 `https://ollama.com`（默认
+     HTTPS 端口）时，model 才能进入 Ollama Cloud dropdown；model 名称含 `cloud` 不足以证明
+     它可用，其他 remote host 必须在 `/api/chat` 前被阻止；
+   - 如果发现符合条件的 models，dropdown 被填充，并提示选择后再次检查。
+4. 选择 cloud-backed model，再点 **Check setup**。成功只代表 credential/session 与 model
+   metadata 可用。
+5. 确认当前 provider 对应的 **Allow … answers** 默认关闭。这个按钮名称应直接复用当前
+   下拉框中显示的 provider 名称，例如 **Allow Ollama Cloud answers**。此时在
+   Home 输入一个真实问题，例如：
+
+```text
+@Summarise my private project notes.
+```
+
+预期显示“先在 Settings → OMD Home → AI answers 启用当前 provider 的 Allow … answers”一类的显式提示，而不是 silent fallback。
+6. 打开当前 provider 对应的 **Allow … answers**，重新提交同一个问题。预览 modal 应先显示 provider、model、
+   destination、bounded evidence excerpts、取消按钮与发送按钮。
+7. 先点 **Cancel**，确认没有发送 Vault evidence，也没有产生 result。准备下面这个可稳定命中
+   单篇笔记的唯一短语问题：
+
+   ```text
+   @Using only the note with the phrase “amber lighthouse checklist”, what does the source explicitly say about the lighthouse review, and what is one cautious planning inference? Label the two parts.
+   ```
+
+8. 先提交一个确定无法命中测试素材的唯一乱码问题，例如
+   `@zzqvnoevidence7391`。预期显示 **No relevant vault evidence was found. No model request was
+   sent.**；不得打开 consent preview，也不得调用 Ollama Cloud。然后再提交第 7 步的单来源问题。
+9. 预览中的 **Selected evidence** 必须显示 `1 source`，且只包含
+   `Manual Test Notes/English Markdown Note.md`。点击 **Send and answer**。
+   vault-relative path 只用于这一个本机 preview，帮助测试者识别来源；真正的 provider prompt
+   只能包含问题、获批片段和 `[S1]` 这类不透明标签，不能包含 Vault 文件名或路径。
+
+   Ollama 官方文档当前明确写明
+   [Ollama Cloud 不支持 structured outputs](https://github.com/ollama/ollama/blob/main/docs/capabilities/structured-outputs.mdx)。
+   因此 Cloud 请求不得依赖不受支持的 `format` 参数；OMD Home 应在 system prompt 中携带精确 JSON
+   schema，并在本机按同一 schema、claim 和 citation 规则校验。模型若只在一个有效 JSON object
+   外包了说明文字或 Markdown fence，可丢弃 wrapper 后继续校验；出现多个候选 object、错误字段、
+   无效 claim 或 citation 时仍须安全阻止，且不得显示 wrapper 或未验证正文。
+10. 成功结果必须满足：
+   - header 显示 `1 source`，正文第一行准确显示 **Based on 1 retrieved note.**；
+   - 不得写成 “the Vault contains …”“all Vault notes …”或以其他方式暗示覆盖整个 Vault；
+   - 正文按顺序显示 **From the note:** 与 **What this may mean:**；不显示 provider 返回的原始 JSON、
+     `source_states` / `model_inference` 字段名、内部标题或重复标题；
+   - **From the note:** 写出原文明确说明的 Thursday 10:30 和 owner Morgan；
+     **What this may mean:** 给出题目要求的一条审慎规划推论，并使用 “may / suggests” 等审慎表达。
+     若题目没有要求推论且证据不足，整个推论分区应隐藏，不能显示空标题或 **None.**；本题则不能
+     隐藏分区来代替所要求的推论；
+   - 每个实质性事实、列表项和推论都紧邻至少一个本次批准来源的 wiki-link 引用；
+     只有末尾 source chips 或总 `Sources:` 列表不算逐结论引用；
+   - 不得出现 `[S1]`、`[E1]` 等内部 placeholder。
+11. 点击 **Copy result**，确认复制结果同样保留单来源范围句、逐结论引用和去重后的 `Sources:`。
+12. 如果 **Keyword + semantic search** 因已保存但未安装的 `bge-m3` 降级，结果仍应成功并显示：
+    **The selected embedding model is not installed in Ollama, so this answer used keyword search only.**
+    同一 warning 下应有 **Install model**、**Use keyword search by default**、**Open retrieval settings**：
+    - 本阶段只确认 **Install model** 存在，不要点击；页面加载、Check setup 和提问均不得自动下载；
+      保持 `bge-m3` 未安装，供 AI-04 D 的“未安装”分支复测，实际安装留到 AI-09；
+    - **Use keyword search by default** 不是再次执行本次检索；本次答案已经自动使用 Keyword search。
+      该按钮应关闭 **Keyword + semantic search** 并保存选择，只影响之后的问题；如果设置原本就是
+      keyword-only，这个按钮不应出现；
+    - **Open retrieval settings** 应打开
+      **Settings → OMD Home → AI answers → Advanced AI controls → Vault retrieval**，
+      并定位到 **Embedding model**。
+13. 检查错误详情、Needs attention、Notice 和 Console：不得泄漏 evidence excerpt、凭证、
+    request body 或不必要的绝对路径，也不得跨 provider fallback。
+
+若第 9 步发送后出现 **did not cite every claim**、**did not clearly separate facts from suggestions**
+或 **could not verify the answer format**，本次应记为
+`FAIL: grounded answer contract`，而不是 Cloud 连接或 embedding 降级通过。未经验证的正文不得显示；
+插件也不得自动重发。重试必须重新提交问题、检查新的逐题 preview 并再次点击 **Send and answer**。
+
+若 provider 已收到批准的证据，但返回 HTTP 200 的 incomplete／empty response，页面必须明确显示
+**The approved vault evidence was sent, but no unverified answer was shown.**，并提示重新提问或缩窄问题；
+不得误报 **OMD Home bridge failed**，也不得说 **Nothing was sent**。该分支记为 provider response
+失败，不算 bridge setup 或成功答案；插件仍不得自动重发。
+
+通过条件：Ollama Cloud 逐题 preview/批准边界成立；单来源答案明确限定为 retrieved note；
+每个关键结论有来源；原文陈述与模型归纳明确分开；embedding 不可用时安全降级为 **Keyword search**，
+而不是把整次云端回答标记为失败。
+
+**2026-10-05 结果：** `amber lighthouse checklist` 返回 **did not cite every claim**，因此本次是
+`FAIL: grounded answer contract`；未经验证正文未显示且没有自动重发，fail-closed safety 为 PASS。
+`@zzqvnoevidence7391` 未打开 preview、未调用 answer model，zero-evidence safety 为 PASS。缺 embedding
+model 的降级说明可以与零证据同时出现，因为它解释本次 evidence check 的检索能力；旧候选写成
+“this answer used keyword search” 容易误解，源码与自动回归现已改为 **This evidence check used keyword
+search only.**，待最终候选原生定向复测。
+
+<a id="test-ai-04"></a>
+
+### AI-04：OpenAI、Anthropic 与 DeepSeek 设置入口
+
+对 **OpenAI API**、**Anthropic API**、**DeepSeek API** 逐一执行。没有真实 developer key 时，
+完成 A，以及 C 第 1 步的 Allow 关闭前置阻止测试；B、C 第 2 步以后、D/E 和 provider 网络错误
+分支记为 `NOT RUN`。不得把缺少 key 误记为缺少 answer model，也不得在没有 key/model 时期待
+preview 出现。
+
+#### A. 无 key 与设置文案
+
+1. 打开 **Settings → OMD Home → AI answers**，在 **Answer provider** 下拉框选择 provider。
+   `provider` 不是另一个菜单或页面。
+2. 在 **Allow … answers** 的说明与逐题发送 preview 中确认固定 destination；Settings 不再显示独立的
+   **Request destination** 行：
+   - OpenAI API：`api.openai.com`
+   - Anthropic API：`api.anthropic.com`
+   - DeepSeek API：`api.deepseek.com`
+   说明必须写明只有逐题 preview 中显示的问题和 evidence excerpts 才可能发送；运行时仍必须拒绝任何
+   不符合当前 provider 固定域名的请求。
+3. 未提供 key 时，**Answer model** 应 disabled，并显示 **Add developer key first**；不得先显示
+   **Choose an answer model**。
+4. 点击 **Check setup**。应显示 credential missing，并说明检查不会读取 Vault 内容；
+   不得请求 model catalog，也不得回退到其他 provider。
+5. 为单独验证执行顺序，暂时打开当前 provider 的 **Allow … answers**，在 Home 提交
+   `@What is in my vault?`。应先提示在
+   **Settings → OMD Home → AI answers** 添加 developer API key；不得显示 model missing，
+   不得执行 Vault retrieval，也不得打开发送预览。完成后恢复 Allow 开关。
+
+#### B. 提供并验证 developer key
+
+只执行与当前测试平台对应的路径。三个 provider 的变量分别是 `OPENAI_API_KEY`、
+`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`。
+
+**macOS Keychain 路径**
+
+1. 在 **Developer key** 的 password 输入框直接粘贴有效测试 key，输入应默认遮蔽；这里接受的是
+   真正的 API key，不是 Obsidian SecretStorage 的条目名称或下拉选择。点击 **Save & check**。
+2. 输入框必须清空，状态明确写出 **macOS Keychain**，并出现 **Remove key**。同一次操作必须立即
+   执行 provider setup check：有可用 credential 时加载真实 model catalog；尚未选择 model 时提示
+   选择 model，而不是要求用户再寻找或记住另一个 **Check setup** 按钮。保存失败时不得继续检查。
+3. key 不得出现在 Notice、Console、Needs attention 或
+   `test-vault/.obsidian/plugins/omd-home/data.json`。
+
+   不要用 `cat data.json`，也不要运行会输出 key 的 `security ... -w`。可用以下只输出字段名
+   或 PASS/FAIL 的方式核验当前 test-vault：
+
+   ```bash
+   OMD_HOME_DATA_FILE="$PLUGIN_DIR/data.json"
+
+   jq -r 'paths(scalars) as $p | $p | map(tostring) | join(".")' "$OMD_HOME_DATA_FILE" \
+     | rg -i 'api.?key|secret|token|credential|authorization' \
+     || echo "PASS: no secret-like setting names"
+
+   if rg -qi 'sk-(proj-|ant-)?[A-Za-z0-9_-]{12,}|OPENAI_API_KEY|ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|Bearer[[:space:]]+[A-Za-z0-9._-]+' "$OMD_HOME_DATA_FILE"; then
+     echo "FAIL: possible credential material in data.json"
+   else
+     echo "PASS: no known credential pattern in data.json"
+   fi
+   ```
+
+   在 macOS 只验证 Keychain entry 存在，不读取其值：
+
+   ```bash
+   security find-generic-password -s "omd/openai/api-key" -a "OPENAI_API_KEY" >/dev/null \
+     && echo "PASS: OpenAI key is in macOS Keychain"
+   ```
+
+   Anthropic 和 DeepSeek 分别替换为
+   `omd/anthropic/api-key` / `ANTHROPIC_API_KEY` 与
+   `omd/deepseek/api-key` / `DEEPSEEK_API_KEY`。
+4. 若 **Save & check** 后还未选 model，应已加载 model catalog 并提示选择 model。
+5. 选择 model 后点击 **Check setup**。成功信息应显示 provider、model、destination，并明确说明这一步只是在验证
+   credential 与 model catalog；真正发送 Vault 问题仍然要回到 Home，显式打开云端答案，并经过 preview
+   与逐题确认。
+
+**Windows/Linux 环境变量路径**
+
+1. 确认 Settings 不显示 secret input、**Save & check** 或 **Remove key**，而是显示当前 provider
+   的准确环境变量名称。
+2. 完全退出 Obsidian。在启动 Obsidian 的同一用户环境中设置对应变量，再重新打开 Obsidian。
+   Linux 临时测试可在一个新的 Terminal 中运行以下命令；输入不会写入 shell history：
+
+```bash
+read -rsp "Provider API key: " OMD_HOME_TEST_KEY
+export OPENAI_API_KEY="$OMD_HOME_TEST_KEY"  # 按 provider 更换变量名
+obsidian
+```
+
+   Windows 可在 **System Properties → Environment Variables → User variables** 新建对应变量，
+   然后完全退出并重新打开 Obsidian。测试后删除该测试变量并重启 Obsidian。
+3. 回到 Settings，确认 Developer key 状态写明来自该环境变量，再执行两次 **Check setup**：
+   第一次加载 catalog，选择 model 后第二次验证。
+
+两条平台路径都要检查：如 provider 返回空 catalog、权限错误、rate limit 或网络错误，记录
+HTTP 类别即可；UI 不得显示 key、Authorization header 或 request body。
+
+#### C. 云回答 preview、答案范围与 billing 边界
+
+1. 使用已通过 B 的 key 和 model。先关闭当前 provider 的 **Allow … answers**，在 Home 提交问题；
+   应在 retrieval 前提示启用当前 provider，不得 silent fallback。
+2. 打开 Allow 后，先提交唯一乱码问题 `@zzqvnoevidence7391`。必须显示
+   **No relevant vault evidence was found. No model request was sent.**；不得打开 preview、消耗
+   provider 请求或 fallback。然后提交 AI-03 的 `amber lighthouse checklist` 单来源问题。
+   预览必须显示当前
+   provider、model、固定 destination、`1 source` 及完整的本次有界 evidence excerpts。
+   预览中显示的 vault-relative path 只是本机给用户核对的标签；发给 provider 的 prompt 使用
+   不透明 source ID，OMD Home 不会额外附加来源文件名或路径。预览中的正文片段会原样发送，因此
+   如果笔记正文自己写有名称或路径，它仍属于用户本次批准发送的 excerpt；确认窗必须准确说明这一点。
+3. 先取消一次，确认不发送；再次提交并批准。在 preview 打开后改名或修改命中的来源，再尝试
+   批准时必须判定 consent 已失效并要求重新 preview，不能用旧批准发送不同的来源身份或内容。
+4. 成功结果必须重复满足 AI-03 的结果合同：
+   - **Based on 1 retrieved note.**
+   - 每个关键事实或推论均有本次批准来源的 wiki-link 引用；
+   - **From the note:** 与 **What this may mean:** 各出现一次且顺序固定；不显示原始 JSON、内部字段名或
+     `[S1]` / `[E1]` 标签。Thursday 10:30、Morgan 属于原文事实；审慎安排建议属于模型推论；
+   - 不暗示检索或阅读了整个 Vault；
+   - provider/model、sources、retrieval mode 和 elapsed time 正确。
+5. 确认 UI 没有暗示 ChatGPT Plus/Pro 或 Claude consumer subscription 包含 API 额度。
+6. provider 返回错误时必须显示安全、可行动的类别：400 为 request/model compatibility，
+   401 为 key rejected，403 为 access denied，429 为 rate/quota，5xx 为 provider temporary
+   failure，timeout/transport 为 network failure；provider 返回结构化 `credentials_invalid` 时也必须
+   明确显示 key 被拒绝并要求替换，不能误报 model catalog unavailable。只有 bridge process 本身无法启动或解析时才可显示
+   **OMD Home bridge failed**；任何错误都不得显示 key、Authorization header、response body
+   或 evidence excerpt。若 Keychain entry 仍存在但 provider 已撤销或拒绝该 key，预期是 **key rejected**；
+   这只通过本条 401 分支。若在插件内点击 **Remove key**，预期应是 **credential missing**，属于 E，
+   两者不可互相代替。
+
+**2026-09-14 已观察到的模型兼容性失败**：测试者选择 OpenAI API / `gpt-4` 后，实际回答请求返回
+HTTP 400；换成同一 provider 的 `gpt-4o-mini` 后可收到有来源引用的回答。当前 provider catalog
+仅证明模型 ID 可见，不能证明该模型支持本插件要求的严格结构化答案。`gpt-4` 的这个失败记录为
+**FAIL：Answer model eligibility / Check setup 未在发送前拦截不兼容模型**，不是 key 或本地 embedding
+失败；详见 [ANSWER-02](ui-backlog.md#answer-02openai-模型可见不等于支持结构化回答)。
+修复后用模拟 provider 请求验证 `gpt-4` 在预览/发送前得到清楚提示，再用真实目录中有权限的
+`gpt-4o-mini` 完成一次经用户批准的合成笔记问答；不得静默切换模型或绕过逐题 preview。
+
+**OpenAI `o3-mini` 回归**
+
+7. 仅当真实 OpenAI catalog 返回 `o3-mini` 且测试 key 有权使用时，选择 `o3-mini` 并重新
+   **Check setup**；否则明确记为 `NOT RUN`，不要用相似名称冒充。
+8. 提交上述单来源问题，检查 preview 后点击 **Send and answer**。请求必须成功返回
+   OpenAI / `o3-mini` 结果，不得因发送不受支持的 temperature 参数而返回 HTTP 400，也不得退化成
+   **OMD Home bridge failed**。人工测试不要求查看 raw HTTP request：确认结果元数据确实为
+   **OpenAI API / `o3-mini`**，且请求成功返回、没有 HTTP 400，即通过真实网络回归。还可在 repo 根目录
+   运行以下定向自动测试，直接验证 OpenAI 与 Anthropic task 的 `temperature` 为 `null`
+   （序列化时省略），DeepSeek 与本地 Ollama 仍为 `0`：
+
+   ```bash
+   node --test --experimental-strip-types \
+     --test-name-pattern='hosted OpenAI and Anthropic tasks omit temperature' \
+     tests/omd-bridge.test.ts
+   ```
+
+   预期匹配用例为 `pass`；同一文件中其他不匹配用例显示 `skipped` 是正常现象。
+
+**DeepSeek `deepseek-v4-pro`／`deepseek-flash` 回归**
+
+9. 仅当真实 DeepSeek catalog 返回对应 ID 且测试 key 有权限时，先选择 `deepseek-v4-pro`，运行
+   **Check setup**，再提交本节同一个单来源问题并批准发送。结果必须完整返回并通过引用与结构校验，
+   不能显示 **DeepSeek stopped before completing the answer**；缺少型号或权限时记为 `NOT RUN`。
+10. 改选 `deepseek-flash`、重新 **Check setup** 后重复。两次结果 header 必须显示各自实际型号，
+    不能因为 `v4-pro` 较慢就静默回退到 Flash。结构化 DeepSeek 问答会显式关闭默认 thinking，避免
+    reasoning 占用有界输出预算；若仍失败，记录安全错误类别、耗时与型号，不记录原始响应或凭证。
+
+**2026-11-18 disclosure 修复后的 Q6 最短复测（本轮只执行这里）**
+
+1. 先在 **Settings → OMD Home → OMD** 点击 **Check again**。应显示 OMD package
+   `0.3.0b4.dev2` 或更高；更低版本不要继续，它仍会把 DeepSeek disclosure 标成 unavailable。
+2. 选择 **DeepSeek API / `deepseek-flash`**，点击 **Check setup**。必须显示 setup ready；不能先显示
+   ready、到 Home 后才报 **could not prepare the exact evidence disclosure**。再切到
+   `deepseek-v4-pro` 只做一次 **Check setup** ready，然后切回 Flash；无需为 Pro 再发送同题。
+3. 在 Home 提交：
+
+   ```text
+   @Using only the note with the phrase “amber lighthouse checklist”, what does the source explicitly say about the lighthouse review, and what is one cautious planning inference? Label the two parts.
+   ```
+
+   preview 必须显示 DeepSeek、`deepseek-flash`、`api.deepseek.com` 与 1 source。Data handling 必须如实
+   说明：DeepSeek API 默认启用 per-account disk context cache；未使用的 cache 通常在 hours to days
+   内清理；已审核的官方条款没有公开 downstream-app evidence 的完整 API input/output retention 或
+   storage-location 规则；API 文档没有说明可供 OMD 使用的 cache opt-out，因此 OMD 不承诺 zero
+   retention。缺任何一项都记 FAIL，不批准发送。
+4. 第一次点 **Cancel**，确认 **No vault evidence was sent**。再次提交同题，取得新的 preview 后批准。
+   结果必须为 **Based on 1 retrieved note**；Thursday 10:30 与 Morgan 只能位于 **From the note**，审慎的
+   准备／协调建议只能位于 **What this may mean**；每个 claim 都引用
+   `[[Manual Test Notes/English Markdown Note.md]]`，不得显示内部 `[S#]`／`[E#]`。
+5. 若第 2 步因 disclosure 不完整、过期或旧 OMD 而失败，Check setup 必须立即显示具体原因和
+   **No vault evidence was sent**，且不得请求 model catalog 或执行 Vault retrieval；这属于安全 PASS，
+   但 Q6 的 DeepSeek 成功路径仍不能关闭。
+
+**2026-11-18 修复候选实机证据**：步骤 1–3 与步骤 4 的首次 Cancel 已通过。test-vault 显示
+`0.3.0b4.dev2`，`deepseek-v4-pro` 与 `deepseek-flash` 均 Check setup ready；Flash preview 显示
+DeepSeek、正确 model／destination、1 source、231-token estimate、完整 Data handling 与正确的唯一
+fixture excerpt。点击 Cancel 后明确显示 **Cloud answer cancelled. No vault evidence was sent.**。
+
+**2026-11-21 最终原生结论：Q6 PASS / CLOSED。** 再次提交同题并批准后，DeepSeek Flash 返回
+**Based on 1 retrieved note**；Thursday 10:30、Morgan 与 stable phrase 均作为逐项引用的 Source states，
+唯一 planning inference 使用审慎措辞并引用同一 note，无内部 `[S#]`／`[E#]`。不再重复 hosted 固定题。
+
+<a id="test-ai-04-structured"></a>
+
+**结构化答案与失败分类回归（各 provider 共用）**
+
+1. 检查本节 C 第 4 步已有的成功结果，不必为此额外付费发送：两段标题由 OMD Home 固定生成，
+   各结论旁有来源引用；复制结果也应保持相同分区和引用。引用指向获批来源并不自动证明结论受
+   原文支持，仍须人工核对 Thursday 10:30、Morgan 及推论的证据关系。
+2. 正常 provider 不一定能稳定制造坏 JSON 或漏引用；不要通过反复发送真实 Vault 内容来碰运气。
+   在 repo 根目录运行以下受控回归，使用模拟响应，不读取 Vault，也不调用云 API：
+
+   ```bash
+   node --test --experimental-strip-types \
+     --test-name-pattern='AI tasks request a bounded structured answer|structured AI answers render fixed sections and reject unverified citations|OmdBridge rejects malformed or ungrounded AI answers before they reach the UI|maps hosted provider failures to safe actionable messages|Ollama Cloud uses a prompt-carried schema' \
+     tests/omd-bridge.test.ts
+   ```
+
+   预期匹配的 `5` 个用例均为 `pass`；不同 Node 版本可能省略其他用例或将其标为 `skipped`。
+   依次核对：支持原生 structured output 的 provider task 请求 schema；Ollama Cloud 不发送不受支持的
+   `format`，而是在 prompt 携带 schema，并只恢复一个通过同一严格校验的 object；缺失/错误结构或
+   空白 claim 被拒绝且不回显原始模型正文；缺失、无效或
+   不属于本次检索的引用被拒绝；格式错误和引用错误在结果区得到不同的安全提示。
+3. 错误归类应准确：缺少或无效引用提示 **did not cite every claim**；受控测试中 bridge 报告
+   分区校验 warning 时提示 **did not clearly separate facts from suggestions**；provider 未返回可解析的
+   结构化结果提示 **could not verify the answer format**。
+   三者都不能展示未经验证的正文，也不能变成笼统的 **OMD Home bridge failed**。如果真实请求
+   偶发命中其中一类，记录 provider/model 与类别；重新发送前必须重新 preview 和确认。
+
+#### D. Hosted answer 时的本地 embedding 降级
+
+本节验证的是：Hosted provider 继续负责生成答案；本机 Ollama 只负责可选的 embedding。
+因此 embedding 失败时，检索应退回 **Keyword search**，不能把整个云回答标记为失败。
+Hosted provider 返回结构化的原文事实与审慎推论；OMD Home 将其呈现为固定的
+内部 contract 仍要求 `source_states` / `model_inference` 两段，并在显示前校验每项引用；用户界面只呈现
+**From the note(s):** 与非空的 **What this may mean:**。D1/D2 只有在
+**答案正文与 Keyword search 降级诊断同时可见**时才通过；仅看到 preview 或降级 warning 不算通过。
+
+**固定测试例子与前置状态**
+
+1. 选择一个已通过 C 的直连 hosted provider，例如 **OpenAI API / `o3-mini`**，保持该 provider
+   的 **Allow … answers** 已开启。Anthropic API 或 DeepSeek API 也可以，但下列步骤必须始终使用
+   同一个 provider/model。
+2. **本节不要使用 Ollama Cloud 作为 answer provider**。停止 Ollama daemon 会同时让 Ollama Cloud
+   provider 不可用，无法隔离验证“云回答正常、只有本地 embedding 降级”。
+3. 确认以下 fixture 仍存在：
+   `Manual Test Notes/English Markdown Note.md`。所有手工分支都提交同一个稳定的单来源问题：
+
+   ```text
+   @Using only the note with the phrase “amber lighthouse checklist”, what does the source explicitly say about the lighthouse review, and what is one cautious planning inference? Label the two parts.
+   ```
+
+4. 在 **Settings → OMD Home → AI answers → Advanced AI controls → Vault retrieval**：
+   - 开启 **Keyword + semantic search**；
+   - **Embedding model** 选择 `bge-m3`；
+   - 关闭 **Semantic rerank**，以便只观察 embedding-to-keyword 降级；
+   - 本节不要点击 **Install model**，实际安装留到 AI-09。
+
+**D1. `bge-m3` 未安装（手工 Core）**
+
+1. 在 Terminal 运行 `ollama list`，确认输出中没有 `bge-m3`；Settings 中应显示
+   `bge-m3 (saved, not installed)`。如果它已经安装，不要为了本测试删除用户模型；本分支记为
+   `NOT RUN: bge-m3 already installed`，继续 D2。
+2. 提交上面的固定问题。即使 embedding 预检查失败，仍应打开逐题 preview；确认显示当前 hosted
+   provider/model、`api.openai.com`（或当前 provider 的准确 destination）、`1 source`，且证据只来自
+   `Manual Test Notes/English Markdown Note.md`。
+3. 点击 **Send and answer**。预期云回答成功，而不是 **OMD Home bridge failed**、provider 被切换，
+   或再次要求选择 answer model。
+4. 结果必须同时满足：
+   - header 仍显示测试开始时选择的 hosted provider/model 和 `1 source`；
+   - retrieval badge 显示 **Keyword search**，不能显示 **Keyword + semantic search · bge-m3**；
+   - 正文以 **Based on 1 retrieved note.** 开头；**From the note:** 写出原文明确说明的
+     Thursday 10:30 与 owner Morgan，**What this may mean:** 给出有标签的审慎安排建议；
+     两段的每项关键结论都有这篇笔记的引用，不得只在末尾统一列来源；
+   - warning 精确显示：**The selected embedding model is not installed in Ollama, so this answer used keyword search only.**
+   - warning 下只显示 **Install model**、**Use keyword search by default**、**Open retrieval settings** 三个动作；
+   - 没有自动下载模型、自动重新发送、自动切换 provider 或把 `bge-m3` 当 answer model。
+5. 先点击 **Open retrieval settings**，预期直接打开 AI answers、展开 Advanced AI controls，并定位到
+   **Embedding model**。返回结果后点击 **Use keyword search by default**，预期按钮变为
+   **Keyword search is default**，且 **Keyword + semantic search** 被关闭并保存。这里保存的是以后
+   问题的默认值，本次答案不会再次运行。为了继续 D2，
+   随后手动重新开启 **Keyword + semantic search**，仍选择 `bge-m3`。
+
+**D2. Ollama daemon 不可达（手工 Core）**
+
+1. 保持同一个直连 hosted provider、answer model 和 Allow 开关。确认 **Keyword + semantic search** 已重新开启、embedding
+   model 仍为 `bge-m3`。
+2. 按 [AI-02 第 2 步](#test-ai-02)停止 Ollama：从菜单选择 **Quit Ollama**；若 daemon 仍在运行，在 Activity
+   Monitor 中只退出 `Ollama` / `ollama` 相关进程。运行：
+
+   ```bash
+   curl -sS --max-time 2 http://localhost:11434/api/status
+   ```
+
+   只有显示 connection refused/failed 才继续；如果仍返回 JSON，本分支的前置状态尚未建立。
+3. 再次提交固定问题，检查 `1 source` preview 后点击 **Send and answer**。
+4. 结果必须同时满足：
+   - hosted provider 的答案仍成功返回，provider/model 没有改变；
+   - retrieval badge 为 **Keyword search**；
+   - 正文满足 D1 的单来源、两段标签与逐项引用要求；
+   - warning 精确显示：**The local Ollama service could not be reached, so this answer used keyword search only.**
+   - warning 下只显示 **Use keyword search by default** 与 **Open retrieval settings**；绝对不能显示 **Install model**；
+   - 不得误报 `bge-m3` 未安装、developer key 无效或整个 bridge failed。
+5. 测试后立即重新打开 Ollama，等待下面命令重新返回 JSON，再继续其他案例：
+
+   ```bash
+   curl -sS --max-time 2 http://localhost:11434/api/status
+   ```
+
+**2026-09-14 人工反馈记录（D2 替代问题）**：使用 **OpenAI API / `gpt-4o-mini`**
+询问 `Sources/PDFs/Presentation - Deep Learning in Nematode Detection.md`，已收到以
+**Based on 1 retrieved note.** 开头的回答；`Source states:` 的各项结论均带该笔记的逐项引用，
+`Model inference:` 为 `None`。测试者报告 hosted provider/model 保持不变、badge 为
+**Keyword search**，warning 准确为 **The local Ollama service could not be reached, so this answer used
+keyword search only.**，且只有 **Use keyword search by default** 与 **Open retrieval settings**，没有
+**Install model**、missing-model、key 或 bridge 错误。**D2 的 hosted-answer/本地 embedding
+故障隔离变体：PASS（依据测试者反馈；未独立核对 UI 截图或 daemon 停止命令）。**
+这次并非上方固定的 `amber lighthouse checklist` 问题，且没有需要审慎推论的回答，因此
+**固定题 D2 仍待执行**；须使用固定问题并核对 Thursday 10:30、Morgan、审慎建议和每项引用，
+才能将完整 D2 标为 PASS。不要把这条记录当成 `bge-m3` 的语义检索成功证明。
+
+**D3. 已安装模型不支持 embedding（自动化；手工 `NOT RUN`）**
+
+正常 dropdown 会过滤或禁用 completion-only model。手工测试不要编辑 `data.json`、不要把
+`qwen3:4b-instruct` 强塞进 embedding setting。把本分支记录为
+`NOT RUN: requires controlled incompatible-model injection`，然后在 repo 根目录运行：
+
+```bash
+node --test --experimental-strip-types \
+  --test-name-pattern='selected_model_incompatible|hybrid_retrieval_model_unsupported' \
+  tests/main-runtime-regressions.test.ts
+```
+
+预期 `2 pass`：一个用例验证预检查把 `selected_model_incompatible` 分类为 embedding unsupported
+并关闭本次语义检索；另一个验证结果 warning 使用 **does not support embeddings**，且只提供
+**Use keyword search by default**、**Open retrieval settings**，不提供 **Install model**。
+
+**D4. daemon 可达，但 catalog/model inspection 失败（自动化；手工 `NOT RUN`）**
+
+这需要让 `/api/status` 成功，同时只让 `/api/tags` 或 `/api/show` 返回受控错误。普通手工环境不要
+代理或篡改 Ollama 响应；记录为 `NOT RUN: requires controlled catalog/show failure injection`，运行：
+
+```bash
+node --test --experimental-strip-types \
+  --test-name-pattern='reachable Ollama catalog fails|reachable Ollama model inspection fails' \
+  tests/main-runtime-regressions.test.ts
+```
+
+预期 `2 pass`：catalog failure 与 model-inspection failure 都归类为
+**The embedding check could not finish, so this answer used keyword search only.**，而不是 daemon
+unreachable 或 model not installed；恢复动作只有 **Use keyword search by default** 与 **Open retrieval settings**。
+
+**与 embedding 降级独立的答案校验失败**：如果 D1/D2 发送后出现缺少引用、
+分区格式错误或结构化答案无效等 grounded-answer 错误，记录本次为
+`FAIL: grounded answer contract`，附上 provider/model、错误类别及是否显示 Keyword search 诊断；
+**不得**把它记为 embedding 降级通过，也不要推断这次回答来自本地模型。未经校验的回答不应展示。
+插件不得自动再次发送；若要重试，重新提交同一问题、检查新的 evidence preview，
+再亲自点击 **Send and answer**。重试成功也要保留第一次失败记录，以便追踪间歇性问题。
+三类错误的准确提示及无需真实 API 的复现步骤见上方 **结构化答案与失败分类回归**；不要把
+“标题正确但模型没有返回问题所要求的推论”记为通过。
+
+| 分支 | 回答是否成功 | Retrieval | 必须出现的动作 | 禁止出现 |
+| --- | --- | --- | --- | --- |
+| D1 未安装 | 是 | Keyword search | Install model / Use keyword search by default / Open retrieval settings | 自动下载、provider 切换 |
+| D2 daemon 不可达 | 是 | Keyword search | Use keyword search by default / Open retrieval settings | Install model、model-not-installed 误报 |
+| D3 不支持 embedding | 自动化验证 | Keyword search | Use keyword search by default / Open retrieval settings | Install model |
+| D4 catalog/show 失败 | 自动化验证 | Keyword search | Use keyword search by default / Open retrieval settings | Install model、daemon-unreachable 误报 |
+
+通过条件：D1、D2 的答案及 Keyword search 诊断同时满足各自全部预期；D3、D4 的定向自动测试各 `2 pass`；四个分支都不
+自动切换 provider、不自动发送第二次请求，且 **Install model** 只出现在确知模型未安装的 D1。
+
+#### E. 最后移除或撤销 key
+
+必须在 C/D 的 preview、真实发送和 embedding 降级都完成后才执行，避免提前删 key 使后续步骤
+无法测试。
+
+1. macOS Keychain 路径点击 **Remove key**，再点 **Check setup**，应回到 credential missing。
+2. Windows/Linux 环境变量路径不能由插件删除。完全退出 Obsidian，删除环境变量，重新打开后
+   点 **Check setup**，应回到 credential missing。
+3. UI 必须准确说明 key 来源，不能在环境变量路径上假装已经保存或能够删除凭证。
+
+通过条件：credentials 不写入插件设置；macOS 只通过 Keychain 提供 in-app Save/Remove；
+Windows/Linux 只显示环境变量路径；credential → model → retrieval → preview → send 的顺序成立；
+hosted 答案具备准确范围、逐结论引用和 provenance；三类 embedding 原因不互相混淆；错误安全、
+可行动且不泄漏 secrets。
+
+**2026-10-05 DeepSeek 截图结论：** `deepseek-flash` 在 embedding model missing 与 local Ollama daemon
+unreachable 两个分支均成功退回 Keyword search；两类原因、可用动作及 provider/model/source/mode/time
+显示正确，这两个 fallback 子分支记 PASS。截图未完整显示 **Model inference** 内容、Copy result 和
+逐题 preview，因此只记 hosted grounded answer PARTIAL，不能由这些截图推导整项 AI-04 PASS。
+
+<a id="test-ai-05"></a>
+
+### AI-05：Provider 切换、每个 provider 的 model 记忆与本地工作流隔离
+
+1. 为至少三个 provider 分别选择不同 model ID。
+2. 按 `Ollama on this computer → OpenAI API → Anthropic API → Ollama Cloud → Ollama on this computer`
+   切换，再确认每个 provider 恢复自己的 model，不把一个 provider 的 ID 带到另一个。
+3. 在 hosted provider 下展开 **Advanced AI controls**。确认：
+   - **Keyword + semantic search** 与 embedding model 仍明确标注为本地；
+   - Local writing model 仍然是单一共享模型，Review links and tags 与 Polish Markdown 只是在不同动作中使用它；
+   - Answer provider 不会改变 capture/enrichment 的 provider。
+4. 在 hosted provider 选中时运行一次 **Suggest links and tags** 或 **Polish Markdown**。若未显式
+   启用云端答案，这些本地动作仍应走 loopback Ollama；Answer provider 本身不应重定向本地写入
+   工作流。
+5. Reload plugin 后重复步骤 2，确认 model memory 持久化，但 API key 不在 `data.json`。
+
+通过条件：没有跨 provider model 污染、fallback 或隐藏 egress；回答 provider 与本地
+capture/enrichment 的职责边界清楚。
+
+**2026-10-21 结果：** Claude hosted credential 按计划不可用时，**Generate AI tags** 仍由本地
+writing model 成功完成，步骤 4 的 local workflow isolation 记 PASS。自动 state scan 已确认五个 provider
+各自保存 model memory，且 `data.json` 不含 API key／secret。只剩步骤 1／2／5 的原生三 provider 切换与
+reload 后可见选项核对，因此 AI-05 overall 为
+PARTIAL，不能只凭 AI tags 成功改为整项 PASS。
+
+<a id="test-ai-06"></a>
+
+### AI-06：Command Palette 诊断、busy 状态与生命周期
+
+前置：选择 **Ollama on this computer**。如果你正在验证 Ollama daemon 的 local-only 政策，
+再额外完成 AI-02 的可选步骤；普通本地测试不需要把 Cloud 关回去。
+
+1. Command Palette 依次运行：
+   - **OMD Home: Refresh local AI models**
+   - **OMD Home: Check local AI connection**
+   - **OMD Home: Smoke local AI: Vault question**
+   - **OMD Home: Smoke local AI: Note enrichment**
+   - **OMD Home: Smoke local AI: Polish Markdown**
+   - **OMD Home: Test local AI embeddings**
+   Recorder wrapper 不属于本 Case；放在 [CMD-01](#test-cmd-01) 测试。
+2. Smoke 只发送 synthetic prompt，不读取或写入 Vault。每次从 **Settings → OMD Home → Optional
+   local AI** 附近观察对应 workflow rail 或 feedback：开始时显示 busy／checking，完成后显示该动作的
+   success 或准确 failure。记录 latency 和结果。
+3. 不要用 Home 的 **Current task** 判断 Smoke／embedding 是否运行。Current task 只描述
+   capture／enrichment 工作流；这些诊断也不承诺在 Home 提供 **Cancel**。运行较慢诊断时切离 Settings、
+   关闭 OMD Home tab，再回到 Settings；plugin-level action 应完成或保留准确的最终反馈，且不产生第二个
+   重叠动作。
+4. 在一个诊断进行时，确认相邻的 Check setup、Save／Remove credential、embedding check 等共享
+   setup 动作清楚显示 busy／disabled。连续点击不得启动重复 request。不要用逐次打开
+   Command Palette 的方式制造并发：短 smoke 往往会在下一次搜索命令前完成，三项随后都成功只证明它们
+   顺序完成。稳定的原生复测方法是给 **Smoke local AI: Note enrichment**、**Check local AI connection**
+   和 **Test local AI embeddings** 临时设置三个无冲突 Hotkeys；必要时先在 macOS Terminal 执行
+   `ollama stop qwen3:4b-instruct` 制造冷启动，再快速按 smoke 两次、check 一次、embedding 一次。第一项
+   active 时其余动作必须立即显示 busy／disabled 或 **Another AI setup action is already running…**；完成后
+   移除临时 Hotkeys。`ollama stop` 是 Terminal 命令，不是 Developer Console JavaScript。
+5. 动作 active 时确认 provider、endpoint 与 model 控件 disabled。当前 UI 不允许此时人工改变 tuple；
+   旧 tuple 迟到结果不能覆盖新设置的边界由自动回归验证，不要求人工绕过 disabled 控件。
+6. 最后在 Community plugins disable／reload OMD Home。运行中的 request 必须取消；重新启用后新建的
+   Settings 实例不得显示 unload 前的 busy，Console 不得出现未处理 Promise rejection；第一次诊断必须建立
+   新状态，不能复用 unload 前的 completion。
+7. 需要验证用户可见 **Cancel** 时，使用 CAP-06 的 capture／transcription Case；不要把 capture 的
+   Current task／Cancel 合同套到本 Case 的 Smoke 命令。
+
+通过条件：低频诊断不占据主设置页；Settings 邻近区域准确显示 busy 与最终反馈；共享 setup 动作不
+重叠；自动 tuple 失效回归与原生 unload 后都没有 stale ready、未处理 rejection 或僵尸进程。Recorder 只在 CMD-01
+验证，Current task／Cancel 只按 capture／enrichment Case 验证。
+
+**2026-11-24 结果：`PASS；native baseline + automated lifecycle gate`。** 原生 Obsidian 中模型刷新找到 4 个模型；
+Check setup 后 Vault Q&A、Note enrichment、Polish Markdown 均为 ready；三个 synthetic smoke 完成，
+System 显示 AI last action success；embedding 检查通过（`459ms · 2 vectors × 384 dims`）。Home 的
+Current task 全程保持 **No task running**，符合修订后的职责。确定性生命周期回归直接调用生产
+enrichment smoke、Check setup、embedding 与 `onunload`：第一项挂起时，其余三个入口不产生额外 Ollama
+request；unload 会 abort pending signal 并冻结旧实例，迟到 completion 不能发布；fresh plugin instance 不继承
+旧 busy，并可建立全新成功状态。Refresh models 与 Check setup 的迟到结果也不能在 unload 后写回状态；安装与 Cloud setup
+使用相同 action-token 边界。这里运行的是 HTTP request／AbortController，不创建 OS child，因此无需再用
+人工 hotkey 猜测极短 active 时间窗或检查 orphan child。
+
+只补以下原生差额，已通过的 Refresh／Check／三项 smoke／embedding 不再重复：
+
+- [x] **Step 4 · 重复点击（AUTOMATED PASS）：** 生产入口在同一 pending promise 中触发 smoke ×2、
+  check ×1、embedding ×1；只有第一项到达 Ollama，其余均走 busy 防护。
+- [x] **Step 5 · tuple 失效（AUTOMATED PASS）：** active 时 UI 会禁用 provider／endpoint／model，
+  因此没有可执行的原生手工路径；自动回归已确认旧 tuple 的迟到结果不能覆盖新状态。
+- [x] **Step 6 · lifecycle（AUTOMATED PASS）：** 真实 `onunload` abort pending request 并使旧结果失效；
+  新实例第一次诊断建立 fresh 状态。自动回归已验证 promise 正常收敛且无 stale completion；原生 Console
+  没有额外可观察行为要求。
+
+<a id="test-ai-07"></a>
+
+### AI-07：本地 Omnibox 结果、证据、复制与返回用时
+
+1. 选择 **Ollama on this computer**，使用已通过 AI-02 的 text model。
+2. Python executable 与 bridge override 都留空。
+3. 先输入唯一乱码问题 `@zzqvnoevidence7391`。预期显示
+   **No relevant vault evidence was found. No model request was sent.**；不得调用本地 completion
+   model，也不得留下空的 result shell。
+4. 在 Home 输入：
+   `@Who owns the lighthouse review, and when is it scheduled?`
+   预期 **From the note:** 回答 Morgan、Thursday 10:30，并逐项引用
+   `[[Manual Test Notes/English Markdown Note.md]]`；题目未要求推论时，不显示空的
+   **What this may mean:** 或 **None.**，也不得编造额外计划。
+   再输入：
+   `@中文测试笔记里谁负责检查阳台番茄，什么时候检查？`
+   预期 **From the note:** 回答小林、周五下午三点，并逐项引用
+   `[[Manual Test Notes/中文 Markdown 测试笔记.md]]`。
+5. 确认回答出现在独立结果区域，不与 Home widgets 重叠。
+6. Header 显示 provider/model、source 数、**Keyword search** 或 **Keyword + semantic search**，以及 **Returned in …**。
+7. 点击 **Copy result**，粘贴到临时 Markdown 笔记。
+8. 复制内容应包含 **From the note:**、题目需要且实际非空时的 **What this may mean:**、完整回答
+   与去重后的 `Sources:`；来源使用 Obsidian wiki links，不含原始 JSON、内部字段名或 `[S1]` / `[E1]`。
+9. Copy 按钮短暂变成 **Copied**；键盘也能触发。
+10. 滚动长结果，切换 light/dark theme，再关闭结果；widgets 应自然回流。
+11. 重复一次问题，确认不存在 `[S#]` 或 `[E#]` placeholder。
+
+通过条件：Copy 不修改原笔记；时间从用户提交问题开始计算到最终结果；中文及含空格路径可
+准确恢复；每个实质性结论有邻近来源引用且原文事实/模型推论不混写。结构或引用不合格时不显示
+未经验证的正文，错误显示在结果区并同步到带时间戳的 Needs attention；失败分类复现见
+[AI-04 的结构化答案回归](#test-ai-04-structured)。
+
+<a id="test-ai-08"></a>
+
+### AI-08：新的 Section-aware Vault Q&A benchmark
+
+这些 fixtures 是原创 synthetic Markdown，不依赖旧的 bouldering captures。当前推荐使用新的
+Phase 2 set 来验证 settings-aware retrieval 与 source hygiene。先从源码目录执行：
+
+```bash
+cd "$REPO_ROOT"
+mkdir -p "$TEST_VAULT/Sources/Benchmark"
+cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Phase 2 Answer Rules.md" \
+   "$TEST_VAULT/Sources/Benchmark/"
+cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Cloud Setup Checklist.md" \
+   "$TEST_VAULT/Sources/Benchmark/"
+cp "docs/benchmark-vault/Sources/Benchmark/OMD Home Release Checklist.md" \
+   "$TEST_VAULT/Sources/Benchmark/"
+```
+
+执行 hard preflight；任何一项显示 `MISSING` 都必须立刻停止，本次记为 `INVALID SETUP / NOT RUN`，
+不能用其他 Vault 笔记产生的答案判断产品 PASS／FAIL：
+
+```bash
+for fixture in \
+  "OMD Home Phase 2 Answer Rules.md" \
+  "OMD Home Cloud Setup Checklist.md" \
+  "OMD Home Release Checklist.md"
+do
+  test -f "$TEST_VAULT/Sources/Benchmark/$fixture" \
+    && printf 'READY  %s\n' "$fixture" \
+    || printf 'MISSING %s\n' "$fixture"
+done
+```
+
+只有三行均为 `READY` 才继续。在 Obsidian Quick switcher 逐一打开三个 exact filename，等待 Vault
+索引更新，并确认 Search `path:"Sources/Benchmark"` 能看到三篇。前两篇是 ground truth；release
+checklist 是 distractor。评分细则位于 `docs/benchmark-vault/benchmark-cases.md`。
+
+**执行顺序：先完成 ANSWER-02-R1，再导入这些 fixtures。** 提前导入会改变该 Case 的检索语料，
+使前后结果不可比较。
+
+<details>
+<summary>2026-10-05 无效环境运行：保留的 P01–P05 原始答案证据</summary>
+
+本轮运行时三篇 Phase 2 fixtures 全部缺失，所以结论是 **INVALID SETUP / NOT RUN**。以下回答证明
+检索落到了无关的既有笔记，不能据此判定 AI-08 产品失败或通过。每题 a／b／c 三次输出相同；为
+避免重复，仅保留一份完整正文和全部 sources。
+
+#### P01 recorded response（a／b／c identical）
+
+原问题：
+   `@What stays local in the Phase 2 answer flow, even for cloud providers?`
+
+Based on 3 retrieved notes.
+
+Source states:
+- The install script creates the local Obsidian fixture, and captures or notes created while testing must remain local. [[README.md]]
+- A deterministic workflow for storing and reviewing a blue key at Orchid station on Tuesday is outlined, with a focus on local research review. [[OMD Manual Tests/RC P2 Conflict.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Sources/Documents/Small local capture fixture-4.raw.md]]
+- [[README.md]]
+- [[OMD Manual Tests/RC P2 Conflict.md]]
+
+#### P02 recorded response（a／b／c identical）
+
+原问题：
+`@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?`
+
+Based on 3 retrieved notes.
+
+Source states:
+- Dense embeddings represent data as lower-dimensional vectors where every value is non-zero or near-zero and capture semantic relationships between data points. [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.md]]
+- Dense embeddings are typically lower in dimensionality than sparse embeddings and distribute information across all dimensions, capturing semantic relationships between data points. [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.raw.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Manual Test Notes/Synthetic OMD Inbox Capture.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.raw.md]]
+
+#### P03 recorded response（a／b／c identical）
+
+原问题：
+`@Which actions share the local writing model, and how are they different?`
+
+Based on 1 retrieved note.
+
+Source states:
+- Review is an explicit user decision while summary links and tags are optional proposal items. [[OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[OMD Manual Tests/RC P2 Multilingual Long Filename 中文 العربية.md]]
+
+#### P04 recorded response（a／b／c identical）
+
+原问题：
+`@What should the recording command surface say, and what should it avoid guessing?`
+
+Based on 5 retrieved notes.
+
+Source states:
+- The recording command surface should display metadata including URL, platform, language, transcript status, and a warning about transcript duration exceeding source duration. [[Sources/Audio/Recording 20260909203142.md]]
+- The command surface should avoid guessing or relying on example.com as a functional service, since it is designated for documentation examples only. [[Sources/Web/example.com.raw.md]] [[Sources/Web/example.com.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Sources/Audio/Recording 20260909203142.md]]
+- [[Sources/Web/example.com.raw.md]]
+- [[Sources/Web/example.com.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.md]]
+- [[Sources/Web/Dense and Sparse Embeddings A Comprehensive Overview-2.raw.md]]
+
+#### P05 recorded response（a／b／c identical）
+
+原问题：
+`@Summarise the phase 2 answer flow in one paragraph, using only the two primary notes.`
+
+Based on 2 retrieved notes.
+
+Source states:
+- Web adapters should preserve a specific paragraph without sending it through image OCR. [[Sources/Documents/Plain web text fixture.raw.md]]
+- A synthetic fixture behaves like an unreviewed capture to test Inbox Pin and Unpin actions before a real OMD conversion. [[Manual Test Notes/Synthetic OMD Inbox Capture.md]]
+
+Model inference:
+- None.
+
+Sources:
+- [[Sources/Documents/Plain web text fixture.raw.md]]
+- [[Manual Test Notes/Synthetic OMD Inbox Capture.md]]
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P01 PASS（3／3，均为 4／4）</summary>
+
+原问题：
+`@What stays local in the Phase 2 answer flow, even for cloud providers?`
+
+三次回答正文与 sources 完全一致：
+
+> Based on 2 retrieved notes.
+>
+> Source states:
+> - Local Ollama remains the default answer path. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - Retrieval and source selection stay local. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - The selected provider and model stay fixed for the request. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - Cloud answers require a preview and explicit approval before any bounded evidence excerpts leave the device. [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - OMD Home does not silently switch to another provider. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+>
+> Model inference:
+> - None.
+>
+> Sources:
+> - [[Sources/Benchmark/OMD Home Phase 2 Answer Rules.md]]
+> - [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+
+评分：
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+判定依据：三次均覆盖 local default、local retrieval／source selection、固定 provider／model、cloud
+preview／explicit approval 与 no provider fallback；只引用 Phase 2 的两篇 primary notes，没有引用
+`OMD Home Release Checklist.md` distractor，没有编造发送路径，也没有泄漏 `[S#]`／`[E#]`。
+
+**结论：P01 原生质量门禁通过；P02 结果见下一证据块，AI-08 整体仍需完成 P03–P06。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P02 PASS（3／3，均为 4／4）</summary>
+
+原问题：
+`@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?`
+
+三次回答正文与 sources 完全一致：
+
+> Based on 1 retrieved note.
+>
+> Source states:
+> - Install and start Ollama. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Sign in with ollama signin. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Pull a cloud-backed model such as gpt-oss:120b-cloud. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Run the cloud model once so Ollama exposes metadata. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - In OMD Home, choose Ollama Cloud, select the model, and press Check setup. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Turn on Allow cloud answers before sending a vault question. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+> - Review the preview modal and approve or cancel the request. [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+>
+> Model inference:
+> - None.
+>
+> Sources:
+> - [[Sources/Benchmark/OMD Home Cloud Setup Checklist.md]]
+
+评分：
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+判定依据：三次均按 primary Cloud setup note 的原始顺序完整给出 install／start、sign-in、pull、
+首次运行以暴露 metadata、在 OMD Home 选择模型并 Check setup、启用 cloud answers，以及逐请求
+preview approve／cancel 七步；只引用唯一所需的 primary note，没有引用
+`OMD Home Release Checklist.md` distractor，没有编造额外发送路径，也没有泄漏 `[S#]`／`[E#]`。
+
+**结论：P02 原生质量门禁通过；P03–P06 的后续结果见下方证据块。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P03 PASS（3／3，均为 4／4）</summary>
+
+原问题：
+`@Which actions share the local writing model, and how are they different?`
+
+三次回答完全一致，均说明 links／tags 与 capture polish 共用一个 local writing model；前者为
+review-first，后者为 per-capture optional，并补充 polish 关闭时 raw Markdown path 不变。三次都只引用
+`OMD Home Phase 2 Answer Rules.md`，无 distractor、编造或 placeholder 泄漏。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+**结论：P03 原生质量门禁通过。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P04 RETEST（3／3 均为 3／4）</summary>
+
+原问题：
+`@What should the recording command surface say, and what should it avoid guessing?`
+
+三次正文均正确回答 wrapper 应名为 **Start or stop recording**、不应创建第二个 recorder，并且只存在
+Start／Stop commands 时 UI 不应猜测状态；相应 claims 也都邻近引用正确的 Rules primary note。
+
+但是三次 `Sources` 都额外列出四篇无关笔记：
+
+- `Sources/Audio/Recording 20260909203142.md`
+- `Sources/Benchmark/8 Balcony Tomato Tips for Small-Space Beginners.md`
+- `Sources/Web/example.com.raw.md`
+- `Sources/Web/example.com.md`
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 2 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 3 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+
+题目被重复粘贴了一份相同的 `3rd`，本轮按测试计划只计前三次。P04 发布门槛为 4／4，因此不能以
+正文正确替代 source hygiene；重测时 `Sources` 只能保留 Rules primary note。
+
+**结论：P04 未达到发布门槛，需要定向重测。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P05 PASS（3／3，均为 3／4）</summary>
+
+原问题：
+`@Summarise the phase 2 answer flow in one paragraph, using only the two primary notes.`
+
+三次均覆盖 local Ollama default、local retrieval／source selection、cloud preview／explicit approval、
+共享 local writing model、capture polish per-capture optional 与 no provider fallback；只引用两篇 primary
+notes，无 distractor、编造或 placeholder 泄漏。三次结果仍采用多条 `Source states`，没有遵循
+“one paragraph”的答案形状，因此 correctness 保守扣 1 分；P05 发布门槛为至少 3／4，仍通过。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 1／2 | 1／1 | 1／1 | **3／4** | PASS |
+| 2 | 1／2 | 1／1 | 1／1 | **3／4** | PASS |
+| 3 | 1／2 | 1／1 | 1／1 | **3／4** | PASS |
+
+**结论：P05 达到发布门槛。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 有效环境原生重测：P06 RETEST（3／3 均为 3／4）</summary>
+
+原问题：
+`@Does the release checklist explain cloud answer routing?`
+
+三次正文均正确回答 Release Checklist 不解释 cloud answer routing，并把 routing 事实重定向到
+`OMD Home Cloud Setup Checklist.md`；没有从 distractor 提取 routing claim，也没有 placeholder 泄漏。
+但是三次的 `Sources` 都仍列出 `OMD Home Release Checklist.md` distractor。Q8 的全局门禁明确要求
+不得引用该 distractor，P06 又要求 4／4，因此 source hygiene 不能计分。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 2 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+| 3 | 2／2 | 0／1 | 1／1 | **3／4** | RETEST |
+
+**结论：P06 未达到发布门槛；重测时应 abstain／redirect，并且 Sources 不应列出 Release Checklist。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 source hygiene 修复后原生重测：P04 PASS（3／3，均为 4／4）</summary>
+
+使用相同 test-vault、`qwen3:4b-instruct`、Keyword search 和原始 P04 输入连续运行三次。三次正文均
+保留正确的 **Start or stop recording** wrapper 与“不猜测只有 Start／Stop commands 时的 recorder
+状态”；header 均为 `1 source`，最终 Sources 只显示：
+
+- `Sources/Benchmark/OMD Home Phase 2 Answer Rules.md`
+
+修复前可见的 Audio、Tomato 与两篇 Web 候选均不再作为回答来源展示；正文没有 `[S#]`／`[E#]`
+placeholder。
+
+| Run | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---:|---:|---:|---:|---|
+| 1 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+**结论：P04 原生质量门禁通过。**
+
+</details>
+
+<details open>
+<summary>2026-11-22 source hygiene 修复后原生重测：P06 PASS（3／3，均为 4／4）</summary>
+
+使用相同环境与原始 P06 输入运行三次：第一次关闭并重新打开 OMD Home 后直接提问；第二次先完成
+一条会显示 Sources 的正常 Cloud Setup 查询，再提问 P06；第三次连续重跑 P06。三次均正确说明
+Release Checklist 不解释 cloud routing，并重定向到 Cloud Setup；header 均为 `1 source`，最终 Sources
+只显示：
+
+- `Sources/Benchmark/OMD Home Cloud Setup Checklist.md`
+
+`OMD Home Release Checklist.md` 三次都没有显示。全新会话与前序查询后的结果相同，排除了沿用上一条
+查询 Sources 状态的假设。原始验收标准要求 abstain／redirect 和不使用 distractor，并不要求 Sources
+为空；本回答依赖 Cloud Setup 中的 routing 事实，因此只显示 Cloud Setup 是正确结果。
+
+| Run | 场景 | 正确性 | Source hygiene | Boundary behavior | 总分 | 结论 |
+|---|---|---:|---:|---:|---:|---|
+| 1 | 全新 Home 会话直接 P06 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 2 | 正常 source-bearing 查询后 P06 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+| 3 | 连续重跑 P06 | 2／2 | 1／1 | 1／1 | **4／4** | PASS |
+
+正常对照题 `@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?` 仍显示
+`1 source` 与 `OMD Home Cloud Setup Checklist.md`，证明修复没有误删有效来源。
+
+**结论：P06 原生质量门禁通过；AI-08 的 P01–P06 全部达到发布门槛。**
+
+</details>
+
+hard preflight 通过后，选择本地 provider，依次运行：
+
+1. **P01**，连续三次：
+   `@What stays local in the Phase 2 answer flow, even for cloud providers?`
+   必须回答 local retrieval、source selection、local writing tools stay local，cloud answers 仍需 preview
+   和 approval，且没有跨 provider fallback。
+2. **P02**，连续三次：
+   `@What is the exact Ollama Cloud setup sequence before a cloud answer can be sent?`
+   必须按 Cloud setup primary note 给出从 install／sign-in 到 preview approve／cancel 的七步顺序。
+3. **P03**，连续三次：
+   `@Which actions share the local writing model, and how are they different?`
+   必须说明 links/tags 与 capture polish 共用 local writing model；前者 review-first，后者每次 capture
+   可选。
+4. **P04**，连续三次：
+   `@What should the recording command surface say, and what should it avoid guessing?`
+   必须给出 wrapper command 名称，并说明仅有 Start／Stop commands 时不能猜测 recording 状态。
+5. **P05**，连续三次：
+   `@Summarise the phase 2 answer flow in one paragraph, using only the two primary notes.`
+   必须只使用两篇 primary notes，简短覆盖 local default、cloud opt-in preview、local writing tools 和
+   no fallback。
+6. **P06**，连续三次：
+   `@Does the release checklist explain cloud answer routing?`
+   必须 abstain 或重定向到正确 primary note；release checklist 是 distractor，不能从它编造 routing。
+7. 每次记录：回答、Copy result、sources、retrieval mode、warnings、elapsed time、4 分制得分。
+   所有答案均应以 **From the note(s):** 呈现直接证据；只有存在非空推论时才显示
+   **What this may mean:**。每个关键事实、行动、比较或推论旁都有对应 primary note 引用；推论不能
+   伪装成原文事实。P01、P02、P05 若没有合理推论，不显示空推论标题或 **None.**。Copy result 采用同样规则。
+8. P01/P02/P03/P04/P06 必须 4/4；P05 至少 3/4。任何 distractor citation、编造 cloud 发送路径、
+   缺少逐结论引用、分区错误或 `[S#]` / `[E#]` placeholder 泄漏都是 release blocker。
+
+通过条件：P01–P04 对本地边界、Cloud setup、共享 writing model 和 recording wrapper 的事实完整且
+只引用对应 primary note；P05 只用两篇 primary notes 总结；P06 对 distractor 明确 abstain／redirect；
+每个结论有邻近引用，sources 不包含 release checklist distractor，也不泄漏 placeholder。
+
+<a id="test-ai-09"></a>
+
+### AI-09：Multilingual hybrid retrieval 与 semantic rerank
+
+本节分成两个不同结论，不能混记：
+
+- **AI-09A（当前已安装模型 smoke）**：使用本机已经存在的 `all-minilm:22m` 验证 hybrid pipeline、
+  model 分类、rerank、keyword fallback 和 distractor hygiene；不需要下载模型。
+- **AI-09B（multilingual release gate）**：本次首发明确包含 multilingual semantic retrieval，因此必须
+  安装并保留 `bge-m3`，再重复完整质量题。只完成 AI-09A 不能通过本次发布门禁。
+
+本轮候选机在 **2026-11-08** 的已知目录如下；开始测试时仍须重新运行 `ollama list` 并记录实际输出，
+不要把这张表当成永久环境假设：
+
+| Model | 本轮目录状态 | 能力／用途 | 本节处理 |
 | --- | --- | --- | --- |
-| Core | `Install-00`, `HOME-01`, `HOME-02`, `AI-01`, `AI-02`, `AI-03`, `AI-04`, `AI-05`, `AI-07`, `AI-08`, `CMD-01`, `CAL-00`, `CAL-01`, `CAL-02`, `CAP-01`, `CAP-02`, `CAP-03`, `CAP-06`, `REL-01` |  | User-facing install, layout, local AI, command, calendar, capture, and bundle checks. |
-| Extended | `AI-06`, `AI-09`, `AI-10`, `AI-11` |  | Local AI privacy gates, provider preservation, and retrieval quality checks. |
-
-Record each run as pass/fail with a short note, a screenshot when the UI is involved, and the
-exact build or release asset set under test.
-
-## Home and omnibox
-
-### Install-00: clean install and community release sanity
-
-1. Close Obsidian.
-2. Remove any existing local install copies you want to force-clean:
-   - `<vault>/.obsidian/plugins/omd-home` for each tested vault.
-   - Optional manual cleanup only if you know a custom global plugin test vault path, remove that same plugin folder directly.
-3. Download release assets from GitHub (`main.js`, `manifest.json`, `styles.css`) or checkout the
-   branch commit you want to test.
-4. Copy only those three files into the target vault plugin folder.
-5. Launch Obsidian, open **Settings > Community plugins**, and disable then re-enable OMD Home once
-   before first open.
-6. Run **OMD Home: Open home** and confirm:
-   - no startup crash
-   - no missing plugin warning in Needs attention
-   - Home and command palette actions are available
-7. Run these minimum checks before optional helpers are installed:
-   - HOME-01
-   - HOME-02
-   - CMD-01
-   - CAP-03 step 1 and step 2
-8. Install optional helpers if used:
-   - OMD executable
-   - Python bridge auto-discover path (or explicit override)
-   - EventKit helper (macOS only)
-   - Ollama + local models
-9. Run AI-01, AI-02, AI-03, AI-04, and AI-07 using the installed dependencies.
-10. Without deleting `data.json`, reinstall the same plugin assets into the same folder and repeat
-    steps 6-9 to validate clean-reinstall behavior.
-
-Expected: clean install and clean reinstall both produce identical behavior; all failures are surfaced in
-Needs attention and can be retried; no data or layout file is required in a location outside the target vault;
-reinstalling plugin assets does not overwrite the vault's existing `data.json`.
-
-### HOME-01: default layout and note alignment
-
-1. Reset the widget layout from the Home header.
-2. Confirm Today and Inbox share one two-column row, Current task and Needs attention share
-   the next, Recent notes and Upcoming share a two-column row, and Pinned, Vault tags, and System
-   share the final three-column row. Confirm there is no default Continue card.
-3. Open Recent notes with short, long, English, and Chinese filenames.
-4. Right-click a Markdown note, choose **Pin to OMD Home**, and confirm it appears under Pinned.
-5. Narrow the Home workspace while leaving Obsidian's sidebar open.
-
-Expected: adjacent cards align; every title and path begins at the same left edge; no row is
-centered or indented by its text length. Pinned is available now as an explicit user-curated list;
-OMD Inbox remains the separate review queue for new captures. The cards stack before the right
-column can be clipped, even when the overall app window is wider than the Home content area.
-
-### HOME-02: move and resize discovery
-
-1. Hover a widget, drag its grip onto an occupied area, and release it.
-2. Drag the visible lower-right resize corner, then use arrow keys while that corner is focused.
-3. Choose **Use standard size** from the widget menu.
-
-Expected: the active card has an explicit moving/resizing outline; displaced cards move out of
-the way; no cards overlap; standard size restores that card's default width and height.
-
-### AI-01: model discovery and refresh
-
-1. Open OMD Home settings with Ollama selected.
-2. Use **Refresh models** to load locally installed models.
-3. Compare each workflow dropdown with `ollama list`. Confirm every downloaded model appears,
-   including models labelled as not text-capable or thinking-only.
-4. Resize the Settings pane narrower and wider. Confirm the model name/description on the left
-   keeps the same type size while the controls reflow.
-5. Change one workflow model selection, then use **Refresh models** again.
-
-Expected: the dropdown lists locally installed models from Ollama; the UI never invents a model;
-incompatible downloaded models remain visible with a warning instead of disappearing; and a stale
-or missing stored value remains visible as stale until you choose a replacement. The Local AI
-section stays in place instead of repainting the full settings page, and completion shows the
-installed-model count plus a timestamp.
-
-### AI-02: Check local daemon health
-
-1. Open Ollama, set the endpoint to `http://localhost:11434`, and press **Check connection**.
-2. Quit Ollama completely and press **Check connection** again. Expected: **Daemon unreachable**,
-   not a model or Cloud error. Reopen Ollama before continuing.
-3. Set the endpoint to `http://localhost:9999` and press **Check connection**. Expected: OMD Home
-   rejects the non-default port immediately because Phase 1a accepts only port 11434. Restore
-   `http://localhost:11434` afterward.
-4. In Terminal, run `curl -s http://localhost:11434/api/status`. Record the value of
-   `cloud.disabled`.
-5. To test Cloud-available mode, fully quit Ollama from its menu; closing its window is not enough.
-   Alternatively run `osascript -e 'quit app "Ollama"'`. Before changing or reopening anything,
-   run `curl -sS --max-time 2 http://localhost:11434/api/status`; it must fail to connect, proving
-   the old background server has stopped.
-   If `~/.ollama/server.json` exists, back it up with
-   `cp ~/.ollama/server.json ~/.ollama/server.json.local-only-backup`. Edit the original file,
-   preserve unrelated JSON keys, and remove the `disable_ollama_cloud` property. If that was its
-   only property, the temporary test file can contain `{}`. Then run
-   `launchctl unsetenv OLLAMA_NO_CLOUD`. Confirm `launchctl getenv OLLAMA_NO_CLOUD` prints nothing.
-   Reopen Ollama and run `curl -sS http://localhost:11434/api/status; echo`. Expected:
-   `cloud.disabled` is `false`. A previous `source: "both"` result means the running Ollama process
-   still had both the environment setting and `server.json`; repeat this step after fully quitting.
-6. Press **Check connection**. Expected: the message explains that Cloud availability does not mean
-   the selected model is currently online, but content remains blocked because local-only operation
-   has not been proven. The message appears once, not once per workflow.
-7. To restore local-only mode, fully quit Ollama and confirm the same two-second `curl` check fails.
-   Restore the backup with
-   `cp ~/.ollama/server.json.local-only-backup ~/.ollama/server.json`, or add
-   `"disable_ollama_cloud": true` while preserving valid JSON and other keys. Reopen Ollama, confirm
-   `/api/status` reports `disabled: true`, then press **Check connection** again. One explicit
-   local-only source is sufficient; using both the JSON setting and environment variable is optional.
-
-Expected: the final check reports daemon version, installed-model count, selected-model readiness,
-and a timestamp. It accepts only `http://localhost:11434` or `http://127.0.0.1:11434` and remains
-fail-closed until Ollama explicitly reports local-only mode.
-
-### AI-03: per-workflow smoke tests
-
-Prerequisite: complete AI-02 and restore verified local-only mode with `cloud.disabled: true`.
-The shared cloud-enabled privacy gate is covered separately by AI-06.
-
-1. In **Settings > OMD Home > Local AI**, find **Vault Q&A model** and press the **Smoke**
-   button on that same row. Do not type `@` in Home for this step: `@` starts the real
-   content-bearing vault workflow covered by AI-04.
-2. Press **Smoke** on the **Enrichment model** row.
-3. Press **Smoke** on the **Capture polish model** row.
-
-Expected: each Smoke uses the currently selected local model, sends no vault note content,
-distinguishes missing/incompatible models from daemon failures, reports latency, can be cancelled,
-and never writes to the vault. Each result remains visible in Local AI activity with a timestamp.
-
-### AI-04: owned omnibox result surface
-
-1. In OMD Home settings, leave **Python executable** and **OMD Home bridge** blank. If an older
-   install retained a bridge override, press **Use bundled**; clear the Python override to exercise
-   interpreter discovery. Confirm the bridge description says OMD Home is using its bundled bridge
-   automatically.
-   The Python interpreter is derived from the configured OMD executable when its override is blank.
-2. With the two bouldering fixture notes under `Sources/Web`, ask
-   `@how many beginner tips for bouldering, could you summarise and list them all`.
-3. Confirm the evidence chips contain the two bouldering notes, do not contain the survival-analysis
-   or transfer-learning notes, and the answer lists the 10 numbered tips while identifying the
-   separate three-mistakes note.
-4. Press **Copy result**, paste into a temporary Markdown note, and confirm the answer is followed by
-   a deduplicated `Sources:` list containing Obsidian `[[path]]` links for both evidence notes. Confirm
-   the button briefly changes to **Copied** and can also be triggered with the keyboard.
-5. Confirm the result header shows an end-to-end duration such as **Returned in 4.2s**. It should
-   measure from submitting the question until the complete answer appears, including vault retrieval.
-6. Scroll the answer, switch between light/dark themes, then press the result panel's close button.
-
-Expected: the result has its own bordered background and bounded scroll area; lower widgets
-reflow while it is open; no text overlaps Inbox or another widget; closing it restores the grid.
-Copying includes the complete answer and source links without modifying the vault automatically.
-The bundled bridge works without a manually entered bridge or Python path, even though the
-test-vault installer does not copy an external `.py` file. A missing bundled source still fails with
-an actionable custom-override message. The query's common instruction words do not outrank topical
-terms; duplicate captures do not consume multiple evidence slots; and numbered headings remain
-available to the model instead of being replaced by a title-only excerpt.
-
-### AI-05: stale configured model
-
-1. Select a local model for one workflow.
-2. Remove that model from Ollama, then return to settings and press **Refresh models**.
-3. Try **Check connection** and then the related Smoke action.
-
-Expected: the stale selection is shown as missing, the plugin does not silently switch models,
-Check reports the missing model explicitly, and Smoke is blocked before any content send.
-
-### AI-06: cloud-enabled gate
-
-1. Start Ollama with cloud features enabled.
-2. Try **Check connection**, then try a vault question, enrichment generate, and capture polish.
-3. Disable Ollama Cloud, restart Ollama, and repeat.
-
-Expected: all content-bearing local AI stays blocked until its live gate can prove `cloud.disabled = true`;
-after disabling cloud and restarting, the same actions can proceed without changing providers.
-
-### AI-07: cancellation, backgrounding, and settings invalidation
-
-1. Start a cold per-workflow Smoke, switch away from Settings, and close only the OMD Home tab.
-2. Reopen Settings and confirm the same task is still running or has completed.
-3. Start another Smoke and press **Cancel** in Local AI status.
-4. Start **Check connection** and change the selected model or endpoint before it finishes.
-5. Start one more Smoke, then disable or reload OMD Home from Community plugins.
-
-Expected: switching tabs and closing only the view do not cancel plugin-owned work; Cancel and
-plugin unload do cancel it; a host/model change invalidates the old request, and no result from
-the old tuple is displayed as ready or sent downstream.
-
-### AI-08: no-model, incompatible, and custom-model recovery
-
-1. Run **Check connection** against a cloud-disabled Ollama daemon with no models installed.
-2. Install or select an embedding-only model and repeat Check and Smoke.
-3. Choose **Custom…**, enter an installed completion-capable model ID, and repeat.
-4. Enter a nonexistent custom model ID and repeat.
-5. If `qwen3:4b` is installed, select it and repeat. Then select `qwen3:4b-instruct` and repeat.
-
-Expected: no-model, non-text, ready custom, and missing custom states remain distinct; the plugin
-never auto-pulls, auto-selects, or silently falls back to a different model. The known `qwen3:4b`
-thinking-only alias is marked incompatible for bounded text work and recommends
-`qwen3:4b-instruct`; the instruct tag can pass when it is installed and local.
-
-### AI-09: preserved hosted provider with local enrichment/capture
-
-1. Save `openai`, `anthropic`, or `deepseek` as the provider in plugin data, then reopen Obsidian.
-2. Confirm Vault Q&A is blocked with a clear Phase 1a message.
-3. Use **Refresh models** and **Check connection** in Settings without changing the saved provider.
-4. Run enrichment Generate and capture-polish Smoke.
-
-Expected: the hosted provider stays preserved and disabled for Vault Q&A only; Local AI status,
-model discovery, enrichment, and capture-polish checks still work against loopback Ollama; nothing
-is silently rewritten to Ollama until the user explicitly chooses it.
-
-### AI-10: section-aware Vault Q&A retrieval
-
-Prerequisite: point OMD Home at an OMD build that includes `build_answer_context`, keep the two
-bouldering fixture notes under `Sources/Web`, and complete AI-02 with local-only Ollama ready.
-
-1. **B01 count:** ask `@How many explicit numbered beginner tips are present? List each once.` three
-   times. Every run must report 10 and include headings 1 through 10 once. It must not report 0 or mix
-   the separate three-mistakes outline into a 13-item list.
-2. **B01 roles / B2 duplicate:** ask `@Which note contains explicit beginner tips, and which note
-   contains three mistakes?`. Confirm `bouldering-tipps-for-beginners.md` is the explicit 10-tip note
-   and `3 Simple Bouldering Tips for Beginner to Intermediate Climbers.md` is the three-mistakes note.
-   B2 in the benchmark repeats this same question; record one result rather than treating it as new
-   coverage.
-3. **B3 mistakes:** ask `@What are the three beginner mistakes, and what should the climber do
-   instead?`. Confirm all three appear in order with evidence-grounded corrections: vary project
-   difficulty/length, deliberately watch and remember beta, and work the flash/moves/links/reassess
-   checklist. `Long arms` must not replace Mistake #1.
-4. **B4 beta recall:** ask `@Which note discusses beta recall, and what does it recommend?`. Confirm
-   only the three-mistakes source is used and the answer includes `Put your phone down and watch`,
-   treating each problem as a puzzle, and breaking it into sections. Every inline wiki link must be
-   the exact path; reject split or corrupted paths such as `Middlere` or `B-ouldering`.
-5. **B5 combined advice:** ask `@Combine actionable advice from both bouldering notes, separate
-   explicit tips from lessons inferred from mistakes, and remove duplicates.` Confirm the explicit
-   category preserves all 10 numbered outline items separately and the inferred category contains
-   one corrective lesson for each of the three mistakes. Related outline headings may not be merged
-   or omitted, and shop/footer navigation must not become advice.
-6. **B6 overlap:** ask `@Across the two bouldering notes, which recommendations overlap? Cite each
-   claim.` A reported overlap must pair semantically aligned actions from both notes and cite both on
-   that claim. Valid candidates include deliberate warm-up, learning by observing/asking experienced
-   climbers, and mentally reading/planning a problem. A one-source action such as `try from the bottom`
-   is not an overlap. If the selected 4B model cannot verify pairs, OMD Home must show the conservative
-   `sparse evidence ... could not verify a reliable overlap` result with both source links, not claim
-   that the notes have zero overlap.
-7. **B7 abstention:** ask `@What shoe size should a beginner buy according to these bouldering notes?`.
-   Confirm the answer says the evidence does not specify a size and does not turn general gear advice
-   into a number.
-8. **B08 mixed language:** ask `@summarise 这两篇 bouldering notes 里的 beginner mistakes and tips`
-   three times. Confirm both sources appear, all 10 explicit headings remain separate, all three
-   mistakes keep their role, and summaries do not invent details for a heading.
-9. **D01 sparse control:** turn **Hybrid retrieval** off, then ask
-   `@这些抱石笔记给初学者哪些建议？`. Sparse retrieval is expected to return no matching English
-   evidence. It must fail closed rather than inject an unrelated outline. Restore the setting before
-   AI-11.
-10. Across B01, B3, B5, B6, and B08, compare three consecutive runs. Record source paths, item counts,
-    unsupported claims, input/output tokens, and elapsed time. No answer may expose `[S#]`/`[E#]`
-    placeholders; exact Obsidian wiki paths must be restored.
-
-Expected: Vault Q&A recalls at most 24 lexical section candidates, selects at most eight bounded
-evidence blocks, expands nested heading matches to their surrounding section, uses complete outlines
-for exhaustive questions, pairs each multi-source outline with a source-local item digest, and uses one
-compact overview per source only for comparisons. It rejects weak distractors, footer navigation, and
-comparison operator words, preserves exact source paths, and fails closed when a small local model
-cannot establish a reliable cross-source comparison. Ordinary Vault Search remains note-based.
-Cross-language semantic recall and optional semantic evidence reranking are covered by AI-11.
-Implicit follow-up source memory remains deferred.
-
-### AI-11: hybrid multilingual retrieval and optional semantic reranking
-
-Prerequisite: use an OMD build with `SemanticRecallConfig`, keep Ollama in verified local-only mode,
-and keep the two bouldering fixtures plus the survival-analysis and transfer-learning distractors in
-the vault.
-
-1. In Terminal, run `ollama pull bge-m3`. In **Settings > OMD Home > Local AI**, press
-   **Refresh models**, enable **Hybrid retrieval**, choose `bge-m3` under **Embedding model**, leave
-   **Semantic rerank** off, and press **Test embeddings**.
-2. Confirm the test reports two vectors with one shared non-zero dimension count. It must not send
-   vault text, auto-pull a model, accept a remote model, or pass when vector dimensions differ.
-3. Ask `@这些抱石笔记给初学者哪些建议？` three times. The first run may be slower while note
-   representations are embedded; record all three end-to-end durations. Confirm the loading copy
-   explains the first-use delay. Changing a Local AI setting while the request runs, or unloading
-   the plugin, must stop the bridge instead of leaving an orphan Python process.
-4. Confirm every result header says **Hybrid · bge-m3**, both bouldering fixture paths appear, and
-   the survival-analysis and transfer-learning distractors do not appear. The answer must distinguish
-   the 10 explicit tips from the separate three-mistakes note and must not invent Chinese source text.
-5. Enable **Semantic rerank**, repeat D01 and B4, then compare sources and claims with reranking off.
-   The setting may change evidence order but may not introduce a weak distractor, remove the exact
-   beta-recall evidence, or change an abstention into an unsupported answer.
-6. Turn **Hybrid retrieval** off and repeat D01. Confirm the header says **Sparse**, no embedding
-   request is made, and the query fails closed as in AI-10. Turn Hybrid retrieval back on afterward.
-7. Optional fallback exercise: with the generation model still installed, temporarily make the saved
-   embedding model unavailable, then ask D01. Confirm the result says **Sparse** and shows an explicit
-   semantic-recall fallback warning. Restore `bge-m3` and press **Test embeddings** again.
-8. Edit one fixture note, ask D01 again, then restore the edit. Confirm changed content is re-embedded;
-   unchanged notes reuse their cached vectors. Refresh Ollama with a different digest for the same
-   model name (or cover this with the automated revision test) and confirm the old vectors are not
-   reused. Neither the note nor its frontmatter gains vector data.
-
-Expected: OMD fuses BM25-style sparse note ranking with multilingual embedding ranking, recalls no
-more than 24 candidate notes and selects no more than eight evidence blocks, while keeping source paths deterministic. Embedding
-traffic stays on the configured default loopback Ollama endpoint. The derived-vector cache is outside
-the vault, bounded, and namespaced by Ollama model digest when available; query embeddings are not
-persisted. Missing, unreachable, malformed, or
-dimension-mismatched embeddings degrade to sparse retrieval with a visible warning. Semantic reranking
-uses the selected embedding model only and is optional; it is not a separately installed cross-encoder.
-
-### CMD-01: Obsidian and community commands
-
-1. Select **Commands**, type part of a core command, and run it.
-2. Enable a community plugin that registers a harmless command and repeat.
-3. Enable Obsidian's recorder and reload OMD Home.
-
-Expected: both registered commands are discoverable. A registered recorder toggle appears as
-Recording; separate recorder commands appear as Start recording and Stop recording. Each action
-invokes Obsidian's existing recorder rather than a second OMD Home recorder.
-
-4. Search for and run **OMD Home: Refresh local AI models**, **OMD Home: Check local AI
-   connection**, and **OMD Home: Refresh macOS calendars**.
-
-Expected: maintenance actions can be launched from the omnibox or Command palette without opening
-Settings first, and their results still appear in the relevant status surface.
-
-## Calendar
-
-### CAL-00: installed EventKit helper and calendar discovery
-
-1. Rebuild with `npm run build:eventkit`, `npm run build`, and `npm run install:test-vault`.
-2. Open OMD Home settings and leave the EventKit helper override blank.
-3. Confirm the description shows the resolved helper beside the installed plugin, ending in
-   `.obsidian/plugins/omd-home/omd-eventkit`.
-4. Press **Refresh calendars**. If macOS asks for Calendar access, allow it. If it does not ask and
-   refresh fails, open **System Settings > Privacy & Security > Calendars** and allow Obsidian.
-5. Confirm the calendars already visible in the macOS Calendar app are listed. Google and Outlook
-   calendars appear only after those accounts have been added to macOS Calendar.
-6. Enter an invalid custom helper path and confirm Settings immediately reports that it is missing
-   or not executable. Refresh, confirm the specific helper error, then press **Clear override** and
-   refresh again.
-
-Expected: blank means use the executable helper installed automatically; a missing or non-executable
-file is never labeled installed. Success reports a calendar count and timestamp; permission,
-missing-helper, and genuinely empty-calendar states have different guidance.
-
-### CAL-01: readable boundaries
-
-1. Create a timed event and edit Start/End with the native local date/time controls.
-2. Turn on All day for a one-hour same-day event, save it, and reopen it.
-
-Expected: inputs are readable local values; End remains after Start; the all-day End is the
-exclusive next calendar date.
-
-### CAL-02: source filters
-
-1. Prepare one Vault-only, one Calendar-only, and one Linked event in the same visible range.
-2. Move Calendar to a non-default month or switch to week view.
-3. Toggle Vault, Calendar, and Linked independently.
-
-Expected: each button has a clear pressed state and filters immediately without changing the
-current month/view. The final enabled source cannot be turned off.
-
-## Capture and enrichment
-
-### CAP-01: local paths and drag/drop
-
-1. Capture a small local file using its ordinary absolute path.
-2. Capture `~/Desktop/example.pdf` after replacing it with a real file in your home directory.
-3. Capture `/Users/example/data\ science/survival\ analysis.pdf` after replacing it with a real
-   test path that contains spaces.
-4. Drag a file onto the Home omnibox and then onto the capture dialog.
-5. Turn capture polish off, set the Ollama host to an invalid Phase 1a value such as
-   `http://localhost:9999`, and capture a small local file again.
-
-Expected: all valid sources reach OMD; `~/` expands to the local home directory;
-backslash-escaped spaces become ordinary spaces; no shell is invoked; a missing path produces a
-specific, actionable failure; and a non-AI capture still works when capture polish is off even if
-the saved Ollama host is invalid.
-
-### CAP-02: local AI links and tags
-
-1. Enable **Suggest links and tags after capture**, capture a document, and wait for the proposal.
-2. Review existing/new tag suggestions, leave one unchecked, and Apply.
-3. Reopen Capture and confirm the toggle remembered its last value.
-
-Expected: generation is local and review-first; no note changes before Apply; only selected links
-and tags are written.
-
-### CAP-03: failure ownership and setup health
-
-1. Submit a nonexistent path.
-2. Point the OMD executable setting at a nonexistent or pre-enrich-note build and run the check.
-3. Trigger an Ollama-side local AI failure from Home.
-
-Expected: Current task returns to idle; Needs attention shows one timestamped failure with safe
-source/detail/retry; missing and old executables are distinguished and visible without opening
-the active-task panel; and local AI setup failures appear there without duplicating the same
-error in multiple panels.
-
-### CAP-06: background continuation and lifecycle cancellation
-
-1. Start a deliberately slow capture and confirm Current task shows active work.
-2. Switch to another Obsidian tab for at least 30 seconds, then close only the OMD Home tab.
-3. Reopen OMD Home from the ribbon.
-
-Expected: the capture continues through both tab changes and the reopened Home shows its current
-state or completed note. Backgrounding means hiding/closing the view, not disabling the plugin.
-
-4. Start another slow capture, then disable or reload OMD Home from Community plugins.
-5. Repeat once and quit Obsidian while the capture is active.
-
-Expected: plugin unload/quit cancels its child process; reopening Obsidian shows no orphan task,
-stale active state, or partial success claim. Use Cancel only when testing explicit user
-cancellation.
-
-## Release
-
-### REL-01: clean-vault install and bundle acceptance
-
-1. Start from a clean disposable vault with no prior OMD Home files in `.obsidian/plugins/`.
-2. Run `npm run build`, copy the release-candidate `manifest.json`, `main.js`, and `styles.css` into a
-   fresh `omd-home` plugin directory, then enable the plugin from Community plugins.
-3. Disable and re-enable the plugin once, then fully quit and reopen Obsidian.
-4. Open Settings and confirm the plugin name, description, version, and settings screen render
-   without missing assets or console errors.
-
-Expected: the release bundle installs without manual patching; Obsidian can enable, disable, and
-reload it cleanly; the Home view and Settings open after a cold restart; and the shipped manifest,
-bundle, and stylesheet are sufficient for a Marketplace-style installation.
+| `all-minilm:22m` | 已安装，约 45 MB | embedding only；384 dimensions | AI-09A 的 Embedding model |
+| `qwen3:4b-instruct` | 已安装，约 2.5 GB | local completion | 本节固定 Answer model，避免把 retrieval 差异与小模型回答差异混在一起 |
+| `qwen3:0.6b` | 已安装 | completion／thinking | 只检查分类；不作为本轮质量基线 |
+| `gpt-oss:20b-cloud` | Cloud catalog entry | cloud completion | 不得作为本地 embedding model，也不用于本节回答 |
+| `bge-m3` | **未安装** | multilingual embedding | AI-09B 按明确安装动作添加并在完成后保留 |
+
+#### 准备 fixtures 与固定测试状态
+
+1. 从源码目录导入 legacy tomato fixtures；AI-08 的三篇 Phase 2 fixtures 不需要删除：
+
+```bash
+cd "$REPO_ROOT"
+mkdir -p "$TEST_VAULT/Sources/Benchmark"
+mkdir -p "$TEST_VAULT/Calendar/Events"
+cp "docs/benchmark-vault/Sources/Benchmark/8 Balcony Tomato Tips for Small-Space Beginners.md" \
+   "docs/benchmark-vault/Sources/Benchmark/阳台番茄新手常见三个错误.md" \
+   "docs/benchmark-vault/Sources/Benchmark/Hydroponic Lettuce Yield Log.md" \
+   "$TEST_VAULT/Sources/Benchmark/"
+cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
+   "$TEST_VAULT/Calendar/Events/"
+```
+
+2. 用 **Quick switcher（Obsidian 快速切换器，macOS 按 `Command-O`）** 逐一搜索并打开以下四篇；
+   不要只看 Files pane 中的文件名：
+   - `8 Balcony Tomato Tips for Small-Space Beginners` — ground truth，8 条 tips
+   - `阳台番茄新手常见三个错误` — ground truth，3 组 mistake／fix
+   - `Hydroponic Lettuce Yield Log` — distractor
+   - `2026-09-18-garden-swap` — distractor，必须是合法的 Vault-only event note
+
+   导入后 Home／Calendar 不得出现该 fixture 导致的 **Sync paused**。若提示缺少 `type: event`，说明导入了
+   旧 fixture，不能继续评分；使用当前源码 fixture 重新复制。准确答案与 4 分制评分位于
+   `docs/benchmark-vault/benchmark-cases.md`。
+3. 在 Terminal 记录安装前目录，不要先 pull：
+
+   ```bash
+   ollama list
+   ollama show all-minilm:22m
+   ```
+
+   本轮应看到 `all-minilm:22m` 的 **Capabilities: embedding**、**embedding length: 384**；`bge-m3`
+   不应出现在 `ollama list`。如果实际目录不同，以实际输出为准并把差异写入结果表。
+4. 打开 **Settings → OMD Home → AI answers**，明确设置而不是依赖旧 memory：
+   - **Answer provider**：`Ollama on this computer`
+   - **Answer model**：`qwen3:4b-instruct`
+   - **Ollama endpoint**：Automatic `http://localhost:11434`
+   - **Keyword + semantic search**：On
+   - **Embedding model**：`all-minilm:22m`
+   - **Semantic rerank**：Off
+
+   `Local writing model` 不参与 Vault Q&A retrieval；保持现值即可。点击 **Check setup**，保存一张不含
+   secret 的状态截图。再次运行 `ollama list`；页面加载与 Check setup 不得新增或下载任何 model。
+
+#### AI-09A：使用当前 `all-minilm:22m`（必做，不下载）
+
+1. **检查模型归类**：
+   - `all-minilm:22m` 必须能在 **Embedding model** 选择；若 Answer model 目录显示它，必须 disabled 并
+     标为 embedding-only，不能成为回答模型。
+   - `qwen3:0.6b` 与 `qwen3:4b-instruct` 属于 completion model；本轮只选择后者回答。
+   - `gpt-oss:20b-cloud` 不能出现在可用的本地 Embedding model 中，也不能被 semantic retrieval 调用。
+2. 保持 **Advanced AI controls** 展开，点击 **Test semantic search**。预期相邻状态或 Notice 明确显示：
+
+   ```text
+   Embedding test passed in <latency>ms: 2 vectors × 384 dims.
+   ```
+
+   两个 probes 必须得到相同且大于 0 的维度；测试结束后 disclosure 仍展开，Embedding model 仍是
+   `all-minilm:22m`。失败时记录完整错误，不把 keyword fallback 误记成 embedding PASS。
+3. 在第一次提问前记录三篇 Markdown ground-truth／distractor notes 的 SHA-256；最后再次比较，证明
+   Test semantic search 和提问没有把 vector 写进正文或 frontmatter：
+
+   ```bash
+   shasum -a 256 \
+     "$TEST_VAULT/Sources/Benchmark/8 Balcony Tomato Tips for Small-Space Beginners.md" \
+     "$TEST_VAULT/Sources/Benchmark/阳台番茄新手常见三个错误.md" \
+     "$TEST_VAULT/Sources/Benchmark/Hydroponic Lettuce Yield Log.md" \
+     "$TEST_VAULT/Calendar/Events/2026-09-18-garden-swap.md"
+   ```
+4. 保持 rerank **Off**，连续三次运行 **D01**：
+
+   ```text
+   @这些阳台番茄笔记给新手哪些建议？
+   ```
+
+   再运行一次 **M01**：
+
+   ```text
+   @Summarise the tomato mistakes in Chinese, then restate the fixes in English.
+   ```
+
+   每次 header 必须精确显示 **Keyword + semantic search · all-minilm:22m**。D01 应使用两篇 tomato
+   notes；M01 必须保持三组 mistake／fix 对应，可选用 tips note 补充 overlap context。任何 lettuce 或
+   calendar citation 都记 Source hygiene `0/1`。分别保存回答、Copy result、sources、warning、elapsed time
+   和分数，不以三次相同回答代替三条记录。
+5. 开启 **Semantic rerank**，确认设置仍为 `all-minilm:22m`，再执行一次 D01 和 **B04**：
+
+   ```text
+   @Which recommendations overlap across both tomato notes? Cite each overlap.
+   ```
+
+   B04 至少应识别 **deep watering、direct sun、early support**。每项明确 overlap 的同一句或相邻句必须
+   同时引用两篇 tomato notes；仅在末尾列 Sources 不够。单篇独有内容不能伪装成双方共同建议；推测只能
+   放入 **What this may mean:** 并使用审慎措辞。Header 仍须显示 `all-minilm:22m`。
+6. 关闭 **Keyword + semantic search**，再运行一次 D01：
+   - header 只能显示 **Keyword search**；
+   - 不得显示 embedding model，也不得发 embedding request；
+   - keyword-only 结果可以与 hybrid 不同，但仍不得引用两个 distractors。
+
+   完成后重新开启 Hybrid、选择 `all-minilm:22m`、关闭 rerank，并再次 **Test semantic search**。
+7. **Daemon fallback（可选但推荐）**：记录当前 endpoint，临时改为
+   `http://localhost:9999` 并点击 **Save endpoint**，运行 D01。应安全降级为 Keyword search，并只提供
+   **Use keyword search by default** 与 **Open retrieval settings**；daemon 不可达时不能显示
+   **Install model**。测试后点击 **Use automatic**，Check setup，并再次 **Test semantic search**。
+
+AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目标是 `4/4`，M01 至少 `3/4`；
+若跨语言召回不稳定，应如实记当前模型的质量 FAIL，不能用 keyword 命中掩盖 semantic 结论。
+
+#### AI-09B：`bge-m3` multilingual release gate（本次必做）
+
+当前 test-vault 已保存 `all-minilm:22m`，因此它不会凭空显示“`bge-m3` saved, not installed”或
+**Install bge-m3**。不要为制造该状态手改 `data.json`，也不要删除当前唯一可用 embedding model。
+
+1. 选择且只选择一种安装路径：
+   - **验证一键安装 UX**：在 disposable clean vault 使用默认保存的 `bge-m3`，先 Check setup，确认
+     `bge-m3 (saved, not installed)`、**Install bge-m3** 和 keyword fallback，再明确点击一次 **Install bge-m3**。
+   - **继续当前 test-vault**：在 Terminal 明确运行 `ollama pull bge-m3`。此路径不验证 **Install bge-m3** 按钮。
+
+   不要同时运行两种路径。pull 期间应显示 installing／progress 或准确 failure；页面加载、Check setup、
+   **Test semantic search** 和普通提问本身都不得触发 pull。
+2. 安装完成后运行 `ollama list`，再点击 **Check setup**：
+   - `bge-m3` 在 **Embedding model** 中可选择；
+   - 若它出现在 Answer model 目录，必须 disabled 并标为 embedding-only；
+   - `gpt-oss:20b-cloud` 仍不能成为本地 embedding model。
+3. 选择 `bge-m3`，Hybrid On、rerank Off，点击 **Test semantic search**。必须成功返回 **2 vectors × N dims**，
+   其中 `N > 0` 且两个 vectors 维度一致；不要把 `all-minilm` 的 384 维硬套给 `bge-m3`。
+4. 用 `bge-m3` 完整重复：D01 三次、M01 一次、rerank On 后 D01 一次和 B04 一次。所有 hybrid header
+   必须显示 **Keyword + semantic search · bge-m3**；D01／B04 必须 `4/4`，M01 至少 `3/4`，且没有
+   lettuce／calendar distractor。
+5. 不能把 AI-09A 的 all-minilm 结果抄成 AI-09B PASS。完成后保留 `bge-m3`，不要在本节
+   `ollama rm`；destructive model removal 属于发布后的 AI-10。
+
+#### Cache 与持久化边界
+
+1. 记录 test-vault 中 tips fixture 的原始 hash，并把原文临时备份到 Vault 外；不要在 Vault 内复制成
+   第二篇 note，否则 duplicate source 会污染本测试。随后在该 fixture 正文末尾增加唯一句
+   `AI09-CACHE-MARKER-826: prune one lower leaf before sunrise.`，保存后询问该 marker 的明确内容。
+   回答必须只引用已修改 note，证明新内容可被检索。
+2. 撤销该句并保存；原始 hash 必须恢复。重新提问不得继续把 marker 当作当前 source fact。
+3. 打开两篇 tomato notes 的 frontmatter 与正文，确认没有 vector、embedding payload、query 或 cache key。
+4. “未修改 note 复用 cache、query embedding 不持久化、cache 按 model digest 隔离”和“只向 loopback
+   Ollama 发 embedding traffic”无法仅凭普通 UI 可靠证明；这些项必须引用自动测试或 agent-assisted
+   request/cache instrumentation，不能仅凭回答成功手工记 PASS。
+
+总通过条件：模型角色不混淆；除测试者明确点击 **Install bge-m3** 或运行 `ollama pull bge-m3` 外无自动下载；
+**Test semantic search** 的 vector 数量／维度明确；Advanced disclosure 保持展开；hybrid、rerank、keyword-only 与
+fallback header／actions 准确；fixtures 不被写入 embedding 数据；回答不引用 lettuce／calendar distractor。
+
+<a id="test-ai-10"></a>
+
+### AI-10：Stale model、reload/unload 与故障恢复
+
+1. 记录当前 provider 与每个 workflow model。
+2. 选择一个可重新下载的测试 model，执行 `ollama rm <model-id>`。不要删除唯一且昂贵的模型。
+3. 运行 Command Palette 的 **Refresh local AI models**，再点 **Check setup**。
+4. 旧选择应显示 `saved, not listed` / missing；插件不得自动选替代 model。
+5. 用 `ollama pull <model-id>` 恢复，并重新检查。
+6. 分别制造一次：
+   - OMD executable missing/old
+   - bundled bridge override 被错误自定义路径覆盖
+   - Ollama daemon unreachable
+   - selected model missing
+   - hosted provider credential missing
+7. 每个错误都应给出不同、可执行的恢复提示与时间戳；修复后旧错误应清除，不在 Needs attention
+重复出现。错误/ready 状态必须紧贴受影响的 provider、model 或 endpoint 控件，而不是作为
+描述文字中的 **Ready** / **Unchecked** 词汇；恢复配置后相邻错误立即清除。
+8. 重载 plugin，确认 provider/model memory 仍在；进行中的网络 request 和 child process 已取消。
+9. 保持 **OMD executable override** 为空并重新执行 CAP-02 的自动发现回归；旧候选故障恢复后，
+   Capture 和紧接着的 enrichment 仍使用兼容的已解析 OMD。
+10. 检查 Console，不得有 secret、Vault excerpt、未处理 rejection 或重复 interval/listener。
+
+通过条件：恢复路径可完成；错误归属和时间清楚；reload/unload 后没有 stale ready state、僵尸
+process 或跨 provider 反馈；Capture 后的 link/tag enrichment 不会把自动发现回退/切换到旧 OMD。
+
+<a id="test-ai-11"></a>
+
+### AI-11：Credential 状态、逐题证据与并发取消回归
+
+在 AI-03/AI-04 的正常 provider 流程通过后执行。使用 synthetic fixtures；无真实 developer key
+时，完成可用的本地、缺少凭证与取消分支，hosted 发送分支记录为 `NOT RUN`，不得记为 PASS。
+
+1. 选择一个 hosted provider，等待 credential 状态加载结束。保持 Settings 打开 30 秒，再展开
+   Advanced、滚动、切走并切回 provider。状态检查应在完成后停止：无持续 loading、重复进程、
+   按钮闪烁或 Console 报错循环；成功或缺少凭证均不得触发无限 hydration/re-render。
+2. 不点击 **Save & check**，在 provider A 的 **Developer key** 输入一个明确的非真实测试草稿，例如
+   `not-a-real-key-a`。点击 **Check setup**，再切到 provider B 输入 `not-a-real-key-b`，最后切回 A；
+   每次重绘后 password 输入仍应保留该 provider 自己的草稿，不能串到另一个 provider，也不能因
+   hydration 或 Check setup 被清空。删除这些测试草稿，不要保存。之后如用真实测试 key 验证保存，
+   只有 Keychain 明确确认成功后才清空刚提交且未被替换的输入；失败或较新的草稿必须保留。
+3. 在 provider A 的 **Check setup** 或 **Save & check** 仍运行时切到 provider B。此时 B 的
+   **Check setup**、credential 保存/删除、embedding 检查等共用 AI setup 动作必须清楚显示为
+   busy/disabled，不能并行启动第二项。等待 A 完成后再执行 B 的检查。A 的迟到成功、失败或取消
+   不得覆盖 B 的 model、credential 来源、反馈或按钮状态；回到 A 时不得显示属于 B 的 ready。
+   若 provider/model 变更取消了正在运行的 Keychain 操作，所有 setup 控件必须保持 disabled，直到
+   被取消的子进程真正结束；中间点击不得启动重叠的 Save、Remove 或 Check setup。
+4. 发起较慢的本地诊断并取消，立即开启新检查；旧请求的 abort/收尾不得清除新任务或把新结果
+   标为 cancelled。修改 provider/model 时也应取消失效任务，且不向另一个 provider 自动发送。
+5. 连续提交两个本地问题：先提交一个预计较慢的 `@` 问题 Q1，在结果返回前立即提交不同的 Q2。
+   最终结果区只能显示 Q2 的回答、来源与 elapsed time；Q1 必须被取消，不能在稍后覆盖 Q2，也不能
+   在 **Needs attention** 留下 cancelled/status unavailable 等旧错误。再用普通 OMD 搜索作为 Q1、
+   `@` 问题作为 Q2 重复一次，迟到的搜索不得清空或覆盖 Q2。
+6. 用至少两个可检索的 synthetic notes 发起 hosted 问题。批准前确认 preview 显示准确的 question、
+   provider、model、destination，以及**完整的本次已选有界证据片段**和 vault-relative source paths；
+   不是只显示标题、source count、摘要或再次截短的片段。此处“完整”指将发送的选定片段，不是整篇笔记。
+   path 仅在本机 preview 显示，provider prompt 必须以不透明 source ID 代替文件名。对照本轮
+   synthetic 预览/测试请求记录，确认批准后的请求只使用该次批准的 question 和 evidence，
+   不重新检索并替换为未预览的证据；来源 identity 或内容在 preview 后发生变化时旧 consent
+   必须失效。不要在日志中保存真实凭证或私人正文。
+7. hosted Q1 的 preview 保持打开时提交 Q2。Q1 preview 必须立即关闭或失效；只有 Q2 可以被批准
+   和发送。然后分别用 **Cancel**、Escape 和关闭 modal 取消预览。每次都不得发送云请求；再次提问必须重新
+   preview。更改 provider/model、撤销该 provider 的 Allow answers 或启动替代问题后，旧预览不能
+   批准新设置的请求，也不能复用旧 consent。
+8. 保持 preview 打开且尚未批准，disable/reload 插件；再重复一次并完全退出 Obsidian。待批准
+   modal 应关闭或失效，等待中的 decision/request 应结束，不向云端发送，不留下 orphan task 或
+   未处理 rejection。重新启用后新问题必须获得新的 preview 和明确批准。
+9. 运行本地 `@` fixture 问题，在等待回答时依次输入 `+`、普通 capture 路径和 `>` command。
+   每种切换都必须取消旧回答并收起空的 **OMD result** 壳；新的 capture/command 动作仍可正常完成。
+10. 运行本地 `@` fixture 问题，在等待回答时只更改 **Recognition defaults** 中的 OCR/ASR 语言。
+   问答应继续，不因仅影响 capture 的语言默认值被取消、失去 ready 或报缺少 OCR/ASR capability。
+   更改后的默认值只在新 Capture 中生效；旧版 OMD 缺少可选 recognition override 能力时，仍可
+   使用其已支持的 Q&A 功能。恢复默认语言后再次确认 Capture 使用新值。
+
+**2026-10-05 自动回归结果：** 109 项定向测试通过。第 8 步的 core boundary 已确认：pending preview
+期间 unload 会 abort request、不开 consent、零 evidence send、无遗留 controller／issue；较早已有
+回归也覆盖 consent 已打开且批准刚排队时 unload 仍阻止发送。第 10 步已确认：运行中的本地 Ask 不因
+OCR／ASR 设置变化而取消；旧 OMD 缺 recognition override 仍可 Q&A；Capture request 固定创建时的
+语言快照，后续设置只影响新 request。人工仍需补两项原生差额：disable／reload 与完全退出 Obsidian
+后的 Console／orphan smoke，以及更改语言后下一次真实 Capture 使用新值。未做这两项前，分别记录为
+`automated core PASS / native delta NOT RUN`，不要把整项 AI-11 自动记为 PASS。
+
+通过条件：credential 状态无刷新循环；AI setup 动作不会重叠；provider 切换和 abort 只影响所属
+请求；所有异步结果遵守 latest-submission-wins；云端发送严格绑定本次批准的证据；待批准时 unload
+零发送；OCR/ASR 默认值不阻断无关 Vault Q&A。
+
+## 7. Commands
+
+<a id="test-cmd-01"></a>
+
+### CMD-01：Obsidian core/community commands 与 Recorder
+
+1. 在 Home 点击 **Commands**，搜索一个 Obsidian core command 并运行。
+2. 启用一个提供无害 command 的 community plugin，再搜索运行。
+3. 启用 Obsidian 自带 Recorder，reload OMD Home，并确认命令列表里有
+   **OMD Home: Start or stop recording** 这个包装命令。
+4. 确认有准确 toggle 时显示 Recording；只有 Start/Stop command 时分别显示，不猜测状态。
+5. 在 omnibox 或 Command palette 搜索并运行：
+   - **OMD Home: Refresh local AI models**
+   - **OMD Home: Check local AI connection**
+   - **OMD Home: Smoke local AI: Vault question**
+   - **OMD Home: Smoke local AI: Note enrichment**
+   - **OMD Home: Smoke local AI: Polish Markdown**
+   - **OMD Home: Refresh macOS calendars**
+   - **OMD Home: Start or stop recording**
+
+通过条件：OMD Home 调用 Obsidian 已注册 command，不实现第二套 recorder；维护命令无需先打开
+Settings，结果仍进入相应状态区。
+
+## 8. Calendar / EventKit
+
+### 共用前置条件与 helper 安装
+
+1. 确认 macOS 14+ 与 Swift：
+
+```bash
+sw_vers
+xcode-select -p
+swift --version
+```
+
+2. 在源码目录构建 helper：
+
+```bash
+cd "/absolute/path/to/obsidian-omd-home"
+npm run build:eventkit
+./dist/omd-eventkit version
+```
+
+预期最后输出 `{"ok":true,"version":3}`。如果仍为 `version:2` 或更早版本，不要继续 Calendar 测试；
+当前 Home 必须将它显示为 **Update Calendar helper**／incompatible，而不能显示 ready，也不能读取或
+写入 event。可见说明应为 **Calendar helper update required. No Calendar data was read or changed.**，并提供
+**Check again**。2026-10-05 保存的 v2 probe 只属于上一候选，不能代替本次命令输出。
+
+3. 安装到仓库 test-vault：
+
+```bash
+npm run build
+npm run install:test-vault
+```
+
+脚本只有在 helper 可执行时才复制。安装后验证：
+
+```bash
+"$PLUGIN_DIR/omd-eventkit" version
+```
+
+4. 安装到其他 vault 时手动复制并保持可执行：
+
+```bash
+cp "/absolute/path/to/obsidian-omd-home/dist/omd-eventkit" \
+   "$PLUGIN_DIR/omd-eventkit"
+chmod 700 "$PLUGIN_DIR/omd-eventkit"
+```
+
+复制后 reload OMD Home。Community-style 三项基础安装不包含此 helper；这是单独的 macOS
+Calendar 测试步骤。
+
+<a id="test-cal-00"></a>
+
+### CAL-00：Helper、权限、明确选择 Calendar
+
+当前仓库 test-vault 应把可执行 `omd-eventkit` 安装在插件目录旁，`eventKitHelperPath` 保持空字符串，
+表示使用自动路径。先建立一个可删除的 Calendar 基线，再测试失败恢复。
+
+1. 打开 **Settings → OMD Home**，向下滚动到 **Calendar**。自动 helper 可用时，顶部应显示
+   **Calendar connection** 与 **Refresh calendars**；普通用户不需要先填写绝对路径。
+2. 展开 **Advanced Calendar helper**：确认 **Helper override** 为空，Automatic helper 路径以
+   `.obsidian/plugins/omd-home/omd-eventkit` 结束；已安装 helper 的 `version` 命令应为 protocol v3。
+   仅存在／可执行但仍为 v2 或更早版本时，页面必须要求 **Update Calendar helper**，明确写
+   **No Calendar data was read or changed**，且 Refresh 不得读取 event；替换 helper 后用 **Check again**
+   重新验证。
+3. 如果测试 calendar 尚不存在，在 macOS Calendar 建立
+   `OMD CAL manual test – delete after PASS`，再点击 **Refresh calendars**。系统询问权限时允许实际出现的
+   **OMD Home Calendar Bridge**、`omd-eventkit` 或 Obsidian；若没有弹窗，检查
+   **System Settings → Privacy & Security → Calendars** 后 reload。
+4. 只开启本轮同意同步的测试 calendar；在 **Default calendar** 选择同一个显示
+   **Read and write** 的 calendar。先记下已开启项和 default；read-only calendar 不能成为 default。
+5. 展开 **Advanced Calendar helper**，在 **Helper override** 输入
+   `/tmp/omd-home-missing-eventkit`。停止输入后应先短暂显示 **Checking Calendar helper**，约 300 ms
+   防抖后、在点击 Refresh 之前，直接出现统一的红色错误卡：
+   **Custom helper missing or not executable**。旧的 ready 状态不能继续显示。
+6. 不点击 Refresh，先确认第 4 步记录的 calendar 选择、default 和已有列表没有被清空。随后可点一次
+   **Try again / Refresh calendars**，运行错误仍应明确，选择仍保留。
+7. 点击 **Use bundled**。输入框应立即清空，按钮隐藏，焦点回到输入框；再点击 **Check helper**
+   （旧界面可显示为 Refresh calendars），页面应恢复 Automatic helper ready。列表与第 4 步的选择应恢复。
+
+通过条件：自动 helper 无需普通用户配置；无效 custom path 不等待真实 Refresh 就替换旧状态；错误可操作；
+失败不清空 selection/default；**Use bundled** 可恢复。旧候选的即时反馈结果保留为 FAIL。
+
+**2026-10-05 定向原生结果：PASS。** 输入 `/tmp/omd-home-missing-eventkit` 后，在点击 Refresh 前即出现
+统一红色 **Custom Calendar helper unavailable**；9 个 Calendar 列表与 default `iCloud / Activity`
+保留。Automatic 模式不显示 **Use bundled**；custom path 使按钮出现，点击后输入框清空且按钮立即隐藏；
+**Check helper** 当时恢复 bundled protocol v2，并重新加载 9 个 Calendar。此行为是 2026-10-05 历史
+PASS。当前候选已经独立完成 protocol v3 CLI probe、Community plugins 停用／启用，以及原生
+`/tmp/omd-home-missing-eventkit-v3` 即时错误 → **Use bundled** → **Check helper** → Automatic helper ready／
+Refresh 10 个 Calendar；default 与 `data.json` hash 未变。Q0 的真实 **Sync** 后续已由 release owner
+确认通过，不重做。
+
+<a id="test-cal-01"></a>
+
+### CAL-01：Start / End、设备时区与 All day
+
+1. 保持 CAL-00 的 writable default calendar，在 OMD Calendar 点击 **New event**。输入 title
+   `CAL-01 Timed Fixture`，Destination 选择 **Vault + <default calendar>**，这样可与 macOS Calendar
+   对照时区。
+2. **Start / End 就是系统原生 `datetime-local` 控件**：用鼠标点输入框中的日期或时间段，也可以按
+   Tab 进入后直接键入数字；这里不会另填 `Z` 或 `+12:00`。Start 设为 `2026-10-06 10:00`，End
+   设为 `2026-10-06 11:00`。若日期已过期，使用当前可见周内的同一未来日期。
+3. 在 End 下方确认页面明确显示
+   **Times use this device's time zone: Pacific/Auckland.**（以本机实际 IANA 时区为准）。需要核对系统设置时，
+   打开 **System Settings → General → Date & Time**；保存后在 macOS Calendar 打开同一个 linked event，
+   也必须仍是本地 10:00–11:00。
+4. 保存并重新打开；Start／End 应保持同一组本地可读值，没有静默偏移。
+5. 开启 **All day**。控件应切换为原生 `date`，时区说明隐藏；Start 为 `2026-10-06`、排他的 End
+   为 `2026-10-07`。普通说明只解释“one day 要选 next date”，不得预先显示成错误。
+6. 把 End 改成等于或早于 Start 后点 Save。Save 必须被阻止；End 下方出现与 OMD Home 其他错误一致的
+   红色 inline error card，End 获得焦点并标记 invalid。改回下一日后错误立即清除并可保存。
+7. 另清空 Start 后点 Save；本次应高亮并聚焦 **Start**，不能一边写 “Choose a valid Start” 一边把 End
+   标红。恢复有效 Start 后再 Cancel 或保存。
+8. 新建 linked `CAL-01 Mixed Direction Conflict` 并 Sync 到 clean。打开普通 Markdown note 的
+   **Source mode**，只把 YAML `title:` 改为 `مراجعة CAL-01 Orchid محطة`、`location:` 改为
+   `会议室 Room 7 — غرفة`；不要使用 OMD Calendar editor，也不要改 linkage／sync 字段。同时在 macOS
+   Calendar 把同一 event 改为 Title `CAL-01 مراجعة Harbor`、Location `Room 9 — قاعة会议`，再 Sync。
+   conflict 两列必须完整保留 LTR／RTL／CJK Title、Location 与带设备时区的 timed 时间；点 Cancel 后两侧
+   都保持，不能静默选边。
+
+通过条件：页面直接告诉用户实际设备时区；linked event 与 Calendar 的本地时间一致；all-day End 保持
+排他下一日；真正的无效范围才显示明显且指向正确字段的错误。
+
+**2026-10-05 定向原生结果：PASS；完整 case PARTIAL。** 步骤 2、步骤 3 的时区说明部分与步骤 6 已通过：原生本地日期时间控件
+可读，页面显示 `Pacific/Auckland`；End 等于 Start 时 Save 被阻止，End 获得焦点，红色错误与边框清楚，
+修正后立即清除。步骤 4／5／7／8、真实 linked Calendar 时间对照仍待人工执行。
+
+<a id="test-cal-02"></a>
+
+### CAL-02：来源筛选与轻量说明
+
+在 CAL-01 使用的同一未来测试周准备：
+
+- `CAL-02 Vault Only`，09:00–10:00，Destination 选 **Vault note only**。
+- `CAL-02 Linked`，11:00–12:00，选 **Vault + <default calendar>**。
+- `CAL-02 Calendar Only`，13:00–14:00，直接在 macOS Calendar 的测试 calendar 创建，然后在 OMD
+  Calendar 点 **Sync**。
+
+1. 打开 OMD Calendar 的 Week view 并记住当前日期范围。顶部应只常驻一个紧凑的
+   **Sources · All** 控件，不再常驻三个 legend 按钮。
+2. 展开它，确认三项含义清楚且与形状一致：**Vault only · Markdown event note**、
+   **Calendar only · macOS Calendar event**、**Linked · Note synced with Calendar**。
+3. 隐藏任一来源；事件立即消失，summary 变成 **Sources · 2 of 3**，当前日期和 Week view 不重置。
+   再显示它，事件恢复。
+4. 只保留一个来源时，该来源应明确处于 disabled 状态并说明
+   **At least one event source must remain visible**；不能继续显示可点击的 Hide 却点击无反应。
+5. 回到 OMD Home。搜索框右侧应显示紧凑的 `□ ■ ◧`，不再显示旧的 `> + @`；三者共同组成一个
+   **Event source key** 按钮。鼠标或键盘激活后，modal 应以普通对比度显示与第 2 步完全相同的三项说明，
+   `Esc` 关闭后焦点回到该按钮。Today／Upcoming 行内只保留小形状，不放永久 legend；悬停／辅助技术名称
+   应包含 Source。再核对 Upcoming 行内日期：
+   Today／Tomorrow／更晚日期均清楚；timed 跨日显示起止日期与时间，all-day 多日按 exclusive end 显示
+   正确的可见日期范围。把 Home widget 缩窄，并在深浅主题各看一次；日期、标题和来源不得重叠、截断或
+   依赖 hover 才能理解。
+
+通过条件：来源含义按需可发现，常态页面保持 minimal；筛选有即时反馈、不重置日期／view；最后一个来源
+不会产生无响应按钮；Calendar 与 Home 使用同一套来源术语。
+
+**2026-10-21 当前 bundle smoke：PARTIAL PASS。** Force Reload 后，Upcoming 原生显示 Tomorrow 与更晚日期；
+**Event source key…** 可聚焦并打开可读 modal，`Esc` 关闭后焦点回到 Options。timed 跨日／all-day 范围、
+窄栏和深浅主题仍须按步骤 5 完成人工复测。
+
+**2026-10-05 定向原生结果：PASS；完整 case PARTIAL。** 步骤 1–3、旧版步骤 5 已通过：Calendar 常态只显示
+**Sources · All**；展开后显示三项完整说明；隐藏 Vault only 后变为 **Sources · 2 of 3**，恢复后事件
+重新出现；Home Upcoming 的 `…` 显示同一套 Event source key。步骤 4 与三类新建 fixture 的完整对账
+仍待人工执行。
+
+<a id="test-cal-03"></a>
+
+### CAL-03：Linked sync、两轮双向冲突与 unavailable 恢复
+
+这里的“普通 edit／drag 被阻止”指 OMD Calendar 的 event editor 和日历拖动。为了制造冲突，必须在普通
+Markdown note 的 **Source mode** 改 YAML；这是测试准备步骤，不是冲突状态下的普通 Calendar 编辑。
+
+**2026-10-05 安全外壳预检：PARTIAL。** Week／Day 中 **Pending sync** 文字与方形来源 marker 分离，
+窄格内没有覆盖或溢出。点击现有 Pending sync 事件时只显示 **Cancel** 与
+**Import Calendar change**，不提供普通 Save，说明待处理版本不会被普通编辑覆盖。本次只读检查没有点击
+Sync 或 Import，也没有执行 A–E 的外部 Calendar 写入、两轮 conflict、跨 Calendar 移动、Recreate 或
+Detach；这些步骤在当时全部保持 FIRST PASS，不能由本段结果推断通过。后续证据已完成 A–E、跨 Calendar、
+Recreate／Detach，并由下方当前候选段与顶部 1.3C 取代这条历史 pending 范围。
+
+**2026-10-06 删除／missing-event 修复候选：HISTORICAL / SUPERSEDED。** 旧候选把 recurring occurrence 的 lookup miss
+当成 helper read failure，导致一个已从 Apple Calendar 删除的 linked event 让每次 Sync 都回到
+**Calendar sync paused**。protocol v3 现在把只读 lookup 的 absent 结果保留为 `event: null`，
+Update／Delete 仍 fail closed；一个 missing event 只能把自身置为 unavailable，不能阻断同轮其他健康
+事件。Vault-only／linked note 的 **Delete event note…** 只使用 Obsidian Trash；Linked 的
+**Delete Calendar copy…** 只删除 Apple event 并把 note 留为 Vault only。两条路径使用不同的范围说明、
+确认与 CAS。后续原生证据已经完成 A–E、E.14–E.16、Destination、F.17–21 与 Q0–Q2 的 Calendar
+CAS／modal unload。下方 A–G 只保留为完整合同与历史复现步骤，不再要求从头执行，也不能把 G 的
+自动 fault injection 写成 native PASS。
+
+#### A. 建立可核对的 clean 基线
+
+1. 创建 `CAL-03 Conflict Fixture`，时间 `2026-10-08 10:00–11:00`，Destination 选
+   **Vault + <default calendar>**；日期过期时使用 CAL-01 同一未来周再顺延一天。
+2. 点 OMD Calendar 顶部 **Sync**。打开对应 Markdown note，确认 frontmatter 含
+   `event-source: linked`、`sync-state: clean` 和非空 `sync-hash`；同时确认 macOS Calendar 字段一致。
+   记录这次 `sync-hash`。不要在 pending 状态继续。
+
+#### B. 第一轮：Use note version
+
+3. 在 Obsidian 普通 note 的 **Source mode** 只把 YAML 的 `title:` 改为
+   `CAL-03 Conflict Fixture – Note 1`。不要重命名文件，不要改 H1，不要删除 `event-id`、Apple linkage ID
+   或 `sync-hash`。
+4. 在 macOS Calendar 把同一个 event title 改为
+   `CAL-03 Conflict Fixture – Calendar 1`。两边都保存后，只点一次 Calendar 顶部 **Sync**。
+5. 顶部反馈必须写 **Calendar sync needs review: 1 conflict**，不能写 complete。格子显示红色 `!`。
+   此时 note 仍是 Note 1，Calendar 仍是 Calendar 1，任何一边都不能被静默选中。
+6. 尝试拖动该格子，时间不得改变。点击格子后应直接出现 **Calendar conflict** 比较框，分别列出
+   **Note version** 与 **Calendar version** 的 Title／Time／Calendar／Location；不出现普通 Save。两个选择视觉权重
+   相同，另有 Cancel。先 Cancel，确认仍冲突；再打开并选 **Use note version**。
+7. 确认两边都变成 Note 1、`sync-state: clean`，且 `sync-hash` 已从 A.2 的值更新。
+
+#### C. 第二轮：Use calendar version
+
+8. 重复同样步骤：Source mode 的 YAML title 改为
+   `CAL-03 Conflict Fixture – Note 2`，macOS Calendar 改为
+   `CAL-03 Conflict Fixture – Calendar 2`，然后点一次 Sync。
+9. 必须再次得到 conflict；不能因为上一轮刚 resolve 就按“最新修改时间”自动选边。选
+   **Use calendar version** 后，两边都变成 Calendar 2、状态 clean，`sync-hash` 再次更新。
+
+#### D. 跨 Calendar 移动：恢复 linkage，不复制 event
+
+10. 在 macOS Calendar 另建一个可删除的 writable calendar：
+    `OMD CAL move target – delete after PASS`。回到 Settings → OMD Home → Calendar，Refresh 后同时
+    开启原测试 calendar 与这个 move target；default 仍保持原测试 calendar。回到 OMD Calendar，独立
+    新建 linked event `CAL-03 Move Fixture`，Destination 选 **Vault + 原测试 calendar**，保存并 Sync；
+    先确认 note 为 `event-source: linked`、`sync-state: clean`，且 OMD 与 macOS Calendar 各只有一条。
+    本节不依赖 A–C 的 `CAL-03 Conflict Fixture`，即使前面的冲突 fixture 已删除也可单独执行。
+11. 在 macOS Calendar 把 `CAL-03 Move Fixture` 从原测试 calendar 移到
+    `OMD CAL move target – delete after PASS`，不改标题、时间或 location。回 OMD Calendar 只点一次
+    **Sync**。
+12. Sync 必须找到唯一的同一 EventKit item、更新 note 内的 Calendar/linkage identity，并保持
+    `sync-state: clean`。OMD Calendar 与 macOS Calendar 都只能有一条该标题的 event；不得把旧 ID
+    查不到解释成 deleted，不得显示 **Recreate**，也不得新建重复 event。若系统返回多个同 external
+    identity 的候选，必须进入明确的 needs review/error，不能自动任选一条。
+
+#### E. unavailable：只使用 Recreate／Detach
+
+13. 本节独立新建 linked `CAL-03 Recovery Fixture`，不要依赖 D 的 move fixture。Destination 选择一个
+    当前已启用的 writable Calendar；保存并 Sync 后，先确认 note 为 `event-source: linked`、
+    `sync-state: clean`，OMD 与 macOS Calendar 各只有一条。记录 Sync 前已有的 recovery 数量作为基线；
+    如果顶部已经有无法定位的旧 `unavailable` 计数，后续必须以本 fixture 的 title、红色 `!` 和计数相对
+    基线的变化判断，不能把旧总数误认成本 fixture 的结果。随后在 macOS Calendar 删除这条 event，回
+    OMD Calendar 点一次 Sync。目标格子必须进入明确 recovery 状态；顶部 recovery 数应比基线增加一项。
+    页面不得声称已自动 “confirmed deleted”；打开目标时不显示普通 Save，恢复操作为
+    **Retry full sync**、明确的 **Recreate…** 与 **Detach**。若只重复旧计数而目标 fixture 没有被标出，
+    本步记 FAIL，不要对其他 clean event 使用 Recreate。
+14. 点目标 fixture 的 **Recreate…**。二次确认必须显示准确的 Title、Time、Target calendar 与 Note path，
+    并明确说明：请先在 Calendar 核实原 event 已删除；identifier 变化时重新创建可能产生重复项。先点
+    Cancel，确认 Calendar 中仍为零条同名 event，note
+    仍处于原 recovery 状态且没有新 linkage。再次打开并确认；执行前 OMD 还要做最后一次 exact ID／
+    stable identity lookup，若找到一条或多条候选必须停止并要求 review。只有仍无候选且用户已明确确认
+    时才建立新 event。成功后原 note path 不变、Calendar 中恰好一条同名 event、linkage 更新、状态 clean；
+    再点一次 Sync，不得生成第二条或让本 fixture 再次计入 recovery。
+15. 再次从 macOS Calendar 删除刚 Recreate 的 event 并 Sync，打开被标出的
+    `CAL-03 Recovery Fixture`，这次选 **Detach**。note 必须保留并变为 Vault only；内部 `event-id` 必须
+    保留，Apple linkage ID、`calendar-request-id`、`calendar-modified-at`、`last-synced-at`、`sync-hash`、
+    pending／read-only 等只服务于 linked sync 的字段必须清理。再点一次 Sync：不得重新创建 Calendar event，
+    本 fixture 不得继续带红色 `!` 或增加 recovery 数；若旧基线计数仍存在，只记录为 CALENDAR-05，不能
+    把它归到已经 Detach 的本 fixture。
+16. 记录当前默认 Calendar，并准备两个已选、可写 Calendar A／B。暂把 B 设为默认，新建并 Sync clean 的
+    linked `CAL-03 Unselected Calendar Fixture`，确认实际写入 B；再把 A 设为临时默认，然后只在 Settings
+    取消选择 B。这样不会因取消当前默认项而把 default 清空。点 Sync 后，目标应明确提示重新选择 Calendar
+    或 Detach，**不得出现 Recreate**，也不得新建副本。重新选择 B 后再次 Sync，目标恢复 linked／clean，
+    note 与 Calendar 仍各恰好一条；最后恢复本节开始时记录的默认 Calendar。普通人工测试不需要故意破坏
+    helper；真实 helper/read failure 只能提示修复 setup／Retry Sync，不能把未知状态当成已删除，这部分由
+    自动错误注入覆盖。
+
+#### F. Vault note 与 Calendar copy 分开删除；missing 不阻塞健康项
+
+17. 新建一条 `CAL-03 Vault Delete Fixture`，Destination 选 **Vault note only**，保存后重新打开。确认有
+    **Delete event note**，说明为移动到 Obsidian Trash；不能出现会误删 Apple Calendar 的文案。点
+    **Delete note…** 后，确认框的 **Selected event** 必须显示 Title、Time 与准确 Note path，避免同名事件
+    误删。先 Cancel，event 与 note 都应保留；再次确认 **Move to trash**，editor 必须关闭，Calendar 格子
+    立即消失，Obsidian Trash 中只有这份测试 note。实际位置由 Obsidian **Settings → Files and links →
+    Deleted files** 决定：本地 trash 是 vault 根目录的隐藏 `.trash/`，system trash 则在 macOS Trash。
+18. 新建 linked `CAL-03 Linked Delete Note`。打开后选 **Delete event note…**：确认框必须明确写
+    **OMD Home will not delete or modify Apple Calendar**，并在 **Selected event** 显示 Title、Time、Note path。
+    先 Cancel；再次执行并点 **Move to trash**。
+    Markdown note 应进入 Obsidian Trash，Apple Calendar 的 event 仍存在；refresh 后它可以作为
+    Calendar-only event 再出现，不能被误报为 linked note 仍存在。
+    如果刚创建、未人工修改 Calendar 就先出现 **Calendar has newer changes**，本轮直接记 FAIL；不要用
+    **Import Calendar change** 绕过，因为当前候选应已收敛仅 metadata 更新造成的假冲突。
+19. 新建另一条 linked `CAL-03 Linked Delete Calendar Copy`。选 **Delete Calendar copy…**：确认框必须写
+    Apple event 会删除、Markdown note 会保留为 Vault only；**Selected event** 显示 Title、Time 与目标
+    Calendar。先 Cancel；再次执行并点 **Delete event**。
+    macOS Calendar 中 event 消失，原 note 仍存在且 `event-source: vault`，Apple linkage／sync 字段已清理；
+    editor 关闭或刷新到不再允许重复删除旧 Calendar copy 的状态。
+20. 再建两条 linked event：`CAL-03 Missing Does Not Block` 与 `CAL-03 Healthy Control`。在 macOS Calendar
+    删除前者，同时把后者 Location 改为 `Healthy lane B`，然后只点一次 **Sync**。结果应为
+    `1 linked note needs Calendar recovery`，并在 recovery 文案或高亮项中明确指出
+    `CAL-03 Missing Does Not Block`；健康 note 同轮更新为 `Healthy lane B` 且 `sync-state: clean`。一条 missing
+    event 不能阻断排在它后面的健康写入，也不能让以后所有 Sync 停在 **Calendar sync paused** 循环。
+21. 打开 unavailable 的 `CAL-03 Missing Does Not Block`：普通字段与 Save 必须禁用；
+    **Retry full sync** 明确说明会同步其他 linked events；还应能 Detach，或用
+    **Delete event note…** 只把 Markdown note 移到 Trash。确认删除 note 后 editor 关闭、linked 格子消失；
+    再次 Sync 必须可运行且不再重新创建该 note。如果 Sync 仍报其他 linked event 需要 recovery，
+    必须打开被高亮的具体项核对 title；只有删除的 `CAL-03 Missing Does Not Block` 自身重现才算本步 FAIL。
+22. PASS 后删除本节其余 event 与测试 note；整个 CAL 组结束后再删除两个测试 calendar。
+
+#### G. 精确确认、CAS、refresh failure 与 unload 安全门禁
+
+这些是必须通过的发布门禁，但普通人工测试不应为了制造 race、helper timeout 或 refresh failure 去改
+插件文件。没有 fault-injection build 时，在结果中写 **AUTOMATED / NATIVE NOT EXERCISED**，不要猜 PASS。
+
+- **精确确认：** Delete event note、Delete Calendar copy/event 与 Detach 使用不同的 action token；缺少或
+  传错 token 时必须在任何 lookup、trash 或 Calendar mutation 前拒绝。用户只点击有明确范围的确认按钮，
+  不需要手工输入内部 token。
+- **Calendar CAS 可做原生 smoke：** 新建 linked `CAL-03 Calendar Delete CAS`，打开
+  **Delete Calendar copy?** 确认框后，切到 macOS Calendar，把同一 event title 改成
+  `CAL-03 Calendar Delete CAS – changed after open`。回 Obsidian 点 **Delete event**；必须提示 event 已在
+  打开后改变、什么也没有删除。点 Sync 并重新打开后，才可按新版本再次操作。
+- **Note CAS 由自动回归负责：** trash 前逐字节重读 Markdown；确认框打开后内容变化必须刷新并拒绝删除。
+  这项不要求测试者在阻塞式 Obsidian modal 外再找第二个编辑入口。
+- **删除已提交、refresh 失败：** 自动回归必须确认 stale row 立即从当前 UI 移除，Needs attention 说明
+  删除／trash 已完成但 refresh 失败；modal 关闭，不能让用户再次点击同一旧删除动作。不得把已提交动作
+  误写成整体失败或自动重试 mutation。
+- **queued refresh：** refresh／Sync 进行中收到第二次请求时，第二次请求必须在旧 pass 成功或失败后完整
+  重跑，不能只复用第一个 Promise；任一 queued request 要求 reconcile 时，后续 pass 必须保留 reconcile。
+  删除已提交时，旧 pass 的迟到结果不得把被删除 row 复活；queued pass 必须从当前 Vault／Calendar 状态
+  重新读取并保持该 row 已移除或按真实剩余来源重新分类。
+- **unload 与重复点击：** action 运行时控件 disabled 且 modal 为 busy；重复点击不能启动第二次 mutation。
+  unload 会终止 helper child 并使 bridge 永久拒绝新调用；若在 lookup／note 重读后、commit 前 unload，
+  必须显示 Nothing was deleted/changed，且不调用 Calendar delete 或 Trash。若 commit 已完成，不能启动
+  unload 后 refresh。当前候选已统一登记 Calendar editor／confirmation modal，并在 `onunload` 主动关闭；
+  原生 disable/reload 仍须确认 modal 立即关闭、没有 stale button、Notice 或 Console rejection，才能写 PASS。
+
+Q2 的原生 smoke 按下面顺序执行；Cancel 已合并进 F.18，不再额外创建第四个无意义 fixture：
+
+1. **Cancel 零写入：** 使用 F.18 的 `CAL-03 Linked Delete Note` 第一次 **Delete event note…** 确认框，
+   核对 Title、Time 与 Note path 后点 **Cancel**。确认 Markdown note 和 macOS Calendar event 都仍存在，
+   linkage／`sync-state` 没有变化，也没有成功删除 Notice；随后才按 F.18 第二次确认 Move to trash。
+2. **Calendar delete CAS：** 新建 linked `CAL-03 Calendar Delete CAS`，打开 **Delete Calendar copy…**
+   确认框，核对 Title、Time 与 Calendar，但先不要确认；切到 macOS Calendar，把同一 event 的标题改为
+   `CAL-03 Calendar Delete CAS – changed after open`。回到原确认框点 **Delete event**。插件必须拒绝
+   这次旧版本删除并说明 event 已在确认框打开后改变；Calendar 中的新标题 event 与 Markdown note 都必须
+   保留。随后点一次 **Sync**，重新打开目标后才能基于当前版本操作。
+3. **确认框打开时 unload：** 先用 **View → Toggle Developer Tools**（macOS 可按
+   `Command-Option-I`）打开 Console。新建 linked `CAL-03 Q2 Unload`，打开
+   **Delete Calendar copy…** 并保持确认框不操作；在 Console 运行：
+
+   ```js
+   await app.plugins.disablePlugin("omd-home")
+   ```
+
+   确认 modal 立即关闭，note 与 Calendar event 都未删除，Console 没有 unhandled rejection。再运行：
+
+   ```js
+   await app.plugins.enablePlugin("omd-home")
+   ```
+
+   从 ribbon 重新打开 OMD Calendar 并点 **Sync**；两份对象仍存在，不能残留旧 modal、可再次点击的旧
+   Delete 按钮或 orphan helper。完成后清理 `CAL-03 Calendar Delete CAS` 与 `CAL-03 Q2 Unload`；F.18
+   fixture 按该步骤自己的清理说明处理。
+
+Q2 只要求以上三个原生 smoke，其中第一项与 F.18 共用 fixture。queued refresh、helper error pass、
+action token、note byte-CAS 与 mutation
+中途 unload 已由自动测试覆盖，不需要在正式 test-vault 中手工注入故障。
+
+通过条件：Sync 反馈与真实状态一致；两轮独立冲突都不静默选边；比较框展示用户正在选择的两份版本；
+冲突时普通 edit／drag 被阻止；跨 Calendar 移动只恢复 linkage、不制造副本；Recreate 需要用户明确确认
+重复风险并在写入前再次查找；取消选择或读取失败不能误建副本；note 与 Calendar copy 的删除范围清楚、
+必须分别确认并在 commit 前复核目标版本；一个 missing event 不得阻塞同轮健康事件或让后续 Sync 永久
+不可用；已提交删除即使 refresh 失败也不能保留 stale action UI；unload 后不得开始或继续未提交 mutation，
+queued refresh 必须在旧 pass 成功或失败后真正重跑且不得复活已删除 row；Calendar action modal 必须由
+plugin lifecycle 主动关闭后才能把 unload 子项记 PASS。
+
+## 9. Capture 与 Enrichment
+
+<a id="test-cap-01"></a>
+
+### CAP-01：URL、普通路径、空格路径与拖放
+
+1. 点击 **Capture URL or file**，粘贴公开测试 URL `https://example.com/` 并提交。预期生成的
+   `Sources/Web/Example Domain*.md` frontmatter 包含 `omd_home_status: inbox`，Home 的 OMD Inbox
+   出现该记录，并且不显示 “output path could not be verified”。若外置磁盘索引较慢，允许先显示
+   “saved to OMD inbox” 提示；重新打开 Home 后记录仍必须出现。
+2. 选择一个小型本地文件，用普通绝对路径 capture。先在 Terminal 解析已经准备好的 fixture：
+
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
+   ```
+
+   在 Home 点击 **Capture URL or file**，把整行路径粘贴到输入框后提交；不要把文件路径当作
+   Terminal 命令执行。预期：任务先进入 Current task；OMD 转换器完成临时文件时不能提前显示
+   **Complete**。只有最终 Markdown 已存在、通过 vault 路径验证，并写入
+   `omd_home_status: inbox` 后，才允许出现成功提示，System 才显示 **Last run completed**，同时
+   OMD Inbox 出现一条待 review 的记录。完成后 Current task 回到 **No task running** 属于正常
+   状态。重复运行时文件名可能带 `-2`、`-3` 等防覆盖后缀，这是正常的。
+   如果最终 Markdown 缺失或 Inbox 状态写入失败，任务必须显示错误并进入 Needs Attention，不能
+   显示成功。
+3. 使用已准备的 `~/Desktop/OMD Home Test Fixtures/survival analysis sample.html`；插件应展开
+   `~/`，并把包含空格的整段路径作为一个 source。这里不再使用 `omd-home-example.pdf`：该文件是
+   专门用于识别无文本层扫描 PDF 的样本，不能同时作为普通路径成功用例。
+4. 在 Terminal 运行
+   `printf '%s\n' "$HOME/Desktop/OMD Home Test Fixtures/survival analysis sample.html"`，复制输出的
+   绝对空格路径。在 OMD Home 输入框直接粘贴这一整行，不要加入 shell 用的反斜杠。如果从 Terminal 复制出
+   `OMD\ Home\ Test\ Fixtures`，插件也应还原，但普通用户主路径以无反斜杠形式为准。
+5. 分别验证两个独立的拖放入口：
+   - **Home omnibox**：用 `Command + P` 运行 **OMD Home: Open home**。在 OMD Home 页面顶部，
+     找到带放大镜、placeholder 为 **Search, capture, command, note, event, or ask OMD** 的长输入框，
+     把本地文件拖到这条输入框上并释放。
+   - **Capture dialog**：点击 Home 输入框下方的 **Capture URL or file**，在弹窗中找到
+     **Drop a local file here** 区域，再把本地文件拖到该区域并释放。
+
+   两处都拖入这个已准备的文件：
+   `$REPO_ROOT/docs/manual-test-fixtures/generated/english-ocr.png`。
+   这两项是分别测试两个入口，不是要求把同一个任务从 omnibox 继续拖进弹窗。两处都应自动填入
+   文件路径并开始或允许确认 capture，且不会把路径当作 shell 命令执行。
+6. 输入不存在的路径，例如
+   `$REPO_ROOT/docs/manual-test-fixtures/generated/english.png`。
+   预期显示：`File not found: <刚才输入的完整路径>. Check the filename and location, then try again.`；
+   Needs Attention 也保留该路径。不能显示笼统的 “Check the OMD setup” 错误，因为此时 OMD
+   配置本身没有问题。
+7. 验证普通 non-AI capture 不依赖 Ollama：
+   1. 在 Home 点击 **Capture URL or file**，记录 **Optional local AI** 下
+      **Polish Markdown** 与 **Review links and tags** 的初始状态。
+   2. 翻转两个开关后点击 **Cancel**，再次打开 Capture。预期仍显示第 1 步记录的状态，因为
+      Cancel 不应修改以后 capture 的默认选择。
+   3. 关闭 Capture，打开 **Settings → OMD Home → AI answers**。确认这里没有这两个开关的
+      重复副本。
+   4. 展开默认折叠的 **Advanced AI controls**，向下找到 **Ollama troubleshooting →
+      Ollama endpoint**。说明文字应明确显示 automatic 值 `http://localhost:11434`，并说明 manual 只允许
+      `localhost`、`127.0.0.1` 或 `[::1]` 加显式端口；偏离 automatic 时显示 **Use automatic**。把当前值
+      临时改为格式合法但不可达的 `http://localhost:9999` 并点击 **Save endpoint**；这个值只用来
+      证明关闭 AI 的 capture 不会连接 Ollama，不要点击 **Check setup**。
+   5. 回到 Home，再次点击 **Capture URL or file**。关闭两个 Optional local AI 开关，然后使用
+      `docs/manual-test-fixtures/capture/small-local-file.html` 完成 capture。开关应为灰色且滑块位于左侧。
+   6. 预期结构转换成功并进入 OMD Inbox；不可达 Ollama endpoint 不应把这次 capture 标记为失败，
+      也不应出现 “output path could not be verified” 提示。外部磁盘上的新文件可能需要数秒才会被
+      Obsidian 索引，这段等待属于正常现象。
+   7. 再次打开 Capture，确认两个关闭状态已成为下一次新 capture 的起始状态；然后点击 Cancel。
+      这证明只在提交 Capture 后记住选择。
+   8. 测试后点击 **Use automatic**，确认 **Ollama endpoint** 恢复为 `http://localhost:11434` 且按钮隐藏。需要继续本地 AI 测试时，
+      点击 **Check setup** 重新验证。若要恢复第 1 步的开关状态，请在下一次真实 capture 提交前恢复；
+      只修改后点击 Cancel 不会保存。
+
+通过条件：有效 URL/文件都到达 OMD；空格路径被还原但不通过 shell 执行；missing path 有具体
+错误；两个可选 AI 动作均关闭时，普通 non-AI capture 不因无效 Ollama host 被阻止。
+
+<a id="test-cap-language"></a>
+
+<a id="test-cap-01a"></a>
+
+### CAP-01A：OCR / ASR 语言、Config 优先级与 Retry
+
+已经准备以下 7 个小型样本，全部位于源码目录的 `docs/manual-test-fixtures/`：
+
+| 用途 | 准确相对路径 |
+| --- | --- |
+| 纯英文截图 | `generated/english-ocr.png` |
+| 简体中文 + 英文截图 | `generated/simplified-chinese-english-ocr.png` |
+| 繁体中文 + 英文截图 | `generated/traditional-chinese-english-ocr.png` |
+| 纯文字网页 | `capture/plain-text-web-page.html` |
+| 无文本层扫描 PDF | `generated/scanned-bilingual-page.pdf` |
+| 中英文语音 | `generated/bilingual-speech.wav` |
+| 首次失败后可恢复的输入 | `capture/retry/retry-source.ready.html` |
+
+所有输入都是 synthetic，无个人数据。PDF 已验证为一页 image-only 文档；音频约 7 秒。
+
+本节中“简体中文 + English / No language preference”分别指 **Image text language / Speech language**
+两个控件。图片的 **No language preference** 不代表自动检测：它使用 OMD 配置或默认值，
+当前测试环境实际为 `eng`。请在 Capture 弹窗选择图片语言后提交；单次选择不会覆盖 Settings 默认值。
+
+2026-09-17 人工发现：从首页搜索框直接提交简中图片绕过语言选择，侧车记录
+`requested=null / effective=eng / source=default`，原始 OCR 已乱码。记为 **FAIL，待修复安装后原生复测**。
+已合入源码修复：首页本地图片进入预填 Capture 并展开 Recognition，下拉框完整显示语言；
+565 项自动测试及 6 个布局场景通过；22:50 已安装 / 原生重载，图片入口与语言显示检查通过（1.3A.1）。原始 OCR 内容用例仍保留失败记录，待你显式选语言复测。
+独立 CLI 对照：`chi_sim+eng` 恢复中文主体（仍有标点 / 空格差异），网页三种语言正文相同，
+扫描 PDF 退出失败且无笔记；这些不替代你的原生 UI 验收记录。
+
+扫描 PDF 原生验收补充：用户截图时间 **17 Sept 22:26**，显示 **Capture failed**，
+并明确说明无法提取可读内容，建议改用页面图片 OCR 或带文字层的 PDF。
+读取 test-vault 未发现该来源生成的 Markdown。本项记为 **PASS（不支持功能的限制处理）**，
+不表示扫描 PDF OCR 转换成功；相同文件和设置直接 Retry 不能解除此限制。
+用户截图保存在非公开的本地 QA 证据集中；公开仓库不包含用户 vault 截图。
+
+
+1. 首次测试或先在 **Settings → OMD Home → Recognition defaults** 把两个选项都设为
+   **No language preference**，然后打开 Capture 并展开
+   **Recognition (optional)**。确认 **Image text language** 从 **No language preference**
+   开始，并可选 `eng`、`chi_sim+eng`、`chi_tra+eng`；**Speech language** 从
+   **No language preference** 开始，并把明确的 **Auto-detect**、
+   `en` 与 `zh` 分开显示。界面不得出现 Inherit 或 adapter default 这类内部术语。
+   提交一次使用其他语言选项的 capture 后重新打开弹窗，确认它仍使用 Settings 中的 vault
+   defaults，而不是把上一次 item-only 选择静默保存成默认值；取消弹窗同样不得改变默认值。
+   然后在 Settings 修改一个 recognition default，再打开 Capture，确认新默认值生效。
+2. 分别以 `eng`、`chi_sim+eng`、`chi_tra+eng` capture 三张截图，确认文字与语言相符。直接使用：
+
+   | UI 选择 | 文件 | 至少应准确出现 |
+   | --- | --- | --- |
+   | English | `$REPO_ROOT/docs/manual-test-fixtures/generated/english-ocr.png` | `English invoice code: BLUE-417`、`Meeting: Tuesday 10:30` |
+   | 简体中文 + English | `$REPO_ROOT/docs/manual-test-fixtures/generated/simplified-chinese-english-ocr.png` | `简体中文 OCR 测试`、`蓝色灯笼在窗户旁边。`、`SIM-204` |
+   | 繁體中文 + English | `$REPO_ROOT/docs/manual-test-fixtures/generated/traditional-chinese-english-ocr.png` | `繁體中文 OCR 測試`、`藍色燈籠在窗戶旁邊。`、`TRA-305` |
+
+   少量空格或标点差异可以记录为 OCR quality note；语言错用、稳定 code 错误或正文大面积乱码为 FAIL。
+   再用缺少其中一个 pack 的隔离测试环境重测，不要改动日常安装；确认错误指出缺失 pack，并提示
+   诊断/安装后重试。
+
+   **2026-09-19 缺包隔离分支：PASS。** 临时 wrapper 只向 OMD 暴露 `eng` 与 `osd`；Recognition
+   下拉只显示 English 是预期的预防性过滤，不表示 wrapper 默认值失效。以 **No language preference**
+   提交后，OMD 仍按 wrapper 默认请求 `chi_sim+eng`，原生错误准确显示 Requested `chi_sim+eng`、
+   Missing `chi_sim`、Available `eng, osd`，并给出各平台安装方式与 retry 下一步。22:53 只读核对
+   test-vault 未发现这次失败生成的新 Markdown。复测结束后必须把 OMD executable override 从临时
+   wrapper 恢复为 `$OMD_BIN`，再运行 **Check setup**；不要带着
+   隔离环境继续正常 OCR 或后续 Case。
+3. 点击首页 **Capture URL or file** 按钮（或 Cmd+P → **OMD Home: Capture URL or file**），
+   将 `docs/manual-test-fixtures/capture/plain-text-web-page.html` 的完整本地路径填入 **URL or file path**。
+   展开 **Recognition (optional)**，在 **Image text language** 中选 **English**，
+   **Speech language** 保持 **No language preference**。关闭 **Polish Markdown** 与
+   **Review links and tags**，点击 **Capture**。重新打开弹窗，对同一文件再转换两次，
+   分别选 **简体中文 + English**、**繁體中文 + English**。
+   三份笔记的 **Full Content 正文**应完全一致，均含 `Stable token: copper-river-204.`；
+   文件名编号、Source、Captured 时间及元数据不参与比较。此项验证文字网页不会受图片 OCR 语言影响。
+4. 同样从 Capture 弹窗提交 `generated/scanned-bilingual-page.pdf` 的完整路径，
+   **Image text language** 可选 **简体中文 + English**，两个 AI 开关保持关闭。
+   此文件只有扫描图片、没有文字层。当前支持单张图片 OCR 和 PDF 文字层提取，
+   不支持直接对 PDF 页面做 OCR；更换识别语言或开启润色不能补救。
+   预期界面提示无法提取内容，并建议将页面作为图片捕获或使用带文字层的 PDF。
+   清楚说明限制且不生成空笔记，才是本项“限制提示”测试的 PASS；这不表示已支持扫描 PDF OCR。
+   模糊错误、无下一步提示，或空正文仍显示成功，均记录 FAIL 并保存截图。
+5. 对同一个语音样本
+   `$REPO_ROOT/docs/manual-test-fixtures/generated/bilingual-speech.wav`
+   分别选择 ASR **Auto-detect** 与 **Chinese**，确认前者传递明确 auto-detect，后者传递明确
+   `zh` hint；再验证 **No language preference** 不等同于 Auto-detect。原音内容只有两句：
+
+   ```text
+   English: The blue lantern is beside the window.
+   中文：蓝色灯笼在窗户旁边。
+   ```
+
+   Auto-detect 应保留两种语言的主要含义；Chinese 至少应正确识别中文句。No language preference
+   使用 adapter/config 默认值，记录实际 effective language，不要把它写成“自动检测”的同义词。
+6. 用尚不存在的准确路径
+   `$REPO_ROOT/docs/manual-test-fixtures/capture/retry/retry-source.html`
+   触发一次可重试失败。出现 Needs attention 后，在 Terminal 执行：
+
+   ```bash
+   cp "$REPO_ROOT/docs/manual-test-fixtures/capture/retry/retry-source.ready.html" \
+      "$REPO_ROOT/docs/manual-test-fixtures/capture/retry/retry-source.html"
+   ```
+
+   再点击 **Retry**，确认原 OCR、ASR、polish、tags 与 suggest-links 选项全部保留。测试完成后
+   删除刚生成的 `retry-source.html`，保留 `.ready.html` 给下一轮测试。
+7. 在 Terminal 运行 `omd config path` 与 `omd config show --json`，确认 config 是带版本的有效
+   JSON。依次用显式参数、环境变量、config 与 adapter/builtin 默认值验证优先级从高到低。
+8. 对 OMD Home 显示的 executable 运行 `--version` 与 `capabilities --json`，确认与插件探测结果
+   一致；切换到另一个/旧 executable 时错误应指出实际路径与能力不匹配。
+
+通过条件：OCR 与 ASR 从 UI 到 argv 全程分离；English、简体 mixed、繁体 mixed、纯 web text、
+scanned PDF limitation、ASR Auto/zh 都符合边界；Retry 不丢选项；不出现已发布 automatic OCR
+language detection 的文案；polish 不被描述为 OCR 或 translation。
+
+<a id="test-cap-02"></a>
+
+### CAP-02：本地 AI 生成 links/tags，Review 后才写入（历史完整 case）
+
+**不要按下面的旧按钮语义执行。** 本轮入口是顶部 [RC-P2-02](#test-rc-p2-02)。下面 1–11 步只保留
+2026-09-17–22 的完整 case 与历史证据；当时 Apply 会直接写 Reviewed，当前版本已改成 Apply 保持
+Inbox、只有 **Done reviewing** 完成状态。Automatic candidate 优选另在 OMD-01／REL-01 验收。
+
+1. 在 Capture 的 **Optional local AI** 下记录两个 toggle 的初始状态，再开启
+   **Review links and tags**。按测试需要决定是否同时开启 **Polish Markdown**；两个动作应保持独立，
+   并记录提交时的最终状态，供第 8 步比较。
+2. Capture `docs/manual-test-fixtures/capture/small-local-file.html`，等待 proposal。
+3. Proposal 出现后不要 Apply。记录右上角 TARGET，点击 Cancel，从 Recent / Inbox 打开这份 note；
+   确认它仍为 `inbox`，正文、links 和 tags 没有 proposal 写入，Summary preview 与 Suggested note
+   topics 也没有写进 note。再对该 note 运行 **Suggest links and tags**，生成后续步骤使用的新 proposal。
+4. 保持 proposal 的 Review 弹窗打开，尝试再次打开 **Capture URL or file**。预期提示另一个 OMD
+   动作仍在进行，并且不打开第二个 Capture。取消 Review 后应可正常打开 Capture。反向再用一个
+   较慢 capture 验证：capture 进行时运行 **Suggest links and tags**，也应被阻止，不能同时写 vault。
+5. 查看 existing/new tag、links、Suggested note topics 和 warnings。Idea only 表示独立笔记主题建议，Apply 不会创建笔记或把主题写作 tags。
+6. 取消选择至少一个建议，再点击 **Apply**。
+7. 确认只写入已选 links/tags，并设置 `omd_home_status: reviewed`。
+8. 再打开 Capture，确认 toggle 记住上次选择。
+9. 冲突保护改为发布自动回归，不再要求普通用户保持模态 Review 弹窗的同时，
+   再用 Finder / 文本编辑精确修改同一 `.md` 文件。旧步骤在本轮**没有执行，不计 PASS**。
+   发布前运行：
+
+   ```bash
+   node --experimental-strip-types --test \
+     tests/enrichment-apply.test.ts \
+     tests/enrichment-obsidian-adapter.test.ts
+   ```
+
+   回归必须验证：Generate 后、Apply 前的外部正文修改返回 **Note changed**；用户新增行保留；
+   旧 proposal 的 managed links / tags / reviewed 状态都不写入；OMD Home 自己的原子写入刷新
+   inode / `TFile` 后可重新绑定，而写入前的外部身份变化仍被拒绝。自动冲突测试不代替
+   本用例中的正常 Apply 原生复测。
+10. 如果 Generate 阶段被 OMD 拒绝，核对错误分类：模型 proposal 格式、tag 或 candidate 校验失败
+   应提示重新生成或更换 **Local writing model**；目标 note/candidate 消失应显示
+   **Note unavailable**，只允许关闭并从仍存在的 Markdown note 重新开始；
+   只有真实的 executable、Ollama 或 endpoint 故障才提示检查 setup。不得把所有失败统一显示成
+   “Check OMD, Ollama, the model, and endpoint”。
+11. Capture 完成后，从刚生成的 note 再运行 **Suggest links and tags**。两个入口的 enrichment
+   都必须继续使用当前同一兼容 OMD，不得在 Capture 后切到另一个 launcher 或报 capability 错误。
+   记录 UI 可见的 executable 路径和任何错误；此检查不要求 Apply。在 OMD-01 专门测试 Automatic
+   时，再把本项重复一次以确认自动候选不会漂移。
+
+通过条件：Generate/Review 阶段零写入；新 tags 默认 unchecked；Apply 可选择；失败不声称成功，
+frontmatter 失败时回滚或明确报告 recoverable partial failure。
+
+**2026-09-17 本轮人工反馈与复测：** 原生正常 Apply 曾返回 partial failure：目标笔记已有
+Related notes，`omd_home_status` 仍为 inbox。源码诊断为 OMD Home 写完正文后仍使用旧 inode /
+`TFile` 绑定，把自己的原子写入误判为外部冲突。原现场已只读存档，未替用户修改。
+
+修复安装后已真正停用 / 启用插件并通过 Check setup，再以独立测试笔记和 `qwen3:0.6b`
+执行正常 Apply。结果为 **PASS**：终态显示 **Applied**，保存 5 个选中 links、4 个 tags，
+`omd_home_status` 为 `reviewed`；保存内容不含 Proposal summary，也没有再出现 Review required。
+这只关闭 UI-05 和 UI-06 的正常 Apply 阻塞。Automatic setup 前置已经另行通过，但不替代第 11 步
+尚未完成的 Capture + enrichment 两入口验收。
+
+旧的 Finder / 文本编辑冲突步骤没有执行，**不计人工通过**；现改为上述确定性自动回归。
+frontmatter / 磁盘故障与保护性回滚使用故障注入测试验证，不要求普通用户制造文件系统竞态。
+
+<a id="test-cap-03"></a>
+
+### CAP-03：失败归属与 Setup health
+
+开始前记录当前 **Local writing model**，确认 OMD 卡片显示 **OMD ready**；展开
+**Advanced OMD paths**，确认 **OMD executable override** 为空。空 override（输入框占位文字
+**Automatic discovery**）表示正在使用自动发现，界面不会另显示一个 **Automatic** 状态标签。本用例
+不删除、不降级日常 OMD，也不 pull 测试模型。
+
+1. 在 **Capture URL or file** 提交固定的不存在路径：
+
+   ```text
+   /tmp/omd-home-cap03-does-not-exist/document.pdf
+   ```
+
+   关闭两个 Optional local AI 开关以隔离 source 错误。预期显示缺少本地文件，Current task 回到
+   idle，不创建 Markdown；Needs attention 保留带 source 和时间的 **Retry capture**。
+2. 打开 **Settings → OMD Home → OMD → Advanced OMD paths**，在 **OMD executable override** 填：
+
+   ```text
+   /tmp/omd-home-cap03-does-not-exist/omd
+   ```
+
+   离开输入框或点击 **Check again**。预期为 **Custom OMD path not found**，并提供
+   **Use automatic**；不能显示 OMD update required。
+3. 在 Terminal 解析仓库内固定的“不支持 enrichment”测试程序，再把输出粘贴到 override：
+
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/tools/omd-unsupported-enrichment"
+   ```
+
+   点击 **Check again**。预期为 **OMD update required**，说明 custom OMD 太旧或不支持当前能力，
+   并显示 **Update guide**；不能误报 path missing。不要用任意其他本地 OMD launcher 代替这个
+   确定性 fixture：某些旧 launcher 支持 enrichment schema v1，却没有完整 Recognition contract。
+4. 点击 **Use automatic**，再点 **Check again**。预期恢复 **OMD ready**，并重新解析到兼容候选；
+   确认 override 已清空后再继续。
+5. 在 **Advanced AI controls → Local writing model** 记录当前值，选择 **Custom…**，输入一个
+   `ollama list` 中不存在的 ID（本轮固定使用 `omd-home-cap03-missing-model:latest`），点击
+   **Save model**，不要 pull。在 Terminal 解析 fixture 的绝对路径，再回到 Home Capture 并粘贴输出：
+
+   ```bash
+   printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/capture/small-local-file.html"
+   ```
+
+   开启 **Polish Markdown**，并记录 **Review links and tags**、OCR、ASR 的选择后提交。预期在写入
+   新 note 前得到明确的 local model missing / unavailable 错误，Current task 回到 idle；
+   Needs attention 提供这次请求的 **Retry capture**，而不是把它归为 OMD executable 错误。
+   错误出现后立刻查看 Current task；不得依靠 Check setup、切换页面或其他后续动作才刷新为 idle。
+6. 保留第 5 步失败，运行 **Check setup**。即使 Setup 显示 missing model，之前的
+   **Retry capture** 仍应作为独立操作可见；点击 Retry 后，Capture 应恢复同一个 source、OCR、ASR、
+   Polish Markdown 和 Review links and tags 选择。只检查恢复值，然后点击 Cancel，不再次提交。
+7. 把 **Local writing model** 恢复为开始时记录的真实本地模型，按需要点击 **Save model**，再点击
+   **Check setup**；确认恢复后的模型不再显示 missing / unavailable。OMD 卡片应继续显示 **OMD ready**；
+   展开 **Advanced OMD paths**，确认 **OMD executable override** 为空。这里的 Automatic 是空 override
+   所代表的配置状态，不会作为单独标签出现。以上条件恢复后再继续 CAP-06 或其他本地 AI 测试。
+
+通过条件：第 5 步 Current task 立即回到 idle，Needs attention 显示一条包含安全 source/detail 的
+timestamped capture failure 和一个 Retry；第 6 步 Check setup 可以另显示一次 setup health，但两类
+状态各只出现一次，且 failed capture 的 Retry 不会被覆盖；missing 与 old executable 不混淆；
+同一错误不同时重复出现在多个 panels；结束时 OMD 显示 ready、executable override 为空，且原
+Local writing model 已恢复。
+
+2026-09-20 原生结果：修复前用户观察到错误和 Retry 正确出现，但 Current task 没有立即回到 idle，
+因此该轮记为 **PARTIAL / FAIL**。修复将终态重绘延后到 capture lifecycle 已清理之后；安装 production
+bundle 并真正停用／启用插件后，以相同不存在的模型和 fixture 复测，错误出现时 Current task 已立即
+显示 **No task running**，System 为 **OMD idle / Last run error**，Needs attention 同时提供准确的
+missing-model 说明与 **Retry capture**，且没有写入新 note。Retry 目视确认恢复 source、Polish
+Markdown、Review links and tags；OCR / ASR 保持本轮记录的 No language preference。测试者随后把
+Local writing model 恢复为 `qwen3:4b-instruct` 并运行 **Check setup**；界面直接显示 **OMD ready**。
+配置复核确认 `omdExecutable` 为自动发现值，Advanced OMD paths 中的 override 为空。因此第 1–7 步
+均 PASS，CAP-03 完整通过。
+
+<a id="test-cap-06"></a>
+
+### CAP-06：后台继续、unload 和退出取消
+
+使用同一份约 114 秒的合成双语音频，不使用私人或超大文件。先在 Terminal 解析路径，再把输出粘贴
+进 Capture：
+
+```bash
+printf '%s\n' "$REPO_ROOT/docs/manual-test-fixtures/generated/slow-bilingual-speech.wav"
+```
+
+开始前确认 **OMD ready**。每次打开 Capture 后，无论开关当前显示什么，都要逐项确认
+**Polish Markdown** 和 **Review links and tags** 已手动切到 off（灰色／关闭位置）；任一开关仍为
+on 时不要提交。Image text language 与 Speech language 选择 **No language preference**，从而只测试
+capture 生命周期。每个场景使用下面指定的唯一 tag；用左侧 ribbon 的放大镜打开 **Obsidian 原生
+Search**（或在 Command palette 运行 **Search: Search in all files**），再以
+`tag:#cap-06-background` 等查询核对是否真正生成 note。不要把这些查询输入 OMD Home 顶部的
+omnibox；它执行 OMD 内容检索，不解析 Obsidian 的 `tag:` 运算符。若本机在操作前已经完成任务，该次不计入
+相应取消场景；保留它作为完成证据，换成 `-retry-1` 后缀的新 tag 立即重试。
+
+#### A. 关闭 Home view 后后台继续
+
+1. 打开 **Capture URL or file**，粘贴上面的 WAV 路径；Tags 填
+   `cap-06-background`，提交。
+2. 看到 Current task 为 active 且出现 **Cancel** 后，立即切到任意普通 note；只关闭 OMD Home tab，
+   不点击 Cancel，也不 disable plugin。
+3. 在其他 tab 停留约 30 秒，然后从 ribbon 重新打开 OMD Home。
+4. 若仍在运行，Current task 应继续显示当前阶段；等待完成。若已经完成，Recent / Inbox 应出现新
+   note，Obsidian 原生 Search 的 `tag:#cap-06-background` 恰好有一个结果。
+
+此场景中关闭或隐藏 Home view 不能取消 plugin-owned capture；不得新增 Needs attention 错误。
+
+2026-09-20 原生结果：**A PASS。** Home view 关闭期间任务继续，生成
+`Sources/Audio/slow-bilingual-speech.md`；note 带 `cap-06-background` 和
+`omd_home_status: inbox`。完成后另弹出 enrichment 的 **Could not finish**，原因是该次实际保存的
+`capturePolish` 与 `captureSuggestLinksAndTags` 都仍为 `true`，模型随后把一个新 tag 错报为现有
+catalog tag，validator 安全拒绝 proposal；界面明确说明没有 proposal 写入。此错误不推翻 A，也
+不需要 Generate again；关闭弹窗，在 B 的 Capture 中明确把两个开关切到 off 后继续。
+
+#### B. 用户明确点击 Cancel
+
+1. 再次 Capture 同一 WAV，Tags 改为 `cap-06-user-cancel`。
+2. Current task 为 active 且 **Cancel** 可见时立即点击 **Cancel**。
+3. 等待 5 秒；确认 Current task 回到 **No task running**，左侧边栏的 Obsidian 原生 Search
+   `tag:#cap-06-user-cancel` 为 0，OMD Inbox 没有相应新 note。OMD Home 顶部 omnibox 返回的
+   相似内容结果不计入数量。
+4. Needs attention 不得新增这次取消的 capture failure 或 **Retry capture**；允许显示一次简短的
+   cancelled Notice。之前其他测试留下的无关错误不计入本项。
+
+#### C. Disable / enable plugin 时取消 child process
+
+1. 可选但推荐：在 Terminal 先记录空闲基线：
+
+   ```bash
+   ps -axo pid=,ppid=,command= | grep -E '(^|[[:space:]/])(omd|mlx_whisper|ffmpeg)([[:space:]/]|$)'
+   ```
+
+   这条命令只使用 macOS 自带的 `grep`，不要求另装 `rg`／ripgrep，并使用命令边界避免把路径中的
+   `omd-home` 误判为 `omd` 进程。没有输出表示当前没有匹配进程；基线已有的无关进程只记录，不结束。
+2. Capture 同一 WAV，Tags 填 `cap-06-unload`。确认 Current task active 且 **Cancel** 可见，但不要
+   点击 Cancel。
+3. 立即打开 **Settings → Community plugins → Installed plugins**，关闭 **OMD Home** 开关；等待
+   5–10 秒。
+4. 再运行同一条只读进程命令。与基线相比，不得残留本次新增的 OMD、`mlx_whisper` 或 `ffmpeg`
+   PID。
+5. 重新启用 OMD Home，从 ribbon 打开 Home。Current task 应为 **No task running**；Obsidian 原生 Search
+   `tag:#cap-06-unload` 为 0，Inbox、Recent 和 Needs attention 均不得把这次中断显示为完成、
+   stale active 或新的可重试失败。
+
+#### D. 完全退出 Obsidian 时取消 child process
+
+1. Capture 同一 WAV，Tags 填 `cap-06-quit`。确认 Current task active 且 **Cancel** 可见。
+2. 不点击 Cancel，直接使用 **Cmd+Q** 完全退出 Obsidian；关闭窗口或 Home tab 不算此步骤。
+3. 等待 5–10 秒，在 Terminal 用场景 C 的命令确认没有比空闲基线多出的 OMD、`mlx_whisper` 或
+   `ffmpeg` PID。
+4. 重新打开 Obsidian 和 OMD Home。Current task 应为 **No task running**；Obsidian 原生 Search
+   `tag:#cap-06-quit` 为 0，且没有 partial note、Inbox/index 条目、stale active 状态或新增 Retry。
+5. 最后再用 `tag:#cap-06-background` 确认场景 A 的成功 note 仍存在；unload / quit 不得删除此前
+   已完成的 capture。
+
+2026-09-20 原生结果：**D PASS（用户确认）。** 在任务 active 时使用 **Cmd+Q** 完全退出 Obsidian；
+重开后没有残留该任务、错误 Retry 或 `cap-06-quit` 对应的完成 note，场景 A 已完成的
+`cap-06-background` note 仍保留。本结果只关闭 D，不替代 B、C 各自的取消与进程基线证据。
+
+通过条件：A 后台继续并只生成一个完成 note；B、C、D 都不生成对应 tag 的 note。B 回到 idle 且不把
+用户取消记为失败；C、D 在 10 秒内恢复到进程基线，重开后没有 orphan task、stale active、partial
+success 或错误的 Retry。只有场景 B 点击 UI 的 Cancel；C、D 必须通过 unload / quit 触发取消。
+
+<a id="test-cap-07"></a>
+
+### CAP-07：Douyin／Xiaohongshu 分享文字与独立 cookies
+
+**状态：FIRST PASS。** 实现与确定性自动回归已完成；真实登录态、下载、原生布局、Retry 与进程树
+仍待本节人工验收，结果表不得预填 PASS。
+
+本项只在可丢弃 vault 中执行。真实 Capture 请换成测试者有权访问的公开帖子，并使用测试者自己从
+对应站点导出的 Netscape `cookies.txt`；不要把 cookie 内容、完整路径或私人帖子放进截图和报告。
+开始前确认 OMD 的 **Check setup** 已 ready。下面两段用于验证分享文字解析；Xiaohongshu 短链是格式
+示例，真实下载时必须换成当前可打开的公开链接。
+
+本节的 **Current task** 指 OMD Home 主页面中标题为 **CURRENT TASK** 的卡片；没有 capture 或待处理
+review 时显示 **No task running**。如果此前已经打开 proposal／review，它可能显示 **Ready to review**；
+开始 A.2 前先记录当前文字作为基线。它不是 Settings，也不是 macOS Activity Monitor。输入或 capability
+校验在 Capture 弹窗内失败时不得启动后台任务、显示进度或出现 **Cancel**；记录提示后 Cancel／关闭
+弹窗，回到 Home 确认卡片仍保持原基线。关闭已有 review 后再核对时应为 **No task running**。
+
+```text
+9.74 hoD:/ w@S.YZ :9pm 08/06 9.17 深度理解沃什在议息会议后的发言 # 沃什 # 美联储议息会议 # 预期管理 # 美元 # 黄金 https://v.douyin.com/t6DOaFdc39Q/ 复制此链接，打开Dou音搜索，直接观看视频！
+32 复制本条信息，打开【小红书】App查看精彩内容！ http://xhslink.com/a/abcDEF/
+```
+
+#### A. 能力门禁与输入边界
+
+1. 打开 **Capture URL or file**，逐段粘贴上面两条分享文字。弹窗应保持打开，输入区可完整滚动，
+   **Site access** 自动展开；不能在点击 Capture 前自动启动任务。
+2. 每次点击 Capture 时，Home 应只把其中唯一的 canonical HTTP(S) URL 交给 inspect／capture，同时
+   保留整段原文供 Retry。若 OMD 没有精确声明 one-URL share text 与当前平台专用 cookie flag，弹窗
+   应显示 **Update OMD**／**Check setup** 的可操作说明，且 Current task 不启动。
+   人工核对时，在 **Settings → OMD Home → OMD** 的 ready 卡片中找到 executable 绝对路径；在
+   Terminal 中把下面占位符替换为该路径，保留外层引号：
+
+   ```bash
+   "/absolute/path/shown/in/settings" capabilities --json
+   ```
+
+   输出必须明确包含以下 exact contract，不能从 package version 推断：
+
+   ```json
+   {
+     "capture_auth_options": {
+       "share_text": { "supported": true, "requires_single_http_url": true },
+       "platform_cookie_flags": {
+         "douyin": "--douyin-cookies",
+         "xhs": "--xhs-cookies"
+       }
+     }
+   }
+   ```
+
+   逐项确认 `capture_auth_options.share_text.supported` 与 `requires_single_http_url` 都是 `true`，且
+   `platform_cookie_flags.douyin`／`xhs` 分别严格等于上面的两个 flag。本轮四项齐全即可把 capability
+   gate 记 PASS；不需要为了制造错误安装旧 OMD。若实际遇到字段缺失，弹窗必须说明 **Update OMD**／
+   **Check setup**，回 Home 确认 Current task 保持开始时的基线，且没有 capture 进度或 **Cancel**；恢复
+   带有精确 contract 的 OMD 并再次
+   **Check setup** 后再继续。
+3. 分别尝试空文本、`复制这段但没有链接`、`ftp://example.com/file`、同一段里两个 `https://` 链接，
+   以及 `read this https://example.com`。前四种应说明零／非 HTTP／多个 URL 的原因；最后一种普通网页
+   分享 prose 应要求只粘贴 URL。随后只粘贴 `https://example.com`，它仍应作为普通网页进入 Capture。
+   2026-10-01 已人工确认：零链接、非 HTTP 与多个 URL 都显示明确原因且未启动任务，记 PASS。
+4. Capture modal 本身不能拖动改变宽度；输入文本区只支持纵向拉长。先 **Cancel**，关闭 Settings，并在
+   需要时退出全屏；把 Obsidian 主工作区窗口缩到 macOS 允许的最窄宽度（能到约 500px 时用 500px），
+   再重新打开 Capture，填入很长的分享前后文，然后 **View → Zoom in** 到约 150%。若系统最小宽度
+   大于 500px，记录实际最小宽度，不因达不到 500px 判 FAIL。文本区、cookie 路径、错误和按钮可
+   换行／纵向滚动，不能出现横向滚动、重叠或被截断。Reset zoom 后 Cancel；不得产生 note。
+5. 做一个普通本地文件 control，确认新的 share-text 解析没有破坏原有输入。不要把 `/docs/...`、
+   `docs/...` 或字面量 `$REPO_ROOT/...` 粘进 Capture；它们不是该 fixture 的绝对路径。先确认本
+   Terminal 已按第 0 节设置 `REPO_ROOT`，再运行：
+
+   ```bash
+   printf 'REPO_ROOT=%s\n' "$REPO_ROOT"
+   find "$REPO_ROOT/docs/manual-test-fixtures/capture" -name small-local-file.html -print
+   ```
+
+   第二条命令必须输出一条以实际 checkout 路径开头、以
+   `/docs/manual-test-fixtures/capture/small-local-file.html` 结尾的路径；无输出时先修正 `REPO_ROOT`。
+   只复制这条完整输出，也可以把 Finder 中的该文件拖到 Capture source 区。Tags 填
+   `cap-07-control-local`，关闭 Polish Markdown 与 Review
+   links and tags 后提交。完成时应只生成一份 note；Obsidian 原生 Search
+   `tag:#cap-07-control-local` 应恰好为 1，正文仍包含 fixture 标记 `OMD-CAPTURE-SMALL-826`。如果失败，
+   先停止 CAP-07 并把 CAP-01A 升级为 RETEST；不要带着普通 Capture 回归继续测试 cookies。
+
+#### B. 两个路径、provider 隔离与 preflight
+
+1. 在 **Settings → OMD Home → OMD → Social capture access** 分别填写两个不同的绝对路径；建议用
+   含空格和 Unicode 的隔离路径，例如 `/tmp/OMD 社交 cookies/抖音 cookies.txt` 与
+   `/tmp/OMD 社交 cookies/小红书 cookies.txt`。可以粘贴绝对路径，也可以把一个本地
+   `cookies.txt` 直接拖到对应的 Douyin 或 Xiaohongshu / Rednote 行；拖入两个文件或非本地内容应
+   留在当前页面并提示只选择一个本地文件。这里只填写路径，不要把文件内容粘贴进设置。
+   macOS 可先在 vault 外准备副本；把两个源路径占位符换成测试者自己的导出文件，不要原样执行：
+
+   ```bash
+   mkdir -p "/tmp/OMD 社交 cookies"
+   cp "/absolute/path/to/exported-douyin-cookies.txt" "/tmp/OMD 社交 cookies/抖音 cookies.txt"
+   cp "/absolute/path/to/exported-xhs-cookies.txt" "/tmp/OMD 社交 cookies/小红书 cookies.txt"
+   ```
+2. 不关闭当前 Settings，先从空的 Xiaohongshu / Rednote 行粘贴或拖入有效路径；**Clear** 应立即出现，
+   不能要求关闭并重开 Settings。点击后当前输入框应立即清空，Clear 隐藏，且不得重复渲染另一套
+   控件或让键盘焦点跳到别处。Douyin 行重复一次。重新填写两条路径，再打开 Capture；Capture 内的
+   两行也应遵循相同的动态 Clear 行为。Cancel 不启动任务。2026-10-04 旧候选实测为 **FAIL**：值已
+   清空但 Clear 仍可见；最终候选必须在同一次 Settings／Capture 会话内完成显示 → 清空并隐藏 → 再
+   输入并恢复显示的视觉闭环，不能只检查保存值。
+3. 对 Douyin 分享文字点击 Capture。preflight 应在弹窗仍打开时完成，只检查 Douyin 路径；对 XHS
+   重复时只检查 XHS 路径。两种路径同时存在也不得交叉使用或 fallback。检查期间弹窗显示
+   **Checking site access…**；Douyin 或直接 XHS URL 通过后，弹窗关闭并出现
+   **Site access checked. Starting capture.**。XHS 短链通过后改为一条不阻塞 Capture 的提示，说明
+   跳转后会再次检查访问条件，不能同时重复显示两条成功 Notice。若旧 OMD 没有返回该复检标记，Home
+   应要求更新 OMD，而不是假定已检查。
+4. 用隔离文件依次形成 missing、unreadable、invalid format、wrong domain、expired 条件。每种状态应
+   显示简短原因和下一步，且不回显完整路径；修复或替换当前 provider 的路径后可在同一弹窗重试。
+   可直接使用以下做法：
+   - **missing：** 填一个不存在的绝对路径，例如
+     `/tmp/OMD 社交 cookies/OMD-COOKIE-PATH-MUST-NOT-LEAK missing.txt`。
+   - **unreadable：** 复制有效文件到隔离副本，对副本运行 `chmod 000`；观察错误后立刻以
+     `chmod 600` 恢复。不要修改唯一的原始导出。
+   - **invalid format：** 运行
+     `printf '%s\n' 'CAP-07 invalid fixture' > "/tmp/OMD 社交 cookies/invalid cookies.txt"`，
+     再选择这个文件。
+   - **wrong domain：** 在 Douyin 字段选择有效 XHS 文件，再反向测试；两次都不能跨 provider fallback。
+   - **expired：** 只使用测试者可安全丢弃的已过期导出；没有稳定 fixture 就记
+     `NOT RUN — no expired-cookie fixture`，不要改真实 cookie 的时间或内容。
+
+   除 Settings / `data.json` 中预期保存的字段外，错误、Notice、Console、Needs attention 与 note 中
+   不得出现完整路径或 `OMD-COOKIE-PATH-MUST-NOT-LEAK`。无法在当前 OS 稳定制造的状态记 `NOT RUN`，
+   不要伪造 PASS。
+5. 安装工具不完整时，错误应点名缺少的本地工具，例如 `yt-dlp`、`ffmpeg` 或 Whisper；不能模糊写成
+   bridge failed。恢复后再运行 **Check setup**。
+
+#### C. 成功、运行失败与 Retry
+
+1. 复用本轮公开 Douyin 样本 `https://v.douyin.com/XHBDW3VW-6U/` 和有效 Douyin cookies。Capture 时将
+   Tags 设为 `cap-07-douyin-retest`，Polish Markdown 与 Review links and tags 关闭，Speech language
+   使用 **No language preference**。完成后 Obsidian 原生 Search
+   `tag:#cap-07-douyin-retest` 应恰好有一份 note，并包含非空 transcript；不能再次显示笼统的
+   **Douyin could not fetch this post**。若仍失败，记录新的具体错误，不要反复更新已是当前版本的
+   `yt-dlp`。
+2. 复用本轮已确认 `Type: video` 的 Rednote 帖子，完整 URL 从测试者自己的浏览器复制，不把
+   `xsec_token` 查询值写进报告。Tags 使用 `cap-07-xhs-video-retest`。完成 note 必须同时含正确的
+   metadata／正文与非空 **Transcript**；只有正文和图片而没有 Transcript 记 FAIL。旧的部分成功 note
+   可以保留作对照，但先删除或改掉其相同测试 tag；最终 Search
+   `tag:#cap-07-xhs-video-retest` 必须恰好为 1，且这份 note 同时出现在 Inbox 与 Recent。不得再次显示
+   **generated vault note could not be verified**。打开同名 `.omd.json`，确认其 `output` 精确指向最终
+   note，而不是 rename 前的 planned filename；note 与 sidecar 的来源保留帖子路径，但不含 query、
+   fragment、`xsec_token` 或其他访问值，非空 Transcript 仍存在。不要把这些值复制进测试记录。
+   若下载、ffmpeg 或 Whisper 任一阶段失败，Needs attention 应分别说明失败阶段并提供 Retry，不能把
+   缺少视频内容呈现为成功。平台、地区、账户、删除或私人状态造成的明确拒绝应按实际记 `NOT RUN`
+   或平台 FAIL；只有 backend 已经完成并写出可验证产物、Home 却拒绝最终 output，才属于 reconciliation
+   FAIL。这两类结果不能互相代替，也不宣称绕过限制。
+3. 用临时 wrapper 稳定制造一次 preflight 后才发生的运行错误。把脚本最后一行的占位路径换成
+   Settings 显示的真实 OMD executable；wrapper 会把 `capabilities` 和 `inspect` 委托给真实 OMD，
+   只让正式 `capture` 失败：
+
+   ```bash
+   mkdir -p "/tmp/OMD social bridge"
+   cat > "/tmp/OMD social bridge/omd-cap07-runtime-failure" <<'SH'
+   #!/bin/sh
+   if [ "$1" = "capture" ]; then
+     printf '%s\n' 'CAP-07 forced runtime failure' >&2
+     exit 17
+   fi
+   exec "/path/shown/by/omd-home" "$@"
+   SH
+   chmod 700 "/tmp/OMD social bridge/omd-cap07-runtime-failure"
+   ```
+
+   在 **Advanced OMD paths → OMD executable override** 选择 wrapper，再 **Check setup**；不 ready
+   表示真实路径仍没替换，先修正再继续。提交完整 Douyin 分享文字与有效 Douyin 路径，preflight 应
+   通过，随后 Current task 回到 idle，Needs attention 显示 canonical URL 与 **Retry capture**。它不能
+   显示整段分享文字、任一 cookies 路径或内容。
+4. 清空 override，恢复 Automatic / 原兼容 OMD；在 Settings 把 Douyin 路径换成另一个有效的
+   Unicode／空格路径，再点击 **Retry capture**。弹窗应恢复原始分享文字、Tags、OCR／ASR 与 AI
+   选择，同时显示当前 Settings 的新路径；failure record 不得保存或恢复旧路径。提交后不能再次出现
+   wrapper 的 forced failure。最后保持 override 为空，并删除临时 wrapper；不要删除原始 cookie 导出。
+
+#### D. 取消、unload 与隐私
+
+1. 先记录带 process-group id 的空闲基线，再对会进入下载／转录的真实社交媒体 Capture 点击
+   **Cancel**：
+
+   ```bash
+   ps -axo pid=,ppid=,pgid=,command= | grep -E '(^|[[:space:]/])(omd|yt-dlp|ffmpeg|mlx_whisper)([[:space:]/]|$)'
+   ```
+
+   active 时记录本次 OMD、`yt-dlp`、`ffmpeg`、Whisper PID／PGID；Cancel 后等待最多 10 秒再执行同一命令，
+   新增的整个 process group 都必须退出。若任务在看到嵌套 converter 前已经完成，换更长的公开素材
+   和唯一 tag 重试；“没有观察到 child”只能记 `NOT EXERCISED`，不能记进程树 PASS。
+2. 再运行一次并在 active 时 disable OMD Home；10 秒内恢复进程基线。重新 enable 后不得出现 stale
+   task、partial note 或把 unload 当成可重试失败。macOS／Linux 必须同时验证忽略 SIGTERM 的嵌套
+   converter 不会残留；Windows 只按该平台现有安全终止行为记录。
+3. 检查插件 `data.json`、Needs attention、Notice、Console、生成 note 与可分享截图。`data.json` 只可
+   包含两条本地路径；其他位置不得出现完整路径或 cookie 内容，CaptureRequest／failure record 也不得
+   保存路径。完成报告时把路径以 `<local cookies path>` 代替。
+
+通过条件：两种分享文字都只解析唯一 URL；普通网页 prose 不被误路由；capability 缺失时 fail closed；
+两种 cookies 始终独立，preflight 状态可操作且不泄露路径；Retry 恢复原输入和选项但使用当前设置；
+成功项各写一份正确 note；Cancel／unload 不留下嵌套进程。外部平台拒绝、私人／删除／地区限制按实际
+情况记 `NOT RUN` 或 FAIL，不视为 Home 可以绕过的能力。
+
+## 10. Release bundle
+
+<a id="test-rel-01"></a>
+
+### REL-01：干净 vault 与三项 bundle
+
+1. 使用本轮 disposable test-vault，确认
+   `$PLUGIN_DIR` 不存在。
+2. 从同一 commit build 或同一 GitHub Release 取得三项资产。
+3. 只复制 `manifest.json`、`main.js`、`styles.css` 到新 `omd-home` 目录。
+4. Enable OMD Home。
+5. Disable/enable 一次，再完全退出并重开 Obsidian。
+6. 打开 Settings 与 Home。
+7. 确认 name、description、version 正确，无 missing asset 或 Console exception。
+8. “无 OMD／Ollama／EventKit”必须使用本来就没有这些依赖的第二 host／隔离 profile；clean vault 本身
+   不会隐藏当前 host 的系统安装。没有这种环境时把无依赖子项记为
+   `NOT RUN — no dependency-free host`，不要卸载或破坏日常工具来模拟缺失。
+9. 如果测试的是已发布 Release，计算本地三项 hash，并与下载的 Release 资产逐项一致。
+
+通过条件：只凭三项资产即可 Marketplace-style 安装、enable、disable、reload 和 cold restart；若有
+依赖缺失环境，缺少可选依赖只影响对应模块；否则该子项以明确 NOT RUN 收尾，不伪造 PASS。
+
+## 11. 何时停止、如何报告
+
+立即停止后续测试并标为 blocker：
+
+- Obsidian 或插件启动 crash。
+- vault 笔记被意外覆盖、删除或泄漏。
+- local-only gate 未通过却发送了 vault 内容。
+- Calendar conflict 静默覆盖一边。
+- shell-escaped path 被当作 shell command 执行。
+- disable/quit 后仍留下 OMD/Python/EventKit orphan process。
+- Release 三项资产版本不一致。
+
+普通功能 FAIL 可以继续测试无关模块，但要记录：
+
+1. 测试编号。
+2. commit/version。
+3. 精确操作步骤。
+4. 预期与实际结果。
+5. Notice、Needs attention、Current task 文本。
+6. Console error。
+7. 截图或短录屏。
+8. 是否重试可恢复。
+
+测试结束后：
+
+- 如果 AI-03 中撤销了测试者自己创建的 Ollama local-only override，按测试前记录恢复；
+  AI-02 本身不创建 `server.json` 备份。
+- 恢复删除的模型或记录未恢复原因。
+- 删除 disposable vault，或明确标记它不能作为日常 vault。
+- 需要保留旧设置时，从 vault 外备份恢复 `data.json`。
+- 只有 Core 全部 PASS、必要 Extended 通过且 release checklist 完成后，才推 matching tag、
+  创建 GitHub Release 并提交 Obsidian Community directory。

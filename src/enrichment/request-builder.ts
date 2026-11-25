@@ -25,7 +25,7 @@ import {
   type OmdEnrichRequest,
 } from "./contract.ts";
 import type { EnrichmentCatalogCandidate, EnrichmentFileRecord } from "./catalog.ts";
-import { OmdEnrichmentError } from "./errors.ts";
+import { INVALID_CANDIDATE_EVIDENCE_MESSAGE, OmdEnrichmentError } from "./errors.ts";
 import { normalizeRelativeMarkdownPath } from "./path-safety.ts";
 
 export interface BuildEnrichmentRequestResult {
@@ -117,8 +117,24 @@ function normalizeCandidate(candidate: EnrichmentCatalogCandidate, targetPath: s
     title: truncateCodePoints(boundedRequired(candidate.title, "candidate title", 10_000), ENRICH_NOTE_MAX_TITLE_CHARS),
     aliases: normalizeStrings(candidate.aliases, ENRICH_NOTE_MAX_ALIASES, ENRICH_NOTE_MAX_ALIAS_CHARS),
     tags: normalizeTags(candidate.tags).slice(0, ENRICH_NOTE_MAX_CANDIDATE_TAGS),
-    evidence: truncateCodePoints(candidate.evidence.trim(), ENRICH_NOTE_MAX_EVIDENCE_CHARS),
+    evidence: normalizeEvidence(candidate.evidence),
   };
+}
+
+function normalizeEvidence(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new OmdEnrichmentError("invalid_candidate_evidence", INVALID_CANDIDATE_EVIDENCE_MESSAGE);
+  }
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    if ((code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) || code === 0x7f) {
+      throw new OmdEnrichmentError("invalid_candidate_evidence", INVALID_CANDIDATE_EVIDENCE_MESSAGE);
+    }
+  }
+  // Check the entire raw snippet before folding or truncating. White_Space
+  // includes U+0085 and preserves U+FEFF, matching OMD's text normalization.
+  const sanitized = value.replace(/\p{White_Space}+/gu, " ").replace(/^ +| +$/gu, "");
+  return truncateCodePoints(sanitized, ENRICH_NOTE_MAX_EVIDENCE_CHARS);
 }
 
 function normalizeStrings(values: string[], itemLimit: number, characterLimit: number): string[] {
@@ -182,6 +198,7 @@ function normalizeGeneratedTag(value: string): string {
     .replace(/_/gu, "-")
     .replace(/ /gu, "-")
     .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff/-]+/gu, "-")
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{M}\p{N}/-]+/gu, "-")
     .replace(/^-+|-+$/gu, "");
 }

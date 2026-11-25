@@ -1,10 +1,12 @@
 import type { OmdHomeSettings } from "./settings.ts";
+import { modelIsCloudBacked } from "./ai-provider.ts";
 import {
   LOCAL_OLLAMA_HOSTS,
   LocalAiError,
   type LocalAiCheckedModel,
   type LocalAiConnectionSummary,
   type LocalAiDisplayState,
+  type LocalAiEmbeddingProbe,
   type LocalAiModelEntry,
   type LocalAiModelInfo,
   type LocalAiProviderMode,
@@ -19,23 +21,156 @@ import {
 const WORKFLOW_LABELS: Record<LocalAiWorkflowId, string> = {
   qa: "Vault Q&A",
   enrichment: "Note enrichment",
-  capture: "Capture polish",
+  capture: "Polish Markdown",
 };
 
 export const LOCAL_AI_CACHE_TTL_MS = 60_000;
 
+const ONE_CLICK_INSTALLABLE_EMBEDDING_MODELS = new Map([
+  ["bge-m3", "bge-m3"],
+]);
+
+export function oneClickInstallableEmbeddingModel(value: string): string | null {
+  const canonical = value.trim().toLowerCase().replace(/:latest$/u, "");
+  return ONE_CLICK_INSTALLABLE_EMBEDDING_MODELS.get(canonical) ?? null;
+}
+
+export function localModelNamesMatch(left: string, right: string): boolean {
+  const canonical = (value: string): string => value.trim().toLowerCase().replace(/:latest$/u, "");
+  return Boolean(canonical(left)) && canonical(left) === canonical(right);
+}
+
 export function normalizeLocalOllamaHost(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/u, "");
-  if (LOCAL_OLLAMA_HOSTS.includes(trimmed as (typeof LOCAL_OLLAMA_HOSTS)[number])) return trimmed;
+  const trimmed = input.trim();
+  // Check the original spelling because URL parsing normalizes alternate IP spellings,
+  // strips empty credentials, and omits explicit default ports.
+  const match = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):([0-9]+)$/u.exec(trimmed);
+  const port = Number(match?.[1]);
+  if (match && port >= 1 && port <= 65_535) {
+    const url = new URL(trimmed);
+    return `${url.protocol}//${url.hostname}:${port}`;
+  }
   throw new LocalAiError(
     "invalid_host",
-    "OMD Home Phase 1a accepts only http://localhost:11434 or http://127.0.0.1:11434.",
-    "Use the default Ollama port and disable Ollama Cloud before retrying.",
+    "Use an HTTP loopback Ollama endpoint with localhost, 127.0.0.1, or [::1] and an explicit port from 1 to 65535.",
+    "Enter a base endpoint such as http://localhost:11434, without credentials, a path, a query, or a fragment.",
   );
 }
 
+export function embeddingModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
+  const model = value.trim();
+  const id = /^(?:[A-Za-z0-9][A-Za-z0-9_-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$/u;
+  if (model.length > 256 || !id.test(model) || modelIsCloudBacked({ name: model })) return null;
+  let host: string;
+  try {
+    host = normalizeLocalOllamaHost(endpoint);
+  } catch {
+    return null;
+  }
+  return windows
+    ? `cmd.exe /d /c "set OLLAMA_HOST=${host}&& ollama pull ${model}"`
+    : `OLLAMA_HOST='${host}' ollama pull ${model}`;
+}
+
+export interface EmbeddingSetupPresentation {
+  kind: "unchecked" | "daemon-unreachable" | "connection-failed"
+    | "no-local-models" | "model-not-selected" | "model-missing" | "model-incompatible"
+    | "model-cloud-backed" | "embedding-only" | "test-failed" | "ready" | "verified";
+  title: string;
+  detail: string;
+  action: "check-setup" | "open-ollama" | "start-ollama" | "install-model" | "copy-pull-command"
+    | "refresh-models" | "choose-model" | "test-embeddings";
+  needsTextModel: boolean;
+  installableModel: string | null;
+  pullCommand: string | null;
+}
+
+export function classifyEmbeddingSetup(input: {
+  model: string;
+  models?: readonly LocalAiModelEntry[];
+  host: string;
+  windows?: boolean;
+  connectionCode?: LocalAiReadinessCode;
+  probe?: LocalAiEmbeddingProbe | null;
+  localAnswer?: boolean;
+}): EmbeddingSetupPresentation {
+  const model = input.model.trim();
+  const probe = input.probe?.host === input.host && localModelNamesMatch(input.probe.model, model)
+    ? input.probe
+    : null;
+  const localModels = input.models?.filter((entry) => !modelIsCloudBacked(entry));
+  const needsTextModel = Boolean(input.localAnswer && (
+    input.connectionCode === "no_models_installed" || (localModels && !localModels.some(localWritingModelIsSelectable))
+  ));
+  const present = (
+    kind: EmbeddingSetupPresentation["kind"],
+    title: string,
+    detail: string,
+    action: EmbeddingSetupPresentation["action"],
+  ): EmbeddingSetupPresentation => ({ kind, title, detail, action, needsTextModel, installableModel: null, pullCommand: null });
+
+  switch (input.connectionCode) {
+    case "invalid_host":
+      return present("connection-failed", "Check the Ollama endpoint", "Enter an HTTP loopback endpoint with a port, then run Check setup.", "check-setup");
+    case "version_unavailable":
+    case "status_unavailable":
+    case "provider_catalog_unavailable":
+    case "provider_unreachable":
+      return present("connection-failed", "Ollama setup check failed", "Check that the configured endpoint serves the Ollama API, then run Check setup.", "check-setup");
+    case "daemon_unreachable":
+      return present("daemon-unreachable", "Ollama is not responding", "If Ollama is installed, open it or start its local service. Otherwise install it first. Then run Check setup.", "start-ollama");
+  }
+  if (!model) {
+    return present("model-not-selected", "Choose an embedding model", "Select a local embedding model for Vault retrieval, then run Test semantic search.", "choose-model");
+  }
+
+  const selected = input.models?.find((entry) => localModelNamesMatch(entry.name, model));
+  const selectedRevision = selected?.digest?.trim();
+  const verifiedProbe = probe?.code === "ready"
+    && Boolean(selectedRevision)
+    && probe.revision === selectedRevision;
+  if (probe?.code === "selected_model_remote_blocked" || modelIsCloudBacked(selected ?? { name: model })) {
+    return present("model-cloud-backed", "Cloud-backed model blocked", "Choose a local embedding model for Vault retrieval, then run Test semantic search.", "choose-model");
+  }
+  if (probe?.code === "selected_model_incompatible") {
+    return present("model-incompatible", "Embedding support unavailable", `${model} could not be used for embeddings. Choose an embedding-capable local model, then run Test semantic search.`, "choose-model");
+  }
+  if (probe?.code === "smoke_failed" || probe?.code === "model_unavailable") {
+    return present("test-failed", "Embedding check failed", `Ollama could not verify embeddings with ${model}. Run Test semantic search again after checking the model in Ollama.`, "test-embeddings");
+  }
+
+  const noLocalModels = input.connectionCode === "no_models_installed" || localModels?.length === 0;
+  const missing = probe?.code === "selected_model_missing" || (input.models && !selected);
+  if (noLocalModels || missing) {
+    const installableModel = oneClickInstallableEmbeddingModel(model);
+    const pullCommand = installableModel ? null : embeddingModelPullCommand(model, input.host, input.windows ?? false);
+    const kind = noLocalModels ? "no-local-models" : "model-missing";
+    const title = noLocalModels ? "No local models installed" : "Embedding model missing";
+    const action = installableModel ? "install-model" : pullCommand ? "copy-pull-command" : "refresh-models";
+    const detail = installableModel
+      ? `Install ${installableModel} for local retrieval, then run Test semantic search. Download size and time depend on the model.`
+      : pullCommand
+        ? "Copy the install command and run it in a terminal. After it finishes, choose Refresh models, then Test semantic search."
+        : "Install an embedding-capable model from the Ollama model library, then refresh the catalog, select it, and run Test semantic search.";
+    return { ...present(kind, title, detail, action), installableModel, pullCommand };
+  }
+  // Catalog entries can omit capabilities. Test semantic search inspects the selected model directly.
+  if (selected?.capabilities.length && !modelSupportsEmbedding(selected) && !verifiedProbe) {
+    return present("model-incompatible", "Embedding support unavailable", `${model} does not advertise embedding support. Choose an embedding-capable local model, then run Test semantic search.`, "choose-model");
+  }
+  if (verifiedProbe) {
+    const vectors = probe.vectorCount && probe.dimensions ? ` (${probe.vectorCount} vectors × ${probe.dimensions} dimensions)` : "";
+    return present("verified", "Embeddings verified", `${model} passed the local embedding test for Vault retrieval${vectors}.`, "test-embeddings");
+  }
+  if (selected) {
+    const embeddingOnly = needsTextModel && localModels?.every((entry) => modelSupportsEmbedding(entry) && !modelSupportsCompletion(entry));
+    return present(embeddingOnly ? "embedding-only" : "ready", "Test the local embedding model", `Run Test semantic search to verify ${model} for Vault retrieval.`, "test-embeddings");
+  }
+  return present("unchecked", "Check local embedding setup", "Run Check setup to load the Ollama catalog, then run Test semantic search.", "check-setup");
+}
+
 export function providerMode(provider: OmdHomeSettings["aiProvider"]): LocalAiProviderMode {
-  return provider === "ollama" ? "ollama" : "legacy-disabled";
+  return provider === "ollama" ? "ollama" : "cloud";
 }
 
 export function createWorkflowSnapshot(
@@ -61,8 +196,7 @@ export function createWorkflowSnapshot(
 
 export function workflowModel(workflow: LocalAiWorkflowId, settings: OmdHomeSettings): string {
   if (workflow === "qa") return settings.aiModel;
-  if (workflow === "enrichment") return settings.enrichmentModel;
-  return settings.capturePolishModel;
+  return settings.localWritingModel;
 }
 
 export function snapshotsMatch(left: LocalAiSnapshot, right: LocalAiSnapshot): boolean {
@@ -73,23 +207,48 @@ export function snapshotsMatch(left: LocalAiSnapshot, right: LocalAiSnapshot): b
     && left.enabled === right.enabled;
 }
 
-export function modelIsKnownThinkingOnly(model: Pick<LocalAiModelEntry, "name">): boolean {
-  const normalized = model.name.trim().toLowerCase();
+export function modelIsKnownAnswerBudgetIncompatible(model: Pick<LocalAiModelEntry, "name">): boolean {
+  const normalized = model.name.trim().toLowerCase().replace(/:latest$/u, "");
   return normalized === "qwen3:4b" || normalized.includes("-thinking");
 }
 
-export function modelSupportsCompletion(model: Pick<LocalAiModelEntry, "name" | "capabilities">): boolean {
-  return model.capabilities.includes("completion") && !modelIsKnownThinkingOnly(model);
+export function modelSupportsCompletion(model: Pick<LocalAiModelEntry, "capabilities">): boolean {
+  return model.capabilities.includes("completion");
 }
 
 export function modelSupportsEmbedding(model: Pick<LocalAiModelEntry, "name" | "capabilities">): boolean {
-  if (model.capabilities.includes("embedding")) return true;
-  const normalized = model.name.trim().toLowerCase();
+  if (model.capabilities.length) return model.capabilities.includes("embedding");
+  const normalized = model.name.trim().toLowerCase().replace(/:latest$/u, "");
   return normalized === "bge-m3" || normalized.includes("embed") || normalized.includes("embedding");
 }
 
-export function modelHasRemoteMetadata(model: Pick<LocalAiModelEntry, "remoteModel" | "remoteHost">): boolean {
-  return Boolean(model.remoteModel || model.remoteHost);
+export function localWritingModelIsSelectable(model: LocalAiModelEntry): boolean {
+  if (modelIsCloudBacked(model) || modelIsKnownAnswerBudgetIncompatible(model)) return false;
+  if (modelSupportsCompletion(model)) return true;
+  // Missing or partial catalog metadata is inconclusive. The execution gate inspects the
+  // selected model with /api/show before any vault evidence is sent to it.
+  return !modelSupportsEmbedding(model) && !model.capabilities.includes("thinking");
+}
+
+export function localWritingModelOptionLabel(model: LocalAiModelEntry): string {
+  if (modelIsCloudBacked(model)) return `${model.name} (cloud-backed; unavailable for local text answers)`;
+  if (modelIsKnownAnswerBudgetIncompatible(model)) {
+    return `${model.name} (not supported for OMD Home answers)`;
+  }
+  if (!modelSupportsCompletion(model) && model.capabilities.includes("thinking")) {
+    return `${model.name} (thinking-only; unavailable for text answers)`;
+  }
+  if (modelSupportsEmbedding(model) && !modelSupportsCompletion(model)) {
+    return `${model.name} (embedding model; unavailable for text answers)`;
+  }
+  return modelSupportsCompletion(model) ? model.name : `${model.name} (completion support unverified)`;
+}
+
+export function describeLocalCompletionCatalog(models: LocalAiModelEntry[], catalogChecked: boolean): string {
+  if (!catalogChecked) return "";
+  const localModels = models.filter((model) => !modelIsCloudBacked(model));
+  const availableModels = localModels.filter(localWritingModelIsSelectable);
+  return `${availableModels.length} of ${localModels.length} local models available for text.`;
 }
 
 export function buildModelEntry(raw: {
@@ -105,11 +264,12 @@ export function buildModelEntry(raw: {
     name,
     digest: raw.digest?.trim() || undefined,
     capabilities,
-    supportsCompletion: capabilities.includes("completion") && !modelIsKnownThinkingOnly({ name }),
+    supportsCompletion: capabilities.includes("completion"),
     remoteModel: raw.remoteModel?.trim() || undefined,
     remoteHost: raw.remoteHost?.trim() || undefined,
   };
 }
+
 
 export function mergeInspectedModelEntry(
   catalogEntry: LocalAiModelEntry | undefined,
@@ -132,22 +292,22 @@ export function resolveEmbeddingModelRevision(
 ): string | undefined {
   const trimmed = modelName.trim();
   if (!trimmed) return undefined;
-  return models.find((model) => model.name === trimmed)?.digest?.trim() || undefined;
+  return models.find((model) => localModelNamesMatch(model.name, trimmed))?.digest?.trim() || undefined;
 }
 
 export function deriveLocalAiDaemonCode(
-  status: LocalAiStatusInfo,
+  _status: LocalAiStatusInfo,
   models: LocalAiModelEntry[],
 ): LocalAiReadinessCode {
-  if (!status.cloud || status.cloud.disabled === undefined) return "cloud_features_unknown";
-  if (status.cloud.disabled === false) return "cloud_features_enabled";
   if (!models.length) return "no_models_installed";
   return "ready";
 }
 
 export function deriveLocalAiModelCode(model: LocalAiModelInfo): LocalAiReadinessCode {
-  if (modelHasRemoteMetadata(model)) return "selected_model_remote_blocked";
-  if (!modelSupportsCompletion(model)) return "selected_model_incompatible";
+  if (modelIsCloudBacked(model)) return "selected_model_remote_blocked";
+  if (modelIsKnownAnswerBudgetIncompatible(model) || !modelSupportsCompletion(model)) {
+    return "selected_model_incompatible";
+  }
   return "ready";
 }
 
@@ -158,25 +318,25 @@ export function describeDaemonReadiness(code: LocalAiReadinessCode): string {
     case "no_models_installed":
       return "Ollama is reachable, but no local models are installed. Run `ollama pull` for a text model.";
     case "cloud_features_enabled":
-      return "Ollama reports that Cloud features are available. This does not mean your selected model is currently online, but OMD Home requires local-only mode before sending vault content. Set `disable_ollama_cloud` to true or `OLLAMA_NO_CLOUD=1`, restart Ollama, then check again.";
+      return "Ollama reports that Cloud features are available. Local workflows can still run when the selected models stay local and pass inspection.";
     case "cloud_features_unknown":
-      return "Ollama did not prove that Cloud features are disabled. OMD Home requires local-only mode before sending vault content. Set `disable_ollama_cloud` to true or `OLLAMA_NO_CLOUD=1`, restart Ollama, then check again.";
+      return "Ollama did not report Cloud status, so OMD Home will verify the selected models directly before local actions run.";
     default:
       return describeReadinessCode(code);
   }
 }
 
 export function describeModelReadiness(model: string, info: LocalAiModelInfo): string {
-  if (modelHasRemoteMetadata(info)) {
-    return `${model} reported remote Ollama metadata and was blocked.`;
+  if (modelIsCloudBacked(info)) {
+    return `${model} was identified as cloud-backed and blocked from local-only use.`;
+  }
+  if (modelIsKnownAnswerBudgetIncompatible(info)) {
+    return `${model} can generate text, but it is not supported for reliable answers in OMD Home. Choose qwen3:4b-instruct or another answer-compatible local model.`;
   }
   if (!modelSupportsCompletion(info)) {
-    if (modelIsKnownThinkingOnly(info)) {
-      return `${model} is not a bounded instruction model for Vault Q&A. Choose qwen3:4b-instruct or another completion-capable local model.`;
-    }
     return `${model} does not advertise text completion support. Choose a completion-capable local model.`;
   }
-  return `${model} is ready.`;
+  return `${model} is available locally for text completion.`;
 }
 
 export function buildModelSelectorState(
@@ -188,12 +348,12 @@ export function buildModelSelectorState(
   stale: boolean;
   customValue: string;
 } {
-  const knownNames = new Set(models.map((model) => model.name));
   if (!currentValue.trim()) {
     return { optionValue: "__custom__", useCustom: true, stale: false, customValue: "" };
   }
-  if (knownNames.has(currentValue)) {
-    return { optionValue: currentValue, useCustom: false, stale: false, customValue: currentValue };
+  const known = models.find((model) => localModelNamesMatch(model.name, currentValue));
+  if (known) {
+    return { optionValue: known.name, useCustom: false, stale: false, customValue: currentValue };
   }
   return { optionValue: "__stale__", useCustom: true, stale: true, customValue: currentValue };
 }
@@ -208,8 +368,8 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Checking";
     case "partial":
       return "Partial";
-    case "legacy-disabled":
-      return "Legacy provider disabled";
+    case "cloud-provider":
+      return "Cloud answer selected";
     case "invalid_host":
       return "Invalid host";
     case "daemon_unreachable":
@@ -224,6 +384,18 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Cloud status unknown";
     case "no_models_installed":
       return "No models installed";
+    case "credentials_invalid":
+      return "API key rejected";
+    case "credentials_missing":
+      return "API key missing";
+    case "provider_unreachable":
+      return "Provider unreachable";
+    case "provider_catalog_unavailable":
+      return "Model catalog unavailable";
+    case "disclosure_unavailable":
+      return "Disclosure unavailable";
+    case "model_unavailable":
+      return "Model unavailable";
     case "selected_model_missing":
       return "Model missing";
     case "selected_model_incompatible":
@@ -232,6 +404,8 @@ export function describeReadinessCode(code: LocalAiDisplayState): string {
       return "Remote-backed model blocked";
     case "snapshot_mismatch":
       return "Settings changed";
+    case "provider_destination_mismatch":
+      return "Destination mismatch";
     case "smoke_failed":
       return "Smoke failed";
   }
@@ -261,8 +435,8 @@ export function buildWorkflowDisplayState(
       label: WORKFLOW_LABELS[workflow],
       model,
       enabled,
-      code: "legacy-disabled",
-      detail: "Select Ollama in OMD Home settings before using vault AI.",
+      code: "cloud-provider",
+      detail: "Check setup verifies the selected cloud answer path. Retrieval still stays local, and each cloud answer needs confirmation.",
     };
   }
   if (!summary) {
@@ -272,7 +446,7 @@ export function buildWorkflowDisplayState(
       model,
       enabled,
       code: "unchecked",
-      detail: "Run Check connection to validate Ollama and the configured model.",
+      detail: "Run Check setup to validate Ollama and the configured model.",
     };
   }
   if (summary.daemonCode !== "ready") {
@@ -305,7 +479,7 @@ export function buildWorkflowDisplayState(
       model,
       enabled,
       code: "unchecked",
-      detail: "Run Check connection after changing the selected model.",
+      detail: "Run Check setup after changing the selected model.",
       checkedAt: summary.checkedAt,
     };
   }
@@ -333,21 +507,19 @@ export function aggregateLocalAiState(
   const capture = buildWorkflowDisplayState("capture", settings, activeSummary, currentProviderMode, settings.capturePolish);
   const workflows = { qa, enrichment, capture };
   const workflowCodes = Object.values(workflows)
-    .filter((state) => state.enabled && state.code !== "legacy-disabled")
+    .filter((state) => state.enabled && state.code !== "cloud-provider")
     .map((state) => state.code);
-  let daemonCode: LocalAiDisplayState = currentProviderMode === "legacy-disabled" ? "legacy-disabled" : "unchecked";
-  let daemonDetail = currentProviderMode === "legacy-disabled"
-    ? "Hosted provider settings are preserved for Vault Q&A, but local Ollama still powers note enrichment and capture polish."
-    : "Run Check connection to validate the local Ollama daemon.";
+  let daemonCode: LocalAiDisplayState = "unchecked";
+  let daemonDetail = "Run Check setup to validate the local Ollama daemon.";
   if (activeSummary) {
     daemonCode = activeSummary.daemonCode;
     daemonDetail = activeSummary.daemonDetail;
     if (workflowCodes.length && workflowCodes.every((code) => code === "ready")) {
       daemonCode = "ready";
-      daemonDetail = "The local daemon and all active workflow models are ready.";
+      daemonDetail = "The selected local text models are ready.";
     } else if (workflowCodes.some((code) => code === "ready")) {
       daemonCode = "partial";
-      daemonDetail = "At least one workflow model is ready, but another still needs attention.";
+      daemonDetail = "Some local text models are ready; check the model status below.";
     } else if (workflowCodes.some((code) => code !== "unchecked")) {
       const blocking = Object.values(workflows).find((state) => state.enabled && state.code !== "ready");
       if (blocking) {
@@ -359,6 +531,7 @@ export function aggregateLocalAiState(
   return {
     providerMode: currentProviderMode,
     providerValue: settings.aiProvider,
+    connectionCode: activeSummary?.daemonCode ?? "unchecked",
     normalizedHost: activeSummary?.host,
     catalogHost: activeSummary?.host,
     catalogCheckedAt: activeSummary?.checkedAt,
@@ -395,7 +568,7 @@ export function buildConnectionSummary(input: {
 export function getActiveWorkflowModels(settings: OmdHomeSettings): LocalAiWorkflowDisplayState[] {
   const summary = aggregateLocalAiState(settings, null, [], "");
   return Object.values(summary.workflows).filter(
-    (workflow) => workflow.enabled && workflow.code !== "legacy-disabled",
+    (workflow) => workflow.enabled && workflow.code !== "cloud-provider",
   );
 }
 

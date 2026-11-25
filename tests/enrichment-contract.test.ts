@@ -10,9 +10,111 @@ import {
   sha256HexUtf8,
   utf8ByteLength,
   validateEnrichEvent,
+  validateCapabilityResponse,
   validateEnrichResponse,
   type OmdEnrichRequest,
 } from "../src/enrichment/contract.ts";
+
+test("capability validation preserves optional build and capture language metadata", () => {
+  const capability = validateCapabilityResponse({
+    package_version: "0.4.0",
+    protocol_version: 1,
+    build_revision: null,
+    config_schema: { current_version: 1, supported_versions: [1] },
+    capture_language_options: {
+      ocr: {
+        argument: "--ocr-language",
+        aliases: ["--ocr-lang", "--lang"],
+        composite: true,
+        separator: "+",
+        presets: [{ id: "mixed", label: "Simplified Chinese + English", value: "chi_sim+eng" }],
+        readiness: {
+          available: true,
+          ready: false,
+          installed_packs: ["eng", "script/HanS"],
+          effective_language: "chi_sim+eng",
+          missing_packs: ["chi_sim"],
+          error: null,
+        },
+      },
+      asr: {
+        argument: "--whisper-lang",
+        modes: ["inherit-adapter-default", "auto-detect", "explicit"],
+      },
+    },
+    capture_auth_options: {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+    },
+    local_ollama_transport: { version: 1 },
+    hosted_ai_disclosure: sampleHostedAiDisclosure(),
+    enrich_note: { supported: true, schema_versions: [1] },
+  });
+
+  assert.equal(capability.package_version, "0.4.0");
+  assert.equal(capability.protocol_version, 1);
+  assert.equal(capability.build_revision, null);
+  assert.deepEqual(capability.config_schema, { current_version: 1, supported_versions: [1] });
+  assert.deepEqual(capability.capture_language_options?.ocr.aliases, ["--ocr-lang", "--lang"]);
+  assert.equal(capability.capture_language_options?.ocr.presets[0]?.value, "chi_sim+eng");
+  assert.deepEqual(capability.capture_language_options?.ocr.readiness?.installed_packs, ["eng", "script/HanS"]);
+  assert.deepEqual(capability.capture_auth_options, {
+    share_text: { supported: true, requires_single_http_url: true },
+    platform_cookie_flags: { douyin: "--douyin-cookies", xhs: "--xhs-cookies" },
+  });
+  assert.deepEqual(capability.local_ollama_transport, { version: 1 });
+  assert.equal(capability.hosted_ai_disclosure?.checked_on, "2026-11-18");
+  assert.equal(capability.hosted_ai_disclosure?.providers.deepseek.status, "ready");
+  assert.equal(
+    capability.hosted_ai_disclosure?.providers.deepseek.policy_url,
+    "https://api-docs.deepseek.com/guides/kv_cache/",
+  );
+});
+
+test("capability validation rejects malformed social capture auth metadata", () => {
+  assert.throws(() => validateCapabilityResponse({
+    enrich_note: { supported: true, schema_versions: [1] },
+    capture_auth_options: {
+      share_text: { supported: true, requires_single_http_url: true },
+      platform_cookie_flags: { douyin: ["--douyin-cookies"], xhs: "--xhs-cookies" },
+    },
+  }), /platform_cookie_flags\.douyin/u);
+});
+
+test("capability validation rejects malformed local Ollama transport metadata", () => {
+  assert.throws(() => validateCapabilityResponse({
+    enrich_note: { supported: true, schema_versions: [1] },
+    local_ollama_transport: { version: 0 },
+  }), /local_ollama_transport\.version/u);
+});
+
+for (const [name, mutate, pattern] of [
+  ["unknown status", (value: Record<string, any>) => { value.providers.deepseek.status = "blocked"; }, /deepseek\.status/u],
+  ["unknown reason", (value: Record<string, any>) => {
+    value.providers.deepseek.status = "unavailable";
+    value.providers.deepseek.code = "disclosure_unavailable";
+    value.providers.deepseek.reason = "policy_changed";
+  }, /deepseek\.reason/u],
+  ["insecure policy URL", (value: Record<string, any>) => {
+    value.providers.deepseek.policy_url = "http://api-docs.deepseek.com/guides/kv_cache/";
+  }, /deepseek\.policy_url/u],
+  ["inconsistent ready metadata", (value: Record<string, any>) => {
+    value.providers.deepseek.code = "disclosure_unavailable";
+    value.providers.deepseek.reason = "expired";
+  }, /readiness metadata/u],
+  ["incomplete ready metadata", (value: Record<string, any>) => {
+    value.providers.deepseek.policy_url = null;
+  }, /readiness metadata/u],
+] as const) {
+  test(`capability validation rejects hosted AI disclosure with ${name}`, () => {
+    const disclosure = sampleHostedAiDisclosure();
+    mutate(disclosure);
+    assert.throws(() => validateCapabilityResponse({
+      enrich_note: { supported: true, schema_versions: [1] },
+      hosted_ai_disclosure: disclosure,
+    }), pattern);
+  });
+}
 
 test("capabilitySupportsEnrichNote accepts additive capability fields", () => {
   assert.equal(capabilitySupportsEnrichNote({
@@ -24,8 +126,34 @@ test("capabilitySupportsEnrichNote accepts additive capability fields", () => {
   }), true);
 });
 
+function sampleHostedAiDisclosure(): Record<string, any> {
+  const ready = (policyUrl: string, reviewedOn: string, expiresOn: string) => ({
+    status: "ready",
+    code: null,
+    reason: null,
+    reviewed_on: reviewedOn,
+    expires_on: expiresOn,
+    policy_url: policyUrl,
+  });
+  return {
+    schema_version: 1,
+    checked_on: "2026-11-18",
+    max_age_days: 90,
+    providers: {
+      openai: ready("https://developers.openai.com/api/docs/guides/your-data", "2026-11-02", "2027-01-31"),
+      anthropic: ready(
+        "https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data",
+        "2026-11-02",
+        "2027-01-31",
+      ),
+      deepseek: ready("https://api-docs.deepseek.com/guides/kv_cache/", "2026-11-18", "2027-02-16"),
+    },
+  };
+}
+
 test("utf8 helpers hash and count exact bytes", () => {
-  assert.equal(utf8ByteLength("本地AI"), Buffer.byteLength("本地AI", "utf8"));
+  const unicodeText = "\u{1f642} AI";
+  assert.equal(utf8ByteLength(unicodeText), Buffer.byteLength(unicodeText, "utf8"));
   assert.equal(sha256HexUtf8("hello"), "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
 });
 
@@ -120,11 +248,16 @@ test("validateEnrichEvent requires v=1 and ts while allowing additive fields", (
 
 test("ensureLoopbackHost accepts only credential-free loopback base URLs", () => {
   assert.equal(ensureLoopbackHost("http://localhost:11434"), "http://localhost:11434");
-  assert.equal(ensureLoopbackHost("http://127.0.0.1:11434/"), "http://127.0.0.1:11434");
-  assert.equal(ensureLoopbackHost("http://[::1]:11434"), "http://[::1]:11434");
-  assert.throws(() => ensureLoopbackHost("http://localhost:11434/api"), /without a path, query, or fragment/i);
-  assert.throws(() => ensureLoopbackHost("http://user:pass@localhost:11434"), /without embedded credentials/i);
-  assert.throws(() => ensureLoopbackHost("https://example.com"), /loopback Ollama endpoint/i);
+  assert.equal(ensureLoopbackHost("http://127.0.0.1:00080"), "http://127.0.0.1:80");
+  assert.equal(ensureLoopbackHost("http://[::1]:9999"), "http://[::1]:9999");
+  for (const host of [
+    "http://localhost", "http://localhost:0", "http://localhost:65536", "https://localhost:80",
+    "http://localhost:80/", "http://localhost:80/api", "http://localhost:80?", "http://localhost:80#",
+    "http://@localhost:80", "http://user:pass@localhost:80", "http://sub.localhost:80",
+    "http://127.0.0.2:80", "http://127.1:80", "http://%6cocalhost:80", "http://192.168.0.2:80",
+  ]) {
+    assert.throws(() => ensureLoopbackHost(host), { code: "remote_host_not_allowed" }, host);
+  }
 });
 
 test("fixture manifest stays in sync with copied OMD contract fixtures", () => {
@@ -135,8 +268,8 @@ test("fixture manifest stays in sync with copied OMD contract fixtures", () => {
     files: Record<string, string>;
   };
 
-  assert.equal(manifest.source_version, "0.3.0b2");
-  assert.equal(manifest.source_commit, "d9829166c15d4590a90fb3bd733c21ad51345092");
+  assert.equal(manifest.source_version, "0.3.0b5");
+  assert.equal(manifest.source_commit, "14b9de70b9cf957409a2c29c3d70cd3c7eab45a8");
 
   for (const [name, expectedHash] of Object.entries(manifest.files)) {
     const bytes = readFileSync(path.join(fixtureDir, name));
@@ -146,7 +279,7 @@ test("fixture manifest stays in sync with copied OMD contract fixtures", () => {
 });
 
 test("validateEnrichResponse accepts the copied canonical OMD fixture", () => {
-  const request = localizedFixtureRequest();
+  const request = canonicalFixtureRequest();
   const fixture = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "fixtures/enrich-note/v1/valid-response.json"), "utf8"));
   const response = validateEnrichResponse(fixture, request, candidateMap(request));
   assert.equal(response.generation.endpoint_class, "local_loopback");
@@ -255,8 +388,8 @@ function sampleRequest(): OmdEnrichRequest {
   };
 }
 
-function localizedFixtureRequest(): OmdEnrichRequest {
-  const content = "本地 AI 可以辅助个人知识工作流。";
+function canonicalFixtureRequest(): OmdEnrichRequest {
+  const content = "Local AI can support personal knowledge workflows.";
   return {
     schema_version: 1,
     request_id: "request-1",
@@ -271,9 +404,9 @@ function localizedFixtureRequest(): OmdEnrichRequest {
       id: "candidate-1",
       path: "Notes/Local AI.md",
       title: "Local AI",
-      aliases: ["本地 AI"],
+      aliases: ["On-device AI"],
       tags: ["ai/local", "research"],
-      evidence: "本地 AI 与个人知识工作流。",
+      evidence: "Local AI and personal knowledge workflows.",
     }],
     vault_tags: ["ai/local", "research", "workflow"],
     model: "qwen3:4b-instruct",

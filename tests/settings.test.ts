@@ -2,8 +2,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
+import ts from "typescript";
+import {
+  buildModelEntry,
+  localWritingModelIsSelectable,
+  localWritingModelOptionLabel,
+  normalizeLocalOllamaHost,
+} from "../src/local-ai-readiness.ts";
+import { OllamaLocalClient } from "../src/ollama-local-client.ts";
+import { normalizeLocalAccessPath } from "../src/omnibox-utils.ts";
 
 const source = readFileSync(resolve("src/settings.ts"), "utf8");
+const captureRequestSource = readFileSync(resolve("src/capture-request.ts"), "utf8");
+const stylesSource = readFileSync(resolve("src/styles.css"), "utf8");
 const helpers = loadSettingsHelpers(source);
 
 const calendars = [
@@ -23,6 +34,8 @@ test("settings normalization trims strings, filters arrays, and falls back inval
     embeddingModel: "  nomic-embed-text  ",
     semanticRerankEnabled: true,
     captureSuggestLinksAndTags: false,
+    captureOcrLanguage: "  chi_sim+eng  ",
+    captureAsrLanguage: "auto-detect",
     pinnedNotes: [" Note.md ", null, "Note.md"],
   });
   assert.equal(normalized.openOnLaunch, false);
@@ -35,15 +48,175 @@ test("settings normalization trims strings, filters arrays, and falls back inval
   assert.equal(normalized.embeddingModel, "nomic-embed-text");
   assert.equal(normalized.semanticRerankEnabled, true);
   assert.equal(normalized.captureSuggestLinksAndTags, false);
+  assert.equal(normalized.captureOcrLanguage, "chi_sim+eng");
+  assert.equal(normalized.captureAsrLanguage, "auto-detect");
   assert.deepEqual(normalized.pinnedNotes, ["Note.md"]);
 });
 
-test("settings normalization preserves a saved hosted provider without enabling it", () => {
+test("settings normalization preserves safe custom Ollama ports and rejects non-loopback endpoints", () => {
+  assert.equal(
+    helpers.normalizeOmdHomeSettings({ ollamaHost: "  http://127.0.0.1:22434  " }).ollamaHost,
+    "http://127.0.0.1:22434",
+  );
+  assert.equal(
+    helpers.normalizeOmdHomeSettings({ ollamaHost: "http://[::1]:33434" }).ollamaHost,
+    "http://[::1]:33434",
+  );
+  assert.equal(
+    helpers.normalizeOmdHomeSettings({ ollamaHost: "http://localhost:11434/" }).ollamaHost,
+    "http://localhost:11434",
+  );
+  assert.equal(
+    helpers.normalizeOmdHomeSettings({ ollamaHost: "http://example.com:11434" }).ollamaHost,
+    helpers.DEFAULT_SETTINGS.ollamaHost,
+  );
+});
+
+test("missing recognition settings migrate to usable defaults while invalid values fail safe", () => {
+  const legacy = helpers.normalizeOmdHomeSettings({ capturePolish: true });
+  assert.equal(legacy.captureOcrLanguage, "eng");
+  assert.equal(legacy.captureAsrLanguage, "auto-detect");
+
+  const invalid = helpers.normalizeOmdHomeSettings({
+    captureOcrLanguage: "eng --output /tmp/file",
+    captureAsrLanguage: "automatic",
+  });
+  assert.equal(invalid.captureOcrLanguage, "");
+  assert.equal(invalid.captureAsrLanguage, "inherit-adapter-default");
+
+  const custom = helpers.normalizeOmdHomeSettings({
+    captureOcrLanguage: "  deu+eng  ",
+    captureAsrLanguage: "zh",
+  });
+  assert.equal(custom.captureOcrLanguage, "deu+eng");
+  assert.equal(custom.captureAsrLanguage, "zh");
+
+  const scriptPack = helpers.normalizeOmdHomeSettings({ captureOcrLanguage: " script/HanS + eng " });
+  assert.equal(scriptPack.captureOcrLanguage, "script/HanS+eng");
+});
+
+test("explicit legacy no-preference choices remain user-owned", () => {
+  const explicit = helpers.normalizeOmdHomeSettings({
+    captureOcrLanguage: "",
+    captureAsrLanguage: "inherit-adapter-default",
+  });
+  assert.equal(explicit.captureOcrLanguage, "");
+  assert.equal(explicit.captureAsrLanguage, "inherit-adapter-default");
+});
+
+test("OMD settings expose readable per-vault recognition defaults without inheritance jargon", () => {
+  assert.match(source, /setName\("Image text language"\)/u);
+  assert.match(source, /setName\("Speech language"\)/u);
+  assert.match(source, /inherit-adapter-default/u);
+  assert.match(source, /auto-detect/u);
+  assert.match(source, /Recognition only; OMD does not translate the captured text/iu);
+  assert.match(source, /A language selected while capturing applies only to that item; a retry repeats it/iu);
+  assert.match(source, /this\.plugin\.captureLanguageAvailability\(\)/u);
+  assert.match(source, /missingInstalledOcrPacks/u);
+  assert.match(source, /Script packs such as script\/HanS are supported/u);
+  assert.match(source, /languageAvailability\.status === "supported"/u);
+  assert.match(source, /No language preference/u);
+  assert.match(source, /Clear preference/u);
+  assert.doesNotMatch(source, /leaves the converter(?:'s configured language)? unchanged/iu);
+  assert.doesNotMatch(source, /Inherit OMD|Inherit adapter default|Use OMD default|Use adapter default/u);
+});
+
+test("AI setup rerenders preserve a logical keyboard focus target", () => {
+  assert.match(source, /pendingLocalAiFocusKey/u);
+  assert.match(source, /data-omd-ai-action/u);
+  assert.match(source, /refreshLocalAiSection\(\): void/u);
+  assert.match(source, /\.omd-settings-ai-feedback/u);
+  assert.match(source, /section\.ownerDocument\.defaultView/u);
+  assert.match(source, /this\.containerEl\?\.ownerDocument\?\.activeElement/u);
+  assert.match(source, /focus\(\{ preventScroll: true \}\)/u);
+});
+
+test("common OMD readiness is independent of capture recognition defaults", () => {
+  const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
+  const setupBody = extractFunctionBody(mainSource, "private async runOmdCapabilityCheck(");
+  assert.doesNotMatch(setupBody, /requireCaptureLanguages|captureRequestFromSettings/u);
+  assert.match(mainSource, /requireCaptureLanguages\(executable, request, signal\)/u);
+  assert.match(mainSource, /capabilities: detectedCapabilities/u);
+});
+
+test("settings normalization preserves a saved hosted provider and its model memory", () => {
   const normalized = helpers.normalizeOmdHomeSettings({ aiProvider: "openai" });
   assert.equal(normalized.aiProvider, "openai");
+  assert.equal(normalized.aiModel, "");
+  assert.deepEqual(normalized.allowedCloudAnswerProviders, []);
   assert.equal(normalized.hybridRetrievalEnabled, true);
   assert.equal(normalized.embeddingModel, "bge-m3");
   assert.equal(normalized.semanticRerankEnabled, false);
+});
+
+test("cloud answer permission migrates to the selected provider only and keeps explicit provider lists", () => {
+  const migrated = helpers.normalizeOmdHomeSettings({
+    aiProvider: "anthropic",
+    allowCloudVaultAnswers: true,
+  });
+  assert.deepEqual(migrated.allowedCloudAnswerProviders, ["anthropic"]);
+
+  const explicit = helpers.normalizeOmdHomeSettings({
+    aiProvider: "openai",
+    allowedCloudAnswerProviders: ["openai", "ollama", "deepseek", "openai", "bogus"],
+  });
+  assert.deepEqual(explicit.allowedCloudAnswerProviders, ["openai", "deepseek"]);
+});
+
+test("local writing model prefers legacy enrichment first, then capture polish, then the default", () => {
+  const enrichmentFirst = helpers.normalizeOmdHomeSettings({
+    enrichmentModel: "  llama3:instruct  ",
+    capturePolishModel: "  mistral  ",
+  });
+  assert.equal(enrichmentFirst.localWritingModel, "llama3:instruct");
+
+  const captureFallback = helpers.normalizeOmdHomeSettings({
+    enrichmentModel: "   ",
+    capturePolishModel: "  mistral  ",
+  });
+  assert.equal(captureFallback.localWritingModel, "mistral");
+  assert.equal(helpers.DEFAULT_SETTINGS.localWritingModel, "qwen3:4b-instruct");
+});
+
+test("settings normalization does not persist hosted credentials in plugin data", () => {
+  const normalized = helpers.normalizeOmdHomeSettings({
+    aiProvider: "openai",
+    apiKey: "should-not-persist",
+    openaiApiKey: "should-not-persist",
+    anthropicApiKey: "should-not-persist",
+    deepseekApiKey: "should-not-persist",
+  });
+  assert.equal("apiKey" in normalized, false);
+  assert.equal("openaiApiKey" in normalized, false);
+  assert.equal("anthropicApiKey" in normalized, false);
+  assert.equal("deepseekApiKey" in normalized, false);
+  const settingsInterface = extractTypeBody(source, "export interface OmdHomeSettings");
+  const defaultSettings = extractConstObject(source, "export const DEFAULT_SETTINGS");
+  assert.doesNotMatch(settingsInterface, /ApiKey/iu);
+  assert.doesNotMatch(defaultSettings, /ApiKey/iu);
+});
+
+test("settings persist only bounded local social-cookie paths and preserve Unicode spaces", () => {
+  const normalized = helpers.normalizeOmdHomeSettings({
+    douyinCookiesPath: "  /Users/test/社交 access/抖音 cookies.txt  ",
+    xhsCookiesPath: "C:\\Users\\test\\小红书 cookies.txt",
+    douyinCookiesContents: "# Netscape HTTP Cookie File\nsecret",
+    xhsCookiesContents: "secret",
+  });
+  assert.equal(normalized.douyinCookiesPath, "/Users/test/社交 access/抖音 cookies.txt");
+  assert.equal(normalized.xhsCookiesPath, "C:\\Users\\test\\小红书 cookies.txt");
+  assert.equal("douyinCookiesContents" in normalized, false);
+  assert.equal("xhsCookiesContents" in normalized, false);
+  assert.equal(helpers.normalizeOmdHomeSettings({ douyinCookiesPath: "relative/cookies.txt" }).douyinCookiesPath, "");
+  assert.equal(helpers.normalizeOmdHomeSettings({ xhsCookiesPath: `/tmp/a\0cookies.txt` }).xhsCookiesPath, "");
+  assert.equal(
+    helpers.normalizeOmdHomeSettings({ xhsCookiesPath: "\\\\server\\share\\小红书 cookies.txt" }).xhsCookiesPath,
+    "\\\\server\\share\\小红书 cookies.txt",
+  );
+
+  const settingsInterface = extractTypeBody(source, "export interface OmdHomeSettings");
+  assert.doesNotMatch(settingsInterface, /cookie.*content/iu);
+  assert.match(source, /Only the path is saved; cookie contents stay inside the local OMD process/u);
 });
 
 test("calendar selection reconciliation clears stale and read-only defaults", () => {
@@ -66,59 +239,591 @@ test("an unavailable calendar list does not erase persisted selections", () => {
   assert.deepEqual(helpers.reconcileCalendarSelection(settings, []), settings);
 });
 
-test("Phase 1a settings hide hosted provider choices and preserve legacy values explicitly", () => {
-  const providerStart = source.indexOf('.setName("Provider")');
-  const providerEnd = source.indexOf('.setName("Local content boundary")', providerStart);
-  const providerBlock = source.slice(providerStart, providerEnd);
-  assert.match(providerBlock, /legacy-disabled|preserved (?:but )?disabled|preserved for Vault Q&A/u);
-  assert.match(providerBlock, /Use Ollama/u);
-  assert.doesNotMatch(providerBlock, /addDropdown|addOption\([^)]*(?:openai|anthropic|deepseek)/u);
+test("Phase 2 settings expose an explicit provider choice and inline provider boundary guidance", () => {
+  assert.match(source, /setName\("Answer provider"\)/u);
+  assert.match(source, /providerSetting\.settingEl\.addClass\("omd-settings-model", "omd-settings-answer-provider"\)/u);
+  assert.match(source, /for \(const value of AI_PROVIDER_VALUES\) dropdown\.addOption\(value, aiProviderLabel\(value\)\)/u);
+  assert.match(source, /setDesc\(`Choose where @ questions are answered\. \$\{providerSetupDescription\(provider\)\}`\)/u);
+  assert.match(source, /providerSetupDescription\(provider\)/u);
+  assert.doesNotMatch(source, /setName\("Request destination"\)/u);
+  assert.doesNotMatch(stylesSource, /\.omd-settings-fixed-value/u);
+  assert.doesNotMatch(stylesSource, /\.omd-settings-destination \.setting-item-control/u);
+  assert.match(stylesSource, /\.omd-settings-answer-provider\s*\{[^}]*minmax\(220px, 360px\)/su);
+  assert.match(stylesSource, /\.omd-settings-answer-provider \.setting-item-control select\s*\{[^}]*width:\s*100%/su);
+  assert.match(source, /setName\(`Allow \$\{aiProviderLabel\(provider\)\} answers`\)/u);
+  assert.match(source, /Allow @ answers to use \$\{aiProviderDestination\(provider\)\} only while/u);
+  assert.match(source, /allowedCloudAnswerProviders/u);
+  assert.match(source, /bounded evidence excerpts/u);
+  assert.match(source, /macOS Keychain/u);
+  assert.match(source, /aiProviderEnvVar\(provider\)/u);
+  assert.match(source, /Consumer subscriptions do not include API usage/u);
+  assert.doesNotMatch(source, /Smoke/u);
+  assert.doesNotMatch(source, /setName\("Model catalog"\)/u);
+  assert.doesNotMatch(source, /setName\("Provider boundary"\)/u);
 });
 
-test("model selectors expose every installed model plus Custom and stale values", () => {
-  const optionsStart = source.indexOf("const options = this.plugin.localAiState.models");
-  const optionsEnd = source.indexOf("options.__custom__", optionsStart);
-  const optionsBlock = source.slice(optionsStart, optionsEnd);
-  assert.ok(optionsStart >= 0 && optionsEnd > optionsStart);
-  assert.doesNotMatch(optionsBlock, /\.filter\(/u);
-  assert.match(source, /options\.__custom__ = "Custom…"/u);
-  assert.match(source, /\(saved, not installed\)/u);
-  assert.match(source, /\(not text-capable\)/u);
-  assert.match(source, /\(remote blocked\)/u);
-  assert.match(source, /omd-settings-model/u);
+test("answer model labels stay consistent and move local readiness into a status rail", () => {
+  const answerModelBlock = extractFunctionBody(source, "private answerModelSetting");
+  assert.doesNotMatch(answerModelBlock, /use an instruct model/iu);
+  assert.match(answerModelBlock, /const title = "Answer model"/u);
+  assert.match(answerModelBlock, /Choose the local Ollama model used to answer read-only @ questions/iu);
+  assert.match(answerModelBlock, /qwen3:4b-instruct is the default/iu);
+  assert.match(answerModelBlock, /describeLocalCompletionCatalog\(this\.plugin\.localAiState\.models, catalogChecked\)/u);
+  assert.match(answerModelBlock, /modelReadinessRail\(container, "Answer model", qaWorkflow, selector\.stale\)/u);
+  assert.doesNotMatch(answerModelBlock, /describeReadinessCode\(/u);
+  assert.match(answerModelBlock, /Custom model id saved\. Run Check setup to verify it is installed\./u);
+});
+
+test("local Vault Q&A reuses the local completion selector policy without changing hosted catalogs", () => {
+  const answerModelBlock = extractFunctionBody(source, "private answerModelSetting");
+  assert.match(answerModelBlock, /const localModels = this\.plugin\.localAiState\.models\.filter\(\(model\) => !modelIsCloudBacked\(model\)\)/u);
+  assert.match(answerModelBlock, /localWritingModelOptionLabel\(model\)/u);
+  assert.match(answerModelBlock, /answerModelOptionLabel\(model\)/u);
+  assert.match(answerModelBlock, /disableUnavailableLocalModelOptions\(dropdown\.selectEl, models\)/u);
+  assert.match(answerModelBlock, /disableIncompatibleHostedModelOptions\(dropdown\.selectEl, models\)/u);
+  assert.match(answerModelBlock, /provider === "ollama-cloud"\s*\? this\.plugin\.localAiState\.models\.filter\(modelIsVerifiedOllamaCloud\)/u);
+  assert.match(answerModelBlock, /const ollamaCatalogProvider = provider === "ollama" \|\| provider === "ollama-cloud"/u);
+  assert.match(answerModelBlock, /optionValue: known \? matchingOllamaModel\?\.name \?\? current : "__stale__"/u);
+  assert.match(answerModelBlock, /this\.plugin\.hostedAiState\?\.provider === provider \? this\.plugin\.hostedAiState\.models : \[\]/u);
+  assert.match(answerModelBlock, /options\.__custom__ = "Custom…"/u);
+  assert.match(answerModelBlock, /\(saved, unavailable for local answers\)/u);
+  assert.match(answerModelBlock, /\(saved, not installed\)/u);
+  assert.match(answerModelBlock, /value === "__custom__" \|\| value === "__stale__"/u);
+  assert.match(answerModelBlock, /buildModelSelectorState/u);
+  assert.match(answerModelBlock, /const showCustom = !credentialBlocked && \(custom \|\| \(!current && selector\.useCustom\)\)/u);
+  assert.match(answerModelBlock, /omd-settings-model/u);
+});
+
+test("local writing model offers verified and unverified local text models and preserves an unavailable saved value", () => {
+  const localWritingBlock = extractFunctionBody(source, "private modelSetting");
+  assert.match(localWritingBlock, /this\.plugin\.localAiState\.models\s*\.filter\(\(model\) => !modelIsCloudBacked\(model\)\)/u);
+  assert.match(localWritingBlock, /localWritingModelOptionLabel\(model\)/u);
+  assert.match(localWritingBlock, /disableUnavailableLocalModelOptions\(dropdown\.selectEl, localModels\)/u);
+  assert.match(localWritingBlock, /buildModelSelectorState\(this\.plugin\.settings\[key\], selectableModels\)/u);
+  assert.match(localWritingBlock, /\(saved, unavailable for local writing\)/u);
+  assert.match(localWritingBlock, /describeLocalCompletionCatalog\(this\.plugin\.localAiState\.models, catalogChecked\)/u);
+});
+
+test("a downloaded text model stays selectable when /api/tags omits capabilities", async () => {
+  const client = new OllamaLocalClient({
+    requestJson: async ({ path }) => {
+      assert.equal(path, "/api/tags");
+      return {
+        statusCode: 200,
+        headers: {},
+        body: JSON.stringify({ models: [{ name: "downloaded-text:latest", digest: "sha256:local" }] }),
+      };
+    },
+  });
+  const [model] = await client.tags("http://localhost:11434");
+  assert.ok(model);
+  assert.deepEqual(model.capabilities, []);
+
+  assert.equal(localWritingModelIsSelectable(model), true);
+  assert.equal(localWritingModelOptionLabel(model), "downloaded-text:latest (completion support unverified)");
+  const unknownMetadata = buildModelEntry({ name: "future-text", capabilities: ["vision"] });
+  assert.equal(localWritingModelIsSelectable(unknownMetadata), true);
+  assert.equal(localWritingModelOptionLabel(unknownMetadata), "future-text (completion support unverified)");
+  assert.equal(localWritingModelIsSelectable(buildModelEntry({ name: "nomic-embed", capabilities: ["embedding"] })), false);
+  assert.equal(localWritingModelIsSelectable(buildModelEntry({ name: "reasoner", capabilities: ["thinking"] })), false);
+  assert.equal(localWritingModelIsSelectable(buildModelEntry({
+    name: "remote-text",
+    capabilities: ["completion"],
+    remoteHost: "https://ollama.com",
+  })), false);
 });
 
 test("hybrid retrieval settings keep embedding choices local and expose an embedding smoke check", () => {
   assert.match(source, /hybridRetrievalEnabled:\s*true/u);
   assert.match(source, /embeddingModel:\s*"bge-m3"/u);
   assert.match(source, /semanticRerankEnabled:\s*false/u);
-  assert.match(source, /setName\("Hybrid retrieval"\)/u);
+  assert.match(source, /setName\("Keyword \+ semantic search"\)/u);
+  assert.match(source, /Turn off to use keyword search only/u);
   assert.match(source, /setName\("Embedding model"\)/u);
-  assert.match(source, /modelSupportsEmbedding\(model\)\s*&&\s*!modelHasRemoteMetadata\(model\)/u);
-  assert.match(source, /setButtonText\([^)]*"Test embeddings"/u);
+  const settings = extractFunctionBody(source, "private embeddingModelSetting");
+  assert.match(settings, /!modelIsCloudBacked\(model\) && \(!model.capabilities.length \|\| modelSupportsEmbedding\(model\)\)/u);
+  assert.match(settings, /connectionCode: this\.plugin\.localAiState\.connectionCode/u);
+  assert.match(settings, /probe: this\.plugin\.localAiEmbeddingProbe/u);
+  assert.doesNotMatch(settings, /localAiFeedback|\.daemonCode/u);
+  assert.match(settings, /createEl\("code", \{ text: command \}\)/u);
+  assert.match(settings, /presentation\.action === "copy-pull-command" \|\| presentation\.action === "refresh-models"/u);
+  assert.match(source, /setButtonText\([^)]*"Test semantic search"/u);
   assert.match(source, /testLocalEmbeddings\(\)/u);
-  assert.equal([...source.matchAll(/invalidateLocalAiState\("retrieval"\)/gu)].length, 3);
+  assert.match(source, /classifyEmbeddingSetup\(/u);
+  assert.match(source, /It is separate from the text model used to write answers or edit notes/u);
+  assert.match(source, /presentation\.action === "install-model"/u);
+  assert.match(source, /presentation\.action === "copy-pull-command"/u);
+  assert.match(source, /this\.plugin\.installEmbeddingModel\(presentation\.installableModel/u);
+  assert.match(source, /Keyword search remains available/u);
+  assert.match(source, /omd-settings-embedding-model/u);
+  assert.match(stylesSource, /\.omd-answer-warning-actions/u);
+  assert.match(stylesSource, /\.omd-answer-warning/u);
+  assert.equal([...source.matchAll(/invalidateLocalAiState\("retrieval"\)/gu)].length, 2);
+  assert.match(settings, /invalidateLocalAiState\("embedding-model"\)/u);
+  const focus = extractFunctionBody(source, "showRetrievalSettings");
+  assert.match(focus, /\.focus\(/u);
 });
 
-test("Local AI settings rerender only their section and expose durable action feedback", () => {
+test("AI answer settings rerender only their section and expose durable action feedback", () => {
   assert.match(source, /omd-settings-local-ai/u);
   assert.match(source, /renderLocalAiSection\(localAiSection\)/u);
   assert.match(source, /localAiFeedback/u);
   assert.match(source, /omd-settings-feedback/u);
+  assert.match(source, /setName\("Answer setup"\)/u);
+  assert.match(source, /status\.settingEl\.addClass\("omd-settings-answer-status"\)/u);
+  assert.match(source, /canOpenOllamaDesktopApp\(\)/u);
+  assert.match(source, /setButtonText\("Open Ollama app"\)/u);
+  assert.match(source, /this\.plugin\.openOllamaApp\(\)/u);
+  assert.match(source, /"Advanced AI controls"/u);
+  assert.match(source, /private localAiAdvancedExpanded = false/u);
+  assert.match(source, /advanced\.open = this\.localAiAdvancedExpanded/u);
+  assert.match(source, /advanced\.addEventListener\("toggle"/u);
+  assert.match(source, /this\.localAiAdvancedExpanded = advanced\.open/u);
+  assert.match(source, /The capture dialog turns optional writing actions on or off/iu);
+  assert.match(source, /These actions never use the cloud answer provider/iu);
+  assert.match(source, /Automatic uses http:\/\/localhost:11434/u);
+  assert.match(source, /localhost, 127\.0\.0\.1, or \[::1\] with a custom port/u);
+  assert.match(source, /setButtonText\("Use automatic"\)/u);
+  assert.match(source, /setButtonText\("Save endpoint"\)/u);
+  assert.match(source, /this\.plugin\.settings\.ollamaHost = DEFAULT_SETTINGS\.ollamaHost/u);
+  assert.match(source, /Valid local endpoint\. Select Save endpoint to apply it\./u);
+  assert.match(source, /normalizeLocalOllamaHost\(candidate\)/u);
+  assert.match(source, /The last valid endpoint remains saved/u);
+  assert.match(source, /setValidationText\([^;]+announceInvalid\)/u);
+  assert.match(source, /data-omd-ai-action", "ollama-endpoint-input/u);
+  assert.match(source, /this\.pendingLocalAiFocusKey = "ollama-endpoint-input"/u);
+  assert.match(source, /omd-settings-endpoint/u);
+  assert.match(source, /omd-settings-endpoint-validation/u);
+  assert.match(stylesSource, /\.omd-settings-endpoint-validation\[role="status"\]\s*\{\s*color:\s*var\(--text-muted\)/u);
+  assert.match(source, /feedback\.setAttribute\("aria-live", "polite"\)/u);
+  assert.doesNotMatch(source, /setButtonText\("Cancel"\)/u);
+  assert.equal([...source.matchAll(/settingsDisclosure\(\s*container,\s*"(?:Search quality|Local capture and links|Ollama troubleshooting)"/gu)].length, 0);
 });
 
-test("Calendar settings explain the installed EventKit helper and actionable empty states", () => {
+test("settings use one readable layout for headings, cloud consent, keys, and endpoint errors", () => {
+  assert.match(source, /omd-settings-heading/u);
+  assert.match(source, /omd-settings-subheading/u);
+  assert.match(source, /permission\.settingEl\.addClass\("omd-settings-model", "omd-settings-cloud-permission"\)/u);
+  assert.match(source, /endpoint\.settingEl\.addClass\("omd-settings-model", "omd-settings-endpoint"\)/u);
+  assert.match(stylesSource, /\.omd-settings-endpoint-validation,\s*\.omd-settings-path-validation\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/su);
+  assert.match(stylesSource, /\.omd-settings-model \.setting-item-control :is\(select, input\[type="text"\], input\[type="password"\]\)/u);
+  assert.match(stylesSource, /\.omd-settings-heading \.setting-item-name/u);
+  assert.match(stylesSource, /\.omd-settings-advanced > p/u);
+  assert.match(stylesSource, /\.omd-settings-local-ai\s*\{[^}]*container:\s*omd-settings\s*\/\s*inline-size/su);
+  assert.match(stylesSource, /@container omd-settings \(max-width: 580px\)\s*\{[^}]*\.omd-settings-model\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /\.omd-settings-answer-status\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/su);
+  assert.match(stylesSource, /@container omd-settings-page \(max-width: 680px\)\s*\{[^}]*\.omd-settings \.omd-settings-answer-status\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /@container omd-settings-page \(max-width: 580px\)[\s\S]*\.omd-settings \.omd-settings-endpoint \.setting-item-control\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/su);
+  assert.match(stylesSource, /@container omd-settings-page \(max-width: 400px\)[\s\S]*\.omd-settings \.omd-settings-endpoint \.setting-item-control\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/su);
+  assert.match(stylesSource, /\.omd-settings \.omd-settings-endpoint \.setting-item-control button\s*\{\s*justify-self:\s*start;/u);
+});
+
+test("local completion selectors show every downloaded local model while disabling unsafe choices", () => {
+  assert.match(source, /disableUnavailableLocalModelOptions/u);
+  assert.match(source, /option\.disabled = true/u);
+  assert.match(source, /describeLocalCompletionCatalog/u);
+  assert.match(source, /this\.modelReadinessRail\(container, name, workflowState, selector\.stale\)/u);
+  assert.match(source, /omd-settings-model-status/u);
+  assert.match(stylesSource, /\.omd-settings-model-status\.is-ready/u);
+  assert.match(stylesSource, /\.omd-settings-model-status\.is-neutral/u);
+  assert.match(stylesSource, /\.omd-settings-model-status\.is-unavailable/u);
+});
+
+test("unchecked catalogs remain neutral and only checked missing models become unavailable", () => {
+  assert.match(source, /const catalogChecked = typeof this\.plugin\.localAiState\.catalogCheckedAt === "number"/u);
+  assert.match(source, /const savedMissing = presentation\.kind === "model-missing"/u);
+  assert.match(source, /const savedRemote = presentation\.kind === "model-cloud-backed"/u);
+  assert.match(source, /const savedUnsupported = presentation\.kind === "model-incompatible"/u);
+  assert.match(source, /const savedUnavailable = savedMissing \|\| savedRemote \|\| savedUnsupported/u);
+  assert.match(source, /state\.code === "unchecked"/u);
+  assert.match(source, /is-neutral/u);
+  assert.match(source, /presentation\.kind === "unchecked"/u);
+});
+
+test("Advanced AI controls configure one local writing model without duplicating capture switches", () => {
+  assert.match(source, /Configure vault retrieval, the local writing model, and Ollama troubleshooting\./u);
+  assert.match(source, /Choose the loopback Ollama model they share here/iu);
+  assert.doesNotMatch(source, /setName\("Polish captures by default"\)/u);
+  assert.doesNotMatch(source, /setName\("Suggest links and tags by default"\)/u);
+});
+
+test("controls inside Advanced AI rerender the owning section without replacing the disclosure", () => {
+  assert.match(source, /private rerenderLocalAiSection\(\): void/u);
+  assert.match(source, /querySelector<HTMLElement>\("\.omd-settings-local-ai"\)/u);
+  for (const method of ["hybridRetrievalSetting", "embeddingModelSetting", "modelSetting"]) {
+    const body = extractFunctionBody(source, `private ${method}`);
+    assert.match(body, /this\.rerenderLocalAiSection\(\)/u, method);
+    assert.doesNotMatch(body, /this\.renderLocalAiSection\(container\)/u, method);
+  }
+});
+
+test("changing answer provider clears feedback and issues from the previous provider", () => {
+  const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
+  assert.match(mainSource, /if \(reason === "provider" \|\| reason === "answer-model"[^)]*\) \{\s*this\.localAiFeedback = null;\s*this\.clearIssue\("ai"\);\s*\}/u);
+  assert.match(source, /invalidateLocalAiState\("answer-model"\)/u);
+  assert.match(mainSource, /reason === "answer-model" && this\.hostedAiState\?\.provider === this\.currentHostedProvider\(\)/u);
+});
+
+test("hosted credential state is hydrated after provider switch or reload", () => {
+  const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
+  assert.match(source, /ensureHostedCredentialState\(provider\)/u);
+  assert.match(source, /ensureHostedCredentialState\(provider\)\.finally/u);
+  assert.match(mainSource, /if \(isHostedApiProvider\(this\.settings\.aiProvider\)\) \{\s*void this\.ensureHostedCredentialState\(this\.settings\.aiProvider\);\s*\}/u);
+  assert.match(mainSource, /const credential = await this\.omdBridge\.hostedCredentialState\(provider\)/u);
+  assert.match(mainSource, /credential\.source === "missing"\s*\?\s*"credentials_missing"\s*:\s*model \? "unchecked" : "selected_model_missing"/u);
+  assert.match(mainSource, /const startedAt = Date\.now\(\);/u);
+  assert.match(mainSource, /if \(existing\?\.activeAction\) return;/u);
+  assert.match(mainSource, /if \(existing\?\.checkedAt && existing\.checkedAt > startedAt\) return;/u);
+});
+
+test("hosted setup disables route controls and rerenders at action boundaries", () => {
+  const localAiSection = extractFunctionBody(source, "private renderLocalAiSection");
+  const endpoint = extractFunctionBody(source, "private ollamaEndpointSetting");
+  const answerModel = extractFunctionBody(source, "private answerModelSetting");
+  const credential = extractFunctionBody(source, "private hostedCredentialSetting");
+  const answerStatus = extractFunctionBody(source, "private answerProviderStatusSetting");
+  const embeddings = extractFunctionBody(source, "private embeddingModelSetting");
+  const hybridRetrieval = extractFunctionBody(source, "private hybridRetrievalSetting");
+  const writingModel = extractFunctionBody(source, "private modelSetting");
+  assert.match(source, /const aiSetupBusy = this\.plugin\.aiSetupBusy\(\)/u);
+  assert.match(localAiSection, /dropdown\.setValue\(provider\)\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(localAiSection, /\.setDisabled\(aiSetupBusy\)\s*\.onChange\(async \(enabled\)/u);
+  assert.match(localAiSection, /\.setDisabled\(aiSetupBusy \|\| !this\.plugin\.settings\.hybridRetrievalEnabled\)/u);
+  assert.match(endpoint, /text\.setValue\(this\.plugin\.settings\.ollamaHost\)\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(answerModel, /setDisabled\(aiSetupBusy \|\| \(isHostedApiProvider\(provider\) && !hostedCredentialReady\)\)/u);
+  assert.match(answerModel, /"Add developer key first"/u);
+  assert.match(answerModel, /setButtonText\("Save model"\)\s*\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(credential, /runAiSetupAction\(\(\) => this\.plugin\.saveHostedApiKey/u);
+  assert.match(credential, /runAiSetupAction\(\(\) => this\.plugin\.deleteHostedApiKey/u);
+  assert.match(answerStatus, /const aiSetupBusy = this\.plugin\.aiSetupBusy\(\)/u);
+  assert.match(answerStatus, /\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(answerStatus, /runAiSetupAction/u);
+  assert.match(hybridRetrieval, /const aiSetupBusy = this\.plugin\.aiSetupBusy\(\)/u);
+  assert.match(hybridRetrieval, /\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(writingModel, /const aiSetupBusy = this\.plugin\.aiSetupBusy\(\)/u);
+  assert.match(writingModel, /dropdown\.setValue\(selector\.optionValue\)\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(writingModel, /text\.setValue\(selector\.customValue\)\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(writingModel, /setButtonText\("Save model"\)\s*\.setDisabled\(aiSetupBusy\)/u);
+  assert.match(embeddings, /runAiSetupAction\(\(\) => this\.plugin\.testLocalEmbeddings/u);
+  assert.match(credential, /"Save & check"/u);
+  assert.match(credential, /if \(saved\) \{\s*await this\.runAiSetupAction\(\(\) => this\.plugin\.checkHostedAiConnection\(\), "check-setup"\);\s*\}/u);
+});
+
+test("rapid provider, model, and permission callbacks preserve provider-scoped state and serialize saves", async () => {
+  const notices: string[] = [];
+  const firstSave = deferredResult<void>();
+  const snapshots: Array<Record<string, unknown>> = [];
+  let saveCalls = 0;
+  let activeSaves = 0;
+  let maxActiveSaves = 0;
+  const tab = loadSettingTabMethods([
+    "saveSettingsInOrder",
+    "changeAnswerProvider",
+    "autoCheckHostedProvider",
+    "changeCloudAnswerPermission",
+    "saveAnswerModel",
+  ], {
+    isStoredAiProvider: (value: string) => ["ollama", "ollama-cloud", "openai", "anthropic", "deepseek"].includes(value),
+    isHostedApiProvider: (provider: string) => ["openai", "anthropic", "deepseek"].includes(provider),
+    isCloudAiProvider: (provider: string) => provider !== "ollama",
+    aiProviderLabel: (provider: string) => provider,
+    Notice: class {
+      constructor(message: string) {
+        notices.push(message);
+      }
+    },
+  });
+  tab.settingsSaveQueue = Promise.resolve();
+  tab.customModelModes = new Set(["qa"]);
+  tab.rerenderLocalAiSection = () => {};
+  tab.plugin = {
+    settings: {
+      aiProvider: "openai",
+      aiModel: "o3-mini",
+      aiModels: {
+        ollama: "qwen3:4b-instruct",
+        "ollama-cloud": "",
+        openai: "o3-mini",
+        anthropic: "claude-sonnet",
+        deepseek: "deepseek-chat",
+      },
+      allowedCloudAnswerProviders: [],
+    },
+    invalidateLocalAiState: () => {},
+    invalidateCloudAnswerConsent: () => {},
+    aiSetupRevision: () => 0,
+    async ensureHostedCredentialState(provider: string) {
+      if (this.settings.aiProvider !== provider) return;
+      this.hostedAiState = { provider, credential: { source: "missing" }, activeAction: "" };
+    },
+    checkHostedAiConnection: async () => false,
+    async saveSettings() {
+      saveCalls += 1;
+      activeSaves += 1;
+      maxActiveSaves = Math.max(maxActiveSaves, activeSaves);
+      snapshots.push(structuredClone(this.settings));
+      if (saveCalls === 1) {
+        await firstSave.promise;
+      }
+      activeSaves -= 1;
+    },
+  };
+
+  const pending = [
+    tab.changeCloudAnswerPermission("openai", true),
+    tab.changeAnswerProvider("anthropic"),
+    tab.changeCloudAnswerPermission("openai", false),
+    tab.saveAnswerModel("anthropic", "claude-sonnet-new"),
+    tab.changeCloudAnswerPermission("anthropic", true),
+    tab.changeAnswerProvider("deepseek"),
+    tab.saveAnswerModel("anthropic", "stale-anthropic-model"),
+    tab.saveAnswerModel("deepseek", "deepseek-reasoner"),
+    tab.changeCloudAnswerPermission("anthropic", false),
+    tab.changeAnswerProvider("openai"),
+  ];
+
+  assert.equal(await pending[2], false, "a detached OpenAI permission control must be ignored");
+  assert.equal(await pending[6], false, "a detached Anthropic model control must be ignored");
+  assert.equal(await pending[8], false, "a detached Anthropic permission control must be ignored");
+  assert.equal(tab.plugin.settings.aiProvider, "openai");
+  assert.equal(tab.plugin.settings.aiModel, "o3-mini");
+  assert.equal(tab.plugin.settings.aiModels.openai, "o3-mini");
+  assert.equal(tab.plugin.settings.aiModels.anthropic, "claude-sonnet-new");
+  assert.equal(tab.plugin.settings.aiModels.deepseek, "deepseek-reasoner");
+  assert.deepEqual(tab.plugin.settings.allowedCloudAnswerProviders, ["openai", "anthropic"]);
+
+  await Promise.resolve();
+  assert.equal(saveCalls, 1, "the second persistence call must wait for the first one");
+  assert.equal(activeSaves, 1);
+  firstSave.resolve(undefined);
+  await Promise.all(pending);
+  assert.equal(maxActiveSaves, 1);
+  assert.equal(saveCalls, 7);
+  assert.deepEqual(snapshots.at(-1), tab.plugin.settings);
+  assert.equal(notices.length, 2);
+});
+
+test("hosted credential drafts survive provider and setup rerenders", async () => {
+  const harness = createHostedCredentialHarness();
+  const action = deferredResult<boolean>();
+  let provider = "openai";
+  harness.tab.plugin = {
+    aiSetupBusy() { return Boolean(this.localAiState.activeAction || this.hostedAiState?.activeAction); },
+    localAiState: { activeAction: "" },
+    hostedAiState: null,
+    settings: {},
+    saveHostedApiKey: async () => false,
+    deleteHostedApiKey: async () => {},
+  };
+  harness.tab.rerenderLocalAiSection = () => {
+    harness.tab.hostedCredentialSetting(harness.container, provider);
+  };
+
+  harness.tab.hostedCredentialSetting(harness.container, "openai");
+  harness.inputs.at(-1)?.change("sk-openai-draft");
+  provider = "anthropic";
+  harness.tab.hostedCredentialSetting(harness.container, "anthropic");
+  harness.inputs.at(-1)?.change("sk-anthropic-draft");
+  provider = "openai";
+  harness.tab.hostedCredentialSetting(harness.container, "openai");
+  assert.equal(harness.inputs.at(-1)?.value, "sk-openai-draft");
+
+  const pending = harness.tab.runAiSetupAction(() => {
+    harness.tab.plugin.hostedAiState = { provider: "openai", activeAction: "check-connection" };
+    return action.promise.finally(() => {
+      harness.tab.plugin.hostedAiState = { provider: "openai", activeAction: "" };
+    });
+  });
+  assert.equal(harness.inputs.at(-1)?.value, "sk-openai-draft");
+  assert.equal(harness.inputs.at(-1)?.disabled, true);
+  action.resolve(true);
+  await pending;
+  assert.equal(harness.inputs.at(-1)?.value, "sk-openai-draft");
+  assert.equal(harness.inputs.at(-1)?.disabled, false);
+
+  provider = "anthropic";
+  harness.tab.hostedCredentialSetting(harness.container, "anthropic");
+  assert.equal(harness.inputs.at(-1)?.value, "sk-anthropic-draft");
+});
+
+test("a successful hosted key save clears only the exact submitted draft", async () => {
+  const harness = createHostedCredentialHarness();
+  const saves: Array<ReturnType<typeof deferredResult<boolean>>> = [];
+  const submitted: string[] = [];
+  let setupChecks = 0;
+  harness.tab.plugin = {
+    aiSetupBusy() { return Boolean(this.localAiState.activeAction || this.hostedAiState?.activeAction); },
+    localAiState: { activeAction: "" },
+    hostedAiState: null,
+    settings: {},
+    saveHostedApiKey(value: string) {
+      submitted.push(value);
+      harness.tab.plugin.hostedAiState = { provider: "openai", activeAction: "save-key" };
+      const save = deferredResult<boolean>();
+      saves.push(save);
+      return save.promise.finally(() => {
+        harness.tab.plugin.hostedAiState = { provider: "openai", activeAction: "" };
+      });
+    },
+    checkHostedAiConnection: async () => { setupChecks += 1; return true; },
+    deleteHostedApiKey: async () => {},
+  };
+  harness.tab.rerenderLocalAiSection = () => {
+    harness.tab.hostedCredentialSetting(harness.container, "openai");
+  };
+
+  harness.tab.hostedCredentialSetting(harness.container, "openai");
+  harness.inputs.at(-1)?.change("sk-first");
+  const firstSave = harness.saveButtons.at(-1)?.click();
+  assert.ok(firstSave);
+  assert.equal(harness.inputs.at(-1)?.disabled, true);
+  harness.inputs.at(-1)?.change("sk-replacement");
+  saves[0]?.resolve(true);
+  await firstSave;
+  assert.deepEqual(submitted, ["sk-first"]);
+  assert.equal(setupChecks, 1);
+  assert.equal(harness.inputs.at(-1)?.value, "sk-replacement");
+
+  const secondSave = harness.saveButtons.at(-1)?.click();
+  assert.ok(secondSave);
+  saves[1]?.resolve(true);
+  await secondSave;
+  assert.deepEqual(submitted, ["sk-first", "sk-replacement"]);
+  assert.equal(setupChecks, 2);
+  assert.equal(harness.inputs.at(-1)?.value, "");
+});
+
+test("hosted credential controls follow the platform-supported storage path", () => {
+  const credentialBlock = extractFunctionBody(source, "private hostedCredentialSetting");
+  assert.match(credentialBlock, /if \(!Platform\.isMacOS \|\| credential\?\.keychainSupported === false\)/u);
+  assert.match(credentialBlock, /Set \$\{envVar\} before starting Obsidian/u);
+  assert.match(credentialBlock, /In-app saving appears only when macOS Keychain is available/u);
+  const platformGuard = credentialBlock.indexOf("if (!Platform.isMacOS");
+  const earlyReturn = credentialBlock.indexOf("return;", platformGuard);
+  const secretControl = credentialBlock.indexOf("new TextComponent", platformGuard);
+  assert.ok(platformGuard >= 0 && earlyReturn > platformGuard && secretControl > earlyReturn);
+  assert.match(credentialBlock, /secret\.inputEl\.type = "password"/u);
+  assert.doesNotMatch(source, /SecretComponent/u);
+});
+
+test("hosted key save feedback follows the returned credential source", () => {
+  const mainSource = readFileSync(resolve("src/main.ts"), "utf8");
+  assert.match(mainSource, /credential\.source === "keychain"/u);
+  assert.match(mainSource, /key saved to macOS Keychain/u);
+  assert.match(mainSource, /key available from \$\{credential\.envVar\}/u);
+  assert.doesNotMatch(mainSource, /key saved to Keychain/u);
+});
+
+test("Calendar settings keep the helper override advanced and expose one primary refresh action", () => {
+  assert.match(source, /omd-settings-calendar/u);
+  assert.match(source, /renderCalendarSection\(calendarSection\)/u);
+  assert.match(source, /if \(container\.isConnected\) this\.renderCalendarSection\(container\)/u);
   assert.match(source, /resolvedEventKitHelperPath/u);
   assert.match(source, /hasEventKitHelper/u);
-  assert.match(source, /Using the installed helper automatically/u);
-  assert.match(source, /not found or is not executable/u);
-  assert.match(source, /macOS may ask for Calendar access/u);
+  assert.match(source, /Advanced Calendar helper/u);
+  assert.match(source, /optional EventKit helper, which is not included in the standard Marketplace files/u);
+  assert.match(source, /Leave this blank to use an optional helper installed beside the plugin/u);
+  assert.match(source, /Google and Outlook accounts already added to macOS Calendar/u);
+  assert.match(source, /Refresh calendars/u);
+  assert.match(source, /allow Calendar access if macOS asks/u);
+});
+
+test("Calendar helper override reports readiness without waiting for a manual refresh", () => {
+  const present = loadCalendarHelperPresentation(source);
+  const missing = present("/missing/omd-eventkit", "/missing/omd-eventkit", false);
+  assert.equal(missing.connectionName, "Custom Calendar helper unavailable");
+  assert.equal(missing.statusClass, "is-unavailable");
+  assert.equal(missing.feedback?.tone, "error");
+  assert.match(missing.feedback?.message ?? "", /missing or not executable/u);
+
+  const checking = present("/custom/omd-eventkit", "/custom/omd-eventkit", false, true);
+  assert.equal(checking.statusClass, "");
+  assert.equal(checking.buttonText, "Checking…");
+  assert.equal(checking.feedback?.tone, "neutral");
+
+  const customReady = present("/custom/omd-eventkit", "/custom/omd-eventkit", true);
+  assert.equal(customReady.statusClass, "is-ready");
+  assert.equal(customReady.feedback?.tone, "success");
+
+  const automaticReady = present("", "/vault/.obsidian/plugins/omd-home/omd-eventkit", true);
+  assert.equal(automaticReady.custom, false);
+  assert.equal(automaticReady.statusClass, "is-ready");
+  assert.equal(automaticReady.feedback, null);
+  assert.match(automaticReady.overrideDescription, /Automatic helper ready/u);
+
+  const unchecked = present("", "/vault/.obsidian/plugins/omd-home/omd-eventkit", true, false, "unchecked");
+  assert.equal(unchecked.connectionName, "Calendar helper not checked");
+  assert.equal(unchecked.statusClass, "");
+  assert.equal(unchecked.buttonText, "Check helper");
+
+  const incompatible = present("", "/vault/.obsidian/plugins/omd-home/omd-eventkit", true, false, "incompatible");
+  assert.equal(incompatible.connectionName, "Update Calendar helper");
+  assert.equal(incompatible.statusClass, "is-unavailable");
+  assert.equal(incompatible.buttonText, "Check again");
+  assert.match(incompatible.feedback?.message ?? "", /No Calendar data was read or changed/u);
+
+  const calendarBlock = extractFunctionBody(source, "private renderCalendarSection");
+  const helperStart = calendarBlock.indexOf("const helperSetting");
+  const helperEnd = calendarBlock.indexOf("const helperFeedback", helperStart);
+  const helperControls = calendarBlock.slice(helperStart, helperEnd);
+  assert.match(helperControls, /CALENDAR_HELPER_INPUT_DEBOUNCE_MS/u);
+  assert.match(helperControls, /this\.plugin\.calendarFeedback = null/u);
+  assert.match(helperControls, /updateHelperDisplay\(Boolean\(nextPath\)\)/u);
+  assert.match(helperControls, /updateHelperDisplay\(false\);[\s\S]*this\.saveSettingsInOrder\(\)/u);
+  assert.match(helperControls, /helperInput\.setValue\(""\)[\s\S]*updateHelperDisplay\(false\)[\s\S]*await this\.saveSettingsInOrder\(\)/u);
+  assert.doesNotMatch(helperControls, /selectedCalendarIds|defaultExternalCalendarId/u);
 });
 
 test("Python bridge settings prefer the bundled bridge while retaining an explicit override", () => {
   assert.match(source, /Using the bridge bundled inside OMD Home automatically/u);
-  assert.match(source, /When blank, read the interpreter from the OMD launcher's Python shebang/u);
+  assert.match(source, /Leave blank for automatic detection from the OMD environment/u);
   assert.match(source, /setButtonText\("Use bundled"\)/u);
+});
+
+test("OMD setup makes automatic discovery primary and keeps path overrides advanced", () => {
+  assert.match(source, /renderOmdSetup\(containerEl\)/u);
+  assert.doesNotMatch(source, /OMD Home finds compatible local tools automatically/u);
+  assert.match(source, /OMD not installed/u);
+  assert.match(source, /instructions\.buttonLabel/u);
+  assert.match(source, /copyOmdInstallInstructions\(\)/u);
+  assert.match(source, /Install guide/u);
+  assert.match(source, /Advanced OMD paths/u);
+  assert.match(source, /OMD executable override/u);
+  assert.match(source, /Leave blank to scan the app path and common package manager, environment, and user install locations/u);
+  assert.match(source, /isAutomaticOmdExecutable\(this\.plugin\.settings\.omdExecutable\) \? ""/u);
+  assert.match(source, /OMD check needed/u);
+  assert.match(source, /inputEl\.addEventListener\("blur"/u);
+  assert.match(source, /checkEnrichmentCapability\(true\)/u);
+  assert.match(stylesSource, /\.omd-settings-omd-status::before/u);
+  assert.match(stylesSource, /--omd-status-accent/u);
+  assert.match(stylesSource, /\.omd-settings-omd-status\s*\{[^}]*display:\s*grid[^}]*min-height:\s*0/su);
+  assert.match(stylesSource, /\.omd-settings-omd-status \.setting-item-control\s*\{[^}]*align-self:\s*start/su);
+  assert.doesNotMatch(stylesSource, /\.omd-settings-omd-status\s*\{[^}]*background:/su);
+  assert.doesNotMatch(source, /this\.pathSetting\(containerEl, "OMD executable"/u);
+});
+
+test("settings lead with Home and AI answers before capture and calendar setup", () => {
+  const display = extractFunctionBody(source, "display(): void");
+  const homeHeading = display.indexOf('setName("Home")');
+  const startupToggle = display.indexOf('setName("Open OMD Home on launch")');
+  const localAiSection = display.indexOf('createDiv({ cls: "omd-settings-section omd-settings-local-ai" })');
+  const captureHeading = display.indexOf('setName("Capture and processing")');
+  const setup = display.indexOf("this.renderOmdSetup(containerEl)");
+  const calendarSection = display.indexOf('createDiv({ cls: "omd-settings-section omd-settings-calendar" })');
+  assert.ok(homeHeading >= 0 && homeHeading < startupToggle);
+  assert.ok(startupToggle < localAiSection);
+  assert.ok(localAiSection < captureHeading && captureHeading < setup);
+  assert.ok(setup < calendarSection);
+  assert.doesNotMatch(display, /omd-settings-intro|Open, ask, capture, and sync|Choose what opens at startup/u);
+  assert.doesNotMatch(display, /setName\("Startup"\)/u);
+  assert.doesNotMatch(stylesSource, /\.omd-settings-intro/u);
+});
+
+test("social access feedback uses the shared status-card hierarchy", () => {
+  assert.match(stylesSource, /\.omd-capture-access-status\s*\{[^}]*border-left:\s*3px[^}]*background:\s*var\(--omd-panel-alt\)[^}]*color:\s*var\(--omd-ink\)/su);
+  assert.match(stylesSource, /\.omd-capture-access-status\.is-warning/u);
+  assert.match(stylesSource, /\.omd-capture-access-status\.is-error/u);
+  assert.match(stylesSource, /\.omd-cookie-path-drop-target\.is-drag-over/u);
 });
 
 function loadSettingsHelpers(fileSource: string): {
@@ -130,22 +835,79 @@ function loadSettingsHelpers(fileSource: string): {
   const defaults = extractConstObject(fileSource, "export const DEFAULT_SETTINGS");
   const normalizeBody = extractFunctionBody(fileSource, "export function normalizeOmdHomeSettings")
     .replaceAll(" as Partial<OmdHomeSettings>", "")
-    .replaceAll(" as OmdHomeSettings[\"aiProvider\"]", "");
+    .replaceAll(" as OmdHomeSettings[\"aiProvider\"]", "")
+    .replaceAll(" as { allowCloudVaultAnswers?: unknown }", "")
+    .replaceAll(" as { allowCloudVaultAnswers?: boolean }", "")
+    .replaceAll(" as { allowedCloudAnswerProviders?: unknown }", "")
+    .replaceAll(" as { enrichmentModel?: unknown }", "")
+    .replaceAll(" as { capturePolishModel?: unknown }", "");
   const reconcileBody = extractFunctionBody(fileSource, "export function reconcileCalendarSelection");
   const normalizeDefaultBody = extractFunctionBody(fileSource, "export function normalizeDefaultExternalCalendarId");
   const cleanStringBody = extractFunctionBody(fileSource, "function cleanString");
   const uniqueStringsBody = extractFunctionBody(fileSource, "function uniqueStrings")
     .replace(/\(entry\): entry is string =>/g, "(entry) =>");
-  return Function(`
-    const AI_PROVIDERS = new Set(["ollama", "openai", "anthropic", "deepseek"]);
+  const normalizeOcrBody = extractFunctionBody(fileSource, "function normalizeCaptureOcrLanguage");
+  const normalizeOcrLanguageSetBody = extractFunctionBody(captureRequestSource, "export function normalizeOcrLanguageSet")
+    .replaceAll(": string[]", "")
+    .replaceAll("new Set<string>()", "new Set()");
+  const normalizeAsrBody = extractFunctionBody(fileSource, "function normalizeCaptureAsrLanguage")
+    .replaceAll(" as OmdHomeSettings[\"captureAsrLanguage\"]", "");
+  const normalizeSavedAccessPathBody = extractFunctionBody(fileSource, "function normalizeSavedAccessPath");
+  const normalizeSavedOllamaHostBody = extractFunctionBody(fileSource, "function normalizeSavedOllamaHost");
+  return Function("normalizeLocalAccessPath", "normalizeLocalOllamaHost", `
+    const AI_PROVIDER_VALUES = ["ollama", "ollama-cloud", "openai", "anthropic", "deepseek"];
+    const DEFAULT_AI_MODELS = { ollama: "qwen3:4b-instruct", "ollama-cloud": "", openai: "", anthropic: "", deepseek: "" };
+    function isStoredAiProvider(value) { return typeof value === "string" && AI_PROVIDER_VALUES.includes(value); }
+    function isCloudAiProvider(provider) { return provider !== "ollama"; }
+    function normalizeAiModelMemory(raw, legacyProvider, legacyModel) {
+      const input = raw && typeof raw === "object" ? raw : {};
+      const memory = { ...DEFAULT_AI_MODELS };
+      for (const provider of AI_PROVIDER_VALUES) {
+        const value = input[provider];
+        if (typeof value === "string") memory[provider] = value.trim();
+      }
+      const migrated = legacyModel.trim();
+      if (migrated && typeof input[legacyProvider] !== "string") memory[legacyProvider] = migrated;
+      return memory;
+    }
     const DEFAULT_SETTINGS = ${defaults};
     function normalizeOmdHomeSettings(raw) ${normalizeBody}
     function reconcileCalendarSelection(settings, calendars) ${reconcileBody}
     function normalizeDefaultExternalCalendarId(defaultCalendarId, calendars, selectedCalendarIds) ${normalizeDefaultBody}
     function cleanString(value, fallback) ${cleanStringBody}
     function uniqueStrings(value) ${uniqueStringsBody}
+    function normalizeOcrLanguageSet(value) ${normalizeOcrLanguageSetBody}
+    function normalizeCaptureOcrLanguage(value) ${normalizeOcrBody}
+    function normalizeCaptureAsrLanguage(value) ${normalizeAsrBody}
+    function normalizeSavedAccessPath(value) ${normalizeSavedAccessPathBody}
+    function normalizeSavedOllamaHost(value) ${normalizeSavedOllamaHostBody}
     return { DEFAULT_SETTINGS, normalizeOmdHomeSettings, reconcileCalendarSelection, normalizeDefaultExternalCalendarId };
-  `)() as ReturnType<typeof loadSettingsHelpers>;
+  `)(normalizeLocalAccessPath, normalizeLocalOllamaHost) as ReturnType<typeof loadSettingsHelpers>;
+}
+
+function loadCalendarHelperPresentation(fileSource: string): (
+  configuredPath: string,
+  resolvedPath: string,
+  available: boolean,
+  checking?: boolean,
+  protocolStatus?: "unchecked" | "compatible" | "incompatible",
+) => {
+  custom: boolean;
+  connectionName: string;
+  statusClass: string;
+  buttonText: string;
+  overrideDescription: string;
+  feedback: { tone: string; message: string } | null;
+} {
+  const body = extractFunctionBody(fileSource, "export function calendarHelperPresentation");
+  return Function(
+    "configuredPath",
+    "resolvedPath",
+    "available",
+    "checking",
+    "protocolStatus",
+    body.slice(1, -1),
+  ) as ReturnType<typeof loadCalendarHelperPresentation>;
 }
 
 function extractConstObject(fileSource: string, signature: string): string {
@@ -160,6 +922,20 @@ function extractConstObject(fileSource: string, signature: string): string {
     if (depth === 0) return fileSource.slice(valueStart, index + 1);
   }
   throw new Error(`Unclosed object for ${signature}`);
+}
+
+function extractTypeBody(fileSource: string, signature: string): string {
+  const start = fileSource.indexOf(signature);
+  if (start < 0) throw new Error(`Missing ${signature}`);
+  const bodyStart = findBlockStart(fileSource, start);
+  let depth = 0;
+  for (let index = bodyStart; index < fileSource.length; index += 1) {
+    const char = fileSource[index];
+    if (char === "{") depth += 1;
+    if (char === "}") depth -= 1;
+    if (depth === 0) return fileSource.slice(bodyStart, index + 1);
+  }
+  throw new Error(`Unclosed type body for ${signature}`);
 }
 
 function extractFunctionBody(fileSource: string, signature: string): string {
@@ -181,4 +957,159 @@ function findBlockStart(fileSource: string, start: number): number {
     if (fileSource[index] === "{" && fileSource[index + 1] === "\n") return index;
   }
   throw new Error(`Missing block start after ${start}`);
+}
+
+type SettingsMethodHarness = Record<string, any>;
+
+interface CredentialInputHarness {
+  value: string;
+  disabled: boolean;
+  change(value: string): void;
+}
+
+interface CredentialButtonHarness {
+  label: string;
+  disabled: boolean;
+  click(): Promise<void>;
+}
+
+function createHostedCredentialHarness(): {
+  tab: SettingsMethodHarness;
+  container: { isConnected: boolean };
+  inputs: CredentialInputHarness[];
+  saveButtons: CredentialButtonHarness[];
+} {
+  const inputs: CredentialInputHarness[] = [];
+  const buttons: CredentialButtonHarness[] = [];
+  class TextComponent {
+    inputEl = { type: "text", autocomplete: "" };
+    value = "";
+    disabled = false;
+    private onValueChange: (value: string) => void = () => {};
+
+    constructor(_container: unknown) {
+      inputs.push(this);
+    }
+
+    setValue(value: string): this {
+      this.value = value;
+      return this;
+    }
+
+    setPlaceholder(_value: string): this {
+      return this;
+    }
+
+    setDisabled(value: boolean): this {
+      this.disabled = value;
+      return this;
+    }
+
+    onChange(callback: (value: string) => void): this {
+      this.onValueChange = callback;
+      return this;
+    }
+
+    change(value: string): void {
+      this.value = value;
+      this.onValueChange(value);
+    }
+  }
+  class ButtonComponent {
+    label = "";
+    disabled = false;
+    private onButtonClick: () => void | Promise<void> = () => {};
+
+    setButtonText(value: string): this {
+      this.label = value;
+      return this;
+    }
+
+    setDisabled(value: boolean): this {
+      this.disabled = value;
+      return this;
+    }
+
+    setWarning(): this {
+      return this;
+    }
+
+    onClick(callback: () => void | Promise<void>): this {
+      this.onButtonClick = callback;
+      return this;
+    }
+
+    async click(): Promise<void> {
+      await this.onButtonClick();
+    }
+  }
+  class Setting {
+    controlEl = {};
+    settingEl = { addClass: (..._classes: string[]) => {} };
+
+    constructor(_container: unknown) {}
+
+    setName(_value: string): this {
+      return this;
+    }
+
+    setDesc(_value: string): this {
+      return this;
+    }
+
+    addButton(callback: (button: ButtonComponent) => void): this {
+      const button = new ButtonComponent();
+      callback(button);
+      buttons.push(button);
+      return this;
+    }
+  }
+  const tab = loadSettingTabMethods(["hostedCredentialSetting", "runAiSetupAction"], {
+    Platform: { isMacOS: true },
+    Setting,
+    TextComponent,
+    Notice: class {},
+    aiProviderEnvVar: (provider: string) => `${provider.toUpperCase()}_API_KEY`,
+  });
+  tab.hostedCredentialDrafts = new Map<string, string>();
+  return {
+    tab,
+    container: { isConnected: true },
+    inputs,
+    saveButtons: buttons,
+  };
+}
+
+function loadSettingTabMethods(
+  names: string[],
+  dependencies: Record<string, unknown>,
+): SettingsMethodHarness {
+  const syntax = ts.createSourceFile("src/settings.ts", source, ts.ScriptTarget.Latest, true);
+  const settingTab = syntax.statements.find(
+    (node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === "OmdHomeSettingTab",
+  );
+  assert.ok(settingTab, "Missing OmdHomeSettingTab");
+  const methods = names.map((name) => {
+    const member = settingTab.members.find((candidate) => candidate.name?.getText(syntax) === name);
+    assert.ok(member, `Missing OmdHomeSettingTab.${name}`);
+    return member.getText(syntax);
+  });
+  const compiled = ts.transpileModule(`class Harness { ${methods.join("\n")} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+  return new Function(
+    ...Object.keys(dependencies),
+    `${compiled}\nreturn new Harness();`,
+  )(...Object.values(dependencies)) as SettingsMethodHarness;
+}
+
+function deferredResult<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+} {
+  let resolvePromise!: (value: T) => void;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
 }

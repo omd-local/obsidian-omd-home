@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { normalizeLocalOllamaHost } from "../local-ai-readiness.ts";
+import { LocalAiError } from "../ollama-local-types.ts";
 import { EnrichmentError } from "./errors.ts";
 
 export const ENRICHMENT_SCHEMA_VERSION = 1;
@@ -107,7 +109,74 @@ export interface EnrichmentResponse {
   };
 }
 
+export type HostedAiDisclosureProvider = "openai" | "anthropic" | "deepseek";
+export type HostedAiDisclosureStatus = "ready" | "unavailable";
+export type HostedAiDisclosureReason = "missing" | "not_yet_reviewed" | "expired" | "unverified";
+
+export interface HostedAiDisclosureProviderState {
+  status: HostedAiDisclosureStatus;
+  code: "disclosure_unavailable" | null;
+  reason: HostedAiDisclosureReason | null;
+  reviewed_on: string | null;
+  expires_on: string | null;
+  policy_url: string | null;
+}
+
+export interface HostedAiDisclosureCapability {
+  schema_version: number;
+  checked_on: string;
+  max_age_days: number;
+  providers: Record<HostedAiDisclosureProvider, HostedAiDisclosureProviderState>;
+}
+
 export interface CapabilityResponse {
+  package_version?: string;
+  protocol_version?: number;
+  build_revision?: string | null;
+  config_schema?: {
+    current_version: number;
+    supported_versions: number[];
+  };
+  capture_language_options?: {
+    supported: boolean;
+    ocr: {
+      argument: string;
+      aliases: string[];
+      composite: boolean;
+      separator: string;
+      presets: Array<{
+        id: string;
+        label: string;
+        value: string;
+      }>;
+      readiness?: {
+        available: boolean;
+        ready: boolean;
+        installed_packs: string[];
+        effective_language: string | null;
+        missing_packs: string[];
+        error: string | null;
+      };
+    };
+    asr: {
+      argument: string;
+      modes: string[];
+    };
+  };
+  capture_auth_options?: {
+    share_text: {
+      supported: boolean;
+      requires_single_http_url: boolean;
+    };
+    platform_cookie_flags: {
+      douyin?: string;
+      xhs?: string;
+    };
+  };
+  local_ollama_transport?: {
+    version: number;
+  };
+  hosted_ai_disclosure?: HostedAiDisclosureCapability;
   enrich_note: {
     schema_versions: number[];
     supported: boolean;
@@ -157,21 +226,12 @@ export function sha256HexUtf8(value: string): string {
 }
 
 export function ensureLoopbackHost(value: string): string {
-  const url = parseHttpUrl(value, "host");
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
-  if (url.username || url.password) {
-    throw new EnrichmentError("remote_host_not_allowed", "OMD enrichment requires an Ollama base URL without embedded credentials.");
+  try {
+    return normalizeLocalOllamaHost(value);
+  } catch (error) {
+    if (!(error instanceof LocalAiError)) throw error;
+    throw new EnrichmentError("remote_host_not_allowed", error.message, { cause: error });
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new EnrichmentError("remote_host_not_allowed", "OMD enrichment requires an HTTP loopback Ollama endpoint.");
-  }
-  if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
-    throw new EnrichmentError("remote_host_not_allowed", "OMD enrichment requires a base URL without a path, query, or fragment.");
-  }
-  if (!isLoopbackHostname(host)) {
-    throw new EnrichmentError("remote_host_not_allowed", "Phase 2 enrichment only allows a loopback Ollama endpoint.");
-  }
-  return url.toString().replace(/\/$/u, "");
 }
 
 export function validateCapabilityResponse(value: unknown): CapabilityResponse {
@@ -183,17 +243,215 @@ export function validateCapabilityResponse(value: unknown): CapabilityResponse {
     throw new EnrichmentError("invalid_response", "OMD returned invalid enrichment schema versions.");
   }
   const supported = expectBoolean(enrich.supported, "capabilities.enrich_note.supported");
-  return {
+  const capability: CapabilityResponse = {
     enrich_note: {
       schema_versions,
       supported,
     },
   };
+  if (record.package_version !== undefined) {
+    capability.package_version = expectBoundedString(record.package_version, 128, "capabilities.package_version");
+  }
+  if (record.protocol_version !== undefined) {
+    capability.protocol_version = expectPositiveInteger(record.protocol_version, "capabilities.protocol_version");
+  }
+  if (record.build_revision !== undefined) {
+    capability.build_revision = record.build_revision === null
+      ? null
+      : expectBoundedString(record.build_revision, 256, "capabilities.build_revision");
+  }
+  if (record.config_schema !== undefined) {
+    const config = expectRecord(record.config_schema, "capabilities.config_schema");
+    capability.config_schema = {
+      current_version: expectPositiveInteger(config.current_version, "capabilities.config_schema.current_version"),
+      supported_versions: expectVersionArray(
+        config.supported_versions,
+        "capabilities.config_schema.supported_versions",
+      ),
+    };
+  }
+  if (record.capture_language_options !== undefined) {
+    capability.capture_language_options = validateCaptureLanguageOptions(record.capture_language_options);
+  }
+  if (record.capture_auth_options !== undefined) {
+    capability.capture_auth_options = validateCaptureAuthOptions(record.capture_auth_options);
+  }
+  if (record.local_ollama_transport !== undefined) {
+    const transport = expectRecord(record.local_ollama_transport, "capabilities.local_ollama_transport");
+    capability.local_ollama_transport = {
+      version: expectPositiveInteger(transport.version, "capabilities.local_ollama_transport.version"),
+    };
+  }
+  if (record.hosted_ai_disclosure !== undefined) {
+    capability.hosted_ai_disclosure = validateHostedAiDisclosure(record.hosted_ai_disclosure);
+  }
+  return capability;
 }
 
 export function capabilitySupportsEnrichNote(value: unknown): boolean {
   const capability = validateCapabilityResponse(value);
   return capability.enrich_note.supported && capability.enrich_note.schema_versions.includes(ENRICHMENT_SCHEMA_VERSION);
+}
+
+function validateCaptureLanguageOptions(value: unknown): NonNullable<CapabilityResponse["capture_language_options"]> {
+  const record = expectRecord(value, "capabilities.capture_language_options");
+  const ocr = expectRecord(record.ocr, "capabilities.capture_language_options.ocr");
+  const asr = expectRecord(record.asr, "capabilities.capture_language_options.asr");
+  const aliases = ocr.aliases === undefined
+    ? []
+    : expectBoundedStringArray(ocr.aliases, 16, 64, "capabilities.capture_language_options.ocr.aliases");
+  const presets = expectArray(ocr.presets, "capabilities.capture_language_options.ocr.presets");
+  if (presets.length > 32) {
+    throw new EnrichmentError("invalid_response", "OMD returned too many OCR language presets.");
+  }
+  const readiness = ocr.readiness === undefined
+    ? undefined
+    : validateOcrReadiness(ocr.readiness);
+  return {
+    supported: record.supported === undefined
+      ? true
+      : expectBoolean(record.supported, "capabilities.capture_language_options.supported"),
+    ocr: {
+      argument: expectBoundedString(ocr.argument, 64, "capabilities.capture_language_options.ocr.argument"),
+      aliases,
+      composite: expectBoolean(ocr.composite, "capabilities.capture_language_options.ocr.composite"),
+      separator: expectBoundedString(ocr.separator, 4, "capabilities.capture_language_options.ocr.separator"),
+      presets: presets.map((entry, index) => {
+        const preset = expectRecord(entry, `capabilities.capture_language_options.ocr.presets[${index}]`);
+        return {
+          id: expectBoundedString(preset.id, 64, `capabilities.capture_language_options.ocr.presets[${index}].id`),
+          label: expectBoundedString(preset.label, 128, `capabilities.capture_language_options.ocr.presets[${index}].label`),
+          value: expectBoundedString(preset.value, 64, `capabilities.capture_language_options.ocr.presets[${index}].value`),
+        };
+      }),
+      ...(readiness ? { readiness } : {}),
+    },
+    asr: {
+      argument: expectBoundedString(asr.argument, 64, "capabilities.capture_language_options.asr.argument"),
+      modes: expectBoundedStringArray(asr.modes, 16, 64, "capabilities.capture_language_options.asr.modes"),
+    },
+  };
+}
+
+function validateCaptureAuthOptions(value: unknown): NonNullable<CapabilityResponse["capture_auth_options"]> {
+  const record = expectRecord(value, "capabilities.capture_auth_options");
+  const shareText = expectRecord(record.share_text, "capabilities.capture_auth_options.share_text");
+  const cookieFlags = expectRecord(
+    record.platform_cookie_flags,
+    "capabilities.capture_auth_options.platform_cookie_flags",
+  );
+  const normalized: NonNullable<CapabilityResponse["capture_auth_options"]> = {
+    share_text: {
+      supported: expectBoolean(shareText.supported, "capabilities.capture_auth_options.share_text.supported"),
+      requires_single_http_url: expectBoolean(
+        shareText.requires_single_http_url,
+        "capabilities.capture_auth_options.share_text.requires_single_http_url",
+      ),
+    },
+    platform_cookie_flags: {},
+  };
+  for (const provider of ["douyin", "xhs"] as const) {
+    if (cookieFlags[provider] !== undefined) {
+      normalized.platform_cookie_flags[provider] = expectBoundedString(
+        cookieFlags[provider],
+        64,
+        `capabilities.capture_auth_options.platform_cookie_flags.${provider}`,
+      );
+    }
+  }
+  return normalized;
+}
+
+function validateHostedAiDisclosure(value: unknown): HostedAiDisclosureCapability {
+  const path = "capabilities.hosted_ai_disclosure";
+  const record = expectRecord(value, path);
+  const schemaVersion = expectPositiveInteger(record.schema_version, `${path}.schema_version`);
+  if (schemaVersion !== 1) {
+    throw new EnrichmentError("invalid_response", `OMD returned unsupported hosted AI disclosure schema v${schemaVersion}.`);
+  }
+  const providers = expectRecord(record.providers, `${path}.providers`);
+  const normalizedProviders = {} as Record<HostedAiDisclosureProvider, HostedAiDisclosureProviderState>;
+  for (const provider of ["openai", "anthropic", "deepseek"] as const) {
+    normalizedProviders[provider] = validateHostedAiDisclosureProvider(
+      providers[provider],
+      `${path}.providers.${provider}`,
+    );
+  }
+  return {
+    schema_version: schemaVersion,
+    checked_on: expectIsoDate(record.checked_on, `${path}.checked_on`),
+    max_age_days: expectPositiveInteger(record.max_age_days, `${path}.max_age_days`),
+    providers: normalizedProviders,
+  };
+}
+
+function validateHostedAiDisclosureProvider(
+  value: unknown,
+  path: string,
+): HostedAiDisclosureProviderState {
+  const record = expectRecord(value, path);
+  const status = expectBoundedString(record.status, 32, `${path}.status`);
+  if (status !== "ready" && status !== "unavailable") {
+    throw new EnrichmentError("invalid_response", `Expected ${path}.status to be ready or unavailable.`);
+  }
+  const code = record.code === null
+    ? null
+    : expectBoundedString(record.code, 64, `${path}.code`);
+  if (code !== null && code !== "disclosure_unavailable") {
+    throw new EnrichmentError("invalid_response", `Expected ${path}.code to be disclosure_unavailable or null.`);
+  }
+  const reason = record.reason === null
+    ? null
+    : expectBoundedString(record.reason, 64, `${path}.reason`);
+  if (reason !== null && !["missing", "not_yet_reviewed", "expired", "unverified"].includes(reason)) {
+    throw new EnrichmentError("invalid_response", `OMD returned an unknown ${path}.reason.`);
+  }
+  const reviewedOn = record.reviewed_on === null ? null : expectIsoDate(record.reviewed_on, `${path}.reviewed_on`);
+  const expiresOn = record.expires_on === null ? null : expectIsoDate(record.expires_on, `${path}.expires_on`);
+  const policyUrl = record.policy_url === null ? null : expectHttpsUrl(record.policy_url, `${path}.policy_url`);
+  if ((status === "ready" && (code !== null || reason !== null))
+    || (status === "unavailable" && (code !== "disclosure_unavailable" || reason === null))) {
+    throw new EnrichmentError("invalid_response", `OMD returned inconsistent ${path} readiness metadata.`);
+  }
+  if ((status === "ready" || reason !== "missing") && (!reviewedOn || !expiresOn || !policyUrl)) {
+    throw new EnrichmentError("invalid_response", `OMD returned incomplete ${path} readiness metadata.`);
+  }
+  return {
+    status,
+    code,
+    reason: reason as HostedAiDisclosureReason | null,
+    reviewed_on: reviewedOn,
+    expires_on: expiresOn,
+    policy_url: policyUrl,
+  };
+}
+
+function validateOcrReadiness(
+  value: unknown,
+): NonNullable<NonNullable<CapabilityResponse["capture_language_options"]>["ocr"]["readiness"]> {
+  const record = expectRecord(value, "capabilities.capture_language_options.ocr.readiness");
+  return {
+    available: expectBoolean(record.available, "capabilities.capture_language_options.ocr.readiness.available"),
+    ready: expectBoolean(record.ready, "capabilities.capture_language_options.ocr.readiness.ready"),
+    installed_packs: expectBoundedStringArray(
+      record.installed_packs,
+      256,
+      64,
+      "capabilities.capture_language_options.ocr.readiness.installed_packs",
+    ),
+    effective_language: record.effective_language === null
+      ? null
+      : expectBoundedString(record.effective_language, 256, "capabilities.capture_language_options.ocr.readiness.effective_language"),
+    missing_packs: expectBoundedStringArray(
+      record.missing_packs,
+      8,
+      64,
+      "capabilities.capture_language_options.ocr.readiness.missing_packs",
+    ),
+    error: record.error === null
+      ? null
+      : expectBoundedString(record.error, 512, "capabilities.capture_language_options.ocr.readiness.error"),
+  };
 }
 
 export function validateEnrichmentEvent(value: unknown): EnrichmentEvent {
@@ -389,13 +647,13 @@ function validateTagSuggestions(
   if (array.length > max) {
     throw new EnrichmentError("invalid_response", `OMD returned too many tag suggestions (${array.length}).`);
   }
-  const vaultTags = new Map(request.vault_tags.map((tag) => [tag.toLocaleLowerCase(), tag]));
+  const vaultTags = new Map(request.vault_tags.map((tag) => [tag.toLowerCase().normalize("NFC"), tag]));
   const seen = new Set<string>();
   return array.map((entry, index) => {
     const record = expectRecord(entry, `${path}[${index}]`);
     const rawTag = expectTag(record.tag, `${path}[${index}].tag`);
     const tag = kind === "new" ? normalizeGeneratedTag(rawTag) : rawTag;
-    const key = tag.toLocaleLowerCase();
+    const key = tag.toLowerCase().normalize("NFC");
     if (!tag || seen.has(key)) {
       throw new EnrichmentError("invalid_response", `OMD returned an invalid or duplicate ${kind} tag suggestion.`);
     }
@@ -497,6 +755,56 @@ function expectBoolean(value: unknown, path: string): boolean {
   return value;
 }
 
+function expectPositiveInteger(value: unknown, path: string): number {
+  const number = expectNumber(value, path);
+  if (!Number.isInteger(number) || number < 1) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a positive integer.`);
+  }
+  return number;
+}
+
+function expectIsoDate(value: unknown, path: string): string {
+  const string = expectBoundedString(value, 10, path);
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(string)) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be an ISO calendar date.`);
+  }
+  const parsed = new Date(`${string}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== string) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a valid ISO calendar date.`);
+  }
+  return string;
+}
+
+function expectHttpsUrl(value: unknown, path: string): string {
+  const string = expectBoundedString(value, 2048, path);
+  let url: URL;
+  try {
+    url = new URL(string);
+  } catch (error) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a valid HTTPS URL.`, { cause: error as Error });
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to be a credential-free HTTPS URL.`);
+  }
+  return string;
+}
+
+function expectVersionArray(value: unknown, path: string): number[] {
+  const versions = expectArray(value, path).map((entry, index) => expectPositiveInteger(entry, `${path}[${index}]`));
+  if (versions.length > 16) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to contain at most 16 versions.`);
+  }
+  return versions;
+}
+
+function expectBoundedStringArray(value: unknown, maxItems: number, maxChars: number, path: string): string[] {
+  const entries = expectArray(value, path);
+  if (entries.length > maxItems) {
+    throw new EnrichmentError("invalid_response", `Expected ${path} to contain at most ${maxItems} entries.`);
+  }
+  return entries.map((entry, index) => expectBoundedString(entry, maxChars, `${path}[${index}]`));
+}
+
 function expectSha256(value: unknown, path: string): string {
   const string = expectString(value, path);
   if (!/^[0-9a-f]{64}$/u.test(string)) {
@@ -528,28 +836,14 @@ function expectTag(value: unknown, path: string): string {
   return string;
 }
 
-function parseHttpUrl(value: string, path: string): URL {
-  try {
-    return new URL(value);
-  } catch (error) {
-    throw new EnrichmentError("remote_host_not_allowed", `Expected ${path} to be a valid HTTP URL.`, { cause: error as Error });
-  }
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const host = hostname.replace(/\.$/u, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return true;
-  if (!/^127(?:\.\d{1,3}){3}$/u.test(host)) return false;
-  return host.split(".").every((part) => Number(part) >= 0 && Number(part) <= 255);
-}
-
 function normalizeGeneratedTag(value: string): string {
   return value
     .trim()
     .replace(/^#+/u, "")
     .replace(/[ _]/gu, "-")
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff/-]+/gu, "-")
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{M}\p{N}/-]+/gu, "-")
     .replace(/^-+|-+$/gu, "");
 }
 

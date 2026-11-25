@@ -1,16 +1,37 @@
 import {
   FileSystemAdapter,
+  getFrontMatterInfo,
+  MarkdownView,
+  Menu,
   Notice,
+  parseYaml,
   Platform,
   Plugin,
   TFile,
   normalizePath,
+  type App,
+  type Modal,
   type WorkspaceLeaf,
 } from "obsidian";
 import embeddedPythonBridge from "../bridge/omd_home_bridge.py";
-import { formatAiAnswerForClipboard, formatAnswerElapsedTime } from "./ai-answer";
+import {
+  aiProviderDestination,
+  aiProviderLabel,
+  cloudAnswerPermissionEnabled,
+  isHostedApiProvider,
+  isStoredAiProvider,
+  modelIsCloudBacked,
+  modelIsVerifiedOllamaCloud,
+  selectedAiModel,
+} from "./ai-provider.ts";
+import {
+  answerSourceCount,
+  formatAiAnswerForClipboard,
+  formatAnswerElapsedTime,
+  scopedAiAnswerText,
+} from "./ai-answer";
 import { HOME_VIEW_TYPE, OmdHomeView } from "./home-view";
-import { CALENDAR_VIEW_TYPE, OmdCalendarView } from "./calendar-view";
+import { CALENDAR_VIEW_TYPE, OmdCalendarView, setCalendarModalActionGuard } from "./calendar-view";
 import { DEFAULT_LAYOUT, migrateLegacyLayout, normalizeLayout } from "./layout";
 import type { CalendarEventRecord, ExternalCalendarDescriptor, OmdProgressEvent, WidgetPlacement } from "./model";
 import {
@@ -20,22 +41,106 @@ import {
   reconcileCalendarSelection,
   type OmdHomeSettings,
 } from "./settings";
-import { OmdBridge, type AiAnswer, type HybridRetrievalOptions } from "./omd-bridge";
+import {
+  FIRST_USE_GUIDE_PATH,
+  FIRST_USE_GUIDE_TEXT,
+  shouldShowFirstUseGuide,
+} from "./onboarding.ts";
+import {
+  captureInspectionError,
+  MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
+  OmdBridge,
+  spawnProcess,
+  type AiAnswer,
+  type CaptureInspection,
+  type HybridRetrievalOptions,
+} from "./omd-bridge";
+import {
+  captureFailureForIssue,
+  captureRequestFromSettings,
+  createCaptureFailureRecord,
+  createCaptureRequest,
+  filterReadyOcrPresets,
+  hasCaptureLanguageOverrides,
+  ocrLanguagePresetLabel,
+  type CaptureFailureRecord,
+  type CaptureLanguageAvailability,
+  type CaptureRequest,
+} from "./capture-request.ts";
 import {
   EventKitBridge,
+  EventKitHelperCompatibilityError,
+  eventKitMutationDefinitelyDidNotCommit,
   isEventKitHelperAvailable,
   normalizeEventKitEvent,
   resolveEventKitHelperPath,
 } from "./eventkit-bridge";
 import { eventNotePath, recordFromFrontmatter, serializeEventNote, updateEventNote } from "./event-note";
-import { AiConsentModal, CaptureModal } from "./modals";
-import { OmdCapabilityService } from "./enrichment/capability";
+import {
+  CaptureModal,
+  CloudAnswerConsentModal,
+  type CapturePreflightResult,
+  type CaptureSourceAccessDraft,
+} from "./modals";
+import { MarkdownFormattingModal } from "./markdown-formatting-modal.ts";
+import {
+  TranscriptRepairModal,
+} from "./transcript-repair-modal.ts";
+import {
+  inspectTranscriptRepair,
+  repairInvalidTranscriptTail,
+  replaceTranscriptRange,
+  type TranscriptRecognitionContext,
+  type TranscriptRepairIssue,
+} from "./transcript-repair.ts";
+import {
+  applyMarkdownFormattingPreview,
+  FORMATTING_CONFLICT_MESSAGE,
+  FORMATTING_NO_CHANGES_MESSAGE,
+  FORMATTING_TRANSCRIPT_QUALITY_MESSAGE,
+  FORMATTING_UNSAFE_OUTPUT_MESSAGE,
+  markdownFormattingBlockedReason,
+  markdownFormattingScopeDescription,
+  markdownFormattingTarget,
+  mergeMarkdownFormattingTarget,
+} from "./markdown-formatting.ts";
+import { omdCapabilityIdentityLabel, OmdCapabilityService } from "./enrichment/capability";
+import type { OmdCapabilities } from "./enrichment/contract.ts";
 import { EnrichmentWorkflowController } from "./enrichment/controller.ts";
+import { ENRICHMENT_REVIEW_VIEW_TYPE, EnrichmentReviewView } from "./enrichment/review-view.ts";
 import { OmdEnrichmentRunner } from "./enrichment/runner";
-import { toUserFacingEnrichmentMessage } from "./enrichment/errors.ts";
+import {
+  isEnrichmentError,
+  OmdEnrichmentError,
+  toUserFacingEnrichmentMessage,
+  type EnrichmentErrorCode,
+} from "./enrichment/errors.ts";
 import { inspectVaultRelativeMarkdownPath } from "./enrichment/path-safety.ts";
-import { capturedOutputVaultPath, isOmdInboxNote } from "./inbox";
-import { normalizeCaptureSource } from "./omnibox-utils";
+import {
+  capturedOutputVaultPath,
+  isOmdInboxNote,
+  setOmdHomeStatusInMarkdown,
+  waitForCapturedVaultFile,
+} from "./inbox";
+import {
+  isPluginRecordingWrapperCommand,
+  captureSourceInputError,
+  registeredCommandRefs,
+  resolveRecordingCommand,
+  socialCaptureProvider,
+  type RecordingCommandRef,
+} from "./omnibox-utils";
+import { isPinnedNote, setPinnedNote } from "./pinned-notes";
+import { captureWorkflowDoneEvent, shouldSurfaceCaptureEvent } from "./omd-events.ts";
+import {
+  discoverOmdExecutable,
+  isAutomaticOmdExecutable,
+  OMD_INSTALL_GUIDE_URL,
+  omdInstallInstructions,
+  resolveOmdExecutablePath,
+  type OmdDiscoveryMode,
+  type OmdDiscoveryResult,
+} from "./omd-discovery.ts";
 import { executeWithLocalAiGate } from "./local-ai-execution";
 import {
   aggregateLocalAiState,
@@ -45,39 +150,78 @@ import {
   deriveLocalAiDaemonCode,
   deriveLocalAiModelCode,
   describeDaemonReadiness,
+  describeLocalCompletionCatalog,
   describeModelReadiness,
+  embeddingModelPullCommand,
   getActiveWorkflowModels,
   isFresh,
+  localModelNamesMatch,
   mergeInspectedModelEntry,
-  modelHasRemoteMetadata,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
+  oneClickInstallableEmbeddingModel,
   providerMode,
   resolveEmbeddingModelRevision,
 } from "./local-ai-readiness";
 import { OllamaLocalClient } from "./ollama-local-client";
+import { canOpenOllamaDesktopApp, openOllamaDesktopApp } from "./ollama-app";
 import {
   LocalAiError,
   type LocalAiActionFeedback,
+  type HostedAiRuntimeState,
+  type HostedAiProvider,
   type LocalAiConnectionSummary,
+  type LocalAiEmbeddingProbe,
+  type LocalAiModelEntry,
   type LocalAiModelInfo,
   type LocalAiRuntimeState,
   type LocalAiSnapshot,
   type LocalAiWorkflowId,
+  type StoredAiProvider,
 } from "./ollama-local-types";
 import {
+  CALENDAR_DETACH_CONFIRMATION,
+  CALENDAR_EVENT_DELETE_CONFIRMATION,
+  CALENDAR_NOTE_DELETE_CONFIRMATION,
+  CALENDAR_RECREATE_CONFIRMATION,
+  CalendarPartialActionError,
+  calendarSyncResultMessage,
   calendarFetchWindow,
   calendarIdentityKeys,
-  classifyLinkedAvailability,
   classifyLinkedChange,
   detachLinkedEvent,
   eventSyncHash,
+  isCalendarNoteErrorRecord,
   isSelectedWritableCalendar,
   linkedEventSaveBlockReason,
   mergeExternalIntoLinked,
-  resolveCalendarWriteOverride,
+  stableExternalCandidates,
+  summarizeCalendarSync,
+  type CalendarDetachConfirmation,
+  type CalendarSyncSummary,
+  type CalendarNoteDeleteConfirmation,
+  type CalendarRecreateConfirmation,
   type CalendarWriteOverride,
 } from "./calendar-sync";
+import { CalendarSnapshotChangedError, calendarEventVersion } from "./calendar-safety";
+
+interface CalendarNoteSnapshot {
+  event: CalendarEventRecord | null;
+  markdown: string;
+  error?: string;
+}
+
+interface CalendarWriteRevalidation {
+  event: CalendarEventRecord;
+  external?: CalendarEventRecord;
+  expectedMarkdown?: string;
+  blocked: boolean;
+}
+
+interface TranscriptCaptureContext extends TranscriptRecognitionContext {
+  readonly source: string | null;
+  readonly sidecarPath: string | null;
+}
 
 export default class OmdHomePlugin extends Plugin {
   settings: OmdHomeSettings = { ...DEFAULT_SETTINGS };
@@ -86,22 +230,35 @@ export default class OmdHomePlugin extends Plugin {
   externalCalendars: ExternalCalendarDescriptor[] = [];
   processingEvents: OmdProgressEvent[] = [];
   captureActive = false;
+  captureCancelable = false;
   enrichmentActive = false;
   enrichmentCapability: {
     status: "unchecked" | "checking" | "ready" | "unavailable";
     message: string;
     checkedAt?: number;
+    code?: EnrichmentErrorCode;
+    resolvedExecutable?: string;
+    mode?: OmdDiscoveryMode;
+    packageVersion?: string;
+    protocolVersion?: number;
+    buildRevision?: string | null;
+    capabilities?: OmdCapabilities;
   } = {
     status: "unchecked",
     message: "Not checked this session",
   };
   localAiState: LocalAiRuntimeState = aggregateLocalAiState(this.settings, null, [], "");
+  hostedAiState: HostedAiRuntimeState | null = null;
+  localAiEmbeddingProbe: LocalAiEmbeddingProbe | null = null;
   localAiFeedback: LocalAiActionFeedback | null = null;
   calendarFeedback: LocalAiActionFeedback | null = null;
+  calendarHelperProtocolStatus: "unchecked" | "compatible" | "incompatible" = "unchecked";
+  calendarHelperProtocolVersion: number | null = null;
   lastError = "";
   lastErrorAt = 0;
   lastErrorContext: "" | "capture" | "calendar" | "ai" | "inbox" = "";
   lastErrorSource = "";
+  lastCaptureFailure: CaptureFailureRecord | null = null;
   readonly omdCapabilityService = new OmdCapabilityService();
   readonly omdEnrichmentRunner = new OmdEnrichmentRunner();
   private omdBridge!: OmdBridge;
@@ -110,18 +267,51 @@ export default class OmdHomePlugin extends Plugin {
   private enrichmentWorkflowController!: EnrichmentWorkflowController;
   private readonly localAiSummaries = new Map<string, LocalAiConnectionSummary>();
   private localAiFailure: LocalAiConnectionSummary | null = null;
-  private calendarRefresh: Promise<void> | null = null;
+  private hostedCredentialHydration: Promise<void> | null = null;
+  private hostedCredentialHydrationProvider: HostedAiProvider | null = null;
+  private hostedCredentialHydrationActionToken: number | null = null;
+  private readonly captureModals = new Set<CaptureModal>();
+  private readonly cloudAnswerConsentModals = new Set<CloudAnswerConsentModal>();
+  private readonly markdownFormattingModals = new Set<MarkdownFormattingModal>();
+  private readonly transcriptRepairModals = new Set<TranscriptRepairModal>();
+  private readonly markdownViewActions = new Map<MarkdownView, { aiTools: HTMLElement; repair?: HTMLElement }>();
+  private readonly calendarModals = new Set<Modal>();
+  private readonly cloudAnswerControllers = new Set<AbortController>();
+  private cloudAnswerConsentGeneration = 0;
+  private hostedAiController: AbortController | null = null;
+  private hostedCredentialMutation: symbol | null = null;
+  private unloaded = false;
+  private firstUseGuideOpening = false;
+  private calendarRefresh: Promise<CalendarSyncSummary> | null = null;
+  private calendarRefreshQueued: Promise<CalendarSyncSummary> | null = null;
+  private calendarRefreshQueuedReconcile = false;
+  private calendarLifecycleGeneration = 0;
+  private calendarRecreateGeneration = 0;
   calendarLoading = false;
   private calendarRefreshTimer: number | null = null;
   private readonly calendarWriteOverrides = new Map<string, CalendarWriteOverride>();
+  private readonly ambiguousCalendarCreateIds = new Set<string>();
+  private readonly calendarNoteCreateInFlight = new Set<string>();
+  private readonly calendarCreatedNotePaths = new Map<string, string>();
   private readonly localAiControllers = new Set<AbortController>();
+  private captureController: AbortController | null = null;
   private localAiActionToken = 0;
+  private issueSequence = 0;
+  private lastIssueId = 0;
+  private captureFailureSequence = 0;
+  private discoveredOmdExecutable = "";
+  private lastVerifiedOmdExecutable = "";
+  private omdCapabilityCheck: Promise<boolean> | null = null;
+  private omdCapabilityGeneration = 0;
+  private settingTab: OmdHomeSettingTab | null = null;
+  private markdownViewActionTimer: number | null = null;
+  private markdownViewActionGeneration = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.deviceLayout = this.loadDeviceLayout();
     this.omdBridge = new OmdBridge(
-      () => this.settings.omdExecutable,
+      () => this.resolvedOmdExecutable(),
       () => this.settings.pythonExecutable,
       () => this.settings.pythonBridgePath,
       () => embeddedPythonBridge,
@@ -130,23 +320,49 @@ export default class OmdHomePlugin extends Plugin {
     this.enrichmentWorkflowController = new EnrichmentWorkflowController(this);
     this.registerView(HOME_VIEW_TYPE, (leaf) => new OmdHomeView(leaf, this));
     this.registerView(CALENDAR_VIEW_TYPE, (leaf) => new OmdCalendarView(leaf, this));
+    this.registerView(ENRICHMENT_REVIEW_VIEW_TYPE, (leaf) => new EnrichmentReviewView(leaf));
     this.addRibbonIcon("layout-dashboard", "Open OMD Home", () => void this.openHome());
     this.addRibbonIcon("calendar-days", "Open OMD calendar", () => void this.openCalendar());
     this.addCommand({ id: "open-home", name: "Open home", callback: () => void this.openHome() });
+    this.addCommand({
+      id: "open-language-settings",
+      name: "Open language settings",
+      callback: () => void this.openLanguageSettings(),
+    });
+    this.registerObsidianProtocolHandler("omd-home-language-settings", () => void this.openLanguageSettings());
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => void this.openCalendar() });
     this.addCommand({ id: "new-event", name: "Create event", callback: () => void this.createCalendarEvent() });
     this.addCommand({
       id: "sync-calendar",
       name: "Sync linked calendar events",
       callback: () => void this.synchronizeCalendarEvents()
-        .then(() => new Notice("Calendar sync complete"))
+        .then((summary) => new Notice(calendarSyncResultMessage(summary)))
         .catch((error) => new Notice(message(error))),
     });
     this.addCommand({ id: "capture-with-omd", name: "Capture URL or file", callback: () => this.openCaptureModal() });
     this.addCommand({ id: "cancel-omd", name: "Cancel active OMD action", callback: () => this.cancelActiveOmd() });
+    this.addCommand({
+      id: "check-omd-setup",
+      name: "Check OMD setup",
+      callback: () => void this.checkEnrichmentCapability(true).then((ready) => {
+        new Notice(ready ? "OMD is ready." : this.enrichmentCapability.message);
+      }),
+    });
+    this.addCommand({
+      id: "open-omd-install-guide",
+      name: "Open OMD install guide",
+      callback: () => this.openOmdInstallGuide(),
+    });
     this.addCommand({ id: "suggest-links-and-tags", name: "Suggest links and tags", callback: () => void this.suggestLinksAndTags() });
+    this.addCommand({ id: "improve-note-formatting", name: "Improve note formatting", callback: () => void this.improveNoteFormatting() });
     this.addCommand({ id: "refresh-local-models", name: "Refresh local AI models", callback: () => void this.refreshLocalAiCatalog(true) });
     this.addCommand({ id: "check-local-ai", name: "Check local AI connection", callback: () => void this.checkLocalAiConnection() });
+    this.addCommand({ id: "smoke-local-ai-qa", name: "Smoke local AI: Vault question", callback: () => void this.smokeLocalAiWorkflow("qa") });
+    this.addCommand({ id: "smoke-local-ai-enrichment", name: "Smoke local AI: Note enrichment", callback: () => void this.smokeLocalAiWorkflow("enrichment") });
+    this.addCommand({ id: "smoke-local-ai-capture", name: "Smoke local AI: Polish Markdown", callback: () => void this.smokeLocalAiWorkflow("capture") });
+    if (canOpenOllamaDesktopApp()) {
+      this.addCommand({ id: "open-ollama-app", name: "Open Ollama", callback: () => void this.openOllamaApp() });
+    }
     this.addCommand({ id: "test-local-ai-embeddings", name: "Test local AI embeddings", callback: () => void this.testLocalEmbeddings() });
     this.addCommand({ id: "refresh-calendars", name: "Refresh macOS calendars", callback: () => void this.refreshExternalCalendars() });
     this.addCommand({
@@ -157,62 +373,826 @@ export default class OmdHomePlugin extends Plugin {
         if (leaf.view instanceof OmdHomeView) leaf.view.focusOmnibox();
       },
     });
-    this.addSettingTab(new OmdHomeSettingTab(this.app, this));
+    this.addCommand({
+      id: "toggle-recording",
+      name: "Start or stop recording",
+      callback: () => this.toggleRecording(),
+    });
+    this.addCommand({
+      id: "start-recording",
+      name: "Start recording",
+      callback: () => this.startRecording(),
+    });
+    this.addCommand({
+      id: "stop-recording",
+      name: "Stop recording",
+      callback: () => this.stopRecording(),
+    });
+    this.settingTab = new OmdHomeSettingTab(this.app, this);
+    this.addSettingTab(this.settingTab);
 
     this.registerEvent(this.app.metadataCache.on("changed", (file) => {
-      if (file.path.startsWith("Calendar/Events/")) this.scheduleCalendarRefresh();
+      if (this.isCalendarEventPath(file.path, file)) this.scheduleCalendarRefresh();
+      if (file.extension === "md") this.refreshHomeViews();
+      if (file.extension === "md") this.scheduleMarkdownViewActions();
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleMarkdownViewActions()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.scheduleMarkdownViewActions()));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.scheduleMarkdownViewActions()));
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (this.isCalendarEventPath(file.path, file instanceof TFile ? file : undefined)) {
+        this.scheduleCalendarRefresh();
+      }
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (this.isCalendarEventPath(file.path, file instanceof TFile ? file : undefined)) {
+        this.scheduleCalendarRefresh();
+      }
+    }));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      if (
+        this.isCalendarEventPath(file.path, file instanceof TFile ? file : undefined)
+        || this.isCalendarEventPath(oldPath)
+      ) {
+        this.scheduleCalendarRefresh();
+      }
     }));
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
       if (!(file instanceof TFile)) return;
-      const pinned = this.settings.pinnedNotes.includes(file.path);
+      const pinned = this.isNotePinned(file.path);
       menu.addItem((item) => item
         .setTitle(pinned ? "Unpin from OMD Home" : "Pin to OMD Home")
         .setIcon("pin")
-        .onClick(async () => {
-          this.settings.pinnedNotes = pinned
-            ? this.settings.pinnedNotes.filter((path) => path !== file.path)
-            : [...this.settings.pinnedNotes, file.path];
-          await this.saveSettings();
-          this.refreshHomeViews();
-        }));
+        .setSection("omd-home")
+        .onClick(() => void this.toggleNotePinned(file.path)));
       if (file.extension === "md") {
         menu.addItem((item) => item
-          .setTitle("Suggest links and tags")
+          .setTitle("Review in OMD Home")
+          .setIcon("list-checks")
+          .setSection("omd-home")
+          .onClick(() => void this.reviewNote(file)));
+        menu.addItem((item) => item
+          .setTitle("Improve formatting")
+          .setIcon("text")
+          .setSection("omd-home")
+          .onClick(() => void this.improveNoteFormatting(file)));
+        menu.addItem((item) => item
+          .setTitle("Generate suggestions · summary, links, tags")
           .setIcon("sparkles")
+          .setSection("omd-home")
           .onClick(() => void this.suggestLinksAndTags(file)));
       }
     }));
 
     this.app.workspace.onLayoutReady(() => {
-      void this.refreshCalendarEvents();
+      void this.refreshCalendarEvents().catch((error) => {
+        this.recordIssue("calendar", error);
+        this.refreshOpenViews();
+      });
       void this.checkEnrichmentCapability();
-      void this.ensureLocalAiCatalog();
+      if (this.settings.aiProvider === "ollama" || this.settings.aiProvider === "ollama-cloud") {
+        void this.ensureLocalAiCatalog();
+      }
+      if (isHostedApiProvider(this.settings.aiProvider)) {
+        void this.ensureHostedCredentialState(this.settings.aiProvider);
+      }
       if (Platform.isMacOS && this.hasEventKitHelper()) void this.refreshExternalCalendars(false);
-      if (this.settings.openOnLaunch) void this.openHome(false);
+      void this.openInitialWorkspace();
+      this.scheduleMarkdownViewActions();
     });
   }
 
   onunload(): void {
+    this.unloaded = true;
+    this.calendarLifecycleGeneration += 1;
+    this.localAiActionToken += 1;
+    this.omdCapabilityGeneration += 1;
+    this.invalidateCloudAnswerConsent();
+    this.cancelHostedAiAction();
+    for (const modal of [...this.captureModals]) modal.close();
+    this.captureModals.clear();
+    for (const modal of this.markdownFormattingModals) modal.close();
+    this.markdownFormattingModals.clear();
+    for (const modal of [...(this.transcriptRepairModals ?? [])]) modal.close();
+    this.transcriptRepairModals?.clear();
+    if (typeof this.markdownViewActionTimer === "number") window.clearTimeout(this.markdownViewActionTimer);
+    this.markdownViewActionTimer = null;
+    this.markdownViewActionGeneration += 1;
+    for (const actions of this.markdownViewActions?.values() ?? []) {
+      actions.aiTools.remove();
+      actions.repair?.remove();
+    }
+    this.markdownViewActions?.clear();
+    for (const modal of [...(this.calendarModals ?? [])]) modal.close();
+    this.calendarModals?.clear();
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
     this.calendarWriteOverrides.clear();
     for (const controller of this.localAiControllers) controller.abort();
     this.localAiControllers.clear();
+    this.captureController?.abort();
+    this.captureController = null;
+    this.captureCancelable = false;
     this.omdCapabilityService.dispose();
     this.omdEnrichmentRunner.dispose();
     this.enrichmentWorkflowController?.dispose();
     this.eventKitBridge?.dispose();
     this.omdBridge?.dispose?.();
     this.localAiSummaries.clear();
+    this.localAiEmbeddingProbe = null;
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = normalizeOmdHomeSettings(await this.loadData());
+    const stored = await this.loadData() as unknown;
+    this.settings = normalizeOmdHomeSettings(stored);
+    if (!shouldShowFirstUseGuide(stored) && !this.settings.welcomeGuideShown) {
+      this.settings.welcomeGuideShown = true;
+      await this.saveData(this.settings);
+    }
     this.syncLocalAiState("");
+    this.syncHostedAiState("");
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     this.syncLocalAiState(this.localAiState.activeAction);
+    this.syncHostedAiState(this.hostedAiState?.activeAction ?? "");
+  }
+
+  trackCalendarModal<T extends Modal>(
+    modal: T,
+    onClose?: () => void,
+    ownerIsActive: () => boolean = () => true,
+  ): T | null {
+    if (this.unloaded || !ownerIsActive()) return null;
+    if (this.calendarModals.has(modal)) return modal;
+    const originalOnClose = modal.onClose.bind(modal);
+    let registered = true;
+    modal.onClose = (): void => {
+      if (registered) {
+        registered = false;
+        this.calendarModals.delete(modal);
+        try {
+          onClose?.();
+        } finally {
+          originalOnClose();
+        }
+        return;
+      }
+      originalOnClose();
+    };
+    setCalendarModalActionGuard(modal, () => !this.unloaded && ownerIsActive());
+    this.calendarModals.add(modal);
+    return modal;
+  }
+
+  private trackCaptureModal(modal: CaptureModal): CaptureModal | null {
+    if (this.unloaded) return null;
+    const originalOpen = modal.open.bind(modal);
+    const originalOnClose = modal.onClose.bind(modal);
+    modal.open = (): void => {
+      if (this.unloaded) return;
+      this.captureModals.add(modal);
+      originalOpen();
+    };
+    modal.onClose = (): void => {
+      this.captureModals.delete(modal);
+      originalOnClose();
+    };
+    this.captureModals.add(modal);
+    return modal;
+  }
+
+  usesAutomaticOmdDiscovery(): boolean {
+    return isAutomaticOmdExecutable(this.settings.omdExecutable);
+  }
+
+  resolvedOmdExecutable(): string {
+    return this.discoveredOmdExecutable || this.settings.omdExecutable.trim() || "omd";
+  }
+
+  captureLanguageAvailability(): CaptureLanguageAvailability {
+    const language = this.enrichmentCapability.capabilities?.capture_language_options;
+    if (this.enrichmentCapability.status !== "ready") {
+      const unsupported = this.enrichmentCapability.status === "unavailable"
+        && (this.enrichmentCapability.code === "unsupported_capability"
+          || this.enrichmentCapability.code === "unsupported_schema");
+      return captureLanguageAvailabilityState(
+        unsupported ? "unsupported" : "unchecked",
+        unsupported
+          ? "This detected OMD build does not advertise compatible capture language options."
+          : "Explicit recognition choices will be validated against the detected OMD build when you press Capture.",
+      );
+    }
+    if (!language?.supported) {
+      return captureLanguageAvailabilityState(
+        "unsupported",
+        "This detected OMD build does not advertise capture language options. Leave language preferences off or update OMD.",
+      );
+    }
+    const ocrFlags = [language.ocr.argument, ...language.ocr.aliases];
+    const acceptsHomeOcrArgument = ocrFlags.includes("--ocr-lang");
+    const presets = language.ocr.presets
+      .filter((preset): preset is typeof preset & { value: "eng" | "chi_sim+eng" | "chi_tra+eng" } => (
+        preset.value === "eng" || preset.value === "chi_sim+eng" || preset.value === "chi_tra+eng"
+      ))
+      .map((preset) => ({ label: ocrLanguagePresetLabel(preset.value), value: preset.value }));
+    const acceptsHomeAsrArgument = language.asr.argument === "--whisper-lang";
+    const ocrReadiness = language.ocr.readiness;
+    const readinessMessage = ocrReadiness
+      ? ocrReadiness.available
+        ? "Only installed image text languages appear below."
+        : "Image text recognition is not ready on this device. Open recognition defaults in settings for setup guidance."
+      : "Image text language availability will be checked when capture starts.";
+    return {
+      status: "supported",
+      message: readinessMessage,
+      ocrPresets: acceptsHomeOcrArgument
+        ? filterReadyOcrPresets(
+          presets,
+          ocrReadiness?.available ?? null,
+          ocrReadiness ? ocrReadiness.installed_packs : null,
+        )
+        : [],
+      customOcr: acceptsHomeOcrArgument && language.ocr.composite && language.ocr.separator === "+",
+      ocrBackendAvailable: ocrReadiness?.available ?? null,
+      ocrInstalledPacks: ocrReadiness ? ocrReadiness.installed_packs : null,
+      asrAutoDetect: acceptsHomeAsrArgument && language.asr.modes.includes("auto-detect"),
+      asrExplicit: acceptsHomeAsrArgument && language.asr.modes.includes("explicit"),
+    };
+  }
+
+  async copyOmdInstallInstructions(): Promise<boolean> {
+    const instructions = omdInstallInstructions(process.platform);
+    try {
+      await navigator.clipboard.writeText(instructions.commands);
+      new Notice(instructions.notice);
+      return true;
+    } catch {
+      new Notice("Could not copy the install steps. Open the OMD install guide instead.");
+      return false;
+    }
+  }
+
+  openOmdInstallGuide(): void {
+    window.open(OMD_INSTALL_GUIDE_URL, "_blank", "noopener,noreferrer");
+  }
+
+  openCloudAiGuide(): void {
+    window.open(
+      "https://github.com/omd-local/obsidian-omd-home#ollama-cloud",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }
+
+  async openOllamaApp(): Promise<boolean> {
+    this.setLocalAiFeedback("neutral", "Opening Ollama…");
+    try {
+      await openOllamaDesktopApp();
+      const feedback = "Ollama opened. Wait for its local service to finish starting, then select Check setup.";
+      this.setLocalAiFeedback("success", feedback);
+      new Notice(feedback);
+      return true;
+    } catch {
+      const feedback = "OMD Home could not open Ollama automatically. Open the installed app manually, or install it if missing, then check the connection again.";
+      this.setLocalAiFeedback("error", feedback);
+      new Notice(feedback);
+      return false;
+    }
+  }
+
+  async checkHostedAiConnection(): Promise<boolean> {
+    const provider = this.currentHostedProvider();
+    if (!provider || this.unloaded) return false;
+    if (!this.canStartAiSetupAction()) return false;
+    this.clearIssue("ai");
+    this.setLocalAiFeedback("neutral", `Checking ${providerLabel(provider)} credentials and the selected model…`);
+    const action = this.beginHostedAiAction("check-connection");
+    try {
+      await this.requireReadyOmdExecutable(true);
+      if (!this.isCurrentHostedAiAction(action, provider)) return false;
+      this.assertHostedAiDisclosureReady(provider);
+      const model = selectedAiModel(this.settings);
+      const { catalog, checked } = await this.withLocalAiSignal(async (signal) => {
+        if (!model) {
+          const catalog = await this.omdBridge.discoverProviderModels(provider, signal);
+          this.assertProviderDestination(provider, catalog.destinationDomain);
+          return { catalog, checked: null };
+        }
+        const checked = await this.omdBridge.checkProviderModel(provider, model, signal);
+        this.assertProviderDestination(provider, checked.destinationDomain);
+        return {
+          catalog: {
+            provider,
+            destinationDomain: checked.destinationDomain,
+            models: checked.models,
+            elapsedSeconds: checked.elapsedSeconds,
+            credential: checked.credential,
+          },
+          checked,
+        };
+      });
+      if (!this.isCurrentHostedAiAction(action, provider)) return false;
+      const catalogModels = catalog.models.map((name) => ({
+        name,
+        capabilities: [],
+        supportsCompletion: false,
+      }));
+      if (!checked) {
+        this.hostedAiState = {
+          provider,
+          checkedAt: Date.now(),
+          checkedModel: undefined,
+          checkedAnswerCompatibility: undefined,
+          checkedAnswerContract: undefined,
+          code: "selected_model_missing",
+          detail: catalog.models.length
+            ? `${providerLabel(provider)} models are loaded. Choose an answer model, then check setup again.`
+            : `${providerLabel(provider)} returned an empty model catalog.`,
+          models: catalogModels,
+          activeAction: "check-connection",
+          credential: catalog.credential ?? null,
+          destinationDomain: catalog.destinationDomain,
+        };
+        const feedback = catalog.models.length
+          ? `Models loaded. Choose a ${providerLabel(provider)} answer model.`
+          : `Connection checked, but ${providerLabel(provider)} returned no models.`;
+        this.setLocalAiFeedback(catalog.models.length ? "neutral" : "error", feedback);
+        new Notice(feedback);
+        return false;
+      }
+      const modelNames = [...new Set([
+        ...catalog.models,
+        ...checked.models,
+        ...checked.alternativeModels,
+      ])];
+      const selectedModelMatches = checked.model === model;
+      const contractConfirmed = typeof checked.answerContract === "string" && checked.answerContract.trim().length > 0;
+      const compatible = checked.answerCompatibility === "supported" && contractConfirmed && selectedModelMatches;
+      const compatibilityDetail = selectedModelMatches
+        ? checked.answerCompatibility === "supported" && !contractConfirmed
+          ? `OMD did not identify the answer contract for ${model}. Update OMD, then run Check setup again.`
+          : checked.answerCompatibilityReason
+        : `${providerLabel(provider)} checked ${checked.model} instead of the selected model ${model}. OMD Home kept ${model} selected; choose a model and run Check setup again.`;
+      const code = !checked.available
+        ? "model_unavailable"
+        : compatible ? "ready" : "selected_model_incompatible";
+      this.hostedAiState = {
+        provider,
+        checkedAt: Date.now(),
+        checkedModel: checked.model,
+        checkedAnswerCompatibility: checked.answerCompatibility,
+        checkedAnswerContract: checked.answerContract,
+        code,
+        detail: !checked.available
+          ? `${checked.model} is not available on ${checked.destinationDomain}.`
+          : compatible
+            ? `${checked.answerCompatibilityReason} Retrieval stays local, and each cloud answer needs confirmation.`
+            : compatibilityDetail,
+        models: modelNames.map((name) => ({
+          name,
+          capabilities: name === checked.model && compatible ? ["completion"] : [],
+          supportsCompletion: name === checked.model && compatible,
+          answerCompatibility: name === checked.model ? checked.answerCompatibility : undefined,
+          answerCompatibilityReason: name === checked.model ? checked.answerCompatibilityReason : undefined,
+          answerContract: name === checked.model ? checked.answerContract : undefined,
+        })),
+        activeAction: "check-connection",
+        credential: checked.credential ?? catalog.credential ?? null,
+        destinationDomain: checked.destinationDomain,
+      };
+      const ok = checked.available && compatible;
+      const feedback = ok
+        ? `Setup ready. ${providerLabel(provider)} can use ${checked.model}.`
+        : checked.available
+          ? compatibilityDetail
+          : `Connection checked. ${checked.model} is unavailable for ${providerLabel(provider)}.`;
+      this.setLocalAiFeedback(ok ? "success" : "error", feedback);
+      new Notice(feedback);
+      return ok;
+    } catch (error) {
+      if (isAbortError(error) || !this.isCurrentHostedAiAction(action, provider)) return false;
+      this.recordIssue("ai", error);
+      this.hostedAiState = {
+        provider,
+        checkedAt: Date.now(),
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
+        code: mapHostedErrorCode(error),
+        detail: message(error),
+        models: this.hostedAiState?.provider === provider ? this.hostedAiState.models : [],
+        activeAction: "check-connection",
+        credential: this.hostedAiState?.provider === provider ? this.hostedAiState.credential : null,
+        destinationDomain: this.hostedAiState?.provider === provider ? this.hostedAiState.destinationDomain : providerDomain(provider),
+      };
+      this.setLocalAiFeedback("error", `Connection failed. ${message(error)}`);
+      new Notice(this.lastError);
+      return false;
+    } finally {
+      this.finishHostedAiAction(action, provider);
+    }
+  }
+
+  aiSetupRevision(): number {
+    return this.localAiActionToken;
+  }
+
+  async checkOllamaCloudConnection(): Promise<boolean> {
+    if (!this.canStartAiSetupAction()) return false;
+    this.clearIssue("ai");
+    this.setLocalAiFeedback("neutral", "Checking the Ollama app, Cloud availability, and selected cloud model…");
+    const actionToken = this.beginLocalAiAction("check-connection");
+    const publishCatalog = (
+      host: string,
+      checkedAt: number,
+      version: string,
+      models: LocalAiModelEntry[],
+    ): void => {
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
+      this.localAiSummaries.set(host, buildConnectionSummary({
+        host,
+        checkedAt,
+        version,
+        daemonCode: "ready",
+        daemonDetail: "Ollama is reachable. Cloud-backed and local models are inspected separately before use.",
+        models,
+        modelChecks: this.localAiSummaries.get(host)?.modelChecks ?? {},
+      }));
+      this.reconcileEmbeddingProbe(host, models);
+      this.localAiFailure = null;
+      this.syncLocalAiState(this.localAiState.activeAction);
+    };
+    try {
+      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      const checkedAt = Date.now();
+      const model = selectedAiModel(this.settings);
+      const checked = await this.withLocalAiSignal(async (signal) => {
+        const version = await this.ollamaLocalClient.version(host, signal);
+        const status = await this.ollamaLocalClient.status(host, signal);
+        const catalog = await this.ollamaLocalClient.tags(host, signal);
+        if (status.cloud?.disabled !== false) {
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+            selectedModelError: new LocalAiError(
+              "cloud_features_unknown",
+              "Ollama Cloud is not available. Sign in to the Ollama app and enable Cloud, then check setup again.",
+            ),
+          };
+        }
+        const cloudModels = catalog.filter(modelIsVerifiedOllamaCloud);
+        if (!cloudModels.length) {
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+            selectedModelError: new LocalAiError(
+              "no_models_installed",
+              "No Ollama Cloud model was detected. Run a cloud model once in Ollama, then check setup again.",
+            ),
+          };
+        }
+        if (!model) {
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+            selectedModelError: null,
+          };
+        }
+        let info: LocalAiModelInfo;
+        try {
+          info = await this.ollamaLocalClient.show(host, model, signal);
+        } catch (error) {
+          if (error instanceof LocalAiError && (
+            error.code === "selected_model_missing"
+            || error.code === "model_unavailable"
+          )) {
+            return {
+              version,
+              models: catalog,
+              selectedModelReady: false,
+              selectedModelError: error,
+            };
+          }
+          throw error;
+        }
+        const catalogEntry = catalog.find((entry) => localModelNamesMatch(entry.name, model));
+        const inspectedEntry = buildModelEntry(info);
+        const entryName = catalogEntry?.name || inspectedEntry.name || model;
+        const inspected = mergeInspectedModelEntry(
+          catalogEntry,
+          inspectedEntry,
+          entryName,
+        );
+        if (!modelIsVerifiedOllamaCloud(inspected)) {
+          return {
+            version,
+            models: catalog,
+            selectedModelReady: false,
+            selectedModelError: new LocalAiError(
+              "selected_model_incompatible",
+              `${model} is not verified as an Ollama Cloud model routed to https://ollama.com.`,
+            ),
+          };
+        }
+        const merged = new Map(catalog.map((entry) => [entry.name, entry]));
+        merged.set(entryName, inspected);
+        return {
+          version,
+          models: [...merged.values()].sort((left, right) => left.name.localeCompare(right.name)),
+          selectedModelReady: true,
+          selectedModelError: null,
+        };
+      });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return false;
+      publishCatalog(host, checkedAt, checked.version.version, checked.models);
+      if (checked.selectedModelError) throw checked.selectedModelError;
+      if (!checked.selectedModelReady) {
+        const feedback = "Ollama Cloud models loaded. Choose an answer model, then check setup again.";
+        this.setLocalAiFeedback("neutral", feedback);
+        new Notice(feedback);
+        return false;
+      }
+      const feedback = `Ollama Cloud setup ready. ${model} is available through the local Ollama app.`;
+      this.setLocalAiFeedback("success", feedback);
+      new Notice(feedback);
+      return true;
+    } catch (error) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
+        if (error instanceof LocalAiError && (
+          error.code === "cloud_features_unknown"
+          || error.code === "no_models_installed"
+          || error.code === "selected_model_missing"
+          || error.code === "selected_model_incompatible"
+          || error.code === "model_unavailable"
+        )) {
+          this.recordIssue("ai", error);
+        } else {
+          this.setLocalAiFailure(error);
+        }
+        this.setLocalAiFeedback("error", `Ollama Cloud setup failed. ${message(error)}`);
+        new Notice(message(error));
+      }
+      return false;
+    } finally {
+      this.finishLocalAiAction(actionToken);
+    }
+  }
+
+  async saveHostedApiKey(apiKey: string): Promise<boolean> {
+    if (this.unloaded) return false;
+    const provider = this.currentHostedProvider();
+    if (!provider) throw new Error("Select a hosted provider first.");
+    if (!this.canStartAiSetupAction()) return false;
+    const mutation = this.beginHostedCredentialMutation();
+    try {
+      this.setLocalAiFeedback("neutral", `Saving the ${providerLabel(provider)} API key…`);
+      const action = this.beginHostedAiAction("save-key");
+      try {
+        await this.requireReadyOmdExecutable();
+        if (!this.isCurrentHostedAiAction(action, provider)) return false;
+        const credential = await this.omdBridge.storeHostedApiKey(provider, apiKey, this.hostedAiSignal(action, provider));
+        if (!this.isCurrentHostedAiAction(action, provider)) return false;
+        if (credential.source === "missing") throw new Error("OMD did not confirm that the API key was saved.");
+        this.hostedAiState = {
+          ...(this.hostedAiState?.provider === provider ? this.hostedAiState : buildHostedState(provider)),
+          provider,
+          credential,
+          checkedAt: Date.now(),
+          checkedModel: undefined,
+          checkedAnswerCompatibility: undefined,
+          checkedAnswerContract: undefined,
+          code: "unchecked",
+          detail: `${providerLabel(provider)} key saved. Choose a model or check setup next.`,
+          activeAction: "save-key",
+        };
+        this.setLocalAiFeedback(
+          "success",
+          credential.keychainPresent
+            ? credential.source === "env"
+              ? `${providerLabel(provider)} key saved to macOS Keychain; ${credential.envVar} remains the active override.`
+              : `${providerLabel(provider)} key saved to macOS Keychain.`
+            : credential.source === "keychain"
+            ? `${providerLabel(provider)} key saved to macOS Keychain.`
+            : `${providerLabel(provider)} key available from ${credential.envVar}.`,
+        );
+        new Notice(this.localAiFeedback?.message ?? "Key saved.");
+        return true;
+      } catch (error) {
+        if (isAbortError(error) || !this.isCurrentHostedAiAction(action, provider)) return false;
+        this.recordIssue("ai", error);
+        this.setLocalAiFeedback("error", `Could not save the API key. ${message(error)}`);
+        new Notice(this.lastError);
+        throw error;
+      } finally {
+        this.finishHostedAiAction(action, provider);
+      }
+    } finally {
+      this.finishHostedCredentialMutation(mutation);
+    }
+  }
+
+  async deleteHostedApiKey(): Promise<void> {
+    const provider = this.currentHostedProvider();
+    if (!provider || this.unloaded) return;
+    if (!this.canStartAiSetupAction()) return;
+    const mutation = this.beginHostedCredentialMutation();
+    try {
+      this.setLocalAiFeedback("neutral", `Removing the ${providerLabel(provider)} API key…`);
+      const action = this.beginHostedAiAction("delete-key");
+      try {
+        await this.requireReadyOmdExecutable();
+        if (!this.isCurrentHostedAiAction(action, provider)) return;
+        const credential = await this.omdBridge.deleteHostedApiKey(provider, this.hostedAiSignal(action, provider));
+        if (!this.isCurrentHostedAiAction(action, provider)) return;
+        this.hostedAiState = {
+          ...(this.hostedAiState?.provider === provider ? this.hostedAiState : buildHostedState(provider)),
+          provider,
+          credential,
+          checkedAt: Date.now(),
+          checkedModel: undefined,
+          checkedAnswerCompatibility: undefined,
+          checkedAnswerContract: undefined,
+          code: credential.source === "missing" ? "credentials_missing" : "unchecked",
+          detail: credential.source === "missing"
+            ? `${providerLabel(provider)} key removed. Add a key before checking this provider again.`
+            : `The stored ${providerLabel(provider)} key was removed. ${credential.envVar} remains active.`,
+          activeAction: "delete-key",
+        };
+        this.setLocalAiFeedback(
+          "success",
+          credential.source === "missing"
+            ? `${providerLabel(provider)} key removed.`
+            : `Stored ${providerLabel(provider)} key removed; ${credential.envVar} remains active.`,
+        );
+        new Notice(this.localAiFeedback?.message ?? "Key removed.");
+      } catch (error) {
+        if (isAbortError(error) || !this.isCurrentHostedAiAction(action, provider)) return;
+        this.recordIssue("ai", error);
+        this.setLocalAiFeedback("error", `Could not remove the API key. ${message(error)}`);
+        new Notice(this.lastError);
+      } finally {
+        this.finishHostedAiAction(action, provider);
+      }
+    } finally {
+      this.finishHostedCredentialMutation(mutation);
+    }
+  }
+
+  async useAutomaticOmdDiscovery(): Promise<boolean> {
+    this.settings.omdExecutable = DEFAULT_SETTINGS.omdExecutable;
+    await this.saveSettings();
+    this.resetEnrichmentCapability();
+    return await this.checkEnrichmentCapability(true);
+  }
+
+  async requireReadyOmdExecutable(forceRefresh = false): Promise<string> {
+    const force = forceRefresh || this.enrichmentCapability.status === "unavailable";
+    const ready = await this.checkEnrichmentCapability(force);
+    if (!ready) {
+      throw new OmdEnrichmentError(
+        this.enrichmentCapability.code ?? "omd_failed",
+        this.enrichmentCapability.message,
+      );
+    }
+    return this.resolvedOmdExecutable();
+  }
+
+  private assertHostedAiDisclosureReady(provider: HostedAiProvider): void {
+    const providerDisclosure = this.enrichmentCapability.capabilities
+      ?.hosted_ai_disclosure
+      ?.providers[provider];
+    const now = new Date();
+    const localDate = [
+      now.getFullYear().toString().padStart(4, "0"),
+      (now.getMonth() + 1).toString().padStart(2, "0"),
+      now.getDate().toString().padStart(2, "0"),
+    ].join("-");
+    const cachedReviewExpired = providerDisclosure?.status === "ready"
+      && providerDisclosure.expires_on !== null
+      && providerDisclosure.expires_on < localDate;
+    if (providerDisclosure?.status === "ready" && !cachedReviewExpired) return;
+
+    const label = providerLabel(provider);
+    const reason = cachedReviewExpired ? "expired" : providerDisclosure?.reason;
+    const detail = !providerDisclosure
+      ? `The installed OMD version cannot verify current ${label} data handling.`
+      : reason === "expired"
+        ? `OMD's ${label} data-handling review has expired.`
+        : reason === "not_yet_reviewed"
+          ? `This OMD build does not yet have an active ${label} data-handling review.`
+          : reason === "unverified"
+            ? `This OMD build could not verify current ${label} data handling.`
+            : `This OMD build does not include a ${label} data-handling review.`;
+    throw new LocalAiError(
+      "disclosure_unavailable",
+      `${detail} No vault evidence was sent. Update OMD, then run Check setup again.`,
+    );
+  }
+
+  async requireCaptureOmdExecutable(request: CaptureRequest, signal?: AbortSignal): Promise<string> {
+    const pendingAutomaticDiscovery = this.usesAutomaticOmdDiscovery()
+      ? this.omdCapabilityCheck
+      : null;
+    if (pendingAutomaticDiscovery) {
+      await waitForSharedPromise(pendingAutomaticDiscovery, signal);
+      signal?.throwIfAborted();
+    }
+    const result = await discoverOmdExecutable(
+      this.settings.omdExecutable,
+      {
+        platform: process.platform,
+        homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
+        condaPrefix: process.env.CONDA_PREFIX,
+        virtualEnvironment: process.env.VIRTUAL_ENV,
+      },
+      async (executable) => {
+        if (request.polish) {
+          await this.omdCapabilityService.requireLocalOllamaTransport(executable, signal);
+        }
+        const socialProvider = socialCaptureProvider(request.source);
+        if (socialProvider) {
+          await this.omdCapabilityService.requireSocialCaptureAuth(executable, socialProvider, signal);
+        }
+        if (hasCaptureLanguageOverrides(request)) {
+          await this.omdCapabilityService.requireCaptureLanguages(executable, request, signal);
+        } else if (!socialProvider) {
+          await probeOmdCaptureExecutable(executable, signal);
+        }
+      },
+      async (candidate) => await resolveOmdExecutablePath(candidate, process.platform, spawnProcess, signal),
+      this.discoveredOmdExecutable || this.lastVerifiedOmdExecutable,
+    );
+    return result.executable;
+  }
+
+  isNotePinned(path: string): boolean {
+    return isPinnedNote(this.settings.pinnedNotes, path);
+  }
+
+  async toggleNotePinned(path: string): Promise<boolean> {
+    const pinned = !this.isNotePinned(path);
+    this.settings.pinnedNotes = setPinnedNote(this.settings.pinnedNotes, path, pinned);
+    await this.saveSettings();
+    this.refreshHomeViews();
+    new Notice(pinned ? "Pinned to the top of OMD Home lists." : "Unpinned; restored the list's usual order.");
+    return pinned;
+  }
+
+  private async openInitialWorkspace(): Promise<void> {
+    if (this.settings.openOnLaunch) {
+      try {
+        await this.openHome(false);
+      } catch {
+        if (!this.unloaded) new Notice("OMD Home could not open automatically. Use the ribbon button to try again.");
+      }
+    }
+    try {
+      await this.openFirstUseGuide();
+    } catch {
+      if (!this.unloaded) new Notice("OMD Home could not open its first-use guide. Open OMD Home settings to review setup.");
+    }
+  }
+
+  private async openFirstUseGuide(): Promise<void> {
+    if (this.unloaded || this.settings.welcomeGuideShown || this.firstUseGuideOpening) return;
+    this.firstUseGuideOpening = true;
+    try {
+      const folder = FIRST_USE_GUIDE_PATH.slice(0, FIRST_USE_GUIDE_PATH.lastIndexOf("/"));
+      await this.ensureFolder(folder);
+      if (this.unloaded) return;
+
+      let guide = this.app.vault.getAbstractFileByPath(FIRST_USE_GUIDE_PATH);
+      if (!guide) {
+        try {
+          guide = await this.app.vault.create(FIRST_USE_GUIDE_PATH, FIRST_USE_GUIDE_TEXT);
+        } catch (error) {
+          guide = this.app.vault.getAbstractFileByPath(FIRST_USE_GUIDE_PATH);
+          if (!guide) throw error;
+        }
+      }
+      if (!(guide instanceof TFile)) {
+        new Notice(`Could not open ${FIRST_USE_GUIDE_PATH} because that path is not a note.`);
+        return;
+      }
+      if (this.unloaded) return;
+
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.setViewState({
+        type: "markdown",
+        state: { file: guide.path, mode: "preview" },
+        active: true,
+      });
+      this.settings.welcomeGuideShown = true;
+      await this.saveSettings();
+      if (this.unloaded) return;
+      await this.app.workspace.revealLeaf(leaf);
+    } finally {
+      this.firstUseGuideOpening = false;
+    }
   }
 
   async openHome(focus = true): Promise<WorkspaceLeaf> {
@@ -241,29 +1221,100 @@ export default class OmdHomePlugin extends Plugin {
     leaf.view.createEvent();
   }
 
-  openCaptureModal(initialSource = ""): void {
-    new CaptureModal(
+  openCaptureModal(initialSource: string | CaptureRequest = "", retryFailureId?: number): void {
+    if (this.captureActive || this.enrichmentActive) {
+      new Notice("Another OMD action is already active.");
+      return;
+    }
+    const initialRequest = typeof initialSource === "string"
+      ? captureRequestFromSettings(initialSource, this.settings)
+      : createCaptureRequest(initialSource);
+    this.trackCaptureModal(new CaptureModal(
       this.app,
-      initialSource,
-      this.settings.capturePolish,
-      this.settings.capturePolishModel,
-      this.settings.captureSuggestLinksAndTags,
-      async (enabled) => {
-        this.settings.capturePolish = enabled;
-        this.invalidateLocalAiState("capture-polish");
-        await this.saveSettings();
+      initialRequest,
+      {
+        douyinCookiesPath: this.settings.douyinCookiesPath,
+        xhsCookiesPath: this.settings.xhsCookiesPath,
       },
-      async (enabled) => {
-        this.settings.captureSuggestLinksAndTags = enabled;
-        await this.saveSettings();
+      this.captureLanguageAvailability(),
+      this.settings.localWritingModel,
+      async (request, cookiesPath, signal) => {
+        return await this.preflightSocialCapture(request, cookiesPath, signal);
       },
-      async (source, tags, polish, suggestLinksAndTags) => this.captureWithOmd(
-        source,
-        tags,
-        polish,
-        suggestLinksAndTags,
-      ),
-    ).open();
+      async (request, sourceAccess) => {
+        // Claim the capture before changing preferences. In particular,
+        // invalidateLocalAiState() aborts local AI work, so it must never run
+        // for a second capture submitted while another OMD action is active.
+        if (this.captureActive || this.enrichmentActive) {
+          throw new Error("Another OMD action started while this source was being checked. Your capture draft is still open; try again when it finishes.");
+        }
+        this.captureActive = true;
+        this.refreshHomeViews();
+        const polishChanged = this.settings.capturePolish !== request.polish;
+        try {
+          this.settings.capturePolish = request.polish;
+          this.settings.captureSuggestLinksAndTags = request.suggest;
+          this.settings.douyinCookiesPath = sourceAccess.douyinCookiesPath;
+          this.settings.xhsCookiesPath = sourceAccess.xhsCookiesPath;
+          if (polishChanged) this.invalidateLocalAiState("capture-polish");
+          try {
+            await this.saveSettings();
+          } catch {
+            new Notice("Capture will continue, but OMD Home could not remember these choices.");
+          }
+          await this.captureWithOmd(request, retryFailureId, true);
+        } finally {
+          // captureWithOmd normally clears this in its own finally block. This
+          // covers an early return before that lifecycle is established.
+          if (this.captureActive && !this.captureController) {
+            this.captureActive = false;
+            this.refreshHomeViews();
+          }
+        }
+      },
+    ))?.open();
+  }
+
+  currentCaptureFailure(): CaptureFailureRecord | null {
+    return this.lastCaptureFailure;
+  }
+
+  currentIssueId(): number {
+    return this.lastIssueId;
+  }
+
+  dismissIssue(issueId: number): void {
+    if (issueId !== this.lastIssueId) return;
+    if (this.lastCaptureFailure?.issueId === issueId) this.lastCaptureFailure = null;
+    this.clearIssueById(issueId);
+    this.refreshHomeViews();
+  }
+
+  dismissCaptureFailure(failureId: number): void {
+    if (this.lastCaptureFailure?.id !== failureId) return;
+    this.lastCaptureFailure = null;
+    this.refreshHomeViews();
+  }
+
+  get enrichmentCancelable(): boolean {
+    return this.enrichmentWorkflowController?.canCancel ?? false;
+  }
+
+  get enrichmentPhase(): EnrichmentWorkflowController["phase"] {
+    return this.enrichmentWorkflowController?.phase ?? null;
+  }
+
+  captureFailureForCurrentIssue(): CaptureFailureRecord | null {
+    return captureFailureForIssue(this.lastCaptureFailure, this.lastIssueId);
+  }
+
+  retryFailedCapture(failureId: number): void {
+    const failure = this.lastCaptureFailure;
+    if (!failure || failure.id !== failureId) {
+      new Notice("That capture failure is no longer available.");
+      return;
+    }
+    this.openCaptureModal(failure.request, failure.id);
   }
 
   async openTagSearch(tag: string): Promise<void> {
@@ -278,75 +1329,157 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async captureWithOmd(
-    source: string,
-    tags: string[] = [],
-    polish = this.settings.capturePolish,
-    suggestLinksAndTags = this.settings.captureSuggestLinksAndTags,
+    request: CaptureRequest,
+    retryFailureId?: number,
+    captureAlreadyClaimed = false,
   ): Promise<void> {
-    if (this.captureActive || this.enrichmentActive) {
+    if ((this.captureActive && !captureAlreadyClaimed) || this.enrichmentActive) {
       new Notice("Another OMD action is already active.");
       return;
     }
-    const normalizedSource = normalizeCaptureSource(source);
-    if (!normalizedSource) {
-      new Notice("Enter a URL or local file path.");
+    const captureRequest = createCaptureRequest(request);
+    const retryFailure = retryFailureId === undefined
+      ? null
+      : this.lastCaptureFailure?.id === retryFailureId
+        ? this.lastCaptureFailure
+        : null;
+    if (retryFailureId !== undefined && !retryFailure) {
+      new Notice("That capture retry is no longer current.");
       return;
     }
+    const { polish } = captureRequest;
+    const sourceError = captureSourceInputError(captureRequest.submittedSource ?? captureRequest.source);
+    if (sourceError) {
+      new Notice(sourceError);
+      return;
+    }
+    if (retryFailure) this.resetEnrichmentCapability(true);
     this.captureActive = true;
+    const captureController = new AbortController();
+    this.captureController = captureController;
+    this.captureCancelable = true;
     this.processingEvents = [];
     this.refreshHomeViews();
     let capturedFile: TFile | null = null;
     let completed = false;
+    let inboxReady = false;
+    let completionWarningShown = false;
     try {
-      this.clearIssue("capture");
+      if (!retryFailure) this.clearIssue("capture");
+      const executable = await this.requireCaptureOmdExecutable(captureRequest, captureController.signal);
+      const sourceAccess = this.captureSourceAccess();
+      const provider = socialCaptureProvider(captureRequest.source);
+      if (provider) {
+        const cookiesPath = provider === "douyin"
+          ? sourceAccess.douyinCookiesPath
+          : sourceAccess.xhsCookiesPath;
+        await this.inspectSocialCapture(executable, captureRequest, cookiesPath, captureController.signal);
+      }
       const vault = this.vaultPath();
       const snapshot = createWorkflowSnapshot("capture", this.settings, polish);
       const outputPath = await this.runLocalAiGated(
         snapshot,
         () => createWorkflowSnapshot("capture", this.settings, polish),
-        async (gatedSnapshot) => await this.omdBridge.capture(normalizedSource, vault, tags, {
-          enabled: gatedSnapshot.enabled,
-          model: gatedSnapshot.model,
-          host: gatedSnapshot.host,
-        }, (event) => {
-          this.processingEvents.push(event);
-          this.processingEvents = this.processingEvents.slice(-40);
-          this.refreshHomeViews();
-        }),
+        async (gatedSnapshot) => await this.omdBridge.capture(
+          executable,
+          captureRequest,
+          vault,
+          {
+            enabled: gatedSnapshot.enabled,
+            model: gatedSnapshot.model,
+            host: gatedSnapshot.host,
+          },
+          sourceAccess,
+          (event) => {
+            if (!shouldSurfaceCaptureEvent(event)) return;
+            this.processingEvents.push(event);
+            this.processingEvents = this.processingEvents.slice(-40);
+            this.refreshHomeViews();
+          },
+          captureController.signal,
+        ),
+        captureController.signal,
       );
+      captureController.signal.throwIfAborted();
+      this.captureCancelable = false;
+      if (this.captureController === captureController) this.captureController = null;
+      this.refreshHomeViews();
       const vaultRelative = capturedOutputVaultPath(outputPath, vault);
       if (!vaultRelative) {
-        new Notice("Capture completed, but OMD did not return a verifiable vault note path. The note was not added to OMD inbox.");
+        throw new Error(
+          "OMD reported completion, but the generated vault note could not be verified. No note was added to OMD Inbox.",
+        );
       } else {
         const inspection = await inspectVaultRelativeMarkdownPath(vault, vaultRelative);
-        const file = inspection.ok && inspection.normalizedPath
-          ? this.app.vault.getFileByPath(inspection.normalizedPath)
-          : null;
-        if (file instanceof TFile) {
-          capturedFile = file;
+        if (inspection.ok && inspection.normalizedPath) {
           try {
-            await this.refreshInboxStatus(file, "inbox");
+            await this.refreshCapturedInboxStatus(inspection.normalizedPath);
+            inboxReady = true;
+            const indexedFile = this.app.vault.getFileByPath(inspection.normalizedPath);
+            capturedFile = indexedFile instanceof TFile ? indexedFile : null;
+            if (captureRequest.suggest && !capturedFile) {
+              capturedFile = await waitForCapturedVaultFile(inspection.normalizedPath, (path) => {
+                const candidate = this.app.vault.getFileByPath(path);
+                return candidate instanceof TFile ? candidate : null;
+              });
+              if (!capturedFile) {
+                completionWarningShown = true;
+                new Notice("Capture complete and saved to OMD inbox. Link and tag suggestions will be available after Obsidian indexes the note.");
+              }
+            }
           } catch (error) {
-            this.recordIssue("inbox", error, file.path);
+            completionWarningShown = true;
+            this.recordIssue("inbox", error, inspection.normalizedPath);
+            this.processingEvents.push({
+              v: 1,
+              event: "error",
+              kind: "inbox_failed",
+              ts: Date.now() / 1_000,
+              message: "Capture saved, but Inbox update failed",
+              output: inspection.normalizedPath,
+            });
+            this.processingEvents = this.processingEvents.slice(-40);
             new Notice(`Capture completed, but OMD Home could not mark the note as Inbox: ${this.lastError}`);
             this.refreshHomeViews();
           }
         } else {
-          new Notice("Capture completed, but its output path could not be verified. The note was not added to OMD inbox.");
+          throw new Error(
+            "OMD reported completion, but its generated Markdown file was missing or failed the vault safety check. No note was added to OMD Inbox.",
+          );
         }
       }
       completed = true;
-      new Notice("OMD capture complete");
+      if (retryFailure) {
+        this.clearIssueById(retryFailure.issueId);
+        if (this.lastCaptureFailure?.id === retryFailure.id) this.lastCaptureFailure = null;
+      }
+      if (inboxReady) {
+        this.processingEvents.push(captureWorkflowDoneEvent(vaultRelative));
+        this.processingEvents = this.processingEvents.slice(-40);
+        if (!completionWarningShown) new Notice("OMD capture complete");
+      }
     } catch (error) {
       const detail = message(error);
       const cancelled = isAbortError(error) || /\bcancelled\b/u.test(detail.toLowerCase());
-      if (cancelled) {
-        this.clearIssue("capture");
-      } else if (error instanceof LocalAiError) {
-        if (error.code === "invalid_host") this.setLocalAiFailure(error);
-        else this.recordIssue("ai", error);
-      } else {
-        this.recordIssue("capture", error, normalizedSource);
+      let issueId = 0;
+      let issueContext: "capture" | "ai" = "capture";
+      if (!cancelled && error instanceof LocalAiError) {
+        issueContext = "ai";
+        if (error.code === "invalid_host") issueId = this.setLocalAiFailure(error);
+        else issueId = this.recordIssue("ai", error);
+      } else if (!cancelled) {
+        issueId = this.recordIssue("capture", error, captureRequest.source);
+      }
+      if (!cancelled) {
+        const failure = createCaptureFailureRecord(
+          ++this.captureFailureSequence,
+          issueId,
+          issueContext,
+          this.lastErrorAt,
+          this.lastError,
+          captureRequest,
+        );
+        this.lastCaptureFailure = failure;
       }
       this.processingEvents.push({
         v: 1,
@@ -357,9 +1490,13 @@ export default class OmdHomePlugin extends Plugin {
       });
       this.processingEvents = this.processingEvents.slice(-40);
       new Notice(detail);
-      this.refreshHomeViews();
     } finally {
       this.captureActive = false;
+      this.captureCancelable = false;
+      if (this.captureController === captureController) this.captureController = null;
+      // Publish the terminal event only after the capture lifecycle is idle.
+      // Rendering the error while captureActive was still true could leave
+      // Current task showing stale active work until another Home refresh.
       this.refreshHomeViews();
     }
     if (completed) {
@@ -371,27 +1508,78 @@ export default class OmdHomePlugin extends Plugin {
         this.refreshHomeViews();
       }
     }
-    if (completed && capturedFile && suggestLinksAndTags) {
+    if (completed && capturedFile && captureRequest.suggest) {
       await this.suggestLinksAndTags(capturedFile);
     }
   }
 
-  cancelActiveOmd(): void {
-    let cancelled = false;
-    if (this.captureActive) {
-      this.cancelLocalAiRequests();
-      this.omdBridge.cancelActive();
-      cancelled = true;
-    }
-    if (this.enrichmentActive) {
-      cancelled = this.enrichmentWorkflowController.cancel(false) || cancelled;
-    }
-    if (!cancelled) new Notice("OMD is idle");
+  private captureSourceAccess(): CaptureSourceAccessDraft {
+    return {
+      douyinCookiesPath: this.settings.douyinCookiesPath,
+      xhsCookiesPath: this.settings.xhsCookiesPath,
+    };
   }
 
-  async searchWithOmd(query: string, output: HTMLElement): Promise<void> {
+  private async preflightSocialCapture(
+    request: CaptureRequest,
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<CapturePreflightResult | void> {
+    const provider = socialCaptureProvider(request.source);
+    if (!provider) return;
+    const executable = await this.requireCaptureOmdExecutable(request, signal);
+    const inspection = await this.inspectSocialCapture(executable, request, cookiesPath, signal);
+    return { cookieRuntimeRecheck: inspection.cookieRuntimeRecheck };
+  }
+
+  private async inspectSocialCapture(
+    executable: string,
+    request: CaptureRequest,
+    cookiesPath: string,
+    signal?: AbortSignal,
+  ): Promise<CaptureInspection> {
+    const provider = socialCaptureProvider(request.source);
+    if (!provider) throw new Error("This source does not use social access preflight.");
+    const inspection = await this.omdBridge.inspectCaptureSource(
+      executable,
+      request.source,
+      provider === "douyin" ? "douyin_url" : "xhs_url",
+      cookiesPath,
+      signal,
+    );
+    const error = captureInspectionError(inspection, provider, request.source);
+    if (error) throw new Error(error);
+    return inspection;
+  }
+
+  cancelActiveOmd(): void {
+    let cancelled = false;
+    if (this.captureCancelable && this.captureController) {
+      this.captureController?.abort();
+      this.captureCancelable = false;
+      cancelled = true;
+      this.refreshHomeViews();
+    }
+    if (this.enrichmentCancelable) {
+      cancelled = this.enrichmentWorkflowController.cancel(false) || cancelled;
+    }
+    if (!cancelled) {
+      new Notice(this.enrichmentActive
+        ? "OMD is applying changes and cannot be cancelled."
+        : "OMD is idle");
+    }
+  }
+
+  async searchWithOmd(query: string, output: HTMLElement, requestSignal?: AbortSignal): Promise<void> {
+    if (this.unloaded || requestSignal?.aborted) return;
+    output.hidden = false;
+    output.empty();
+    output.createDiv({ cls: "omd-answer-loading", text: "Searching your vault…" });
     try {
-      const hits = await this.omdBridge.search(this.vaultPath(), query);
+      await this.requireReadyOmdExecutable();
+      requestSignal?.throwIfAborted();
+      const hits = await this.omdBridge.search(this.vaultPath(), query, requestSignal);
+      requestSignal?.throwIfAborted();
       output.empty();
       output.hidden = false;
       if (!hits.length) return void output.createDiv({ cls: "omd-answer-empty", text: "No matching OMD evidence." });
@@ -401,78 +1589,392 @@ export default class OmdHomePlugin extends Plugin {
         row.createSpan({ cls: "omd-result-detail", text: hit.evidence });
         row.addEventListener("click", () => void this.app.workspace.openLinkText(hit.path, "", false));
       }
-    } catch (error) { new Notice(message(error)); }
-  }
-
-  async askOmd(query: string, output: HTMLElement): Promise<void> {
-    if (!query) return void new Notice("Enter a question after @");
-    if (providerMode(this.settings.aiProvider) !== "ollama") {
-      const detail = `Saved provider ${this.settings.aiProvider} is disabled in Phase 1a. Select Ollama in OMD Home settings before using vault AI.`;
-      this.recordIssue("ai", new Error(detail));
-      output.hidden = false;
+    } catch (error) {
+      if (this.unloaded || requestSignal?.aborted || isAbortError(error)) return;
+      const detail = message(error);
       output.empty();
       output.createDiv({ cls: "omd-answer-error", text: detail });
       new Notice(detail);
-      this.refreshHomeViews();
-      return;
     }
+  }
+
+  async askOmd(query: string, output: HTMLElement, requestSignal?: AbortSignal): Promise<void> {
+    if (this.unloaded || requestSignal?.aborted) return;
+    if (!query) return void new Notice("Enter a question after @");
+    const provider = this.settings.aiProvider;
+    const model = selectedAiModel(this.settings).trim();
     output.hidden = false;
     output.empty();
-    let retrievalOptions = this.qaRetrievalOptions();
     output.createDiv({
       cls: "omd-answer-loading",
-      text: retrievalOptions.hybridRetrievalEnabled
-        ? "Preparing local hybrid evidence. First use can take longer..."
+      text: this.settings.hybridRetrievalEnabled
+        ? "Preparing local semantic search. First use can take longer..."
         : "Retrieving local evidence...",
     });
     const startedAt = performance.now();
     try {
-      const snapshot = createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama");
-      const preview = await this.runLocalAiGated(
-        snapshot,
-        () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
-        async (gatedSnapshot, signal) => {
-          retrievalOptions = this.qaRetrievalOptions();
-          return await this.omdBridge.previewAi(
-            this.vaultPath(),
-            query,
-            gatedSnapshot.provider,
-            gatedSnapshot.model,
-            gatedSnapshot.host,
-            retrievalOptions,
-            signal,
+      let answer: AiAnswer;
+      let retrievalEndpoint: string;
+      if (provider === "ollama") {
+        await this.requireReadyOmdExecutable();
+        requestSignal?.throwIfAborted();
+        const preview = await this.previewLocalAnswer(query, requestSignal);
+        retrievalEndpoint = preview.endpoint;
+        if (preview.preview.noEvidence || !preview.preview.evidence.length) {
+          const detail = "No relevant vault evidence was found. No model request was sent.";
+          this.clearIssue("ai");
+          this.setLocalAiFeedback("neutral", detail);
+          output.empty();
+          output.createDiv({ cls: "omd-answer-empty", text: detail });
+          this.renderRetrievalDiagnostics(
+            output,
+            preview.preview.warnings ?? [],
+            preview.embeddingFallbackModel,
+            retrievalEndpoint,
+            "evidence-check",
           );
-        },
-      );
-      const execute = async (): Promise<void> => {
+          return;
+        }
         output.empty();
         output.createDiv({ cls: "omd-answer-loading", text: "OMD is reading the selected evidence..." });
-        const answer = await this.runLocalAiGated(
-          snapshot,
-          () => createWorkflowSnapshot("qa", this.settings, this.settings.aiProvider === "ollama"),
-          async (gatedSnapshot, signal) => await this.omdBridge.executeAi(
-            this.vaultPath(),
-            query,
-            gatedSnapshot.provider,
-            gatedSnapshot.model,
-            gatedSnapshot.host,
-            preview.consent_grant ?? null,
-            retrievalOptions,
-            signal,
-          ),
-        );
-        this.clearIssue("ai");
-        this.renderAiAnswer(output, answer, performance.now() - startedAt);
-      };
-      if (preview.preview.privacy_mode === "cloud_for_this_task") {
-        new AiConsentModal(this.app, preview, execute).open();
-      } else await execute();
+        answer = await this.executeLocalAnswer(query, preview, requestSignal);
+      } else {
+        if (!cloudAnswerPermissionEnabled(this.settings)) {
+          const detail = `${aiProviderLabel(provider)} answers are off. Enable Allow ${aiProviderLabel(provider)} answers in Settings → OMD Home → AI answers, then ask again.`;
+          this.recordIssue("ai", new Error(detail));
+          output.empty();
+          output.createDiv({ cls: "omd-answer-error", text: detail });
+          new Notice(detail);
+          return;
+        }
+        await this.requireReadyOmdExecutable(true);
+        requestSignal?.throwIfAborted();
+        const preview = await this.previewCloudAnswer(query, provider, model, requestSignal);
+        retrievalEndpoint = preview.endpoint;
+        if (this.unloaded || requestSignal?.aborted) return;
+        if (preview.preview.noEvidence || !preview.preview.evidence.length) {
+          const detail = "No relevant vault evidence was found. No model request was sent.";
+          this.clearIssue("ai");
+          this.setLocalAiFeedback("neutral", detail);
+          output.empty();
+          output.createDiv({ cls: "omd-answer-empty", text: detail });
+          this.renderRetrievalDiagnostics(
+            output,
+            preview.preview.warnings ?? [],
+            preview.embeddingFallbackModel,
+            retrievalEndpoint,
+            "evidence-check",
+          );
+          return;
+        }
+        output.empty();
+        const consentGeneration = this.cloudAnswerConsentGeneration;
+        this.assertCloudConsentStillCurrent(preview, consentGeneration);
+        const consentModal = new CloudAnswerConsentModal(this.app, {
+          question: query,
+          provider: aiProviderLabel(preview.provider),
+          model: preview.preview.preview.model,
+          destination_domain: preview.preview.preview.destination_domain,
+          estimated_input_tokens: preview.preview.preview.estimated_input_tokens,
+          character_count: preview.preview.preview.character_count,
+          evidence: preview.preview.evidence,
+          data_handling_summary: preview.preview.preview.data_handling_summary,
+          policy_url: preview.preview.preview.policy_url,
+        });
+        this.cloudAnswerConsentModals.add(consentModal);
+        const closeConsentOnAbort = () => consentModal.close();
+        requestSignal?.addEventListener("abort", closeConsentOnAbort, { once: true });
+        let approved: boolean;
+        try {
+          approved = await consentModal.openAndWait();
+        } finally {
+          requestSignal?.removeEventListener("abort", closeConsentOnAbort);
+          this.cloudAnswerConsentModals.delete(consentModal);
+        }
+        if (this.unloaded || requestSignal?.aborted) return;
+        if (!approved) {
+          this.clearIssue("ai");
+          this.setLocalAiFeedback("neutral", "Cloud answer cancelled. No vault evidence was sent.");
+          output.createDiv({
+            cls: "omd-answer-empty",
+            text: "Cloud answer cancelled. No vault evidence was sent.",
+          });
+          new Notice("Cloud answer cancelled. No vault evidence was sent.");
+          return;
+        }
+        this.assertCloudConsentStillCurrent(preview, consentGeneration);
+        output.empty();
+        output.createDiv({
+          cls: "omd-answer-loading",
+          text: `Sending the selected evidence to ${aiProviderLabel(preview.provider)}...`,
+        });
+        answer = await this.executeCloudAnswer(query, preview, requestSignal);
+      }
+      requestSignal?.throwIfAborted();
+      this.clearIssue("ai");
+      this.renderAiAnswer(output, answer, performance.now() - startedAt, retrievalEndpoint);
     } catch (error) {
+      if (this.unloaded || requestSignal?.aborted || isAbortError(error)) return;
       this.reportLocalAiWorkflowIssue(error);
       output.empty();
       output.createDiv({ cls: "omd-answer-error", text: this.lastError });
       new Notice(this.lastError);
     }
+  }
+
+  private scheduleMarkdownViewActions(): void {
+    if (this.unloaded || this.markdownViewActionTimer !== null) return;
+    this.markdownViewActionTimer = window.setTimeout(() => {
+      this.markdownViewActionTimer = null;
+      void this.syncMarkdownViewActions();
+    }, 0);
+  }
+
+  private async syncMarkdownViewActions(): Promise<void> {
+    if (this.unloaded) return;
+    const generation = ++this.markdownViewActionGeneration;
+    const openViews = new Set<MarkdownView>();
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof MarkdownView) openViews.add(leaf.view);
+    });
+
+    for (const [view, actions] of this.markdownViewActions) {
+      if (openViews.has(view)) continue;
+      actions.aiTools.remove();
+      actions.repair?.remove();
+      this.markdownViewActions.delete(view);
+    }
+
+    for (const view of openViews) {
+      let actions = this.markdownViewActions.get(view);
+      if (!actions) {
+        const aiTools = view.addAction("sparkles", "AI tools", (event) => {
+          const file = view.file;
+          if (file) this.openMarkdownViewAiToolsMenu(event, file);
+        });
+        aiTools.addClass("omd-note-view-action");
+        aiTools.addClass("is-ai-tools");
+        aiTools.setAttr("aria-haspopup", "menu");
+        aiTools.createSpan({ cls: "omd-note-view-action-label", text: "AI tools" });
+        actions = { aiTools };
+        this.markdownViewActions.set(view, actions);
+      }
+
+      const file = view.file;
+      let issue: TranscriptRepairIssue | null = null;
+      if (file?.extension === "md") {
+        try {
+          const markdown = await this.app.vault.cachedRead(file);
+          issue = await this.inspectTranscriptRepairForFile(file, markdown);
+        } catch {
+          issue = null;
+        }
+      }
+      if (generation !== this.markdownViewActionGeneration || this.unloaded) return;
+
+      if (issue && file) {
+        if (!actions.repair) {
+          const repair = view.addAction("wrench", "Review and repair transcript", () => {
+            const current = view.file;
+            if (current) void this.reviewAndRepairTranscript(current);
+          });
+          repair.addClass("omd-note-view-action");
+          repair.addClass("is-transcript-repair");
+          repair.createSpan({ cls: "omd-note-view-action-label", text: "Review and repair transcript" });
+          actions.repair = repair;
+        }
+      } else if (actions.repair) {
+        actions.repair.remove();
+        actions.repair = undefined;
+      }
+    }
+  }
+
+  private openMarkdownViewAiToolsMenu(event: MouseEvent, file: TFile): void {
+    event.preventDefault();
+    const menu = new Menu();
+    menu.addItem((item) => item
+      .setTitle("Improve formatting")
+      .setIcon("text")
+      .onClick(() => void this.improveNoteFormatting(file)));
+    menu.addItem((item) => item
+      .setTitle("Generate suggestions · summary, links, tags")
+      .setIcon("sparkles")
+      .onClick(() => void this.suggestLinksAndTags(file)));
+    menu.showAtMouseEvent(event);
+  }
+
+  private async reviewAndRepairTranscript(file: TFile): Promise<void> {
+    let baseline: string;
+    try {
+      baseline = await this.app.vault.read(file);
+    } catch {
+      new Notice("Could not read this transcript. The note was not changed.");
+      return;
+    }
+    const issue = await this.inspectTranscriptRepairForFile(file, baseline);
+    if (!issue) {
+      this.scheduleMarkdownViewActions();
+      new Notice("No transcript problem is currently flagged for this note.");
+      return;
+    }
+    this.openTranscriptRepairModal(file, baseline, issue);
+  }
+
+  private openTranscriptRepairModal(file: TFile, baseline: string, issue: TranscriptRepairIssue): void {
+    const adapter = this.app.vault.adapter;
+    const sessionId = transcriptRepairSessionId();
+    const configDir = this.app.vault.configDir;
+    const cacheRelativePath = normalizePath(
+      `${configDir}/plugins/omd-home/transcript-repair-cache/${sessionId}`,
+    );
+    const mediaRelativePath = normalizePath(`${cacheRelativePath}/source.m4a`);
+    const session = {
+      vaultPath: this.vaultPath(),
+      configDir,
+      sessionId,
+    };
+    const contextPromise = this.transcriptCaptureContext(file);
+    let preparedMediaPath = "";
+    let modal: TranscriptRepairModal;
+    modal = new TranscriptRepairModal(
+      this.app,
+      file.basename,
+      issue,
+      {
+        prepareMedia: async (signal) => {
+          if (!(adapter instanceof FileSystemAdapter)) {
+            throw new Error("Transcript audio review requires a desktop filesystem vault.");
+          }
+          const context = await contextPromise;
+          if (!context.source) {
+            throw new Error("This note does not record its original media source. The note was not changed.");
+          }
+          const provider = socialCaptureProvider(context.source);
+          const cookiesPath = provider === "douyin"
+            ? this.settings.douyinCookiesPath
+            : provider === "xhs"
+              ? this.settings.xhsCookiesPath
+              : "";
+          const media = await this.omdBridge.prepareTranscriptRepairMedia(
+            session,
+            context.source,
+            cookiesPath,
+            signal,
+          );
+          preparedMediaPath = media.path;
+          return {
+            source: adapter.getResourcePath(mediaRelativePath),
+            durationSeconds: media.durationSeconds,
+          };
+        },
+        retranscribeRange: async (range, language, signal) => {
+          if (!preparedMediaPath) {
+            throw new Error("The original audio is not ready. Close and reopen transcript review.");
+          }
+          return await this.omdBridge.retranscribeTranscriptRange(
+            session,
+            preparedMediaPath,
+            range.startSeconds,
+            range.endSeconds,
+            language === "auto" ? null : language,
+            signal,
+          );
+        },
+        applyRange: async (range, segments) => {
+          const repaired = replaceTranscriptRange(baseline, range, segments);
+          const outcome = await this.applyTranscriptRepairWithBackup(file, baseline, repaired);
+          if (outcome.result === "applied") {
+            this.finishTranscriptRepair(
+              `Selected transcript range replaced. Full original backup: ${outcome.backupPath}`,
+            );
+          }
+          return outcome;
+        },
+        applyInvalidTail: async () => {
+          if (!issue.invalidTail) return { result: "no-op" };
+          const repaired = repairInvalidTranscriptTail(baseline, issue.invalidTail);
+          const outcome = await this.applyTranscriptRepairWithBackup(file, baseline, repaired);
+          if (outcome.result === "applied") {
+            this.finishTranscriptRepair(
+              `Invalid transcript tail removed. Full original backup: ${outcome.backupPath}`,
+            );
+          }
+          return outcome;
+        },
+        keepOriginal: () => new Notice("Original transcript kept. No text, metadata, or sidecar was changed."),
+        closed: () => {
+          this.transcriptRepairModals.delete(modal);
+          void this.removeTranscriptRepairCache(cacheRelativePath);
+        },
+      },
+    );
+    this.transcriptRepairModals.add(modal);
+    modal.open();
+  }
+
+  private async inspectTranscriptRepairForFile(file: TFile, markdown: string): Promise<TranscriptRepairIssue | null> {
+    const recognition = await this.transcriptCaptureContext(file);
+    return inspectTranscriptRepair(markdown, recognition);
+  }
+
+  private async transcriptCaptureContext(file: TFile): Promise<TranscriptCaptureContext> {
+    const sidecarPath = normalizePath(file.path.replace(/\.md$/u, ".omd.json"));
+    const sidecar = this.app.vault.getAbstractFileByPath(sidecarPath);
+    if (!(sidecar instanceof TFile)) return { source: null, sidecarPath: null };
+    try {
+      const value: unknown = JSON.parse(await this.app.vault.cachedRead(sidecar));
+      if (!isUnknownRecord(value)) return { source: null, sidecarPath };
+      const recognition = isUnknownRecord(value.recognition) ? value.recognition : null;
+      const asr = recognition && isUnknownRecord(recognition.asr) ? recognition.asr : null;
+      return {
+        requested: asr ? nullableString(asr.requested) : undefined,
+        detected: asr ? nullableString(asr.detected) : undefined,
+        source: firstNonEmptyString(value.source, value.source_url, value.local_source_path),
+        sidecarPath,
+      };
+    } catch {
+      return { source: null, sidecarPath };
+    }
+  }
+
+  private async applyTranscriptRepairWithBackup(
+    file: TFile,
+    baseline: string,
+    repaired: string,
+  ): Promise<{ result: "applied" | "conflict" | "no-op"; backupPath?: string }> {
+    if (repaired === baseline) return { result: "no-op" };
+    if (await this.app.vault.read(file) !== baseline) return { result: "conflict" };
+    const backupPath = await this.saveTranscriptRepairBackup(file, baseline);
+    const result = await applyMarkdownFormattingPreview(this.app.vault, file, baseline, repaired);
+    return { result, backupPath };
+  }
+
+  private async saveTranscriptRepairBackup(file: TFile, markdown: string): Promise<string> {
+    const adapter = this.app.vault.adapter;
+    const root = normalizePath(`${this.app.vault.configDir}/plugins/omd-home/transcript-backups`);
+    if (!await adapter.exists(root)) await adapter.mkdir(root);
+    const safeName = file.basename.replaceAll(/[\\/:*?"<>|]/gu, "-").trim() || "transcript";
+    const timestamp = new Date().toISOString().replaceAll(/[:.]/gu, "-");
+    const backupPath = normalizePath(`${root}/${safeName}-${timestamp}.original.md`);
+    await adapter.write(backupPath, markdown);
+    return backupPath;
+  }
+
+  private async removeTranscriptRepairCache(relativePath: string): Promise<void> {
+    try {
+      if (await this.app.vault.adapter.exists(relativePath)) {
+        await this.app.vault.adapter.rmdir(relativePath, true);
+      }
+    } catch {
+      // Session media is disposable and can be removed on the next review.
+    }
+  }
+
+  private finishTranscriptRepair(message: string): void {
+    this.refreshHomeViews();
+    this.scheduleMarkdownViewActions();
+    new Notice(message, 12_000);
   }
 
   async suggestLinksAndTags(file = this.app.workspace.getActiveFile()): Promise<void> {
@@ -481,6 +1983,199 @@ export default class OmdHomePlugin extends Plugin {
       return;
     }
     await this.enrichmentWorkflowController.start(file);
+  }
+
+  async translateLocalTextToEnglish(text: string, signal?: AbortSignal): Promise<string> {
+    const snapshot = createWorkflowSnapshot("enrichment", this.settings);
+    return await this.runLocalAiGated(
+      snapshot,
+      () => createWorkflowSnapshot("enrichment", this.settings),
+      async (gatedSnapshot, gatedSignal) => await this.ollamaLocalClient.translateToEnglish(
+        gatedSnapshot.host,
+        gatedSnapshot.model,
+        text,
+        gatedSignal,
+      ),
+      signal,
+    );
+  }
+
+  async improveNoteFormatting(file = this.app.workspace.getActiveFile()): Promise<void> {
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    if (this.captureActive || this.enrichmentActive) {
+      new Notice("Another OMD action is already active.");
+      return;
+    }
+
+    let baseline: string;
+    try {
+      baseline = await this.app.vault.read(file);
+    } catch {
+      const detail = "Could not read this note for formatting. The note was not changed.";
+      this.reportLocalAiWorkflowIssue(new Error(detail), file.path);
+      new Notice(detail);
+      return;
+    }
+    const transcriptRepairIssue = await this.inspectTranscriptRepairForFile(file, baseline);
+    const formattingTarget = markdownFormattingTarget(baseline);
+    const formattingMode = formattingTarget.mode;
+    const blockedReason = transcriptRepairIssue
+      ? FORMATTING_TRANSCRIPT_QUALITY_MESSAGE
+      : markdownFormattingBlockedReason(baseline);
+
+    const controller = new AbortController();
+    this.captureActive = true;
+    this.captureCancelable = true;
+    this.captureController = controller;
+    this.processingEvents = [{
+      v: 1,
+      event: "stage",
+      kind: "markdown_formatting",
+      ts: Date.now() / 1_000,
+      label: formattingMode === "transcript-cleanup" ? "Cleaning transcript…" : "Improving formatting…",
+    }];
+    this.clearIssue("ai");
+    this.refreshHomeViews();
+
+    let modal: MarkdownFormattingModal;
+    modal = new MarkdownFormattingModal(
+      this.app,
+      file.basename,
+      formattingMode,
+      markdownFormattingScopeDescription(formattingTarget.scope),
+      () => {
+      if (this.captureController !== controller || !this.captureCancelable) return;
+      controller.abort();
+      this.captureCancelable = false;
+      this.refreshHomeViews();
+      },
+      () => {
+        this.markdownFormattingModals.delete(modal);
+      },
+      () => this.openLocalWritingSettings(),
+    );
+    const generateAgain = () => {
+      modal.close();
+      if (this.unloaded) return;
+      void this.improveNoteFormatting(file);
+    };
+    let decision: Promise<boolean> | null = null;
+    let preview = "";
+    let previewReady = false;
+
+    try {
+      this.markdownFormattingModals.add(modal);
+      decision = modal.openAndWait();
+      controller.signal.throwIfAborted();
+      if (blockedReason) throw new Error(blockedReason);
+      const executable = await this.requireReadyOmdExecutable();
+      await this.omdCapabilityService.requireLocalOllamaTransport(executable, controller.signal);
+      controller.signal.throwIfAborted();
+      const snapshot = createWorkflowSnapshot("capture", this.settings, true);
+      const formatted = await this.runLocalAiGated(
+        snapshot,
+        () => createWorkflowSnapshot("capture", this.settings, true),
+        async (gatedSnapshot, signal) => await this.omdBridge.previewMarkdownFormatting(
+          executable,
+          formattingTarget.source,
+          gatedSnapshot.model,
+          gatedSnapshot.host,
+          signal,
+          formattingMode,
+        ),
+        controller.signal,
+      );
+      controller.signal.throwIfAborted();
+      preview = mergeMarkdownFormattingTarget(baseline, formattingTarget, formatted);
+      if (preview === baseline) {
+        modal.showNoChanges(FORMATTING_NO_CHANGES_MESSAGE);
+        this.processingEvents.push({
+          v: 1,
+          event: "done",
+          kind: "markdown_formatting_noop",
+          ts: Date.now() / 1_000,
+          message: FORMATTING_NO_CHANGES_MESSAGE,
+        });
+        return;
+      }
+      previewReady = true;
+      modal.showPreview(formatted);
+      this.processingEvents.push({
+        v: 1,
+        event: "done",
+        kind: "markdown_formatting_preview",
+        ts: Date.now() / 1_000,
+        message: "Formatting preview ready",
+      });
+    } catch (error) {
+      const cancelled = isAbortError(error) || controller.signal.aborted;
+      modal.finishGeneration();
+      this.processingEvents.push({
+        v: 1,
+        event: cancelled ? "cancelled" : "error",
+        kind: cancelled ? "cancelled" : "markdown_formatting_failed",
+        ts: Date.now() / 1_000,
+        message: cancelled ? "Formatting cancelled" : "Formatting could not finish",
+      });
+      if (!cancelled) {
+        const detail = noteFormattingFailureMessage(error);
+        if (detail === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE && transcriptRepairIssue) {
+          modal.showTranscriptReviewRequired(detail, () => {
+            modal.close();
+            if (this.unloaded) return;
+            this.openTranscriptRepairModal(file, baseline, transcriptRepairIssue);
+          });
+        } else {
+          modal.showFailure(
+            detail,
+            detail === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE ? undefined : generateAgain,
+            detail === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE,
+          );
+        }
+        if (detail !== FORMATTING_TRANSCRIPT_QUALITY_MESSAGE) {
+          this.reportLocalAiWorkflowIssue(error instanceof LocalAiError ? error : new Error(detail), file.path);
+        }
+      }
+      return;
+    } finally {
+      this.captureActive = false;
+      this.captureCancelable = false;
+      if (this.captureController === controller) this.captureController = null;
+      this.refreshHomeViews();
+    }
+
+    if (!previewReady || decision === null) return;
+    if (!await decision) return;
+    if (this.unloaded) return;
+    try {
+      const result = await applyMarkdownFormattingPreview(this.app.vault, file, baseline, preview);
+      if (result === "conflict") {
+        modal.showConflict(FORMATTING_CONFLICT_MESSAGE, generateAgain);
+        return;
+      }
+      if (result === "no-op") {
+        modal.showNoChanges(FORMATTING_NO_CHANGES_MESSAGE);
+        return;
+      }
+      modal.close();
+      this.refreshHomeViews();
+      new Notice("Formatting applied. Review status is unchanged.");
+    } catch {
+      const detail = "Could not apply formatting. The note was not changed.";
+      modal.showFailure(detail, generateAgain, false, "apply");
+      this.reportLocalAiWorkflowIssue(new Error(detail), file.path);
+    }
+  }
+
+  async reviewNote(file = this.app.workspace.getActiveFile()): Promise<void> {
+    if (!(file instanceof TFile) || file.extension !== "md") {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    await this.enrichmentWorkflowController.review(file);
   }
 
   reportEnrichmentIssue(error: unknown, source = ""): void {
@@ -493,51 +2188,154 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async checkEnrichmentCapability(force = false): Promise<boolean> {
-    if (force) this.omdCapabilityService.clear(this.settings.omdExecutable);
-    this.enrichmentCapability = {
-      status: "checking",
-      message: "Checking the configured OMD executable…",
-      checkedAt: Date.now(),
-    };
+    if (this.omdCapabilityCheck && !force) return await this.omdCapabilityCheck;
+    if (!force && this.enrichmentCapability.status === "ready") return true;
+    if (force) {
+      this.omdCapabilityGeneration += 1;
+      this.omdCapabilityService.cancelActive();
+      this.omdCapabilityService.clear();
+    }
+    const generation = ++this.omdCapabilityGeneration;
+    const pending = this.runOmdCapabilityCheck(generation);
+    this.omdCapabilityCheck = pending;
     try {
-      await this.omdCapabilityService.requireEnrichNote(this.settings.omdExecutable);
-      this.enrichmentCapability = {
-        status: "ready",
-        message: "OMD enrich-note schema v1 is available.",
-        checkedAt: Date.now(),
-      };
-      return true;
-    } catch (error) {
-      this.enrichmentCapability = {
-        status: "unavailable",
-        message: toUserFacingEnrichmentMessage(error),
-        checkedAt: Date.now(),
-      };
-      return false;
+      return await pending;
     } finally {
-      this.refreshHomeViews();
+      if (this.omdCapabilityCheck === pending) this.omdCapabilityCheck = null;
     }
   }
 
-  resetEnrichmentCapability(): void {
+  resetEnrichmentCapability(preserveVerifiedHint = false): void {
+    this.omdCapabilityGeneration += 1;
+    this.discoveredOmdExecutable = "";
+    if (!preserveVerifiedHint) this.lastVerifiedOmdExecutable = "";
+    this.omdCapabilityCheck = null;
+    this.omdCapabilityService.cancelActive();
     this.omdCapabilityService.clear();
     this.enrichmentCapability = { status: "unchecked", message: "Not checked since the executable changed" };
     this.refreshHomeViews();
   }
 
-  invalidateLocalAiState(reason: "provider" | "host" | "model" | "capture-polish" | "retrieval" = "model"): void {
+  private async runOmdCapabilityCheck(generation: number): Promise<boolean> {
+    const automatic = this.usesAutomaticOmdDiscovery();
+    let checkedCapabilities: OmdCapabilities | undefined;
+    this.enrichmentCapability = {
+      status: "checking",
+      message: automatic ? "Looking for OMD in common install locations..." : "Checking the custom OMD executable...",
+      checkedAt: Date.now(),
+      mode: automatic ? "automatic" : "custom",
+    };
+    this.refreshHomeViews();
+    try {
+      const environment = {
+        platform: process.platform,
+        homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
+        condaPrefix: process.env.CONDA_PREFIX,
+        virtualEnvironment: process.env.VIRTUAL_ENV,
+      };
+      const resolveCandidate = async (candidate: string) =>
+        await resolveOmdExecutablePath(candidate, process.platform, spawnProcess);
+      let result: OmdDiscoveryResult;
+      if (automatic) {
+        try {
+          result = await discoverOmdExecutable(
+            this.settings.omdExecutable,
+            environment,
+            async (executable) => await this.omdCapabilityService.requireRecognitionCapability(executable),
+            resolveCandidate,
+            this.lastVerifiedOmdExecutable,
+          );
+        } catch (error) {
+          if (isEnrichmentError(error) && error.code === "cancelled") throw error;
+          result = await discoverOmdExecutable(
+            this.settings.omdExecutable,
+            environment,
+            async (executable) => await this.omdCapabilityService.requireEnrichNote(executable),
+            resolveCandidate,
+            this.lastVerifiedOmdExecutable,
+          );
+        }
+      } else {
+        result = await discoverOmdExecutable(
+          this.settings.omdExecutable,
+          environment,
+          async (executable) => await this.omdCapabilityService.requireEnrichNote(executable),
+          resolveCandidate,
+          this.lastVerifiedOmdExecutable,
+        );
+      }
+      if (generation !== this.omdCapabilityGeneration) return false;
+      const detectedCapabilities = await this.omdCapabilityService.requireEnrichNote(result.executable);
+      checkedCapabilities = detectedCapabilities;
+      if (generation !== this.omdCapabilityGeneration) return false;
+      this.discoveredOmdExecutable = result.executable;
+      this.lastVerifiedOmdExecutable = result.executable;
+      this.enrichmentCapability = {
+        status: "ready",
+        message: omdReadyMessage(result.executable, result.mode, detectedCapabilities),
+        checkedAt: Date.now(),
+        resolvedExecutable: result.executable,
+        mode: result.mode,
+        packageVersion: detectedCapabilities.package_version,
+        protocolVersion: detectedCapabilities.protocol_version,
+        buildRevision: detectedCapabilities.build_revision,
+        capabilities: detectedCapabilities,
+      };
+      return true;
+    } catch (error) {
+      if (generation !== this.omdCapabilityGeneration) return false;
+      this.discoveredOmdExecutable = "";
+      const code = isEnrichmentError(error) ? error.code : "omd_failed";
+      this.enrichmentCapability = {
+        status: "unavailable",
+        message: omdUnavailableMessage(error, automatic),
+        checkedAt: Date.now(),
+        code,
+        mode: automatic ? "automatic" : "custom",
+        capabilities: checkedCapabilities,
+      };
+      return false;
+    } finally {
+      if (generation === this.omdCapabilityGeneration) this.refreshHomeViews();
+    }
+  }
+
+  invalidateLocalAiState(
+    reason: "provider" | "host" | "answer-model" | "model" | "capture-polish" | "retrieval" | "embedding-model" = "model",
+    refreshSettings = true,
+  ): void {
     this.localAiActionToken += 1;
+    this.cancelHostedAiAction();
+    this.invalidateCloudAnswerConsent();
     this.cancelLocalAiRequests();
+    if (reason === "host" || reason === "retrieval" || reason === "embedding-model") this.localAiEmbeddingProbe = null;
     this.localAiFailure = null;
+    if (reason === "provider" || reason === "answer-model" || reason === "host" || reason === "embedding-model") {
+      this.localAiFeedback = null;
+      this.clearIssue("ai");
+    }
+    if (reason === "answer-model" && this.hostedAiState?.provider === this.currentHostedProvider()) {
+      this.hostedAiState = {
+        ...this.hostedAiState,
+        checkedAt: undefined,
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
+        code: "unchecked",
+        detail: `Run Check setup to validate ${providerLabel(this.hostedAiState.provider)} and the selected model.`,
+        activeAction: "",
+      };
+    }
     const host = this.currentLocalAiHost();
     const summary = host ? this.localAiSummaries.get(host) : null;
-    if ((reason === "model" || reason === "capture-polish") && host && summary) {
+    if ((reason === "answer-model" || reason === "model" || reason === "capture-polish") && host && summary) {
       this.localAiSummaries.set(host, {
         ...summary,
         modelChecks: {},
       });
     }
-    this.syncLocalAiState("");
+    this.syncLocalAiState("", refreshSettings);
+    this.syncHostedAiState("", refreshSettings);
   }
 
   cancelLocalAiRequests(): void {
@@ -550,6 +2348,7 @@ export default class OmdHomePlugin extends Plugin {
     this.cancelLocalAiRequests();
     this.setLocalAiFeedback("neutral", "Local AI action cancelled.");
     this.syncLocalAiState("");
+    this.syncHostedAiState("");
   }
 
   async ensureLocalAiCatalog(): Promise<void> {
@@ -558,7 +2357,7 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async refreshLocalAiCatalog(force = true): Promise<void> {
-    if (this.localAiState.activeAction) return;
+    if (!this.canStartAiSetupAction(force)) return;
     this.clearIssue("ai");
     this.setLocalAiFeedback("neutral", "Refreshing installed Ollama models…");
     const actionToken = this.beginLocalAiAction("refresh-models");
@@ -569,13 +2368,16 @@ export default class OmdHomePlugin extends Plugin {
         version: await this.ollamaLocalClient.version(host, signal),
         models: await this.ollamaLocalClient.tags(host, signal),
       }));
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
+      this.reconcileEmbeddingProbe(host, models);
       const previous = !force ? this.localAiSummaries.get(host) : null;
+      const daemonCode = models.length ? "ready" : "no_models_installed";
       this.localAiSummaries.set(host, buildConnectionSummary({
         host,
         checkedAt,
         version: version.version,
-        daemonCode: previous?.daemonCode ?? "unchecked",
-        daemonDetail: previous?.daemonDetail ?? "Run Check connection to validate the local daemon and selected models.",
+        daemonCode,
+        daemonDetail: describeDaemonReadiness(daemonCode),
         models,
         modelChecks: previous?.modelChecks ?? {},
       }));
@@ -586,7 +2388,7 @@ export default class OmdHomePlugin extends Plugin {
       this.setLocalAiFeedback("success", feedback);
       if (force) new Notice(feedback);
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         this.setLocalAiFailure(error);
         this.setLocalAiFeedback("error", `Model refresh failed. ${message(error)}`);
         if (force) new Notice(message(error));
@@ -597,8 +2399,9 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async checkLocalAiConnection(): Promise<boolean> {
+    if (!this.canStartAiSetupAction()) return false;
     this.clearIssue("ai");
-    this.setLocalAiFeedback("neutral", "Checking Ollama, local-only policy, and selected models…");
+    this.setLocalAiFeedback("neutral", "Checking the local Ollama daemon and selected models…");
     const actionToken = this.beginLocalAiAction("check-connection");
     try {
       const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
@@ -617,14 +2420,16 @@ export default class OmdHomePlugin extends Plugin {
           for (const model of this.activeLocalAiModels()) {
             try {
               const info = await this.safeShowModel(host, model, signal);
-              const entry = buildModelEntry(info);
-              catalogByName.set(model, mergeInspectedModelEntry(catalogByName.get(model), entry, model));
-              const code = deriveLocalAiModelCode(info);
+              const catalogEntry = catalog.find((candidate) => localModelNamesMatch(candidate.name, model));
+              const entryName = catalogEntry?.name ?? model;
+              const entry = mergeInspectedModelEntry(catalogEntry, buildModelEntry(info), entryName);
+              catalogByName.set(entryName, entry);
+              const code = deriveLocalAiModelCode(entry);
               modelChecks[model] = {
                 model,
                 checkedAt,
                 code,
-                detail: describeModelReadiness(model, info),
+                detail: describeModelReadiness(model, entry),
                 supportsCompletion: entry.supportsCompletion,
               };
             } catch (error) {
@@ -638,6 +2443,17 @@ export default class OmdHomePlugin extends Plugin {
               };
             }
           }
+          const embeddingModel = this.settings.embeddingModel.trim();
+          if (embeddingModel) {
+            try {
+              const info = await this.safeShowModel(host, embeddingModel, signal);
+              const catalogEntry = catalog.find((candidate) => localModelNamesMatch(candidate.name, embeddingModel));
+              const entryName = catalogEntry?.name ?? embeddingModel;
+              catalogByName.set(entryName, mergeInspectedModelEntry(catalogEntry, buildModelEntry(info), entryName));
+            } catch (error) {
+              if (!(error instanceof LocalAiError) || error.code !== "selected_model_missing") throw error;
+            }
+          }
         }
         return {
           version,
@@ -646,6 +2462,7 @@ export default class OmdHomePlugin extends Plugin {
           modelChecks,
         };
       });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return false;
       this.localAiSummaries.set(host, buildConnectionSummary({
         host,
         checkedAt,
@@ -655,18 +2472,19 @@ export default class OmdHomePlugin extends Plugin {
         models: checked.models,
         modelChecks: checked.modelChecks,
       }));
+      this.reconcileEmbeddingProbe(host, checked.models);
       this.localAiFailure = null;
       this.clearIssue("ai");
       this.syncLocalAiState(this.localAiState.activeAction);
       const ready = this.localAiState.daemonCode === "ready";
       const feedback = ready
-        ? `Connection ready. Ollama ${checked.version.version}; ${checked.models.length} installed ${checked.models.length === 1 ? "model" : "models"}.`
+        ? `Connection checked. Ollama ${checked.version.version}. ${describeLocalCompletionCatalog(checked.models, true)}`
         : `Connection checked. ${this.localAiState.daemonDetail}`;
       this.setLocalAiFeedback(ready ? "success" : "error", feedback);
       new Notice(feedback);
       return ready;
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         this.setLocalAiFailure(error);
         this.setLocalAiFeedback("error", `Connection failed. ${message(error)}`);
         new Notice(message(error));
@@ -678,6 +2496,7 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async smokeLocalAiWorkflow(workflow: LocalAiWorkflowId): Promise<void> {
+    if (!this.canStartAiSetupAction()) return;
     this.clearIssue("ai");
     this.setLocalAiFeedback("neutral", `Running ${localAiWorkflowLabel(workflow)} smoke test…`);
     const actionToken = this.beginLocalAiAction(`smoke:${workflow}`);
@@ -691,17 +2510,22 @@ export default class OmdHomePlugin extends Plugin {
         () => createWorkflowSnapshot(workflow, this.settings),
         async (gatedSnapshot, signal) => {
           const smoke = await this.ollamaLocalClient.smoke(gatedSnapshot.host, gatedSnapshot.model, signal);
-          if (smoke.remoteModel || smoke.remoteHost) {
-            throw new LocalAiError("selected_model_remote_blocked", "The smoke response reported remote Ollama metadata and was blocked.");
+          if (modelIsCloudBacked({
+            name: gatedSnapshot.model,
+            remoteModel: smoke.remoteModel,
+            remoteHost: smoke.remoteHost,
+          })) {
+            throw new LocalAiError("selected_model_remote_blocked", "The selected smoke-test model was identified as cloud-backed and blocked from local-only use.");
           }
           return smoke;
         },
       );
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
       const feedback = `${localAiWorkflowLabel(workflow)} smoke passed in ${result.latencyMs}ms: ${summarizeSmokeResponse(result.responseText)}`;
       this.setLocalAiFeedback("success", feedback);
       new Notice(feedback);
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
         this.reportLocalAiWorkflowIssue(error);
         this.setLocalAiFeedback("error", `${localAiWorkflowLabel(workflow)} smoke failed. ${message(error)}`);
         new Notice(message(error));
@@ -712,12 +2536,14 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   async testLocalEmbeddings(): Promise<void> {
+    if (!this.canStartAiSetupAction()) return;
     this.clearIssue("ai");
     this.setLocalAiFeedback("neutral", "Testing local embedding retrieval model…");
     const actionToken = this.beginLocalAiAction("test-embeddings");
+    const model = this.settings.embeddingModel.trim();
+    let host = this.settings.ollamaHost.trim();
     try {
-      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
-      const model = this.settings.embeddingModel.trim();
+      host = normalizeLocalOllamaHost(host);
       if (!model) throw new LocalAiError("selected_model_missing", "Choose a local embedding model before testing embeddings.");
       const result = await this.withLocalAiSignal(async (signal) => {
         const version = await this.ollamaLocalClient.version(host, signal);
@@ -729,9 +2555,12 @@ export default class OmdHomePlugin extends Plugin {
         const daemonCode = deriveLocalAiDaemonCode(status, models);
         if (daemonCode !== "ready") throw new LocalAiError(daemonCode, describeDaemonReadiness(daemonCode));
         const selected = await this.safeShowModel(host, model, signal);
-        const selectedEntry = buildModelEntry(selected);
+        signal.throwIfAborted();
         const mergedModels = new Map(models.map((entry) => [entry.name, entry]));
-        mergedModels.set(model, mergeInspectedModelEntry(mergedModels.get(model), selectedEntry, model));
+        const catalogEntry = models.find((entry) => localModelNamesMatch(entry.name, model));
+        const entryName = catalogEntry?.name ?? model;
+        const selectedEntry = mergeInspectedModelEntry(catalogEntry, buildModelEntry(selected), entryName);
+        mergedModels.set(entryName, selectedEntry);
         this.localAiSummaries.set(host, buildConnectionSummary({
           host,
           checkedAt: Date.now(),
@@ -741,22 +2570,32 @@ export default class OmdHomePlugin extends Plugin {
           models: [...mergedModels.values()].sort((left, right) => left.name.localeCompare(right.name)),
           modelChecks: this.localAiSummaries.get(host)?.modelChecks ?? {},
         }));
-        if (modelHasRemoteMetadata(selectedEntry)) {
-          throw new LocalAiError("selected_model_remote_blocked", `${model} reported remote Ollama metadata and was blocked.`);
+        if (modelIsCloudBacked(selectedEntry)) {
+          throw new LocalAiError("selected_model_remote_blocked", `${model} was identified as cloud-backed and blocked from local-only use.`);
         }
         if (!modelSupportsEmbedding(selectedEntry)) {
           throw new LocalAiError("selected_model_incompatible", `${model} does not advertise embedding support. Choose a local embedding-capable model.`);
         }
-        return await this.ollamaLocalClient.embed(host, model, ["vault retrieval probe", "多语言检索探针"], signal);
+        const embedded = await this.ollamaLocalClient.embed(host, model, ["vault retrieval probe", "多语言检索探针"], signal);
+        return { ...embedded, revision: selectedEntry.digest };
       });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return;
+      const feedback = `Embedding test passed for ${model} in ${result.latencyMs}ms: ${result.vectorCount} vectors × ${result.dimensions} dims.`;
+      this.localAiEmbeddingProbe = {
+        host, model, revision: result.revision, code: "ready", detail: feedback, checkedAt: Date.now(),
+        vectorCount: result.vectorCount, dimensions: result.dimensions,
+      };
       this.syncLocalAiState(this.localAiState.activeAction);
-      const feedback = `Embedding test passed in ${result.latencyMs}ms: ${result.vectorCount} vectors × ${result.dimensions} dims.`;
       this.setLocalAiFeedback("success", feedback);
       new Notice(feedback);
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
+        const detail = `Embedding test failed. ${message(error)}`;
+        this.localAiEmbeddingProbe = {
+          host, model, code: error instanceof LocalAiError ? error.code : "smoke_failed", detail, checkedAt: Date.now(),
+        };
         this.reportLocalAiWorkflowIssue(error);
-        this.setLocalAiFeedback("error", `Embedding test failed. ${message(error)}`);
+        this.setLocalAiFeedback("error", detail);
         new Notice(message(error));
       }
     } finally {
@@ -764,10 +2603,149 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
+  async installEmbeddingModel(expectedModel: string, expectedHost?: string): Promise<boolean> {
+    if (!this.canStartAiSetupAction()) return false;
+    this.clearIssue("ai");
+    const model = oneClickInstallableEmbeddingModel(expectedModel);
+    this.setLocalAiFeedback("neutral", model ? `Installing ${model} with Ollama…` : "Choose an embedding model first.");
+    const actionToken = this.beginLocalAiAction("install-embedding");
+    let installed = false;
+    try {
+      if (!model) {
+        throw new LocalAiError(
+          "selected_model_incompatible",
+          "This model is not available for one-click installation. Open retrieval settings for manual setup guidance.",
+        );
+      }
+      if (!localModelNamesMatch(this.settings.embeddingModel, expectedModel)) {
+        throw new LocalAiError(
+          "snapshot_mismatch",
+          "The embedding model changed after this action was shown. Open retrieval settings and review the current model.",
+        );
+      }
+      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      if (expectedHost !== undefined && host !== expectedHost) {
+        throw new LocalAiError("snapshot_mismatch", "The Ollama endpoint changed. Open retrieval settings to review the current endpoint.");
+      }
+      await this.withLocalAiSignal(async (signal) => {
+        const catalog = await this.ollamaLocalClient.tags(host, signal);
+        signal.throwIfAborted();
+        const existing = catalog.find((entry) => localModelNamesMatch(entry.name, model));
+        if (!existing) {
+          await this.ollamaLocalClient.pull(host, model, signal);
+        }
+        const inspected = mergeInspectedModelEntry(
+          existing,
+          buildModelEntry(await this.safeShowModel(host, model, signal)),
+          model,
+        );
+        if (modelIsCloudBacked(inspected)) {
+          throw new LocalAiError("selected_model_remote_blocked", `${model} was identified as cloud-backed and was not accepted for local retrieval.`);
+        }
+        if (!modelSupportsEmbedding(inspected)) {
+          throw new LocalAiError("selected_model_incompatible", `${model} does not advertise embedding support.`);
+        }
+      });
+      if (this.unloaded || actionToken !== this.localAiActionToken) return false;
+      installed = true;
+      const probe = this.localAiEmbeddingProbe;
+      if (probe?.host === host && localModelNamesMatch(probe.model, model) && probe.code !== "ready") {
+        this.localAiEmbeddingProbe = null;
+      }
+      this.clearIssue("ai");
+      const feedback = `${model} is installed and supports local embeddings. Refreshing the local model catalog…`;
+      this.setLocalAiFeedback("success", feedback);
+      new Notice(feedback);
+    } catch (error) {
+      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
+        this.reportLocalAiWorkflowIssue(error);
+        this.setLocalAiFeedback("error", `Embedding model installation failed. ${message(error)}`);
+        new Notice(message(error));
+      }
+    } finally {
+      this.finishLocalAiAction(actionToken);
+    }
+    if (installed && !this.unloaded && actionToken === this.localAiActionToken) {
+      await this.refreshLocalAiCatalog(false);
+    }
+    return installed;
+  }
+
+  async useSparseRetrieval(): Promise<boolean> {
+    if (!this.settings.hybridRetrievalEnabled) {
+      new Notice("Keyword search is already selected.");
+      return false;
+    }
+    if (!this.canStartAiSetupAction()) return false;
+    this.settings.hybridRetrievalEnabled = false;
+    this.invalidateLocalAiState("retrieval");
+    await this.saveSettings();
+    this.setLocalAiFeedback("success", "Keyword search selected. Future vault questions will not require an embedding model.");
+    this.refreshHomeViews();
+    new Notice("Keyword search selected for future vault questions.");
+    return true;
+  }
+
+  openRetrievalSettings(): void {
+    const settings = (this.app as App & {
+      setting?: { open?: () => void; openTabById?: (id: string) => void };
+    }).setting;
+    if (!settings || typeof settings.open !== "function" || typeof settings.openTabById !== "function" || !this.settingTab) {
+      new Notice("Open settings → OMD Home → advanced AI controls → vault retrieval.");
+      return;
+    }
+    try {
+      settings.open();
+      settings.openTabById(this.manifest.id);
+      window.setTimeout(() => this.settingTab?.showRetrievalSettings(), 0);
+    } catch {
+      new Notice("Open settings → OMD Home → advanced AI controls → vault retrieval.");
+    }
+  }
+
+  openLocalWritingSettings(): void {
+    const settings = (this.app as App & {
+      setting?: { open?: () => void; openTabById?: (id: string) => void };
+    }).setting;
+    if (!settings || typeof settings.open !== "function" || typeof settings.openTabById !== "function" || !this.settingTab) {
+      new Notice("Open settings → OMD Home → advanced AI controls → local writing model.");
+      return;
+    }
+    try {
+      settings.open();
+      settings.openTabById(this.manifest.id);
+      window.setTimeout(() => this.settingTab?.showLocalWritingSettings(), 0);
+    } catch {
+      new Notice("Open settings → OMD Home → advanced AI controls → local writing model.");
+    }
+  }
+
+  async openLanguageSettings(): Promise<void> {
+    const settings = (this.app as App & {
+      setting?: { open?: () => void; openTabById?: (id: string) => void };
+    }).setting;
+    if (!settings || typeof settings.open !== "function" || typeof settings.openTabById !== "function" || !this.settingTab) {
+      new Notice("Open settings → OMD Home → capture and processing → recognition defaults.");
+      return;
+    }
+    try {
+      settings.open();
+      settings.openTabById(this.manifest.id);
+      if (this.enrichmentCapability.status === "unchecked") await this.checkEnrichmentCapability();
+      if (this.unloaded) return;
+      window.setTimeout(() => {
+        if (!this.unloaded) this.settingTab?.showRecognitionSettings();
+      }, 0);
+    } catch {
+      new Notice("Open settings → OMD Home → capture and processing → recognition defaults.");
+    }
+  }
+
   async runLocalAiGated<T>(
     snapshot: LocalAiSnapshot,
     getCurrentSnapshot: () => LocalAiSnapshot,
     downstream: (snapshot: LocalAiSnapshot, signal?: AbortSignal) => Promise<T>,
+    parentSignal?: AbortSignal,
   ): Promise<T> {
     return await this.withLocalAiSignal(async (signal) => await executeWithLocalAiGate(
       snapshot,
@@ -775,7 +2753,7 @@ export default class OmdHomePlugin extends Plugin {
       async (gatedSnapshot, gateSignal) => await this.runLocalAiSafetyGate(gatedSnapshot, gateSignal),
       downstream,
       signal,
-    ));
+    ), parentSignal);
   }
 
   async refreshExternalCalendars(notify = true): Promise<void> {
@@ -787,6 +2765,8 @@ export default class OmdHomePlugin extends Plugin {
       if (!this.hasEventKitHelper()) {
         throw new Error("EventKit helper is unavailable. Build the helper or choose an absolute helper path in settings.");
       }
+      this.calendarHelperProtocolVersion = await this.eventKitBridge.requireCompatibleProtocol();
+      this.calendarHelperProtocolStatus = "compatible";
       this.externalCalendars = await this.eventKitBridge.calendars();
       const reconciled = reconcileCalendarSelection(this.settings, this.externalCalendars);
       if (
@@ -805,6 +2785,10 @@ export default class OmdHomePlugin extends Plugin {
       this.setCalendarFeedback(count ? "success" : "neutral", feedback);
       if (notify) new Notice(feedback);
     } catch (error) {
+      if (error instanceof EventKitHelperCompatibilityError) {
+        this.calendarHelperProtocolStatus = "incompatible";
+        this.calendarHelperProtocolVersion = error.actualVersion ?? null;
+      }
       this.recordIssue("calendar", error);
       this.setCalendarFeedback("error", `Calendar refresh failed. ${this.lastError}`);
       if (notify) new Notice(this.lastError);
@@ -818,257 +2802,1422 @@ export default class OmdHomePlugin extends Plugin {
     await this.runCalendarRefresh(false);
   }
 
-  async synchronizeCalendarEvents(): Promise<void> {
-    if (this.calendarRefresh) await this.calendarRefresh;
-    await this.runCalendarRefresh(true);
+  async synchronizeCalendarEvents(): Promise<CalendarSyncSummary> {
+    return await this.runCalendarRefresh(true);
   }
 
-  private async runCalendarRefresh(reconcile: boolean): Promise<void> {
-    if (this.calendarRefresh) return await this.calendarRefresh;
-    this.calendarRefresh = this.performCalendarRefresh(reconcile);
-    try { await this.calendarRefresh; }
-    finally { this.calendarRefresh = null; }
+  private async runCalendarRefresh(reconcile: boolean): Promise<CalendarSyncSummary> {
+    if (this.unloaded) {
+      throw new Error("OMD Home was disabled. Calendar sync stopped before making further changes.");
+    }
+    if (this.calendarRefresh) {
+      this.calendarRefreshQueuedReconcile ||= reconcile;
+      if (!this.calendarRefreshQueued) {
+        const current = this.calendarRefresh;
+        let queued!: Promise<CalendarSyncSummary>;
+        queued = current.catch(() => undefined).then(async () => {
+          if (this.calendarRefresh === current) this.calendarRefresh = null;
+          const queuedReconcile = this.calendarRefreshQueuedReconcile;
+          if (this.calendarRefreshQueued === queued) this.calendarRefreshQueued = null;
+          this.calendarRefreshQueuedReconcile = false;
+          return await this.runCalendarRefresh(queuedReconcile);
+        });
+        this.calendarRefreshQueued = queued;
+      }
+      return await this.calendarRefreshQueued;
+    }
+    const lifecycleGeneration = this.calendarLifecycleGeneration;
+    const active = this.performCalendarRefresh(reconcile, lifecycleGeneration);
+    this.calendarRefresh = active;
+    try {
+      return await active;
+    } finally {
+      if (this.calendarRefresh === active) this.calendarRefresh = null;
+    }
   }
 
-  private async performCalendarRefresh(reconcile: boolean): Promise<void> {
-    const vaultEvents: CalendarEventRecord[] = this.app.vault.getMarkdownFiles()
-      .flatMap((file): CalendarEventRecord[] => {
-        const cached = recordFromFrontmatter(file.path, this.app.metadataCache.getFileCache(file)?.frontmatter ?? {});
-        const override = this.calendarWriteOverrides.get(file.path);
-        const resolved = resolveCalendarWriteOverride(file.path, file.stat.mtime, cached, override);
-        if (override && !resolved.retainOverride) this.calendarWriteOverrides.delete(file.path);
-        const record = resolved.event;
-        return record ? [{ ...record, vaultModifiedAt: new Date(file.stat.mtime).toISOString() }] : [];
-      });
+  private async readCalendarNoteSnapshot(file: TFile): Promise<CalendarNoteSnapshot> {
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (error) {
+      return { event: null, markdown, error: `Could not read the note: ${message(error)}` };
+    }
+    const info = getFrontMatterInfo(markdown);
+    if (!info.exists) return { event: null, markdown, error: "YAML frontmatter is missing" };
+    let parsed: unknown;
+    try {
+      parsed = parseYaml(info.frontmatter) as unknown;
+    } catch {
+      return { event: null, markdown, error: "YAML frontmatter is invalid" };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { event: null, markdown, error: "YAML frontmatter must be a mapping" };
+    }
+    const frontmatter = parsed as Record<string, unknown>;
+    if (frontmatter.type !== "event") {
+      return { event: null, markdown, error: "Frontmatter must include type: event" };
+    }
+    const event = recordFromFrontmatter(file.path, frontmatter);
+    if (!event) {
+      return {
+        event: null,
+        markdown,
+        error: "Frontmatter is missing required event fields or has an invalid source or date range",
+      };
+    }
+    return {
+      event: { ...event, vaultModifiedAt: new Date(file.stat.mtime).toISOString() },
+      markdown,
+    };
+  }
+
+  private async readCalendarNoteSnapshotByPath(path: string): Promise<CalendarNoteSnapshot> {
+    const abstract = this.app.vault.getFileByPath(path);
+    if (!(abstract instanceof TFile)) {
+      return { event: null, markdown: "", error: "The event note no longer exists" };
+    }
+    return await this.readCalendarNoteSnapshot(abstract);
+  }
+
+  private async calendarNoteSnapshotForAction(
+    event: CalendarEventRecord,
+  ): Promise<CalendarNoteSnapshot & { event: CalendarEventRecord }> {
+    if (!event.notePath) throw new Error("The event note is unavailable. Refresh Calendar and try again.");
+    const snapshot = await this.readCalendarNoteSnapshotByPath(event.notePath);
+    if (!snapshot.event || snapshot.error) {
+      throw new Error(`The event note changed or is invalid. Nothing was written: ${snapshot.error ?? "Refresh Calendar and try again."}`);
+    }
+    const current = snapshot.event;
+    const creatingLink = current.source === "vault"
+      && event.source === "linked"
+      && !current.appleItemId
+      && !event.appleItemId;
+    const stale = !event.vaultModifiedAt
+      || current.vaultModifiedAt !== event.vaultModifiedAt
+      || (current.source !== event.source && !creatingLink)
+      || current.notePath !== event.notePath
+      || current.appleCalendarId !== event.appleCalendarId
+      || current.appleItemId !== event.appleItemId
+      || current.appleExternalId !== event.appleExternalId
+      || current.occurrenceDate !== event.occurrenceDate
+      || current.externalModifiedAt !== event.externalModifiedAt
+      || current.syncHash !== event.syncHash;
+    if (stale) {
+      throw new CalendarSnapshotChangedError("The event note changed after it was opened. Nothing was written; refresh Calendar and try again.");
+    }
+    return { ...snapshot, event: current };
+  }
+
+  private calendarNoteErrorRecord(path: string, modifiedAt: number, detail: string): CalendarEventRecord {
+    const start = new Date(Number.isFinite(modifiedAt) ? modifiedAt : Date.now());
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    const name = path.split("/").at(-1) ?? path;
+    return {
+      id: `calendar-note-error:${path}`,
+      title: `Cannot sync ${name}: ${detail}`,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      allDay: false,
+      calendar: "Sync error",
+      source: "linked",
+      notePath: path,
+      location: detail,
+      vaultModifiedAt: start.toISOString(),
+      syncState: "error",
+    };
+  }
+
+  private async readFreshExternalEvent(
+    vault: CalendarEventRecord,
+    expected: CalendarEventRecord,
+    includeUnselectedCalendars = false,
+  ): Promise<CalendarEventRecord | undefined> {
+    const selectedCalendarIds = this.settings.selectedCalendarIds ?? [];
+    const itemId = expected.appleItemId ?? vault.appleItemId;
+    let exactLookup: CalendarEventRecord | undefined;
+    if (itemId) {
+      const exact = await this.eventKitBridge.lookup(
+        itemId,
+        expected.occurrenceDate ?? vault.occurrenceDate,
+        expected.externalStartHint ?? vault.externalStartHint ?? (expected.start || vault.start),
+      ) ?? undefined;
+      if (exact) exactLookup = exact;
+    }
+    const { start, end } = calendarFetchWindow([vault, expected]);
+    const currentCalendars = includeUnselectedCalendars
+      ? await this.eventKitBridge.calendars()
+      : [];
+    const calendarIds = includeUnselectedCalendars
+      ? [...new Set([
+        ...selectedCalendarIds,
+        ...currentCalendars.map((calendar) => calendar.id),
+      ])]
+      : selectedCalendarIds;
+    const events = await this.eventKitBridge.events(calendarIds, start, end);
+    const expectedItemKeys = new Set([vault, expected]
+      .filter((candidate) => Boolean(candidate.appleItemId))
+      .map((candidate) => `item:${candidate.appleItemId}:${candidate.occurrenceDate ?? ""}`));
+    const exactCandidates = events.filter((candidate) => (
+      candidate.appleItemId
+      && expectedItemKeys.has(`item:${candidate.appleItemId}:${candidate.occurrenceDate ?? ""}`)
+    ));
+    if (exactCandidates.length > 1) {
+      throw new Error("Calendar returned multiple occurrences for the saved event identity. Sync is paused so OMD cannot bind the note to the wrong occurrence.");
+    }
+    const stable = [
+      ...stableExternalCandidates(expected, events),
+      ...stableExternalCandidates(vault, events),
+    ].filter((candidate, index, candidates) => candidates.indexOf(candidate) === index);
+    if (stable.length > 1) {
+      throw new Error("Calendar returned multiple events with the same stable identifier. Sync is paused so OMD cannot bind the note to the wrong event.");
+    }
+    const exact = exactLookup ?? exactCandidates[0];
+    if (exact && stable[0] && (
+      exact.appleItemId !== stable[0].appleItemId
+      || exact.occurrenceDate !== stable[0].occurrenceDate
+    )) {
+      throw new Error("Calendar identities point to different events. Sync is paused so OMD cannot bind the note to the wrong event.");
+    }
+    if (
+      exact
+      && (expected.clientRequestId || vault.clientRequestId)
+      && exact.clientRequestId
+      && exact.clientRequestId !== (expected.clientRequestId ?? vault.clientRequestId)
+    ) {
+      throw new Error("The saved Calendar request identity no longer matches this event. Sync is paused so OMD cannot overwrite another event.");
+    }
+    if (
+      exact
+      && (expected.appleExternalId || vault.appleExternalId)
+      && exact.appleExternalId
+      && exact.appleExternalId !== (expected.appleExternalId ?? vault.appleExternalId)
+    ) {
+      throw new Error("The saved Calendar external identity no longer matches this event. Sync is paused so OMD cannot overwrite another event.");
+    }
+    return stable[0] ?? exact;
+  }
+
+  private async revalidateCalendarWrite(
+    vault: CalendarEventRecord,
+    outside: CalendarEventRecord,
+    expectedMarkdown: string | undefined,
+  ): Promise<CalendarWriteRevalidation> {
+    if (!vault.notePath || expectedMarkdown === undefined) {
+      return {
+        event: this.calendarNoteErrorRecord(vault.notePath ?? vault.id, Date.now(), "The event note snapshot is unavailable"),
+        blocked: true,
+      };
+    }
+    const snapshot = await this.readCalendarNoteSnapshotByPath(vault.notePath);
+    if (!snapshot.event || snapshot.error) {
+      return {
+        event: this.calendarNoteErrorRecord(
+          vault.notePath,
+          Date.parse(vault.vaultModifiedAt ?? "") || Date.now(),
+          snapshot.error ?? "The event note is invalid",
+        ),
+        blocked: true,
+      };
+    }
+    if (snapshot.event.source !== "linked") return { event: snapshot.event, blocked: true };
+    let freshOutside: CalendarEventRecord | undefined;
+    try {
+      freshOutside = await this.readFreshExternalEvent(snapshot.event, outside);
+    } catch (error) {
+      this.recordIssue("calendar", error);
+      return {
+        event: {
+          ...snapshot.event,
+          syncState: "error",
+          unavailableReason: "setup-or-read-failure",
+          pendingDirection: undefined,
+        },
+        blocked: true,
+      };
+    }
+    if (!freshOutside) {
+      return {
+        event: {
+          ...snapshot.event,
+          syncState: "unavailable",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        },
+        blocked: true,
+      };
+    }
+    if (snapshot.markdown !== expectedMarkdown || calendarEventVersion(freshOutside) !== calendarEventVersion(outside)) {
+      return {
+        event: {
+          ...snapshot.event,
+          syncState: "conflict",
+          unavailableReason: undefined,
+          pendingDirection: undefined,
+          conflictExternal: freshOutside,
+        },
+        external: freshOutside,
+        blocked: true,
+      };
+    }
+    return { event: snapshot.event, external: freshOutside, expectedMarkdown: snapshot.markdown, blocked: false };
+  }
+
+  private async calendarWriteRaceEvent(
+    vault: CalendarEventRecord,
+    outside: CalendarEventRecord,
+  ): Promise<CalendarEventRecord> {
+    if (!vault.notePath) return { ...vault, syncState: "error", pendingDirection: undefined };
+    const snapshot = await this.readCalendarNoteSnapshotByPath(vault.notePath);
+    if (!snapshot.event || snapshot.error) {
+      return this.calendarNoteErrorRecord(
+        vault.notePath,
+        Date.parse(vault.vaultModifiedAt ?? "") || Date.now(),
+        snapshot.error ?? "The event note is invalid",
+      );
+    }
+    return {
+      ...snapshot.event,
+      syncState: "conflict",
+      unavailableReason: undefined,
+      pendingDirection: undefined,
+      conflictExternal: outside,
+    };
+  }
+
+  private async performCalendarRefresh(
+    reconcile: boolean,
+    lifecycleGeneration = this.calendarLifecycleGeneration ?? 0,
+  ): Promise<CalendarSyncSummary> {
+    const refreshIsCurrent = (): boolean => (
+      !this.unloaded
+      && (this.calendarLifecycleGeneration ?? lifecycleGeneration) === lifecycleGeneration
+    );
+    const assertRefreshIsCurrent = (): void => {
+      if (!refreshIsCurrent()) {
+        throw new Error("OMD Home was disabled. Calendar sync stopped before making further changes.");
+      }
+    };
+    assertRefreshIsCurrent();
+    const vaultEvents: CalendarEventRecord[] = [];
+    const vaultMarkdown = new Map<string, string>();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const cachedFrontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const override = this.calendarWriteOverrides.get(file.path);
+      const isCandidate = cachedFrontmatter?.type === "event"
+        || file.path.startsWith("Calendar/Events/")
+        || Boolean(override);
+      if (!isCandidate) continue;
+      const snapshot = await this.readCalendarNoteSnapshot(file);
+      assertRefreshIsCurrent();
+      if (!snapshot.event || snapshot.error) {
+        if (override) this.calendarWriteOverrides.delete(file.path);
+        vaultEvents.push(this.calendarNoteErrorRecord(
+          file.path,
+          file.stat.mtime,
+          snapshot.error ?? "The event note is invalid",
+        ));
+        continue;
+      }
+      // The raw Markdown snapshot is authoritative. Overrides only bridge
+      // metadata-cache lag; replacing parsed Markdown here could erase a
+      // same-tick manual edit before the compare-and-swap guard sees it.
+      if (override) this.calendarWriteOverrides.delete(file.path);
+      const event = { ...snapshot.event, vaultModifiedAt: new Date(file.stat.mtime).toISOString() };
+      vaultEvents.push(event);
+      if (event.notePath) vaultMarkdown.set(event.notePath, snapshot.markdown);
+    }
     let external: CalendarEventRecord[] = [];
     let externalFetchFailed = false;
-    if (Platform.isMacOS && this.hasEventKitHelper() && this.settings.selectedCalendarIds.length) {
-      const { start, end } = calendarFetchWindow(vaultEvents);
+    let externalFetchError: Error | null = null;
+    const selectedCalendarIds = this.settings?.selectedCalendarIds ?? [];
+    const helperAvailable = !Platform.isMacOS || this.hasEventKitHelper();
+    if (Platform.isMacOS && selectedCalendarIds.length === 0) {
+      this.clearIssue("calendar");
+    }
+    if (Platform.isMacOS && reconcile && selectedCalendarIds.length > 0 && !helperAvailable) {
+      externalFetchFailed = true;
+      externalFetchError = new Error("EventKit helper is unavailable. Build the helper or choose an executable absolute helper path in settings.");
+      this.recordIssue("calendar", externalFetchError);
+    } else if (Platform.isMacOS && selectedCalendarIds.length) {
       try {
-        external = await this.eventKitBridge.events(this.settings.selectedCalendarIds, start, end);
+        if (!helperAvailable) {
+          throw new Error("EventKit helper is unavailable. Build the helper or choose an executable absolute helper path in settings.");
+        }
+        const { start, end } = calendarFetchWindow(vaultEvents);
+        external = await this.eventKitBridge.events(selectedCalendarIds, start, end);
+        assertRefreshIsCurrent();
         this.clearIssue("calendar");
       }
       catch (error) {
+        assertRefreshIsCurrent();
         externalFetchFailed = true;
+        externalFetchError = error instanceof Error ? error : new Error(message(error));
         this.recordIssue("calendar", error);
       }
     }
-    const externalByKey = new Map<string, CalendarEventRecord>();
-    for (const event of external) for (const key of calendarIdentityKeys(event)) externalByKey.set(key, event);
     const usedExternal = new Set<CalendarEventRecord>();
+    const usedExternalOccurrences = new Set<string>();
     const synchronized: CalendarEventRecord[] = [];
     for (const vault of vaultEvents) {
       if (vault.source !== "linked") {
         synchronized.push(vault);
         continue;
       }
-      const identityKeys = calendarIdentityKeys(vault);
-      if (!identityKeys.length) {
-        synchronized.push({ ...vault, syncState: "unavailable" });
+      if (isCalendarNoteErrorRecord(vault)) {
+        synchronized.push(vault);
         continue;
       }
-      const outside = identityKeys.map((key) => externalByKey.get(key)).find(Boolean);
-      const calendarId = outside?.appleCalendarId ?? vault.appleCalendarId ?? "";
-      const availability = classifyLinkedAvailability(
-        this.settings.selectedCalendarIds.includes(calendarId),
-        externalFetchFailed,
-        Boolean(outside),
-      );
-      if (availability !== "available") {
-        synchronized.push({ ...vault, syncState: availability, pendingDirection: undefined });
+      const identityKeyList = calendarIdentityKeys(vault);
+      if (!identityKeyList.length) {
+        synchronized.push({ ...vault, syncState: "unavailable", unavailableReason: "unknown" });
+        continue;
+      }
+      const itemKey = vault.appleItemId
+        ? `item:${vault.appleItemId}:${vault.occurrenceDate ?? ""}`
+        : undefined;
+      const exactCandidates = itemKey
+        ? external.filter((candidate) => calendarIdentityKeys(candidate).includes(itemKey))
+        : [];
+      const stable = stableExternalCandidates(vault, external);
+      if (exactCandidates.length > 1 || stable.length > 1) {
+        const count = Math.max(exactCandidates.length, stable.length);
+        const error = new Error(`Calendar returned ${count} events matching the saved identity for ${vault.title}. Sync is paused so OMD cannot bind the note to the wrong event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      if (exactCandidates[0] && stable[0] && (
+        exactCandidates[0].appleItemId !== stable[0].appleItemId
+        || exactCandidates[0].occurrenceDate !== stable[0].occurrenceDate
+      )) {
+        const error = new Error(`Calendar identities point to different events for ${vault.title}. Sync is paused so OMD cannot overwrite another event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      let outside: CalendarEventRecord | undefined = stable[0] ?? exactCandidates[0];
+      let exactLookupMissing = false;
+      const calendarSelected = selectedCalendarIds.includes(vault.appleCalendarId ?? "");
+      if (!outside && !calendarSelected) {
+        synchronized.push({
+          ...vault,
+          syncState: "unavailable",
+          unavailableReason: "calendar-deselected",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      if (externalFetchFailed) {
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "setup-or-read-failure",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      if (!outside && vault.appleItemId) {
+        try {
+          outside = await this.eventKitBridge.lookup(vault.appleItemId, vault.occurrenceDate, vault.start) ?? undefined;
+          assertRefreshIsCurrent();
+        } catch (error) {
+          assertRefreshIsCurrent();
+          externalFetchError = error instanceof Error ? error : new Error(message(error));
+          this.recordIssue("calendar", error);
+          synchronized.push({
+            ...vault,
+            syncState: "error",
+            unavailableReason: "setup-or-read-failure",
+            pendingDirection: undefined,
+          });
+          continue;
+        }
+        exactLookupMissing = !outside;
+      }
+      if (outside && (
+        (vault.clientRequestId && outside.clientRequestId && outside.clientRequestId !== vault.clientRequestId)
+        || (vault.appleExternalId && outside.appleExternalId && outside.appleExternalId !== vault.appleExternalId)
+      )) {
+        const error = new Error(`Calendar identities no longer agree for ${vault.title}. Sync is paused so OMD cannot overwrite another event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
         continue;
       }
       if (!outside) {
-        synchronized.push({ ...vault, syncState: "unavailable", pendingDirection: undefined });
+        synchronized.push({
+          ...vault,
+          syncState: "unavailable",
+          unavailableReason: exactLookupMissing ? "unknown"
+            : identityKeyList.length ? "outside-window" : "unknown",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      if (!selectedCalendarIds.includes(outside.appleCalendarId ?? "")) {
+        synchronized.push({
+          ...vault,
+          syncState: "unavailable",
+          unavailableReason: "calendar-deselected",
+          pendingDirection: undefined,
+        });
+        continue;
+      }
+      const outsideOccurrenceKey = outside.appleItemId
+        ? `item:${outside.appleItemId}:${outside.occurrenceDate ?? ""}`
+        : outside.clientRequestId
+          ? `request:${outside.clientRequestId}`
+          : outside.appleExternalId
+            ? `external:${outside.appleExternalId}:${outside.occurrenceDate ?? ""}:${outside.appleCalendarId ?? ""}`
+            : outside.id;
+      if (usedExternal.has(outside) || usedExternalOccurrences.has(outsideOccurrenceKey)) {
+        const error = new Error(`More than one linked note matches ${outside.title}. Sync is paused so OMD cannot bind two notes to the same Calendar event.`);
+        this.recordIssue("calendar", error);
+        synchronized.push({
+          ...vault,
+          syncState: "error",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+        });
         continue;
       }
       usedExternal.add(outside);
-      const change = classifyLinkedChange(vault, outside);
+      usedExternalOccurrences.add(outsideOccurrenceKey);
+      let currentVault: CalendarEventRecord = { ...vault, unavailableReason: undefined };
+      let currentOutside = outside;
+      let change = classifyLinkedChange(currentVault, currentOutside);
+      let needsPersistence = change === "clean" && (
+        !currentVault.syncHash
+        || currentVault.syncState === "pending"
+        || currentVault.appleCalendarId !== currentOutside.appleCalendarId
+        || currentVault.appleItemId !== currentOutside.appleItemId
+        || currentVault.appleExternalId !== currentOutside.appleExternalId
+        || currentVault.occurrenceDate !== currentOutside.occurrenceDate
+        || currentVault.externalModifiedAt !== currentOutside.externalModifiedAt
+        || currentVault.readOnly !== currentOutside.readOnly
+      );
+      const needsWrite = reconcile && change !== "conflict" && (change !== "clean" || needsPersistence);
+      let expectedMarkdown = currentVault.notePath ? vaultMarkdown.get(currentVault.notePath) : undefined;
+      if (needsWrite) {
+        const guarded = await this.revalidateCalendarWrite(currentVault, currentOutside, expectedMarkdown);
+        assertRefreshIsCurrent();
+        if (guarded.blocked || !guarded.external) {
+          synchronized.push(guarded.event);
+          continue;
+        }
+        currentVault = guarded.event;
+        currentOutside = guarded.external;
+        expectedMarkdown = guarded.expectedMarkdown;
+        change = classifyLinkedChange(currentVault, currentOutside);
+        needsPersistence = change === "clean" && (
+          !currentVault.syncHash
+          || currentVault.syncState === "pending"
+          || currentVault.appleCalendarId !== currentOutside.appleCalendarId
+          || currentVault.appleItemId !== currentOutside.appleItemId
+          || currentVault.appleExternalId !== currentOutside.appleExternalId
+          || currentVault.occurrenceDate !== currentOutside.occurrenceDate
+          || currentVault.externalModifiedAt !== currentOutside.externalModifiedAt
+          || currentVault.readOnly !== currentOutside.readOnly
+        );
+      }
       if (change === "conflict") {
-        synchronized.push({ ...vault, syncState: "conflict", conflictExternal: outside });
+        synchronized.push({ ...currentVault, syncState: "conflict", unavailableReason: undefined, conflictExternal: currentOutside });
       } else if (change === "external") {
         if (reconcile) {
-          const merged = mergeExternalIntoLinked(vault, outside);
-          await this.writeCalendarNote(merged);
-          synchronized.push(merged);
-        } else synchronized.push({ ...vault, syncState: "pending", pendingDirection: "external", conflictExternal: outside });
+          const merged = { ...mergeExternalIntoLinked(currentVault, currentOutside), unavailableReason: undefined };
+          try {
+            const saved = await this.writeCalendarNote(merged, expectedMarkdown, refreshIsCurrent);
+            assertRefreshIsCurrent();
+            synchronized.push(saved);
+          } catch (error) {
+            assertRefreshIsCurrent();
+            if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+            const raced = await this.calendarWriteRaceEvent(currentVault, currentOutside);
+            assertRefreshIsCurrent();
+            synchronized.push(raced);
+          }
+        } else synchronized.push({ ...currentVault, syncState: "pending", pendingDirection: "external", conflictExternal: currentOutside });
       } else if (change === "vault") {
         if (reconcile) {
-          if (outside.readOnly) {
-            synchronized.push({ ...vault, syncState: "conflict", conflictExternal: outside });
+          if (currentOutside.readOnly) {
+            synchronized.push({ ...currentVault, syncState: "conflict", unavailableReason: undefined, conflictExternal: currentOutside });
             continue;
           }
-          const merged = await this.pushLinkedEventToCalendar({
-            ...vault,
-            appleCalendarId: outside.appleCalendarId,
-            appleItemId: outside.appleItemId,
-            appleExternalId: outside.appleExternalId,
-            occurrenceDate: outside.occurrenceDate,
-          });
-          synchronized.push(merged);
-        } else synchronized.push({ ...vault, syncState: "pending", pendingDirection: "vault", conflictExternal: outside });
+          try {
+            const merged = await this.pushLinkedEventToCalendar({
+              ...currentVault,
+              appleCalendarId: currentOutside.appleCalendarId,
+              appleItemId: currentOutside.appleItemId,
+              appleExternalId: currentOutside.appleExternalId,
+              occurrenceDate: currentOutside.occurrenceDate,
+            }, expectedMarkdown, currentOutside, refreshIsCurrent);
+            assertRefreshIsCurrent();
+            synchronized.push(merged);
+          } catch (error) {
+            assertRefreshIsCurrent();
+            throw error;
+          }
+        } else synchronized.push({ ...currentVault, syncState: "pending", pendingDirection: "vault", conflictExternal: currentOutside });
       } else {
-        const healed = mergeExternalIntoLinked(vault, outside, vault.lastSyncedAt ?? new Date().toISOString());
-        const needsPersistence = !vault.syncHash
-          || vault.syncState === "pending"
-          || vault.appleItemId !== outside.appleItemId
-          || vault.appleExternalId !== outside.appleExternalId
-          || vault.occurrenceDate !== outside.occurrenceDate
-          || vault.readOnly !== outside.readOnly;
+        const healed = {
+          ...mergeExternalIntoLinked(
+            currentVault,
+            currentOutside,
+            currentVault.lastSyncedAt ?? new Date().toISOString(),
+          ),
+          unavailableReason: undefined,
+        };
         if (reconcile && needsPersistence) {
-          const persisted = await this.writeCalendarNote(healed);
-          synchronized.push(persisted);
-        } else if (!reconcile && vault.syncState === "pending") {
-          synchronized.push({ ...healed, syncState: "pending", pendingDirection: vault.pendingDirection });
+          try {
+            const saved = await this.writeCalendarNote(healed, expectedMarkdown, refreshIsCurrent);
+            assertRefreshIsCurrent();
+            synchronized.push(saved);
+          } catch (error) {
+            assertRefreshIsCurrent();
+            if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+            const raced = await this.calendarWriteRaceEvent(currentVault, currentOutside);
+            assertRefreshIsCurrent();
+            synchronized.push(raced);
+          }
+        } else if (!reconcile && needsPersistence) {
+          synchronized.push({
+            ...healed,
+            syncState: "pending",
+            pendingDirection: currentVault.pendingDirection ?? "external",
+          });
         } else synchronized.push(healed);
       }
     }
+    assertRefreshIsCurrent();
     this.calendarEvents = [...synchronized, ...external.filter((event) => !usedExternal.has(event))];
     this.refreshOpenViews();
-    if (reconcile && externalFetchFailed) throw new Error(this.lastError || "Calendar could not be read safely");
+    if (reconcile && externalFetchError) throw externalFetchError;
+    return summarizeCalendarSync(this.calendarEvents);
   }
 
   async resolveCalendarConflict(event: CalendarEventRecord, choice: "vault" | "external"): Promise<void> {
     if (!event.conflictExternal) throw new Error("The Calendar version is no longer available. Refresh and try again.");
-    if (choice === "vault" && !this.isSelectedWritableCalendar(event.conflictExternal.appleCalendarId ?? "")) {
+    if (!event.notePath) throw new Error("The linked event note is no longer available. Refresh and try again.");
+    const snapshot = await this.readCalendarNoteSnapshotByPath(event.notePath);
+    if (!snapshot.event || snapshot.error) {
+      await this.refreshCalendarEvents();
+      throw new Error(`The note changed after this comparison opened. ${snapshot.error ?? "Review the refreshed event and try again."}`);
+    }
+    let freshOutside: CalendarEventRecord | undefined;
+    try {
+      freshOutside = await this.readFreshExternalEvent(snapshot.event, event.conflictExternal);
+    } catch (error) {
+      this.recordIssue("calendar", error);
+      throw new Error(`Calendar could not be rechecked safely. Nothing was written: ${message(error)}`);
+    }
+    if (
+      !freshOutside
+      || calendarEventVersion(snapshot.event) !== calendarEventVersion(event)
+      || calendarEventVersion(freshOutside) !== calendarEventVersion(event.conflictExternal)
+    ) {
+      await this.refreshCalendarEvents();
+      throw new Error("This conflict changed after the comparison opened. Nothing was written. Review the refreshed versions and choose again.");
+    }
+    if (choice === "vault" && !this.isSelectedWritableCalendar(freshOutside.appleCalendarId ?? "")) {
       throw new Error("The linked Calendar is no longer selected and writable");
     }
     if (choice === "external") {
-      await this.writeCalendarNote(mergeExternalIntoLinked(event, event.conflictExternal));
+      try {
+        await this.writeCalendarNote(mergeExternalIntoLinked(snapshot.event, freshOutside), snapshot.markdown);
+      } catch (error) {
+        if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+        await this.refreshCalendarEvents();
+        throw new Error("The note changed while the conflict was being resolved. Nothing was overwritten. Review the refreshed versions and choose again.");
+      }
     } else {
-      await this.pushLinkedEventToCalendar({
-        ...event,
-        appleCalendarId: event.conflictExternal.appleCalendarId,
-        appleItemId: event.conflictExternal.appleItemId,
-        appleExternalId: event.conflictExternal.appleExternalId,
-        occurrenceDate: event.conflictExternal.occurrenceDate,
+      const resolved = await this.pushLinkedEventToCalendar({
+        ...snapshot.event,
+        appleCalendarId: freshOutside.appleCalendarId,
+        appleItemId: freshOutside.appleItemId,
+        appleExternalId: freshOutside.appleExternalId,
+        occurrenceDate: freshOutside.occurrenceDate,
         conflictExternal: undefined,
-      });
+      }, snapshot.markdown, freshOutside);
+      if (resolved.syncState !== "clean") {
+        await this.refreshCalendarEvents();
+        throw new Error("The Calendar event changed while the conflict was being resolved. Nothing was overwritten. Review the refreshed versions and choose again.");
+      }
     }
     await this.refreshCalendarEvents();
   }
 
   async saveCalendarEvent(event: CalendarEventRecord): Promise<void> {
+    if (
+      event.source !== "vault"
+      && !event.appleItemId
+      && this.ambiguousCalendarCreateIds?.has(event.id)
+    ) {
+      throw new Error("Calendar may already contain this event. Ordinary Save is blocked until you review the pending note and run Sync.");
+    }
     let saved = { ...event };
+    const noteSnapshot = event.notePath
+      ? await this.calendarNoteSnapshotForAction(event)
+      : undefined;
     if (event.source === "linked") {
-      const blockReason = linkedEventSaveBlockReason(event);
-      if (blockReason) throw new Error(blockReason);
-      const linkingReadOnlyExternal = !event.notePath && Boolean(event.appleItemId) && Boolean(event.readOnly);
-      if (linkingReadOnlyExternal) {
-        saved = await this.writeCalendarNote({
-          ...event,
+      const createKey = event.notePath ? undefined : (event.clientRequestId ?? event.id);
+      if (createKey && (
+        this.calendarNoteCreateInFlight?.has(createKey)
+        || this.calendarCreatedNotePaths?.has(createKey)
+      )) {
+        throw new Error("A linked note has already been created for this event. Close this stale editor and open the existing note from Calendar.");
+      }
+      if (createKey) this.calendarNoteCreateInFlight?.add(createKey);
+      try {
+        const blockReason = linkedEventSaveBlockReason(event);
+        if (blockReason) throw new Error(blockReason);
+        const linkingReadOnlyExternal = !event.notePath && Boolean(event.appleItemId) && Boolean(event.readOnly);
+        if (linkingReadOnlyExternal) {
+          saved = await this.writeCalendarNote({
+            ...event,
+            clientRequestId: event.clientRequestId ?? event.id,
+            source: "linked",
+            syncState: "clean",
+            pendingDirection: undefined,
+            lastSyncedAt: new Date().toISOString(),
+            syncHash: eventSyncHash(event),
+          });
+          if (createKey && saved.notePath) this.calendarCreatedNotePaths?.set(createKey, saved.notePath);
+          await this.refreshCalendarEvents();
+          return;
+        }
+        const targetId = saved.appleCalendarId || this.settings.defaultExternalCalendarId;
+        if (!targetId || !this.isSelectedWritableCalendar(targetId)) {
+          throw new Error("Choose an explicitly selected writable Calendar in OMD Home settings");
+        }
+        saved.appleCalendarId = targetId;
+        const linked = await this.pushLinkedEventToCalendar(saved, noteSnapshot?.markdown);
+        if (createKey && linked.notePath) this.calendarCreatedNotePaths?.set(createKey, linked.notePath);
+        await this.refreshCalendarEvents();
+        return;
+      } finally {
+        if (createKey) this.calendarNoteCreateInFlight?.delete(createKey);
+      }
+    } else if (event.source === "external") {
+      if (event.readOnly) throw new Error("This Calendar is read-only. Create a linked vault note instead");
+      const creatingExternal = !saved.appleItemId;
+      if (creatingExternal) saved.clientRequestId ??= saved.id;
+      try {
+        if (saved.appleItemId) {
+          const fresh = await this.eventKitBridge.lookup(
+            saved.appleItemId,
+            saved.occurrenceDate,
+            saved.externalStartHint ?? saved.start,
+          );
+          if (!fresh) {
+            throw new Error("The Calendar event could not be located safely. Nothing was overwritten; run Sync and try again.");
+          }
+          if (!fresh.appleCalendarId || !this.isSelectedWritableCalendar(fresh.appleCalendarId)) {
+            throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was overwritten; update Calendar settings or run Sync.");
+          }
+          if (saved.externalModifiedAt && fresh.externalModifiedAt !== saved.externalModifiedAt) {
+            throw new Error("The Calendar event changed after it was opened. Nothing was overwritten; run Sync and try again.");
+          }
+          saved = await this.eventKitBridge.upsert({
+            ...saved,
+            appleCalendarId: fresh.appleCalendarId,
+            appleItemId: fresh.appleItemId,
+            appleExternalId: fresh.appleExternalId,
+            occurrenceDate: fresh.occurrenceDate,
+            externalModifiedAt: fresh.externalModifiedAt,
+          }, "this", fresh.start);
+        } else {
+          saved = await this.eventKitBridge.upsert(saved);
+        }
+      } catch (error) {
+        if (!creatingExternal || eventKitMutationDefinitelyDidNotCommit(error)) throw error;
+        this.ambiguousCalendarCreateIds?.add(saved.id);
+        const recovery = await this.preserveAmbiguousCalendarMutation({
+          ...saved,
+          syncHash: saved.syncHash ?? eventSyncHash(saved),
           source: "linked",
-          syncState: "clean",
+          syncState: "unavailable",
+          unavailableReason: "unknown",
           pendingDirection: undefined,
-          lastSyncedAt: new Date().toISOString(),
-          syncHash: eventSyncHash(event),
-        });
+        }, undefined, error);
+        if (!recovery.notePath) {
+          throw new Error(`Calendar may have created the event, but OMD Home could not save a recovery note. Do not retry Save; check Calendar first. ${message(error)}`);
+        }
         await this.refreshCalendarEvents();
         return;
       }
-      const targetId = saved.appleCalendarId || this.settings.defaultExternalCalendarId;
-      if (!targetId || !this.isSelectedWritableCalendar(targetId)) {
-        throw new Error("Choose an explicitly selected writable Calendar in OMD Home settings");
-      }
-      saved.appleCalendarId = targetId;
-      await this.pushLinkedEventToCalendar(saved);
-      await this.refreshCalendarEvents();
-      return;
-    } else if (event.source === "external") {
-      if (event.readOnly) throw new Error("This Calendar is read-only. Create a linked vault note instead");
-      saved = await this.eventKitBridge.upsert(saved);
     } else if (event.appleItemId) {
       throw new Error("Choose whether to detach the note or also delete its Calendar event");
     }
     if (saved.source !== "external") {
       await this.ensureFolder("Calendar/Events");
-      await this.writeCalendarNote(saved);
+      await this.writeCalendarNote(saved, noteSnapshot?.markdown);
     }
     await this.refreshCalendarEvents();
   }
 
-  async detachCalendarEvent(event: CalendarEventRecord, deleteExternal: boolean): Promise<void> {
+  async detachCalendarEvent(
+    event: CalendarEventRecord,
+    confirmation: CalendarDetachConfirmation,
+  ): Promise<void> {
+    if (this.unloaded) throw new Error("OMD Home was disabled. Reopen Calendar before trying this action again.");
+    if (
+      confirmation !== CALENDAR_DETACH_CONFIRMATION
+      && confirmation !== CALENDAR_EVENT_DELETE_CONFIRMATION
+    ) {
+      throw new Error("Updating a Calendar link requires an explicit action confirmation.");
+    }
+    const deleteExternal = confirmation === CALENDAR_EVENT_DELETE_CONFIRMATION;
     if (event.source === "external") {
-      if (deleteExternal && event.appleItemId) await this.eventKitBridge.remove(event.appleItemId);
-      await this.refreshCalendarEvents();
+      if (!deleteExternal) throw new Error("A Calendar-only event cannot be detached because it has no vault note.");
+      if (!event.appleItemId) throw new Error("This Calendar event no longer has a deletable Calendar identity. Run Sync.");
+      const fresh = await this.eventKitBridge.lookup(event.appleItemId, event.occurrenceDate, event.start);
+      if (!fresh) throw new Error("The Calendar event no longer exists. Run Sync to refresh Calendar.");
+      if (!fresh.appleCalendarId || !this.isSelectedWritableCalendar(fresh.appleCalendarId)) {
+        throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was deleted; update Calendar settings or run Sync.");
+      }
+      if (event.externalModifiedAt && fresh.externalModifiedAt !== event.externalModifiedAt) {
+        throw new Error("The Calendar event changed after it was opened. Nothing was deleted; run Sync and try again.");
+      }
+      if (this.unloaded) throw new Error("OMD Home was disabled. Nothing was deleted; reopen Calendar and try again.");
+      try {
+        await this.eventKitBridge.remove(event.appleItemId, fresh.externalModifiedAt, "this", fresh.occurrenceDate, fresh.start);
+      } catch (error) {
+        if (eventKitMutationDefinitelyDidNotCommit(error)) throw error;
+        this.calendarEvents = (this.calendarEvents ?? []).filter((candidate) => candidate.id !== event.id);
+        this.refreshOpenViews?.();
+        if (!this.unloaded) {
+          try {
+            await this.refreshCalendarEvents();
+          } catch (refreshError) {
+            this.recordIssue?.("calendar", refreshError);
+            this.refreshOpenViews?.();
+          }
+        }
+        throw new CalendarPartialActionError(
+          "Calendar deletion could not be confirmed. Check Calendar before trying another delete.",
+        );
+      }
+      this.calendarEvents = (this.calendarEvents ?? []).filter((candidate) => candidate.id !== event.id);
+      this.refreshOpenViews?.();
+      if (!this.unloaded) {
+        try {
+          await this.refreshCalendarEvents();
+        } catch (error) {
+          this.recordIssue?.("calendar", error);
+          this.refreshOpenViews?.();
+        }
+      }
       return;
     }
-    const detached = detachLinkedEvent(event);
-    await this.writeCalendarNote(detached);
+    const snapshot = await this.calendarNoteSnapshotForAction(event);
+    let freshOutside: CalendarEventRecord | undefined;
     if (deleteExternal && event.appleItemId) {
-      try { await this.eventKitBridge.remove(event.appleItemId); }
-      catch (error) {
-        await this.refreshCalendarEvents();
-        throw new Error(`The note was detached safely, but Calendar deletion failed: ${message(error)}`);
+      freshOutside = await this.readFreshExternalEvent(snapshot.event, event);
+      if (!freshOutside) {
+        throw new Error("Calendar could not safely locate the linked event. Nothing was detached or deleted; run Sync and review the event.");
+      }
+      if (!freshOutside.appleCalendarId || !this.isSelectedWritableCalendar(freshOutside.appleCalendarId)) {
+        throw new Error("The Calendar event moved to a calendar that is not selected and writable. Nothing was deleted; update Calendar settings or detach without deleting Calendar data.");
+      }
+      if (
+        freshOutside
+        && event.externalModifiedAt
+        && freshOutside.externalModifiedAt !== event.externalModifiedAt
+      ) {
+        throw new Error("The Calendar event changed after this action opened. Nothing was detached or deleted; run Sync and try again.");
       }
     }
-    await this.refreshCalendarEvents();
+    if (this.unloaded) throw new Error("OMD Home was disabled. Nothing was changed; reopen Calendar and try again.");
+    const detached = await this.writeCalendarNote(detachLinkedEvent(snapshot.event), snapshot.markdown);
+    this.calendarEvents = (this.calendarEvents ?? []).map((candidate) => (
+      candidate.id === event.id ? detached : candidate
+    ));
+    this.refreshOpenViews?.();
+    if (deleteExternal && event.appleItemId) {
+      if (this.unloaded) {
+        throw new CalendarPartialActionError(
+          "The note is now Vault only. OMD Home was disabled before Calendar deletion started.",
+        );
+      }
+      try {
+        await this.eventKitBridge.remove(
+          freshOutside!.appleItemId!,
+          freshOutside!.externalModifiedAt,
+          "this",
+          freshOutside!.occurrenceDate,
+          freshOutside!.start,
+        );
+      }
+      catch (error) {
+        if (!this.unloaded) {
+          try {
+            await this.refreshCalendarEvents();
+          } catch (refreshError) {
+            this.recordIssue?.("calendar", refreshError);
+            this.refreshOpenViews?.();
+          }
+        }
+        const detail = eventKitMutationDefinitelyDidNotCommit(error)
+          ? "The note is now Vault only. The Calendar event was not deleted."
+          : "The note is now Vault only. Calendar deletion could not be confirmed; check Calendar before retrying.";
+        throw new CalendarPartialActionError(detail);
+      }
+    }
+    if (!this.unloaded) {
+      try {
+        await this.refreshCalendarEvents();
+      } catch (error) {
+        this.recordIssue?.("calendar", error);
+        this.refreshOpenViews?.();
+      }
+    }
   }
 
-  async recreateCalendarEvent(event: CalendarEventRecord): Promise<void> {
-    await this.saveCalendarEvent({
-      ...event,
-      source: "linked",
-      appleCalendarId: this.settings.defaultExternalCalendarId,
+  async deleteCalendarEventNote(
+    event: CalendarEventRecord,
+    confirmation: CalendarNoteDeleteConfirmation,
+  ): Promise<void> {
+    if (this.unloaded) throw new Error("OMD Home was disabled. Reopen Calendar before trying this action again.");
+    if (confirmation !== CALENDAR_NOTE_DELETE_CONFIRMATION) {
+      throw new Error("Deleting an event note requires explicit confirmation.");
+    }
+    if (event.source === "external" || !event.notePath) {
+      throw new Error("This Calendar-only event has no vault note to delete.");
+    }
+    const path = event.notePath;
+    const invalidNote = isCalendarNoteErrorRecord(event);
+    const expectedMarkdown = invalidNote
+      ? undefined
+      : (await this.calendarNoteSnapshotForAction(event)).markdown;
+    const file = this.app.vault.getFileByPath(path);
+    if (!(file instanceof TFile)) {
+      await this.refreshCalendarEvents();
+      throw new Error("The event note no longer exists. Calendar was refreshed.");
+    }
+    if (invalidNote) {
+      if (!event.vaultModifiedAt || new Date(file.stat.mtime).toISOString() !== event.vaultModifiedAt) {
+        await this.refreshCalendarEvents();
+        throw new Error("The event note changed after it was opened. Nothing was deleted; review the refreshed note and try again.");
+      }
+    } else {
+      const currentMarkdown = await this.app.vault.read(file);
+      if (currentMarkdown !== expectedMarkdown) {
+        await this.refreshCalendarEvents();
+        throw new Error("The event note changed after it was opened. Nothing was deleted; review the refreshed note and try again.");
+      }
+    }
+    if (this.unloaded) throw new Error("OMD Home was disabled. Nothing was deleted; reopen Calendar and try again.");
+    await this.app.fileManager.trashFile(file);
+    this.calendarWriteOverrides.delete(path);
+    this.ambiguousCalendarCreateIds.delete(event.id);
+    for (const [key, createdPath] of this.calendarCreatedNotePaths) {
+      if (createdPath === path) this.calendarCreatedNotePaths.delete(key);
+    }
+    this.calendarEvents = this.calendarEvents.filter((candidate) => candidate.notePath !== path);
+    if (!this.unloaded) {
+      this.refreshOpenViews();
+      try {
+        await this.refreshCalendarEvents();
+      } catch (error) {
+        this.recordIssue("calendar", new Error(
+          `The event note was moved to trash, but Calendar could not refresh: ${message(error)}`,
+        ));
+        this.refreshOpenViews();
+      }
+    }
+  }
+
+  async recreateCalendarEvent(
+    event: CalendarEventRecord,
+    confirmation: CalendarRecreateConfirmation,
+    expectedTargetCalendarId: string,
+    expectedSelectedCalendarIds: readonly string[],
+  ): Promise<void> {
+    if (confirmation !== CALENDAR_RECREATE_CONFIRMATION) {
+      throw new Error("Recreate requires explicit confirmation of the duplicate-event risk.");
+    }
+    if (this.unloaded) {
+      throw new Error("OMD Home was disabled. Nothing was recreated; reopen Calendar and try again.");
+    }
+    if (event.source !== "linked" || event.syncState !== "unavailable" || !event.notePath) {
+      throw new Error("Recreate is available only for an unavailable linked note. Run Sync first.");
+    }
+    if (event.unavailableReason === "calendar-deselected" || event.unavailableReason === "setup-or-read-failure") {
+      throw new Error("Calendar cannot be checked safely yet. Restore Calendar access and Retry Sync, or Detach the note.");
+    }
+    const confirmedSelectedCalendarIds = [...new Set(expectedSelectedCalendarIds ?? [])].sort();
+    const recreateGeneration = (this.calendarRecreateGeneration ?? 0) + 1;
+    this.calendarRecreateGeneration = recreateGeneration;
+    const calendarSelectionIsCurrent = (): boolean => {
+      const current = [...new Set(this.settings.selectedCalendarIds ?? [])].sort();
+      return current.length === confirmedSelectedCalendarIds.length
+        && current.every((id, index) => id === confirmedSelectedCalendarIds[index]);
+    };
+    const recoveryStateIsCurrent = (): boolean => {
+      const live = this.calendarEvents.find((candidate) => candidate.notePath === event.notePath);
+      return Boolean(
+        live
+        && live.id === event.id
+        && live.source === "linked"
+        && live.syncState === "unavailable"
+        && live.unavailableReason === event.unavailableReason
+        && live.notePath === event.notePath
+        && live.appleCalendarId === event.appleCalendarId
+        && live.appleItemId === event.appleItemId
+        && live.appleExternalId === event.appleExternalId
+        && live.occurrenceDate === event.occurrenceDate
+        && live.clientRequestId === event.clientRequestId
+        && live.syncHash === event.syncHash
+        && eventSyncHash(live) === eventSyncHash(event)
+      );
+    };
+    const targetCalendarIsCurrent = (): boolean => (
+      Boolean(expectedTargetCalendarId)
+      && this.settings.defaultExternalCalendarId === expectedTargetCalendarId
+      && calendarSelectionIsCurrent()
+      && this.isSelectedWritableCalendar(expectedTargetCalendarId)
+    );
+    const recreateCanContinue = (): boolean => (
+      !this.unloaded
+      && this.calendarRecreateGeneration === recreateGeneration
+      && targetCalendarIsCurrent()
+    );
+    const assertRecoveryStateIsCurrent = async (): Promise<void> => {
+      if (recoveryStateIsCurrent()) return;
+      await this.refreshCalendarEvents();
+      throw new Error("This event state changed after Recreate opened. Nothing was written; review the refreshed event.");
+    };
+    await assertRecoveryStateIsCurrent();
+    if (!targetCalendarIsCurrent()) {
+      throw new Error("The selected or default Calendar changed after Recreate opened. Nothing was written; reopen the event and confirm the destination.");
+    }
+    const snapshot = await this.calendarNoteSnapshotForAction(event);
+    if (this.unloaded) {
+      throw new Error("OMD Home was disabled. Nothing was recreated; reopen Calendar and try again.");
+    }
+    await assertRecoveryStateIsCurrent();
+    if (
+      snapshot.event.clientRequestId
+      && snapshot.event.syncHash
+      && eventSyncHash(snapshot.event) !== snapshot.event.syncHash
+    ) {
+      throw new Error("The pending event payload changed after its Calendar request. Nothing was recreated; restore the original fields or Detach the note.");
+    }
+    if (!targetCalendarIsCurrent()) {
+      throw new Error("The selected or default Calendar changed after Recreate opened. Nothing was written; reopen the event and confirm the destination.");
+    }
+    const targetId = expectedTargetCalendarId;
+    let recovered: CalendarEventRecord | undefined;
+    try {
+      recovered = await this.readFreshExternalEvent(snapshot.event, event, true);
+    } catch (error) {
+      this.recordIssue("calendar", error);
+      throw new Error(`Calendar could not be checked safely. Nothing was recreated: ${message(error)}`);
+    }
+    if (this.unloaded) {
+      throw new Error("OMD Home was disabled. Nothing was recreated; reopen Calendar and try again.");
+    }
+    await assertRecoveryStateIsCurrent();
+    if (!targetCalendarIsCurrent()) {
+      throw new Error("The selected or default Calendar changed after Recreate opened. Nothing was written; reopen the event and confirm the destination.");
+    }
+    if (recovered) {
+      await this.refreshCalendarEvents();
+      throw new Error("The original Calendar event is available again. Nothing was recreated; review the refreshed event.");
+    }
+    const recreated = await this.pushLinkedEventToCalendar({
+      ...snapshot.event,
+      calendar: this.externalCalendars?.find((calendar) => calendar.id === targetId)?.title ?? snapshot.event.calendar,
+      appleCalendarId: targetId,
       appleItemId: undefined,
       appleExternalId: undefined,
       occurrenceDate: undefined,
-      syncHash: undefined,
-      syncState: "pending",
-      pendingDirection: "vault",
+      externalModifiedAt: undefined,
+      clientRequestId: snapshot.event.clientRequestId ?? event.id,
+      syncState: "unavailable",
+      unavailableReason: undefined,
+      pendingDirection: undefined,
       conflictExternal: undefined,
-    });
+      readOnly: undefined,
+    }, snapshot.markdown, undefined, recreateCanContinue, () => (
+      recreateCanContinue()
+      && recoveryStateIsCurrent()
+      && !this.calendarRefresh
+    ));
+    if (!recreateCanContinue()) return;
+    if (recreated.syncState === "clean") this.ambiguousCalendarCreateIds?.delete(event.id);
+    await this.refreshCalendarEvents();
   }
 
-  private async pushLinkedEventToCalendar(event: CalendarEventRecord): Promise<CalendarEventRecord> {
+  private async pushLinkedEventToCalendar(
+    event: CalendarEventRecord,
+    expectedMarkdown?: string,
+    expectedExternal?: CalendarEventRecord,
+    continuationIsCurrent: () => boolean = () => true,
+    preExternalMutationIsCurrent: () => boolean = continuationIsCurrent,
+  ): Promise<CalendarEventRecord> {
+    const invalidatedBeforeExternalMutation = (): Error => new Error(
+      "This Calendar action is no longer current. No further Calendar or note changes were made; run Sync before trying again.",
+    );
+    const invalidatedAfterExternalMutation = (): Error => new Error(
+      "This Calendar action is no longer current after Calendar may have been updated. The pending note is the recovery record; run Sync before any other create or edit.",
+    );
+    const preExternalMutationCanContinue = (): boolean => (
+      continuationIsCurrent() && preExternalMutationIsCurrent()
+    );
+    const assertPreExternalMutationContinuation = (): void => {
+      if (!preExternalMutationCanContinue()) throw invalidatedBeforeExternalMutation();
+    };
     const hadExternalIdentity = Boolean(event.appleItemId);
-    const staged = await this.writeCalendarNote({
+    const createdNewNote = !event.notePath;
+    if (event.notePath && expectedMarkdown === undefined) {
+      throw new CalendarSnapshotChangedError("The event note must be refreshed before Calendar can be updated");
+    }
+    assertPreExternalMutationContinuation();
+    const pending = normalizeEventKitEvent({
       ...event,
+      clientRequestId: hadExternalIdentity ? event.clientRequestId : (event.clientRequestId ?? event.id),
+      syncHash: hadExternalIdentity ? event.syncHash : eventSyncHash(event),
       source: "linked",
       syncState: "pending",
+      unavailableReason: undefined,
       pendingDirection: "vault",
       conflictExternal: undefined,
     });
-    const savedOutside = await this.eventKitBridge.upsert(staged);
-    const merged = mergeExternalIntoLinked(staged, savedOutside);
-    try {
-      return await this.writeCalendarNote(merged);
-    } catch (firstError) {
-      try {
-        return await this.writeCalendarNote(merged);
-      } catch {
-        if (!hadExternalIdentity && savedOutside.appleItemId) {
-          let rollbackError: unknown;
-          try { await this.eventKitBridge.remove(savedOutside.appleItemId); }
-          catch (error) { rollbackError = error; }
-          if (!rollbackError) {
-            throw new Error(`Calendar creation was rolled back because the note could not be finalized. The pending note was preserved: ${message(firstError)}`);
-          }
-          throw new Error(`The pending note was preserved, but its new Calendar copy could not be rolled back. Delete Calendar item ${savedOutside.appleItemId} manually, then use Recreate: ${message(rollbackError)}`);
-        }
-        throw new Error(`Calendar was updated, while the note remains safely marked pending. Run Sync to finalize it: ${message(firstError)}`);
+    const staged = await this.writeCalendarNote(
+      pending,
+      expectedMarkdown,
+      preExternalMutationCanContinue,
+      true,
+    );
+    const createKey = createdNewNote ? (staged.clientRequestId ?? event.id) : undefined;
+    if (createKey && staged.notePath) this.calendarCreatedNotePaths?.set(createKey, staged.notePath);
+    const expectedStagedMarkdown = expectedMarkdown === undefined
+      ? serializeEventNote(staged)
+      : updateEventNote(expectedMarkdown, pending);
+    const stopBeforeExternalMutation = async (): Promise<never> => {
+      if (this.unloaded) throw invalidatedBeforeExternalMutation();
+      let restored = false;
+      if (createdNewNote && staged.notePath) {
+        restored = await this.discardCreatedPendingCalendarNote(staged, expectedStagedMarkdown);
+        if (restored && createKey) this.calendarCreatedNotePaths?.delete(createKey);
+      } else if (staged.notePath && expectedMarkdown !== undefined) {
+        restored = await this.restoreCalendarNoteMarkdown(
+          staged.notePath,
+          expectedStagedMarkdown,
+          expectedMarkdown,
+        );
       }
+      if (!restored) {
+        throw new CalendarSnapshotChangedError(
+          "The Calendar action stopped, but the staged note changed before it could be restored. Calendar was not modified; review the note before retrying.",
+        );
+      }
+      throw invalidatedBeforeExternalMutation();
+    };
+    if (!preExternalMutationCanContinue()) {
+      return await stopBeforeExternalMutation();
+    }
+    const stagedSnapshot = staged.notePath
+      ? await this.readCalendarNoteSnapshotByPath(staged.notePath)
+      : { event: null, markdown: "", error: "The staged event note is unavailable" };
+    if (!preExternalMutationCanContinue()) {
+      return await stopBeforeExternalMutation();
+    }
+    if (!stagedSnapshot.event || stagedSnapshot.error) {
+      throw new Error(stagedSnapshot.error ?? "The staged event note could not be verified");
+    }
+    if (stagedSnapshot.markdown !== expectedStagedMarkdown) {
+      throw new CalendarSnapshotChangedError("The event note changed while Calendar was being prepared. Nothing was sent to Calendar.");
+    }
+    let writeCandidate = staged;
+    let currentExternalStartHint: string | undefined;
+    if (hadExternalIdentity) {
+      let freshOutside: CalendarEventRecord | undefined;
+      try {
+        freshOutside = await this.readFreshExternalEvent(stagedSnapshot.event, expectedExternal ?? event);
+      } catch (error) {
+        if (!continuationIsCurrent()) throw invalidatedBeforeExternalMutation();
+        if (!preExternalMutationIsCurrent()) return await stopBeforeExternalMutation();
+        this.recordIssue("calendar", error);
+        return await this.writeCalendarNote({
+          ...event,
+          syncState: "error",
+          unavailableReason: "setup-or-read-failure",
+          pendingDirection: undefined,
+          conflictExternal: undefined,
+        }, stagedSnapshot.markdown, preExternalMutationCanContinue);
+      }
+      if (!preExternalMutationCanContinue()) return await stopBeforeExternalMutation();
+      if (!freshOutside) {
+        return await this.writeCalendarNote({
+          ...event,
+          syncState: "unavailable",
+          unavailableReason: "unknown",
+          pendingDirection: undefined,
+          conflictExternal: undefined,
+        }, stagedSnapshot.markdown, preExternalMutationCanContinue);
+      }
+      if (!freshOutside.appleCalendarId || !this.isSelectedWritableCalendar(freshOutside.appleCalendarId)) {
+        return await this.writeCalendarNote({
+          ...event,
+          appleCalendarId: freshOutside.appleCalendarId,
+          appleItemId: freshOutside.appleItemId,
+          appleExternalId: freshOutside.appleExternalId,
+          occurrenceDate: freshOutside.occurrenceDate,
+          externalModifiedAt: freshOutside.externalModifiedAt,
+          syncState: "unavailable",
+          unavailableReason: "calendar-deselected",
+          pendingDirection: undefined,
+          conflictExternal: undefined,
+        }, stagedSnapshot.markdown, preExternalMutationCanContinue);
+      }
+      const externalChanged = expectedExternal
+        ? calendarEventVersion(freshOutside) !== calendarEventVersion(expectedExternal)
+        : (
+          Boolean(stagedSnapshot.event.externalModifiedAt)
+          && freshOutside.externalModifiedAt !== stagedSnapshot.event.externalModifiedAt
+        ) || !["clean", "vault"].includes(classifyLinkedChange(stagedSnapshot.event, freshOutside));
+      if (externalChanged) {
+        return await this.writeCalendarNote({
+          ...event,
+          syncState: "conflict",
+          unavailableReason: undefined,
+          pendingDirection: undefined,
+          conflictExternal: freshOutside,
+        }, stagedSnapshot.markdown, preExternalMutationCanContinue);
+      }
+      writeCandidate = {
+        ...staged,
+        appleCalendarId: freshOutside.appleCalendarId,
+        appleItemId: freshOutside.appleItemId,
+        appleExternalId: freshOutside.appleExternalId,
+        occurrenceDate: freshOutside.occurrenceDate,
+        externalModifiedAt: freshOutside.externalModifiedAt,
+      };
+      currentExternalStartHint = freshOutside.start;
+    }
+    if (!preExternalMutationCanContinue()) {
+      return await stopBeforeExternalMutation();
+    }
+    let savedOutside: CalendarEventRecord;
+    try {
+      savedOutside = await this.eventKitBridge.upsert(writeCandidate, "this", currentExternalStartHint);
+    } catch (error) {
+      if (!continuationIsCurrent()) throw invalidatedAfterExternalMutation();
+      if (eventKitMutationDefinitelyDidNotCommit(error)) {
+        if (createdNewNote && staged.notePath) {
+          let discarded = false;
+          try {
+            discarded = await this.discardCreatedPendingCalendarNote(staged, stagedSnapshot.markdown);
+          } catch {
+            // Fall through to a visible recovery note; retry is unsafe unless
+            // the exact temporary note was removed successfully.
+          }
+          if (discarded) {
+            if (createKey) this.calendarCreatedNotePaths?.delete(createKey);
+            throw new Error(`Calendar rejected the event before saving it. The temporary note was removed safely and your draft remains open; retry Save. ${message(error)}`);
+          }
+        } else if (staged.notePath && expectedMarkdown !== undefined) {
+          const restored = await this.restoreCalendarNoteMarkdown(
+            staged.notePath,
+            stagedSnapshot.markdown,
+            expectedMarkdown,
+          );
+          if (restored) {
+            throw new Error(`Calendar rejected the event before saving it. The note was restored exactly; retry Save after fixing Calendar setup. ${message(error)}`);
+          }
+        }
+      }
+      this.ambiguousCalendarCreateIds?.add(event.id);
+      return await this.preserveAmbiguousCalendarMutation(
+        staged,
+        stagedSnapshot.markdown,
+        error,
+        continuationIsCurrent,
+      );
+    }
+    if (!continuationIsCurrent()) throw invalidatedAfterExternalMutation();
+    const merged = {
+      ...mergeExternalIntoLinked(writeCandidate, savedOutside),
+      unavailableReason: undefined,
+    };
+    try {
+      const finalized = await this.writeCalendarNote(merged, stagedSnapshot.markdown, continuationIsCurrent);
+      this.ambiguousCalendarCreateIds?.delete(event.id);
+      return finalized;
+    } catch (firstError) {
+      if (!continuationIsCurrent()) throw invalidatedAfterExternalMutation();
+      if (firstError instanceof CalendarSnapshotChangedError) {
+        if (staged.notePath && merged.clientRequestId && savedOutside.appleItemId && merged.syncHash) {
+          let concurrent: Awaited<ReturnType<typeof this.readCalendarNoteSnapshotByPath>> | undefined;
+          try {
+            concurrent = await this.readCalendarNoteSnapshotByPath(staged.notePath);
+          } catch {
+            // Fall through to the pending-reconciliation path when the note cannot be re-read.
+          }
+          if (!continuationIsCurrent()) throw invalidatedAfterExternalMutation();
+          const finalized = concurrent?.event;
+          if (
+            finalized
+            && !concurrent?.error
+            && finalized.source === "linked"
+            && finalized.syncState === "clean"
+            && finalized.id === merged.id
+            && finalized.notePath === staged.notePath
+            && finalized.clientRequestId === merged.clientRequestId
+            && finalized.appleCalendarId === savedOutside.appleCalendarId
+            && finalized.appleItemId === savedOutside.appleItemId
+            && finalized.appleExternalId === savedOutside.appleExternalId
+            && finalized.occurrenceDate === savedOutside.occurrenceDate
+            && finalized.syncHash === merged.syncHash
+            && eventSyncHash(finalized) === merged.syncHash
+          ) {
+            this.ambiguousCalendarCreateIds?.delete(event.id);
+            return finalized;
+          }
+        }
+        if (!hadExternalIdentity) this.ambiguousCalendarCreateIds?.add(event.id);
+        throw new Error("Calendar was updated, but the note changed before finalization. The note was preserved; run Sync to review the conflict.");
+      }
+      if (!hadExternalIdentity && savedOutside.appleItemId) {
+        this.ambiguousCalendarCreateIds?.add(event.id);
+        throw new Error(`Calendar saved the new event, while the note remains safely marked pending. Run Sync to finalize it before trying another create: ${message(firstError)}`);
+      }
+      throw new Error(`Calendar was updated, while the note remains safely marked pending. Run Sync to finalize it: ${message(firstError)}`);
     }
   }
 
-  private async writeCalendarNote(event: CalendarEventRecord): Promise<CalendarEventRecord> {
+  private async discardCreatedPendingCalendarNote(
+    staged: CalendarEventRecord,
+    expectedMarkdown: string,
+  ): Promise<boolean> {
+    if (!staged.notePath) return false;
+    const file = this.app.vault.getFileByPath(staged.notePath);
+    if (!(file instanceof TFile)) return false;
+    const current = await this.app.vault.read(file);
+    if (current !== expectedMarkdown) return false;
+    await this.app.fileManager.trashFile(file);
+    this.calendarWriteOverrides.delete(staged.notePath);
+    return true;
+  }
+
+  private async restoreCalendarNoteMarkdown(
+    path: string,
+    expectedCurrent: string,
+    original: string,
+  ): Promise<boolean> {
+    const file = this.app.vault.getFileByPath(path);
+    if (!(file instanceof TFile)) return false;
+    try {
+      await this.app.vault.process(file, (current) => {
+        if (current !== expectedCurrent) throw new CalendarSnapshotChangedError();
+        return original;
+      });
+    } catch (error) {
+      if (error instanceof CalendarSnapshotChangedError) return false;
+      throw error;
+    }
+    this.calendarWriteOverrides.delete(path);
+    return true;
+  }
+
+  private async preserveAmbiguousCalendarMutation(
+    staged: CalendarEventRecord,
+    expectedMarkdown: string | undefined,
+    cause: unknown,
+    continuationIsCurrent: () => boolean = () => true,
+  ): Promise<CalendarEventRecord> {
+    if (!continuationIsCurrent()) throw new Error("This Calendar action is no longer current");
+    const warning = new Error(
+      `Calendar did not confirm whether this write completed. The note remains available for Sync and review; do not use ordinary Save again. ${message(cause)}`,
+    );
+    this.recordIssue("calendar", warning, staged.notePath ?? staged.title);
+    const recovery = {
+      ...staged,
+      source: "linked" as const,
+      syncState: "unavailable" as const,
+      unavailableReason: "unknown" as const,
+      pendingDirection: undefined,
+      conflictExternal: undefined,
+    };
+    try {
+      return await this.writeCalendarNote(recovery, expectedMarkdown, continuationIsCurrent);
+    } catch (error) {
+      if (!(error instanceof CalendarSnapshotChangedError)) throw error;
+      return recovery;
+    }
+  }
+
+  private async writeCalendarNote(
+    event: CalendarEventRecord,
+    expectedMarkdown?: string,
+    continuationIsCurrent: () => boolean = () => true,
+    returnCommittedOnInvalidation = false,
+  ): Promise<CalendarEventRecord> {
+    if (!continuationIsCurrent()) throw new Error("This Calendar action is no longer current");
     const normalized = normalizeEventKitEvent(event);
     await this.ensureFolder("Calendar/Events");
+    if (!continuationIsCurrent()) throw new Error("This Calendar action is no longer current");
     const existing = normalized.notePath ? this.app.vault.getFileByPath(normalized.notePath) : null;
     if (existing) {
-      await this.app.vault.process(existing, (current) => updateEventNote(current, normalized));
-      const saved = { ...normalized, notePath: existing.path };
-      const currentFile = this.app.vault.getFileByPath(existing.path);
-      this.calendarWriteOverrides.set(existing.path, {
-        event: saved,
-        modifiedAt: currentFile?.stat.mtime ?? existing.stat.mtime,
+      await this.app.vault.process(existing, (current) => {
+        if (!continuationIsCurrent()) throw new Error("This Calendar action is no longer current");
+        if (expectedMarkdown !== undefined && current !== expectedMarkdown) {
+          throw new CalendarSnapshotChangedError();
+        }
+        return updateEventNote(current, normalized);
       });
+      const stillCurrent = continuationIsCurrent();
+      if (!stillCurrent && !returnCommittedOnInvalidation) {
+        throw new Error("This Calendar action is no longer current");
+      }
+      const currentFile = this.app.vault.getFileByPath(existing.path);
+      const modifiedAt = currentFile?.stat.mtime ?? existing.stat.mtime;
+      const saved = {
+        ...normalized,
+        notePath: existing.path,
+        vaultModifiedAt: new Date(modifiedAt).toISOString(),
+      };
+      if (stillCurrent) {
+        this.calendarWriteOverrides.set(existing.path, {
+          event: saved,
+          modifiedAt,
+        });
+      }
       return saved;
     } else {
+      if (expectedMarkdown !== undefined) throw new CalendarSnapshotChangedError("The event note no longer exists");
       const path = await this.uniquePath(eventNotePath(normalized));
+      if (!continuationIsCurrent()) throw new Error("This Calendar action is no longer current");
       const file = await this.app.vault.create(path, serializeEventNote({ ...normalized, notePath: path }));
-      const saved = { ...normalized, notePath: file.path };
-      this.calendarWriteOverrides.set(file.path, { event: saved, modifiedAt: file.stat.mtime });
+      const stillCurrent = continuationIsCurrent();
+      if (!stillCurrent && !returnCommittedOnInvalidation) {
+        throw new Error("This Calendar action is no longer current");
+      }
+      const saved = {
+        ...normalized,
+        notePath: file.path,
+        vaultModifiedAt: new Date(file.stat.mtime).toISOString(),
+      };
+      if (stillCurrent) {
+        this.calendarWriteOverrides.set(file.path, { event: saved, modifiedAt: file.stat.mtime });
+      }
       return saved;
     }
   }
@@ -1108,15 +4257,31 @@ export default class OmdHomePlugin extends Plugin {
     this.clearIssue("inbox");
   }
 
-  private renderAiAnswer(output: HTMLElement, answer: AiAnswer, elapsedMs: number): void {
+  async refreshCapturedInboxStatus(path: string): Promise<void> {
+    const indexedFile = await waitForCapturedVaultFile(path, (candidatePath) => {
+      const candidate = this.app.vault.getFileByPath(candidatePath);
+      return candidate instanceof TFile ? candidate : null;
+    });
+    const written = indexedFile
+      ? await this.app.vault.process(indexedFile, (content) => setOmdHomeStatusInMarkdown(content, "inbox"))
+      : await this.app.vault.adapter.process(path, (content) => setOmdHomeStatusInMarkdown(content, "inbox"));
+    if (setOmdHomeStatusInMarkdown(written, "inbox") !== written) {
+      throw new Error("The captured note was saved, but its Inbox status was not written.");
+    }
+    this.clearIssue("inbox");
+  }
+
+  private renderAiAnswer(output: HTMLElement, answer: AiAnswer, elapsedMs: number, retrievalEndpoint: string): void {
     output.empty();
     output.hidden = false;
     const header = output.createDiv({ cls: "omd-answer-meta" });
-    header.createSpan({ text: `${answer.provider} / ${answer.model}` });
+    const provider = isStoredAiProvider(answer.provider) ? aiProviderLabel(answer.provider) : answer.provider;
+    header.createSpan({ text: `${provider} / ${answer.model}` });
     const actions = header.createDiv({ cls: "omd-answer-actions" });
-    actions.createSpan({ text: `${answer.evidence.length} sources` });
+    const sourceCount = answerSourceCount(answer);
+    actions.createSpan({ text: `${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` });
     if (answer.retrieval_mode) {
-      const retrievalLabel = answer.retrieval_mode === "hybrid" ? "Hybrid" : "Sparse";
+      const retrievalLabel = answer.retrieval_mode === "hybrid" ? "Keyword + semantic search" : "Keyword search";
       actions.createSpan({
         cls: "omd-answer-retrieval",
         text: answer.retrieval_model ? `${retrievalLabel} · ${answer.retrieval_model}` : retrievalLabel,
@@ -1134,17 +4299,87 @@ export default class OmdHomePlugin extends Plugin {
       attr: { "aria-label": "Copy OMD result and source links" },
     });
     copy.addEventListener("click", () => void this.copyAiAnswer(copy, answer));
-    if (answer.warnings?.length) {
-      const diagnostics = output.createDiv({ cls: "omd-answer-diagnostics" });
-      for (const warning of answer.warnings) {
-        diagnostics.createSpan({ cls: "omd-answer-warning", text: humanizeRetrievalWarning(warning) });
-      }
-    }
-    output.createEl("p", { cls: "omd-answer-text", text: answer.text });
-    const sources = output.createDiv({ cls: "omd-answer-sources" });
+    this.renderRetrievalDiagnostics(output, answer.warnings ?? [], answer.embeddingFallbackModel ?? null, retrievalEndpoint);
+    output.createEl("p", { cls: "omd-answer-text", text: scopedAiAnswerText(answer) });
+    const sources = output.createDiv({
+      cls: "omd-answer-sources",
+      attr: { role: "group", "aria-label": "Sources for this answer" },
+    });
     for (const hit of answer.evidence) {
       const link = sources.createEl("button", { cls: "omd-source-link", type: "button", text: hit.path });
       link.addEventListener("click", () => void this.app.workspace.openLinkText(hit.path, "", false));
+    }
+  }
+
+  private renderRetrievalDiagnostics(
+    output: HTMLElement,
+    warnings: string[],
+    embeddingFallbackModel: string | null,
+    retrievalEndpoint: string,
+    context: "answer" | "evidence-check" = "answer",
+  ): void {
+    if (!warnings.length) return;
+    const diagnostics = output.createDiv({ cls: "omd-answer-diagnostics" });
+    for (const warning of warnings) {
+      const diagnostic = diagnostics.createDiv({ cls: "omd-answer-warning" });
+      diagnostic.createSpan({ text: humanizeRetrievalWarning(warning, context) });
+      if (!isEmbeddingRetrievalWarning(warning)) continue;
+      const installableModel = warning === "hybrid_retrieval_model_not_installed"
+        ? oneClickInstallableEmbeddingModel(embeddingFallbackModel ?? "")
+        : null;
+      const pullCommand = warning === "hybrid_retrieval_model_not_installed" && !installableModel
+        ? embeddingModelPullCommand(embeddingFallbackModel ?? "", retrievalEndpoint, Platform.isWin)
+        : null;
+      if (installableModel) {
+        diagnostic.createDiv({
+          cls: "omd-answer-warning-detail",
+          text: `Installing ${installableModel} downloads model data to Ollama and may take several minutes.`,
+        });
+      }
+      const warningActions = diagnostic.createDiv({ cls: "omd-answer-warning-actions" });
+      if (installableModel) {
+        const install = warningActions.createEl("button", { type: "button", text: `Install ${installableModel}` });
+        install.title = `Install ${installableModel} with Ollama at ${retrievalEndpoint}`;
+        install.disabled = this.aiSetupBusy();
+        install.addEventListener("click", () => void this.installEmbeddingModel(installableModel, retrievalEndpoint).then((installed) => {
+          if (installed && install.isConnected) install.textContent = "Installed";
+        }));
+      } else if (pullCommand) {
+        const copyCommand = warningActions.createEl("button", { type: "button", text: "Copy install command" });
+        copyCommand.title = `Copy ${pullCommand}`;
+        copyCommand.addEventListener("click", () => {
+          if (this.currentLocalAiHost() !== retrievalEndpoint
+            || !localModelNamesMatch(this.settings.embeddingModel, embeddingFallbackModel ?? "")) {
+            new Notice("Retrieval settings changed. Review the current Ollama endpoint and embedding model.");
+            this.openRetrievalSettings();
+            return;
+          }
+          void navigator.clipboard.writeText(pullCommand).then(() => {
+            if (copyCommand.isConnected) copyCommand.textContent = "Copied";
+            new Notice("Ollama install command copied. Run it in terminal, then refresh models.");
+          }).catch(() => {
+            new Notice(`Copy failed. Run this in Terminal: ${pullCommand}`);
+          });
+        });
+      } else {
+        const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
+        settings.addEventListener("click", () => this.openRetrievalSettings());
+      }
+      if (installableModel || pullCommand) {
+        const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
+        settings.addEventListener("click", () => this.openRetrievalSettings());
+      }
+      if (this.settings.hybridRetrievalEnabled) {
+        const sparse = warningActions.createEl("button", { type: "button", text: "Use keyword search by default" });
+        sparse.title = "Turn off semantic search for future vault questions";
+        sparse.disabled = this.aiSetupBusy();
+        sparse.addEventListener("click", () => void this.useSparseRetrieval().then((selected) => {
+          if (selected && sparse.isConnected) {
+            sparse.textContent = "Keyword search is default";
+            sparse.disabled = true;
+          }
+        }));
+      }
     }
   }
 
@@ -1217,11 +4452,22 @@ export default class OmdHomePlugin extends Plugin {
     return isSelectedWritableCalendar(id, this.settings.selectedCalendarIds, this.externalCalendars);
   }
 
+  private isCalendarEventPath(path: string, file?: TFile): boolean {
+    if (path.startsWith("Calendar/Events/")) return true;
+    if (this.calendarEvents.some((event) => event.notePath === path)) return true;
+    const current = file ?? this.app.vault.getFileByPath(path);
+    if (!(current instanceof TFile) || current.extension !== "md") return false;
+    return this.app.metadataCache.getFileCache(current)?.frontmatter?.type === "event";
+  }
+
   private scheduleCalendarRefresh(): void {
     if (this.calendarRefreshTimer !== null) window.clearTimeout(this.calendarRefreshTimer);
     this.calendarRefreshTimer = window.setTimeout(() => {
       this.calendarRefreshTimer = null;
-      void this.refreshCalendarEvents();
+      void this.refreshCalendarEvents().catch((error) => {
+        this.recordIssue("calendar", error);
+        this.refreshOpenViews();
+      });
     }, 250);
   }
 
@@ -1245,11 +4491,19 @@ export default class OmdHomePlugin extends Plugin {
     return isEventKitHelperAvailable(this.resolvedEventKitHelperPath());
   }
 
-  private recordIssue(context: "capture" | "calendar" | "ai" | "inbox", error: unknown, source = ""): void {
+  resetEventKitHelperCompatibility(): void {
+    this.calendarHelperProtocolStatus = "unchecked";
+    this.calendarHelperProtocolVersion = null;
+  }
+
+  private recordIssue(context: "capture" | "calendar" | "ai" | "inbox", error: unknown, source = ""): number {
+    const issueId = ++this.issueSequence;
     this.lastError = message(error);
     this.lastErrorAt = Date.now();
     this.lastErrorContext = context;
     this.lastErrorSource = source;
+    this.lastIssueId = issueId;
+    return issueId;
   }
 
   private clearIssue(context: "capture" | "calendar" | "ai" | "inbox"): void {
@@ -1258,6 +4512,16 @@ export default class OmdHomePlugin extends Plugin {
     this.lastErrorAt = 0;
     this.lastErrorContext = "";
     this.lastErrorSource = "";
+    this.lastIssueId = 0;
+  }
+
+  private clearIssueById(issueId: number): void {
+    if (issueId !== this.lastIssueId) return;
+    this.lastError = "";
+    this.lastErrorAt = 0;
+    this.lastErrorContext = "";
+    this.lastErrorSource = "";
+    this.lastIssueId = 0;
   }
 
   private activeLocalAiModels(): string[] {
@@ -1274,11 +4538,300 @@ export default class OmdHomePlugin extends Plugin {
     };
   }
 
-  private syncLocalAiState(activeAction: LocalAiRuntimeState["activeAction"]): void {
+  private async prepareQaRetrieval(signal?: AbortSignal): Promise<{
+    options: HybridRetrievalOptions;
+    warning: string | null;
+    warningModel: string | null;
+  }> {
+    const requested = this.qaRetrievalOptions();
+    if (!requested.hybridRetrievalEnabled) return { options: requested, warning: null, warningModel: null };
+    try {
+      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
+      const status = await this.ollamaLocalClient.status(host, signal);
+      const models = await this.ollamaLocalClient.tags(host, signal);
+      const daemonCode = deriveLocalAiDaemonCode(status, models);
+      if (daemonCode === "no_models_installed") throw new LocalAiError(daemonCode, describeDaemonReadiness(daemonCode));
+      const embeddingModel = requested.embeddingModel.trim();
+      if (!embeddingModel) throw new LocalAiError("selected_model_missing", "Choose a local embedding model.");
+      const catalogEntry = models.find((model) => localModelNamesMatch(model.name, embeddingModel));
+      const inspected = mergeInspectedModelEntry(
+        catalogEntry,
+        buildModelEntry(await this.safeShowModel(host, embeddingModel, signal)),
+        embeddingModel,
+      );
+      if (modelIsCloudBacked(inspected)) {
+        throw new LocalAiError("selected_model_remote_blocked", `${embeddingModel} was identified as cloud-backed.`);
+      }
+      if (!modelSupportsEmbedding(inspected)) {
+        throw new LocalAiError("selected_model_incompatible", `${embeddingModel} does not advertise embedding support.`);
+      }
+      return {
+        options: {
+          ...requested,
+          embeddingModelRevision: inspected.digest ?? catalogEntry?.digest ?? requested.embeddingModelRevision,
+        },
+        warning: null,
+        warningModel: null,
+      };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      const warning = retrievalWarningForError(error, requested.embeddingModel);
+      return {
+        options: {
+          ...requested,
+          hybridRetrievalEnabled: false,
+          semanticRerankEnabled: false,
+          embeddingModelRevision: undefined,
+        },
+        warning,
+        warningModel: warning === "hybrid_retrieval_model_not_installed"
+          ? requested.embeddingModel.trim()
+          : null,
+      };
+    }
+  }
+
+  private async previewLocalAnswer(query: string, requestSignal?: AbortSignal): Promise<{
+    endpoint: string;
+    preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
+    retrieval: HybridRetrievalOptions;
+    embeddingFallbackModel: string | null;
+  }> {
+    const snapshot = createWorkflowSnapshot("qa", this.settings, true);
+    let retrieval = this.qaRetrievalOptions();
+    let retrievalWarning: string | null = null;
+    let embeddingFallbackModel: string | null = null;
+    const preview = await this.runLocalAiGated(
+      snapshot,
+      () => createWorkflowSnapshot("qa", this.settings, true),
+      async (gatedSnapshot, signal) => {
+        const prepared = await this.prepareQaRetrieval(signal);
+        retrieval = prepared.options;
+        retrievalWarning = prepared.warning;
+        embeddingFallbackModel = prepared.warningModel;
+        return await this.omdBridge.previewAi(
+          this.vaultPath(),
+          query,
+          gatedSnapshot.provider,
+          gatedSnapshot.model,
+          gatedSnapshot.host,
+          retrieval,
+          signal,
+        );
+      },
+      requestSignal,
+    );
+    return {
+      endpoint: snapshot.host,
+      preview: retrievalWarning ? mergeRetrievalWarnings(preview, [retrievalWarning]) : preview,
+      retrieval,
+      embeddingFallbackModel,
+    };
+  }
+
+  private async previewCloudAnswer(
+    query: string,
+    provider: StoredAiProvider,
+    model: string,
+    requestSignal?: AbortSignal,
+  ): Promise<{
+    provider: StoredAiProvider;
+    model: string;
+    endpoint: string;
+    preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
+    retrieval: HybridRetrievalOptions;
+    embeddingFallbackModel: string | null;
+  }> {
+    if (provider === "ollama") {
+      throw new Error("Cloud preview is unavailable for the local Ollama provider.");
+    }
+    let retrieval = this.qaRetrievalOptions();
+    let retrievalWarning: string | null = null;
+    let embeddingFallbackModel: string | null = null;
+    const endpoint = provider === "ollama-cloud"
+      ? normalizeLocalOllamaHost(this.settings.ollamaHost)
+      : this.currentLocalAiHost() ?? DEFAULT_SETTINGS.ollamaHost;
+    const preview = await this.withCloudAnswerSignal(async (signal) => {
+      if (isHostedApiProvider(provider)) {
+        this.assertHostedAiDisclosureReady(provider);
+        const credential = await this.omdBridge.hostedCredentialState(provider, signal);
+        if (credential.source === "missing") {
+          throw new LocalAiError(
+            "credentials_missing",
+            `Add a ${aiProviderLabel(provider)} developer API key in Settings → OMD Home → AI answers before continuing.`,
+          );
+        }
+      }
+      if (!model.trim()) {
+        throw new LocalAiError(
+          "selected_model_missing",
+          `Choose an answer model for ${aiProviderLabel(provider)} before continuing.`,
+        );
+      }
+      if (isHostedApiProvider(provider)) {
+        const state = this.hostedAiState;
+        const setupReady = state?.provider === provider
+          && state.code === "ready"
+          && state.activeAction === ""
+          && state.checkedModel === model
+          && state.checkedAnswerCompatibility === "supported"
+          && typeof state.checkedAnswerContract === "string"
+          && state.checkedAnswerContract.trim().length > 0;
+        if (!setupReady) {
+          const exactCheckedFailure = state?.provider === provider
+            && state.checkedModel === model
+            && state.checkedAnswerCompatibility !== undefined
+            && (
+              state.checkedAnswerCompatibility !== "supported"
+              || typeof state.checkedAnswerContract !== "string"
+              || !state.checkedAnswerContract.trim()
+            );
+          throw new LocalAiError(
+            "selected_model_incompatible",
+            exactCheckedFailure
+              ? state.detail
+              : `Run Check setup to validate ${aiProviderLabel(provider)} and ${model} before continuing. OMD Home will not switch models automatically.`,
+          );
+        }
+      }
+      const prepared = await this.prepareQaRetrieval(signal);
+      retrieval = prepared.options;
+      retrievalWarning = prepared.warning;
+      embeddingFallbackModel = prepared.warningModel;
+      const providerPreview = await this.omdBridge.previewAi(
+        this.vaultPath(),
+        query,
+        provider,
+        model,
+        endpoint,
+        retrieval,
+        signal,
+      );
+      this.assertProviderDestination(provider, providerPreview.preview.destination_domain);
+      return providerPreview;
+    }, requestSignal);
+    return {
+      provider,
+      model,
+      endpoint,
+      preview: retrievalWarning ? mergeRetrievalWarnings(preview, [retrievalWarning]) : preview,
+      retrieval,
+      embeddingFallbackModel,
+    };
+  }
+
+  private async executeLocalAnswer(
+    query: string,
+    prepared: {
+      preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
+      retrieval: HybridRetrievalOptions;
+      embeddingFallbackModel: string | null;
+    },
+    requestSignal?: AbortSignal,
+  ): Promise<AiAnswer> {
+    const snapshot = createWorkflowSnapshot("qa", this.settings, true);
+    const answer = await this.runLocalAiGated(
+      snapshot,
+      () => createWorkflowSnapshot("qa", this.settings, true),
+      async (gatedSnapshot, signal) => await this.omdBridge.executeAi(
+        this.vaultPath(),
+        query,
+        gatedSnapshot.provider,
+        gatedSnapshot.model,
+        gatedSnapshot.host,
+        false,
+        prepared.preview.consent_grant ?? null,
+        prepared.retrieval,
+        signal,
+      ),
+      requestSignal,
+    );
+    return withEmbeddingFallbackModel(
+      mergeRetrievalWarnings(answer, prepared.preview.warnings ?? []),
+      prepared.embeddingFallbackModel,
+    );
+  }
+
+  private async executeCloudAnswer(
+    query: string,
+    preview: {
+      provider: StoredAiProvider;
+      model: string;
+      endpoint: string;
+      preview: Awaited<ReturnType<OmdBridge["previewAi"]>>;
+      retrieval: HybridRetrievalOptions;
+      embeddingFallbackModel: string | null;
+    },
+    requestSignal?: AbortSignal,
+  ): Promise<AiAnswer> {
+    const answer = await this.withCloudAnswerSignal(async (signal) => await this.omdBridge.executeAi(
+      this.vaultPath(),
+      query,
+      preview.provider,
+      preview.model,
+      preview.endpoint,
+      true,
+      preview.preview.consent_grant ?? null,
+      preview.retrieval,
+      signal,
+    ), requestSignal);
+    return withEmbeddingFallbackModel(
+      mergeRetrievalWarnings(answer, preview.preview.warnings ?? []),
+      preview.embeddingFallbackModel,
+    );
+  }
+
+  private assertProviderDestination(provider: StoredAiProvider, actual: string): void {
+    const expected = aiProviderDestination(provider);
+    if (actual.trim().toLowerCase() !== expected.toLowerCase()) {
+      throw new LocalAiError(
+        "provider_destination_mismatch",
+        `The provider returned an unexpected request destination. Expected ${expected}; nothing was sent.`,
+      );
+    }
+  }
+
+  private assertCloudPreviewStillCurrent(preview: {
+    provider: StoredAiProvider;
+    model: string;
+    endpoint: string;
+  }): void {
+    const provider = this.settings.aiProvider;
+    const model = selectedAiModel(this.settings).trim();
+    const endpoint = provider === "ollama-cloud"
+      ? normalizeLocalOllamaHost(this.settings.ollamaHost)
+      : this.currentLocalAiHost() ?? DEFAULT_SETTINGS.ollamaHost;
+    if (provider !== preview.provider
+      || model !== preview.model
+      || endpoint !== preview.endpoint
+      || !cloudAnswerPermissionEnabled(this.settings)) {
+      throw new LocalAiError(
+        "snapshot_mismatch",
+        "The selected cloud answer route changed after preview. Review the latest settings and preview again.",
+      );
+    }
+  }
+
+  private assertCloudConsentStillCurrent(preview: {
+    provider: StoredAiProvider;
+    model: string;
+    endpoint: string;
+  }, generation: number): void {
+    if (generation !== this.cloudAnswerConsentGeneration) {
+      throw new LocalAiError(
+        "snapshot_mismatch",
+        "Cloud answer settings changed after preview. Review the latest settings and preview again.",
+      );
+    }
+    this.assertCloudPreviewStillCurrent(preview);
+  }
+
+  private syncLocalAiState(activeAction: LocalAiRuntimeState["activeAction"], refreshSettings = true): void {
     const summary = this.currentLocalAiSummary();
     const models = summary?.models ?? [];
     this.localAiState = aggregateLocalAiState(this.settings, summary, models, activeAction);
     this.refreshHomeViews();
+    if (refreshSettings) this.settingTab?.refreshLocalAiSection();
   }
 
   private async runLocalAiSafetyGate(snapshot: LocalAiSnapshot, signal?: AbortSignal): Promise<void> {
@@ -1288,7 +4841,9 @@ export default class OmdHomePlugin extends Plugin {
         .catch((error) => {
           throw remapLocalAiError(error, "status_unavailable", "OMD Home could not verify /api/status from the local Ollama daemon.");
         });
+      signal?.throwIfAborted();
       const models = await this.ollamaLocalClient.tags(snapshot.host, signal);
+      signal?.throwIfAborted();
       const daemonCode = deriveLocalAiDaemonCode(status, models);
       const checkedAt = Date.now();
       const previous = this.localAiSummaries.get(snapshot.host);
@@ -1309,7 +4864,9 @@ export default class OmdHomePlugin extends Plugin {
       let selectedModelShow: LocalAiModelInfo;
       try {
         selectedModelShow = await this.safeShowModel(snapshot.host, snapshot.model, signal);
+        signal?.throwIfAborted();
       } catch (error) {
+        signal?.throwIfAborted();
         if (error instanceof LocalAiError && error.code === "selected_model_missing") {
           this.storeLiveGateModelResult(snapshot, models, {
             model: snapshot.model,
@@ -1321,19 +4878,25 @@ export default class OmdHomePlugin extends Plugin {
         }
         throw error;
       }
-      const modelCode = deriveLocalAiModelCode(selectedModelShow);
-      const modelEntry = buildModelEntry(selectedModelShow);
+      const catalogEntry = models.find((model) => localModelNamesMatch(model.name, snapshot.model));
+      const modelEntry = mergeInspectedModelEntry(
+        catalogEntry,
+        buildModelEntry(selectedModelShow),
+        catalogEntry?.name ?? snapshot.model,
+      );
+      const modelCode = deriveLocalAiModelCode(modelEntry);
       this.storeLiveGateModelResult(snapshot, models, {
         model: snapshot.model,
         checkedAt,
         code: modelCode,
-        detail: describeModelReadiness(snapshot.model, selectedModelShow),
+        detail: describeModelReadiness(snapshot.model, modelEntry),
         supportsCompletion: modelEntry.supportsCompletion,
       }, modelEntry);
       if (modelCode !== "ready") {
-        throw new LocalAiError(modelCode, describeModelReadiness(snapshot.model, selectedModelShow));
+        throw new LocalAiError(modelCode, describeModelReadiness(snapshot.model, modelEntry));
       }
     } catch (error) {
+      signal?.throwIfAborted();
       if (!isAbortError(error) && !(error instanceof LocalAiError && isModelReadinessCode(error.code))) {
         this.setLocalAiFailure(error, snapshot.host);
       }
@@ -1353,12 +4916,47 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
-  private async withLocalAiSignal<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  private async withLocalAiSignal<T>(
+    task: (signal: AbortSignal) => Promise<T>,
+    parentSignal?: AbortSignal,
+  ): Promise<T> {
     const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (this.unloaded || parentSignal?.aborted) controller.abort();
+    else parentSignal?.addEventListener("abort", relayAbort, { once: true });
     this.localAiControllers.add(controller);
     try {
-      return await task(controller.signal);
+      controller.signal.throwIfAborted();
+      const result = await task(controller.signal);
+      controller.signal.throwIfAborted();
+      return result;
+    } catch (error) {
+      controller.signal.throwIfAborted();
+      throw error;
     } finally {
+      parentSignal?.removeEventListener("abort", relayAbort);
+      this.localAiControllers.delete(controller);
+    }
+  }
+
+  private async withCloudAnswerSignal<T>(
+    task: (signal: AbortSignal) => Promise<T>,
+    parentSignal?: AbortSignal,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (this.unloaded || this.hostedCredentialMutation || parentSignal?.aborted) controller.abort();
+    else parentSignal?.addEventListener("abort", relayAbort, { once: true });
+    this.cloudAnswerControllers.add(controller);
+    this.localAiControllers.add(controller);
+    try {
+      controller.signal.throwIfAborted();
+      const result = await task(controller.signal);
+      controller.signal.throwIfAborted();
+      return result;
+    } finally {
+      parentSignal?.removeEventListener("abort", relayAbort);
+      this.cloudAnswerControllers.delete(controller);
       this.localAiControllers.delete(controller);
     }
   }
@@ -1367,6 +4965,21 @@ export default class OmdHomePlugin extends Plugin {
     const token = ++this.localAiActionToken;
     this.syncLocalAiState(action);
     return token;
+  }
+
+  aiSetupBusy(): boolean {
+    return Boolean(
+      this.localAiState.activeAction
+      || this.hostedAiState?.activeAction
+      || this.hostedCredentialMutation,
+    );
+  }
+
+  private canStartAiSetupAction(notify = true): boolean {
+    if (this.unloaded) return false;
+    if (!this.aiSetupBusy()) return true;
+    if (notify) new Notice("Another AI setup action is already running. Wait for it to finish before starting a new one.");
+    return false;
   }
 
   private finishLocalAiAction(token: number): void {
@@ -1388,8 +5001,21 @@ export default class OmdHomePlugin extends Plugin {
     return this.localAiSummaries.get(host) ?? this.localAiFailure;
   }
 
-  private setLocalAiFailure(error: unknown, knownHost?: string): void {
-    if (isAbortError(error)) return;
+  private reconcileEmbeddingProbe(host: string, models: LocalAiModelEntry[]): void {
+    const probe = this.localAiEmbeddingProbe;
+    if (!probe || probe.host !== host) return;
+    if (probe.code !== "ready") {
+      this.localAiEmbeddingProbe = null;
+      return;
+    }
+    const revision = resolveEmbeddingModelRevision(probe.model, models);
+    if (!probe.revision || !revision || revision !== probe.revision) {
+      this.localAiEmbeddingProbe = null;
+    }
+  }
+
+  private setLocalAiFailure(error: unknown, knownHost?: string): number {
+    if (isAbortError(error)) return 0;
     const code = error instanceof LocalAiError ? error.code : "daemon_unreachable";
     const host = knownHost ?? this.currentLocalAiHost() ?? this.settings.ollamaHost.trim();
     const previous = this.localAiSummaries.get(host);
@@ -1404,13 +5030,15 @@ export default class OmdHomePlugin extends Plugin {
     });
     if (this.currentLocalAiHost() === host) this.localAiSummaries.set(host, summary);
     else this.localAiFailure = summary;
-    this.recordIssue("ai", error);
+    const issueId = this.recordIssue("ai", error);
     this.syncLocalAiState(this.localAiState.activeAction);
+    return issueId;
   }
 
   private setLocalAiFeedback(tone: LocalAiActionFeedback["tone"], messageText: string): void {
     this.localAiFeedback = { tone, message: messageText, at: Date.now() };
     this.refreshHomeViews();
+    this.settingTab?.refreshLocalAiSection();
   }
 
   private setCalendarFeedback(tone: LocalAiActionFeedback["tone"], messageText: string): void {
@@ -1437,15 +5065,19 @@ export default class OmdHomePlugin extends Plugin {
     const previous = this.localAiSummaries.get(snapshot.host);
     const catalog = new Map(models.map((model) => [model.name, model]));
     if (modelEntry) {
-      catalog.set(snapshot.model, mergeInspectedModelEntry(catalog.get(snapshot.model), modelEntry, snapshot.model));
+      const catalogEntry = models.find((model) => localModelNamesMatch(model.name, snapshot.model));
+      const entryName = catalogEntry?.name ?? snapshot.model;
+      catalog.set(entryName, mergeInspectedModelEntry(catalogEntry, modelEntry, entryName));
     }
+    const refreshedModels = [...catalog.values()].sort((left, right) => left.name.localeCompare(right.name));
+    this.reconcileEmbeddingProbe(snapshot.host, refreshedModels);
     this.localAiSummaries.set(snapshot.host, buildConnectionSummary({
       host: snapshot.host,
       checkedAt: checkedModel.checkedAt,
       version: previous?.version,
       daemonCode: "ready",
       daemonDetail: describeDaemonReadiness("ready"),
-      models: [...catalog.values()].sort((left, right) => left.name.localeCompare(right.name)),
+      models: refreshedModels,
       modelChecks: {
         ...(previous?.modelChecks ?? {}),
         [snapshot.model]: checkedModel,
@@ -1454,11 +5086,374 @@ export default class OmdHomePlugin extends Plugin {
     this.localAiFailure = null;
     this.syncLocalAiState(this.localAiState.activeAction);
   }
+
+  private currentHostedProvider(): HostedAiProvider | null {
+    return isHostedApiProvider(this.settings.aiProvider) ? this.settings.aiProvider : null;
+  }
+
+  async ensureHostedCredentialState(provider: HostedAiProvider, force = false): Promise<void> {
+    if (this.unloaded || this.currentHostedProvider() !== provider) return;
+    if (!force && this.hostedAiState?.provider === provider
+      && (this.hostedAiState.credential || this.hostedAiState.checkedAt !== undefined || this.hostedAiState.activeAction)) return;
+    const actionToken = this.localAiActionToken;
+    if (!force && this.hostedCredentialHydration
+      && this.hostedCredentialHydrationProvider === provider
+      && this.hostedCredentialHydrationActionToken === actionToken) {
+      return await this.hostedCredentialHydration;
+    }
+    const pending = this.loadHostedCredentialState(provider);
+    this.hostedCredentialHydration = pending;
+    this.hostedCredentialHydrationProvider = provider;
+    this.hostedCredentialHydrationActionToken = actionToken;
+    try {
+      await pending;
+    } finally {
+      if (this.hostedCredentialHydration === pending) {
+        this.hostedCredentialHydration = null;
+        this.hostedCredentialHydrationProvider = null;
+        this.hostedCredentialHydrationActionToken = null;
+      }
+    }
+  }
+
+  private async loadHostedCredentialState(provider: HostedAiProvider): Promise<void> {
+    const startedAt = Date.now();
+    const action = this.localAiActionToken;
+    try {
+      await this.requireReadyOmdExecutable();
+      if (!this.isCurrentHostedAiAction(action, provider)) return;
+      const credential = await this.omdBridge.hostedCredentialState(provider);
+      if (!this.isCurrentHostedAiAction(action, provider)) return;
+      const existing = this.hostedAiState?.provider === provider ? this.hostedAiState : null;
+      if (existing?.activeAction) return;
+      if (existing?.checkedAt && existing.checkedAt > startedAt) return;
+      const model = selectedAiModel(this.settings);
+      this.hostedAiState = {
+        ...(existing ?? buildHostedState(provider)),
+        provider,
+        checkedAt: Date.now(),
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
+        code: credential.source === "missing"
+          ? "credentials_missing"
+          : model ? "unchecked" : "selected_model_missing",
+        detail: credential.source === "missing"
+          ? `Add or confirm a ${providerLabel(provider)} API key, then check setup.`
+          : model
+            ? `Run Check setup to validate ${providerLabel(provider)} and the selected model.`
+            : `Choose a ${providerLabel(provider)} answer model, then check setup.`,
+        credential,
+        destinationDomain: providerDomain(provider),
+      };
+      this.refreshHomeViews();
+    } catch (error) {
+      if (isAbortError(error) || !this.isCurrentHostedAiAction(action, provider)) return;
+      const existing = this.hostedAiState?.provider === provider ? this.hostedAiState : null;
+      if (existing?.activeAction || (existing?.checkedAt !== undefined && existing.checkedAt > startedAt)) return;
+      this.hostedAiState = {
+        ...(existing ?? buildHostedState(provider)),
+        checkedAt: Date.now(),
+        checkedModel: undefined,
+        checkedAnswerCompatibility: undefined,
+        checkedAnswerContract: undefined,
+        code: mapHostedErrorCode(error),
+        detail: `Could not check ${providerLabel(provider)} credentials. ${message(error)} Run Check setup to retry.`,
+      };
+      this.refreshHomeViews();
+    }
+  }
+
+  private syncHostedAiState(activeAction: HostedAiRuntimeState["activeAction"], refreshSettings = true): void {
+    const provider = this.currentHostedProvider();
+    if (!provider) {
+      this.hostedAiState = null;
+      this.refreshHomeViews();
+      if (refreshSettings) this.settingTab?.refreshLocalAiSection();
+      return;
+    }
+    if (!this.hostedAiState || this.hostedAiState.provider !== provider) {
+      this.hostedAiState = { ...buildHostedState(provider), activeAction };
+      this.refreshHomeViews();
+      if (refreshSettings) this.settingTab?.refreshLocalAiSection();
+      return;
+    }
+    this.hostedAiState = { ...this.hostedAiState, activeAction };
+    this.refreshHomeViews();
+    if (refreshSettings) this.settingTab?.refreshLocalAiSection();
+  }
+
+  private beginHostedAiAction(action: Exclude<HostedAiRuntimeState["activeAction"], "">): number {
+    this.cancelHostedAiAction();
+    const token = ++this.localAiActionToken;
+    this.hostedAiController = new AbortController();
+    this.syncHostedAiState(action);
+    return token;
+  }
+
+  private beginHostedCredentialMutation(): symbol {
+    const mutation = Symbol("hosted-credential-mutation");
+    this.hostedCredentialMutation = mutation;
+    this.invalidateCloudAnswerConsent();
+    this.cancelCloudAnswerRequests();
+    return mutation;
+  }
+
+  private finishHostedCredentialMutation(mutation: symbol): void {
+    if (this.hostedCredentialMutation !== mutation) return;
+    this.hostedCredentialMutation = null;
+    this.refreshHomeViews();
+  }
+
+  private hostedAiSignal(token: number, provider: HostedAiProvider): AbortSignal {
+    if (!this.isCurrentHostedAiAction(token, provider) || !this.hostedAiController) return AbortSignal.abort();
+    return this.hostedAiController.signal;
+  }
+
+  private cancelHostedAiAction(): void {
+    this.hostedAiController?.abort();
+    this.hostedAiController = null;
+  }
+
+  private cancelCloudAnswerRequests(): void {
+    for (const controller of this.cloudAnswerControllers) controller.abort();
+    this.cloudAnswerControllers.clear();
+  }
+
+  invalidateCloudAnswerConsent(): void {
+    this.cloudAnswerConsentGeneration += 1;
+    for (const modal of this.cloudAnswerConsentModals) modal.close();
+    this.cloudAnswerConsentModals.clear();
+  }
+
+  private isCurrentHostedAiAction(token: number, provider: HostedAiProvider): boolean {
+    return !this.unloaded && token === this.localAiActionToken && this.currentHostedProvider() === provider;
+  }
+
+  private finishHostedAiAction(token: number, provider: HostedAiProvider): void {
+    if (!this.isCurrentHostedAiAction(token, provider)) return;
+    this.hostedAiController = null;
+    this.syncHostedAiState("");
+  }
+
+  toggleRecording(): void {
+    if (this.runRecordingCommand("toggle", "Recording toggled.")) return;
+    new Notice("No recorder toggle is available. Use start recording or stop recording from the command palette.");
+  }
+
+  startRecording(): void {
+    if (this.runRecordingCommand("start", "Recording started.")) return;
+    new Notice("Enable audio recorder in settings -> core plugins, then try again.");
+  }
+
+  stopRecording(): void {
+    if (this.runRecordingCommand("stop", "Recording stopped.")) return;
+    new Notice("Enable audio recorder in settings -> core plugins, then try again.");
+  }
+
+  private runRecordingCommand(kind: "start" | "stop" | "toggle", successMessage: string): boolean {
+    const commands = (this.app as App & {
+      commands: {
+        commands?: Record<string, RecordingCommandRef>;
+        executeCommandById(id: string): boolean;
+      };
+    }).commands;
+    const command = resolveRecordingCommand(
+      registeredCommandRefs(commands).filter(
+        (candidate) => !isPluginRecordingWrapperCommand(candidate.id, this.manifest.id),
+      ),
+      kind,
+    );
+    if (!command) return false;
+    if (!commands.executeCommandById(command.id)) return false;
+    new Notice(successMessage);
+    return true;
+  }
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nullableString(value: unknown): string | null | undefined {
+  if (value === null || typeof value === "string") return value;
+  return undefined;
+}
+
+function firstNonEmptyString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function transcriptRepairSessionId(): string {
+  return `repair-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function probeOmdCaptureExecutable(executable: string, signal?: AbortSignal): Promise<void> {
+  try {
+    const result = await spawnProcess(executable, ["capture", "--help"], {
+      signal,
+      timeoutMs: 5_000,
+      maxStdoutChars: 16_000,
+      maxStderrChars: 16_000,
+    });
+    if (result.code !== 0) {
+      throw new OmdEnrichmentError("omd_failed", "The configured OMD executable does not provide the capture command.");
+    }
+  } catch (error) {
+    if (error instanceof OmdEnrichmentError) throw error;
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new OmdEnrichmentError("cancelled", "The OMD capture setup check was cancelled.", { cause: error });
+    }
+    const detail = error instanceof Error ? error.message : "";
+    if (/ENOENT|not found|could not find/iu.test(detail)) {
+      throw new OmdEnrichmentError("missing_executable", "The configured OMD executable could not be found.", { cause: error as Error });
+    }
+    if (/timed out/iu.test(detail)) {
+      throw new OmdEnrichmentError("capability_timeout", "The OMD capture setup check timed out after five seconds.", { cause: error as Error });
+    }
+    throw new OmdEnrichmentError("omd_failed", "OMD could not be checked before capture.", { cause: error as Error });
+  }
+}
+
+function captureLanguageAvailabilityState(
+  status: "unchecked" | "unsupported",
+  messageText: string,
+): CaptureLanguageAvailability {
+  const options = status === "unchecked"
+    ? [
+      { label: ocrLanguagePresetLabel("eng"), value: "eng" as const },
+      { label: ocrLanguagePresetLabel("chi_sim+eng"), value: "chi_sim+eng" as const },
+      { label: ocrLanguagePresetLabel("chi_tra+eng"), value: "chi_tra+eng" as const },
+    ]
+    : [];
+  return {
+    status,
+    message: messageText,
+    ocrPresets: options,
+    customOcr: status === "unchecked",
+    ocrBackendAvailable: null,
+    ocrInstalledPacks: null,
+    asrAutoDetect: status === "unchecked",
+    asrExplicit: status === "unchecked",
+  };
+}
+
+function omdReadyMessage(
+  executable: string,
+  mode: OmdDiscoveryMode,
+  capability: OmdCapabilities,
+): string {
+  const location = mode === "custom" ? "Custom executable" : "Resolved executable";
+  const identity = omdCapabilityIdentityLabel(capability);
+  return identity
+    ? `OMD is ready. ${location}: ${executable}. Detected ${identity}.`
+    : `OMD is ready. ${location}: ${executable}.`;
+}
+
+function omdUnavailableMessage(error: unknown, automatic: boolean): string {
+  if (isEnrichmentError(error) && error.code === "missing_executable") {
+    return automatic
+      ? "OMD was not found in the app path or common install locations. Install OMD, then check again."
+      : "The custom OMD executable could not be found. Use automatic discovery or update the override in Advanced OMD paths.";
+  }
+  if (isEnrichmentError(error)
+    && (error.code === "unsupported_capability" || error.code === "unsupported_schema")) {
+    return automatic
+      ? "An OMD installation was found, but it is too old for this OMD Home build. Update OMD, then check again."
+      : "The custom OMD installation is too old for this OMD Home build. Update it or use automatic discovery.";
+  }
+  return toUserFacingEnrichmentMessage(error);
+}
+
+function providerLabel(provider: HostedAiProvider): string {
+  return aiProviderLabel(provider);
+}
+
+function providerDomain(provider: HostedAiProvider): string {
+  return aiProviderDestination(provider);
+}
+
+function buildHostedState(provider: HostedAiProvider): HostedAiRuntimeState {
+  return {
+    provider,
+    code: "unchecked",
+    detail: `Add or confirm a ${aiProviderLabel(provider)} API key, then check setup.`,
+    models: [],
+    activeAction: "",
+    credential: null,
+    destinationDomain: aiProviderDestination(provider),
+  };
+}
+
+function mapHostedErrorCode(error: unknown): HostedAiRuntimeState["code"] {
+  if (error instanceof LocalAiError) return error.code;
+  const detail = message(error).toLowerCase();
+  if (/rejected.+(?:developer )?api key|api key.+rejected/u.test(detail)) return "credentials_invalid";
+  if (/credential|api key|keychain/u.test(detail)) return "credentials_missing";
+  if (/model.+(?:unavailable|missing|not found)/u.test(detail)) return "model_unavailable";
+  if (/catalog|validate provider models|model check/u.test(detail)) return "provider_catalog_unavailable";
+  if (/connect|network|transport|timeout|http/u.test(detail)) return "provider_unreachable";
+  return "provider_catalog_unavailable";
 }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
+function noteFormattingFailureMessage(error: unknown): string {
+  if (error instanceof LocalAiError) {
+    return `${error.message} The note was not changed.`;
+  }
+  if (error instanceof Error && error.message === FORMATTING_UNSAFE_OUTPUT_MESSAGE) {
+    return error.message;
+  }
+  if (error instanceof Error && error.message === FORMATTING_TRANSCRIPT_QUALITY_MESSAGE) {
+    return error.message;
+  }
+  if (error instanceof Error && error.message === MARKDOWN_FORMATTING_PROTECTED_CONTENT_MESSAGE) {
+    return error.message;
+  }
+  return "Could not improve formatting. The note was not changed. Check the local writing model, then try again.";
+}
+
+function waitForSharedPromise<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    const finish = (complete: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      complete();
+    };
+    const abort = () => finish(() => {
+      try {
+        signal.throwIfAborted();
+      } catch (reason) {
+        const error = reason instanceof Error && reason.name === "AbortError"
+          ? reason
+          : Object.assign(new Error(message(reason)), { name: "AbortError" });
+        reject(error);
+        return;
+      }
+      const error = new Error("The operation was cancelled.");
+      error.name = "AbortError";
+      reject(error);
+    });
+    signal.addEventListener("abort", abort, { once: true });
+    void pending.then(
+      (value) => finish(() => resolve(value)),
+      (reason: unknown) => finish(() => reject(reason instanceof Error ? reason : new Error(message(reason)))),
+    );
+    if (signal.aborted) abort();
+  });
+}
+
 function remapLocalAiError(error: unknown, code: "version_unavailable" | "status_unavailable", fallback: string): LocalAiError {
+  if (isAbortError(error)) throw error;
   if (error instanceof LocalAiError && (error.code === code || error.code === "daemon_unreachable")) return error;
   return new LocalAiError(code, error instanceof Error ? error.message : fallback);
 }
@@ -1488,27 +5483,105 @@ function summarizeSmokeResponse(value: string): string {
   return compact.length > 80 ? `${compact.slice(0, 77)}…` : compact;
 }
 
-function humanizeRetrievalWarning(value: string): string {
+function mergeRetrievalWarnings<T extends { warnings?: string[] }>(value: T, warnings: string[]): T {
+  if (!warnings.length) return value;
+  const unique = [...new Set([...(value.warnings ?? []), ...warnings])];
+  return { ...value, warnings: unique };
+}
+
+function withEmbeddingFallbackModel<T extends AiAnswer>(value: T, model: string | null): T {
+  if (!model) return value;
+  return { ...value, embeddingFallbackModel: model };
+}
+
+function humanizeRetrievalWarning(
+  value: string,
+  context: "answer" | "evidence-check" = "answer",
+): string {
+  const keywordFallback = (reason: string): string => context === "evidence-check"
+    ? `${reason}. This evidence check used keyword search only.`
+    : `${reason}, so this answer used keyword search only.`;
   if (value === "hybrid_retrieval_unsupported_by_omd") {
-    return "This OMD build does not support hybrid retrieval yet, so the answer used sparse retrieval only.";
+    return keywordFallback("This OMD build does not support semantic search yet");
   }
   if (value === "hybrid_retrieval_model_missing") {
-    return "No local embedding model is selected, so the answer used sparse retrieval only.";
+    return keywordFallback("No local embedding model is selected");
+  }
+  if (value === "hybrid_retrieval_model_not_installed") {
+    return keywordFallback("The selected embedding model is not installed in Ollama");
+  }
+  if (value === "hybrid_retrieval_daemon_unreachable") {
+    return keywordFallback("The local Ollama service could not be reached");
+  }
+  if (value === "hybrid_retrieval_model_unsupported") {
+    return keywordFallback("The selected Ollama model does not support embeddings");
+  }
+  if (value === "hybrid_retrieval_model_remote_blocked") {
+    return keywordFallback("The selected embedding model is cloud-backed and cannot be used for local search");
+  }
+  if (value === "hybrid_retrieval_endpoint_invalid") {
+    return keywordFallback("The Ollama endpoint is not an accepted loopback address");
+  }
+  if (value === "hybrid_retrieval_check_failed") {
+    return `${keywordFallback("The embedding check could not finish")} Open retrieval settings for details.`;
   }
   if (value === "hybrid_retrieval_failed") {
-    return "Hybrid retrieval fell back to sparse retrieval for this answer.";
+    return keywordFallback("Semantic search was unavailable");
+  }
+  if (value === "hybrid_retrieval_local_safety_fallback") {
+    return keywordFallback("The local embedding setup could not be verified");
   }
   if (value === "semantic_recall_unavailable") {
-    return "Semantic recall was unavailable for this answer, so sparse retrieval stayed in effect.";
+    return context === "evidence-check"
+      ? "Semantic search was unavailable during this evidence check, so keyword search stayed in effect."
+      : "Semantic search was unavailable for this answer, so keyword search stayed in effect.";
   }
   if (value === "semantic_rerank_unavailable") {
-    return "Semantic reranking was unavailable for this answer, so the sparse-first evidence order was kept.";
+    return context === "evidence-check"
+      ? "Semantic reranking was unavailable during this evidence check, so the keyword search order was kept."
+      : "Semantic reranking was unavailable for this answer, so the keyword search order was kept.";
+  }
+  if (value === "answer_citation_coverage_incomplete") {
+    return "Some generated claims did not include an inline citation. Treat those claims as unverified and retry before relying on them.";
+  }
+  if (value === "answer_provenance_labels_missing") {
+    return "The generated answer did not clearly separate source statements from model inference. Treat unlabeled synthesis as model-generated.";
   }
   return value.replaceAll("_", " ");
+}
+
+function retrievalWarningForError(error: unknown, embeddingModel: string): string {
+  if (!(error instanceof LocalAiError)) return "hybrid_retrieval_check_failed";
+  if (error.code === "invalid_host") return "hybrid_retrieval_endpoint_invalid";
+  if (error.code === "daemon_unreachable" || error.code === "version_unavailable") {
+    return "hybrid_retrieval_daemon_unreachable";
+  }
+  if (error.code === "status_unavailable") return "hybrid_retrieval_check_failed";
+  if (error.code === "no_models_installed") return "hybrid_retrieval_model_not_installed";
+  if (error.code === "selected_model_missing") {
+    return embeddingModel.trim() ? "hybrid_retrieval_model_not_installed" : "hybrid_retrieval_model_missing";
+  }
+  if (error.code === "selected_model_incompatible") return "hybrid_retrieval_model_unsupported";
+  if (error.code === "selected_model_remote_blocked") return "hybrid_retrieval_model_remote_blocked";
+  return "hybrid_retrieval_check_failed";
+}
+
+function isEmbeddingRetrievalWarning(value: string): boolean {
+  return value === "hybrid_retrieval_model_missing"
+    || value === "hybrid_retrieval_model_not_installed"
+    || value === "hybrid_retrieval_daemon_unreachable"
+    || value === "hybrid_retrieval_model_unsupported"
+    || value === "hybrid_retrieval_model_remote_blocked"
+    || value === "hybrid_retrieval_endpoint_invalid"
+    || value === "hybrid_retrieval_check_failed"
+    || value === "hybrid_retrieval_local_safety_fallback"
+    || value === "hybrid_retrieval_unsupported_by_omd"
+    || value === "semantic_recall_unavailable"
+    || value === "semantic_rerank_unavailable";
 }
 
 function localAiWorkflowLabel(workflow: LocalAiWorkflowId): string {
   if (workflow === "qa") return "Vault Q&A";
   if (workflow === "enrichment") return "Note enrichment";
-  return "Capture polish";
+  return "Polish Markdown";
 }

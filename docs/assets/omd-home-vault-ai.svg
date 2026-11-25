@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
   <title id="title">OMD Home // Ask the Vault, See the Evidence</title>
-  <desc id="desc">Read-only vault question flow for public beta0.2.1: retrieval stays local, local Ollama answers by default, and hosted answers require a preview and approval for each request.</desc>
+  <desc id="desc">Read-only vault question flow for public beta0.2.2: retrieval stays local, local Ollama answers by default, and hosted answers require a preview and approval for each request.</desc>
   <defs>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>
@@ -14,7 +14,7 @@
   <rect x="42" y="38" width="1516" height="904" fill="#F4F1E8" stroke="#202124" stroke-width="4"/>
   <rect x="42" y="38" width="1516" height="82" fill="#8064F4" stroke="#202124" stroke-width="4"/>
   <text x="76" y="89" font-family="Courier New, monospace" font-size="26" font-weight="700" fill="#F4F1E8">ASK THE VAULT // SEE THE EVIDENCE</text>
-  <text x="1504" y="89" text-anchor="end" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#F4F1E8">PUBLIC BETA 0.2.1</text>
+  <text x="1504" y="89" text-anchor="end" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#F4F1E8">PUBLIC BETA 0.2.2</text>
   <path d="M1516 55H1536L1546 65V101H1516Z" fill="#F4F1E8" stroke="#202124" stroke-width="3"/>
   <path d="M1536 55V65H1546" fill="none" stroke="#202124" stroke-width="3"/>
   <path d="M1522 95V75H1538V95H1542V99H1519V95Z" fill="#202124"/>

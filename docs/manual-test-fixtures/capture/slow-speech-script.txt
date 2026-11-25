@@ -1,0 +1,25 @@
+This is a deliberately longer OMD Home background capture fixture.
+The first checkpoint is the blue lantern beside the window.
+The second checkpoint is the amber lighthouse checklist on Thursday morning.
+The third checkpoint is the green compass restored after retry.
+Please preserve each checkpoint as a separate sentence in the transcript.
+
+这是一个故意较长的 OMD Home 后台转换测试素材。
+第一个检查点是窗户旁边的蓝色灯笼。
+第二个检查点是星期四早上的琥珀色灯塔清单。
+第三个检查点是重试后恢复的绿色指南针。
+请在转写结果中把每个检查点保留为独立句子。
+
+The recording now repeats the checkpoints to create enough processing time.
+Blue lantern, amber lighthouse, green compass.
+Blue lantern, amber lighthouse, green compass.
+Blue lantern, amber lighthouse, green compass.
+Blue lantern, amber lighthouse, green compass.
+Blue lantern, amber lighthouse, green compass.
+
+现在重复中文检查点，以便后台任务保持可观察状态。
+蓝色灯笼，琥珀色灯塔，绿色指南针。
+蓝色灯笼，琥珀色灯塔，绿色指南针。
+蓝色灯笼，琥珀色灯塔，绿色指南针。
+蓝色灯笼，琥珀色灯塔，绿色指南针。
+蓝色灯笼，琥珀色灯塔，绿色指南针。

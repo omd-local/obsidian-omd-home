@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
   <title id="title">OMD Home // One Doorway, Four Rooms</title>
-  <desc id="desc">System overview for public beta0.2.1 showing the original four rooms, local tools, and explicitly approved answer providers.</desc>
+  <desc id="desc">System overview for public beta0.2.2 showing the original four rooms, local tools, and explicitly approved answer providers.</desc>
   <defs>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>

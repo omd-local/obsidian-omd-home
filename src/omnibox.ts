@@ -1,9 +1,15 @@
 import { Notice, setIcon, type App, type TFile } from "obsidian";
 import type OmdHomePlugin from "./main";
+import { captureRequestFromSettings } from "./capture-request.ts";
+import { EVENT_SOURCE_ORDER, eventSourceKeyAccessibleLabel, eventSourcePresentation } from "./calendar-ui.ts";
 import {
-  captureSourceFromDrop,
+  captureSourceFromDataTransfer,
+  isPluginRecordingWrapperCommand,
+  isLocalImageSource,
   looksCapturable,
-  normalizeCaptureSource,
+  parseCaptureSourceInput,
+  registeredCommandRefs,
+  socialCaptureProvider,
   recordingQuickActions,
   safeFileName,
 } from "./omnibox-utils";
@@ -14,34 +20,56 @@ interface ObsidianCommand {
 }
 
 interface CommandRegistry {
-  listCommands(): ObsidianCommand[];
+  commands?: Record<string, ObsidianCommand>;
   executeCommandById(id: string): boolean;
 }
 
-const RECORDING_ACTION_REFRESH_MS = 180;
+interface OmniboxRow {
+  title: string;
+  detail: string;
+  action: () => void;
+  file?: TFile;
+}
+
+interface OmniboxResultRequest {
+  generation: number;
+  controller: AbortController | null;
+  output: HTMLElement;
+}
 
 export class Omnibox {
   private readonly app: App;
   private readonly plugin: OmdHomePlugin;
   private readonly onResultVisibilityChange?: (visible: boolean) => void;
+  private readonly openEventSourceKey: () => void;
   private root?: HTMLElement;
   private input!: HTMLInputElement;
   private resultPanel!: HTMLElement;
   private results!: HTMLElement;
   private actionBar!: HTMLElement;
-  private recordingActions!: HTMLElement;
+  private quickActionSignature = "";
   private previewTimer: number | null = null;
-  private recordingRefreshTimer: number | null = null;
+  private resultGeneration = 0;
+  private resultController: AbortController | null = null;
+  private resultOutput: HTMLElement | null = null;
+  private disposed = false;
 
-  constructor(app: App, plugin: OmdHomePlugin, onResultVisibilityChange?: (visible: boolean) => void) {
+  constructor(
+    app: App,
+    plugin: OmdHomePlugin,
+    onResultVisibilityChange: ((visible: boolean) => void) | undefined,
+    openEventSourceKey: () => void,
+  ) {
     this.app = app;
     this.plugin = plugin;
     this.onResultVisibilityChange = onResultVisibilityChange;
+    this.openEventSourceKey = openEventSourceKey;
   }
 
   mount(container: HTMLElement): void {
     if (!this.root) this.render();
     if (!this.root) return;
+    this.renderQuickActions();
     if (this.root.parentElement === container && container.childElementCount === 1) return;
     container.empty();
     container.appendChild(this.root);
@@ -63,15 +91,25 @@ export class Omnibox {
         spellcheck: "false",
       },
     });
-    const hint = form.createSpan({ cls: "omd-omnibox-hint", text: ">  +  @" });
-    hint.setAttribute("aria-hidden", "true");
+    const sourceKey = form.createEl("button", {
+      cls: "omd-omnibox-source-key",
+      attr: {
+        type: "button",
+        "aria-label": eventSourceKeyAccessibleLabel(),
+        "aria-haspopup": "dialog",
+        title: "Event source key",
+      },
+    });
+    for (const source of EVENT_SOURCE_ORDER) {
+      sourceKey.createSpan({
+        cls: `omd-omnibox-source-glyph is-${source}`,
+        text: eventSourcePresentation(source).glyph,
+        attr: { "aria-hidden": "true" },
+      });
+    }
+    sourceKey.addEventListener("click", () => this.openEventSourceKey());
     this.actionBar = this.root.createDiv({ cls: "omd-omnibox-actions" });
-    this.quickAction(this.actionBar, "link", "Capture URL or file", () => this.plugin.openCaptureModal());
-    this.quickAction(this.actionBar, "calendar-plus", "New event", () => void this.plugin.createCalendarEvent());
-    this.quickAction(this.actionBar, "terminal-square", "Commands", () => this.usePrefix(">"));
-    this.quickAction(this.actionBar, "sparkles", "Ask vault", () => this.usePrefix("@"));
-    this.recordingActions = this.actionBar.createDiv({ cls: "omd-omnibox-recording-actions" });
-    this.renderRecordingActions();
+    this.renderQuickActions();
     this.resultPanel = this.root.createDiv({ cls: "omd-omnibox-result-panel" });
     const resultBar = this.resultPanel.createDiv({ cls: "omd-omnibox-result-bar" });
     resultBar.createSpan({ text: "OMD result" });
@@ -82,8 +120,8 @@ export class Omnibox {
     });
     setIcon(dismiss, "x");
     dismiss.addEventListener("click", () => {
+      this.clearResultShell();
       this.input.value = "";
-      this.setResultsVisible(false);
       this.input.focus();
     });
     this.results = this.resultPanel.createDiv({ cls: "omd-omnibox-results" });
@@ -95,15 +133,30 @@ export class Omnibox {
       void this.execute();
     });
     this.input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing) {
+        event.preventDefault();
+        void this.execute();
+        return;
+      }
       if (event.key === "Escape") {
+        this.clearResultShell();
         this.input.value = "";
-        this.setResultsVisible(false);
       }
     });
     this.bindDropTarget(this.root);
   }
 
   focus(): void { this.input?.focus(); }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.previewTimer !== null) {
+      window.clearTimeout(this.previewTimer);
+      this.previewTimer = null;
+    }
+    this.cancelPendingResult();
+  }
 
   private usePrefix(prefix: string): void {
     this.input.value = prefix;
@@ -112,41 +165,55 @@ export class Omnibox {
     this.schedulePreview();
   }
 
-  private quickAction(container: HTMLElement, iconName: string, label: string, action: () => void): void {
-    const button = container.createEl("button", { cls: "omd-quick-action", type: "button" });
+  private quickAction(
+    container: HTMLElement,
+    iconName: string,
+    label: string,
+    action: () => void,
+    primary = false,
+  ): void {
+    const button = container.createEl("button", {
+      cls: `omd-quick-action${primary ? " mod-cta" : ""}`,
+      type: "button",
+    });
     const icon = button.createSpan();
     setIcon(icon, iconName);
     button.createSpan({ text: label });
     button.addEventListener("click", action);
   }
 
-  private get commands(): CommandRegistry {
-    return (this.app as App & { commands: CommandRegistry }).commands;
-  }
-
-  private renderRecordingActions(): void {
-    if (!this.recordingActions) return;
-    this.recordingActions.empty();
-    for (const action of recordingQuickActions(this.commands.listCommands())) {
-      this.quickAction(this.recordingActions, action.icon, action.label, () => {
-        this.commands.executeCommandById(action.id);
-        this.input.focus();
-        this.scheduleRecordingActionRefresh();
+  private renderQuickActions(): void {
+    const recording = recordingQuickActions(registeredCommandRefs(this.commands).filter(
+      (command) => !isPluginRecordingWrapperCommand(command.id, this.plugin.manifest.id),
+    ));
+    const signature = recording.map((action) => action.id).join("|");
+    if (this.actionBar.childElementCount && signature === this.quickActionSignature) return;
+    this.quickActionSignature = signature;
+    this.actionBar.empty();
+    this.quickAction(this.actionBar, "link", "Capture URL or file", () => this.plugin.openCaptureModal(), true);
+    this.quickAction(this.actionBar, "calendar-plus", "New event", () => void this.plugin.createCalendarEvent());
+    this.quickAction(this.actionBar, "terminal-square", "Commands", () => this.usePrefix(">"));
+    this.quickAction(this.actionBar, "sparkles", "Ask vault", () => this.usePrefix("@"));
+    if (!recording.length) {
+      this.quickAction(this.actionBar, "mic", "Recording", () => this.plugin.toggleRecording());
+    }
+    for (const action of recording) {
+      this.quickAction(this.actionBar, action.icon, action.label, () => {
+        if (action.label === "Start recording") this.plugin.startRecording();
+        else if (action.label === "Stop recording") this.plugin.stopRecording();
+        else this.plugin.toggleRecording();
+        this.renderQuickActions();
       });
     }
   }
 
-  private scheduleRecordingActionRefresh(): void {
-    if (this.recordingRefreshTimer !== null) window.clearTimeout(this.recordingRefreshTimer);
-    this.recordingRefreshTimer = window.setTimeout(() => {
-      this.recordingRefreshTimer = null;
-      this.renderRecordingActions();
-      this.input.focus();
-    }, RECORDING_ACTION_REFRESH_MS);
+  private get commands(): CommandRegistry {
+    return (this.app as App & { commands: CommandRegistry }).commands;
   }
 
   private schedulePreview(): void {
     if (this.previewTimer !== null) window.clearTimeout(this.previewTimer);
+    this.clearResultShell();
     this.previewTimer = window.setTimeout(() => {
       this.previewTimer = null;
       void this.preview();
@@ -161,11 +228,13 @@ export class Omnibox {
     }
     if (query.startsWith(">")) {
       const needle = query.slice(1).trim().toLowerCase();
-      const commands = this.commands.listCommands().filter((command) => command.name.toLowerCase().includes(needle)).slice(0, 7);
+      const commands = registeredCommandRefs(this.commands).filter((command) => command.name.toLowerCase().includes(needle)).slice(0, 7);
       this.showRows(commands.map((command) => ({
         title: command.name,
         detail: command.id,
-        action: () => this.commands.executeCommandById(command.id),
+        action: () => {
+          if (!this.commands.executeCommandById(command.id)) new Notice("This command is unavailable in the current view.");
+        },
       })));
       return;
     }
@@ -174,6 +243,7 @@ export class Omnibox {
       title: file.basename,
       detail: file.path,
       action: () => void this.app.workspace.openLinkText(file.path, "", false),
+      file,
     })));
   }
 
@@ -184,9 +254,16 @@ export class Omnibox {
     }
     const query = this.input.value.trim();
     if (!query) return;
+    this.beginSubmission();
     if (query.startsWith("@")) {
+      const request = this.beginResult(true, "omd-omnibox-answer-surface");
+      if (!request) return;
       this.setResultsVisible(true);
-      await this.plugin.askOmd(query.slice(1).trim(), this.results);
+      try {
+        await this.plugin.askOmd(query.slice(1).trim(), request.output, request.controller?.signal);
+      } finally {
+        this.finishResult(request);
+      }
       return;
     }
     if (query.startsWith("+")) {
@@ -194,23 +271,74 @@ export class Omnibox {
       return;
     }
     if (looksCapturable(query)) {
-      await this.plugin.captureWithOmd(normalizeCaptureSource(query));
+      try {
+        // Keep omnibox routing strict even though the lower-level request
+        // factory still accepts legacy relative fixture names.
+        parseCaptureSourceInput(query);
+        const request = captureRequestFromSettings(query, this.plugin.settings);
+        if (isLocalImageSource(request.source) || socialCaptureProvider(request.source)) {
+          this.plugin.openCaptureModal(request);
+          return;
+        }
+        await this.plugin.captureWithOmd(request);
+      } catch (error) {
+        new Notice(error instanceof Error ? error.message : "Enter one HTTP(S) URL or an absolute local file path.");
+      }
       return;
     }
     if (query.startsWith(">")) {
-      const first = this.commands.listCommands().find((command) => command.name.toLowerCase().includes(query.slice(1).trim().toLowerCase()));
-      if (first) this.commands.executeCommandById(first.id);
+      const first = registeredCommandRefs(this.commands).find((command) => command.name.toLowerCase().includes(query.slice(1).trim().toLowerCase()));
+      if (first) {
+        if (!this.commands.executeCommandById(first.id)) new Notice("This command is unavailable in the current view.");
+      }
       else new Notice("No matching command");
       return;
     }
-    const first = this.searchVault(query)[0];
-    if (first) {
-      this.setResultsVisible(false);
-      await this.app.workspace.openLinkText(first.path, "", false);
-    } else {
-      this.setResultsVisible(true);
-      await this.plugin.searchWithOmd(query, this.results);
+    const request = this.beginResult(true, "omd-omnibox-answer-surface");
+    if (!request) return;
+    this.setResultsVisible(true);
+    try {
+      await this.plugin.askOmd(query, request.output, request.controller?.signal);
+    } finally {
+      this.finishResult(request);
     }
+  }
+
+  private beginSubmission(): void {
+    this.clearResultShell();
+  }
+
+  private beginResult(abortable: boolean, className: string): OmniboxResultRequest | null {
+    if (this.disposed) return null;
+    const controller = abortable ? new AbortController() : null;
+    this.resultController = controller;
+    const output = this.results.createDiv({ cls: className });
+    this.resultOutput = output;
+    return {
+      generation: this.resultGeneration,
+      controller,
+      output,
+    };
+  }
+
+  private finishResult(request: OmniboxResultRequest): void {
+    if (request.generation !== this.resultGeneration || request.output !== this.resultOutput) return;
+    this.resultController = null;
+    this.resultOutput = null;
+  }
+
+  private cancelPendingResult(): void {
+    this.resultGeneration += 1;
+    this.resultController?.abort();
+    this.resultController = null;
+    this.resultOutput?.remove();
+    this.resultOutput = null;
+  }
+
+  private clearResultShell(): void {
+    this.cancelPendingResult();
+    this.results?.empty();
+    this.setResultsVisible(false);
   }
 
   private searchVault(query: string): TFile[] {
@@ -233,18 +361,45 @@ export class Omnibox {
     new Notice("Saved to inbox");
   }
 
-  private showRows(rows: Array<{ title: string; detail: string; action: () => void }>): void {
+  private showRows(rows: OmniboxRow[]): void {
     this.results.empty();
     this.setResultsVisible(rows.length > 0);
     for (const row of rows) {
-      const button = this.results.createEl("button", { cls: "omd-result-row", type: "button" });
+      const parent = row.file
+        ? this.results.createDiv({ cls: "omd-result-action-row" })
+        : this.results;
+      const button = parent.createEl("button", { cls: "omd-result-row", type: "button" });
       button.createSpan({ cls: "omd-result-title", text: row.title });
       button.createSpan({ cls: "omd-result-detail", text: row.detail });
       button.addEventListener("click", () => {
         this.setResultsVisible(false);
         row.action();
       });
+      if (row.file) this.createPinButton(parent, row.file);
     }
+  }
+
+  private createPinButton(parent: HTMLElement, file: TFile): void {
+    const button = parent.createEl("button", { cls: "omd-pin-action", type: "button" });
+    const syncState = (pinned: boolean) => {
+      const label = pinned ? "Unpin" : "Pin";
+      button.empty();
+      button.toggleClass("is-active", pinned);
+      button.setAttribute("title", `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`);
+      button.setAttribute("aria-label", `${label} ${file.basename} ${pinned ? "from" : "to"} OMD Home`);
+      button.setAttribute("aria-pressed", String(pinned));
+      setIcon(button, "pin");
+      button.createSpan({ text: label });
+    };
+    syncState(this.plugin.isNotePinned(file.path));
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void this.plugin.toggleNotePinned(file.path).then((pinned) => {
+        syncState(pinned);
+      }).finally(() => {
+        button.disabled = false;
+      });
+    });
   }
 
   private setResultsVisible(visible: boolean): void {
@@ -270,18 +425,13 @@ export class Omnibox {
       event.preventDefault();
       setActive(false);
       const source = captureSourceFromDataTransfer(event.dataTransfer);
-      if (!source) return;
+      if (!source) {
+        if (event.dataTransfer?.files.length) {
+          new Notice("OMD Home could not read this file's local path. Paste its full path into the capture dialog.");
+        }
+        return;
+      }
       this.plugin.openCaptureModal(source);
     });
   }
-}
-
-function captureSourceFromDataTransfer(dataTransfer: DataTransfer | null): string {
-  const file = dataTransfer?.files?.[0];
-  const filePath = file && "path" in file && typeof file.path === "string" ? file.path : "";
-  return captureSourceFromDrop(
-    filePath,
-    dataTransfer?.getData("text/uri-list") ?? "",
-    dataTransfer?.getData("text/plain") ?? "",
-  );
 }

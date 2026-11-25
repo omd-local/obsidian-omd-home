@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
   <title id="title">OMD Home // Bring Sources In, Decide What Changes</title>
-  <desc id="desc">Capture workflow for public beta0.2.1 showing immediate note creation, optional local Polish Markdown, and separate review-first summary, link and tag proposals.</desc>
+  <desc id="desc">Capture workflow for public beta0.2.2 showing immediate note creation, optional local Polish Markdown, and separate review-first summary, link and tag proposals.</desc>
   <defs>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#8064F4" stroke-width="1" opacity="0.45"/>

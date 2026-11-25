@@ -8,11 +8,11 @@ import { OmdEnrichmentError } from "./errors.ts";
 import { inspectVaultRelativeMarkdownPath, normalizeRelativeMarkdownPath } from "./path-safety.ts";
 
 interface BoundMarkdownFile {
-  file: TFile;
-  path: string;
-  absolutePath: string;
-  device: number;
-  inode: number;
+  readonly file: TFile;
+  readonly path: string;
+  readonly absolutePath: string;
+  readonly device: number;
+  readonly inode: number;
 }
 
 export function desktopVaultRoot(app: App): string {
@@ -65,12 +65,25 @@ export function createObsidianApplyServices(
     return bound.file;
   };
 
+  const rebindAfterOwnedWrite = async (bound: BoundMarkdownFile): Promise<BoundMarkdownFile> => {
+    const rebound = await bind(bound.path);
+    if (
+      !rebound
+      || rebound.absolutePath !== bound.absolutePath
+      || rebound.device !== bound.device
+    ) {
+      throw new OmdEnrichmentError("note_conflict", "A note changed while OMD Home was finalizing its own write.");
+    }
+    return rebound;
+  };
+
   return {
     resolveMarkdown: bind,
     validate,
     read: async (bound) => await app.vault.read(await requireValid(bound)),
     process: async (bound, update) => {
       await app.vault.process(await requireValid(bound), update);
+      return await rebindAfterOwnedWrite(bound);
     },
     processFrontMatter: async (bound, update) => {
       await app.fileManager.processFrontMatter(await requireValid(bound), (frontmatter) => {

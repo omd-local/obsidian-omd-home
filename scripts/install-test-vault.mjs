@@ -40,6 +40,33 @@ await writeFile(enabledPath, `${JSON.stringify(enabled, null, 2)}\n`);
 await writeFile(path.join(config, "app.json"), "{}\n", { flag: "wx" }).catch(() => {});
 console.log(`Installed OMD Home into ${plugin}`);
 
+const transcriptFixtureDirectory = path.join(root, "test-vault", "OMD Manual Tests");
+const transcriptFixtureSource = path.join(
+  root,
+  "docs",
+  "manual-test-fixtures",
+  "vault-notes",
+  "OMD Incomplete Transcript Range Repair.md",
+);
+const transcriptFixtureSidecarSource = transcriptFixtureSource.replace(/\.md$/u, ".omd.json");
+const transcriptFixtureDestination = path.join(
+  transcriptFixtureDirectory,
+  "OMD Incomplete Transcript Range Repair.md",
+);
+const transcriptFixtureAudio = path.join(
+  root,
+  "docs",
+  "manual-test-fixtures",
+  "generated",
+  "slow-bilingual-speech.wav",
+);
+await mkdir(transcriptFixtureDirectory, { recursive: true });
+await copyFile(transcriptFixtureSource, transcriptFixtureDestination);
+const transcriptSidecar = (await readFile(transcriptFixtureSidecarSource, "utf8"))
+  .replace("__OMD_FIXTURE_AUDIO__", transcriptFixtureAudio);
+await writeFile(transcriptFixtureDestination.replace(/\.md$/u, ".omd.json"), transcriptSidecar);
+console.log(`Installed transcript range-repair fixture into ${transcriptFixtureDirectory}`);
+
 async function isExecutableFile(targetPath) {
   try {
     const { constants } = await import("node:fs");
