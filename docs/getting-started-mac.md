@@ -2,7 +2,7 @@
 
 [返回 OMD Home 首页](../README.md) · **简体中文** · [English](getting-started-mac.en.md)
 
-> **尚未公开的候选：** 先使用提供的本地文件在测试 Vault 验收；下文固定版本的 BRAT／tag 下载须等实际发布后使用。线上仍是 Home 0.2.2／OMD 0.3.0b5。见[候选验收说明](first-install-beta.md)。
+> **安装包尚未发布的候选：** 先使用提供的本地文件在测试 Vault 验收；下文固定版本的 BRAT／tag 下载须等实际发布后使用。当前公开发行版仍是 Home 0.2.2／OMD 0.3.0b5。公开候选源码或草稿 PR 不会自动发布安装包。见[候选验收说明](first-install-beta.md)。
 
 按 **准备 Vault → 安装插件 → 安装 OMD 后端 → 保存第一篇网页** 的顺序操作。**第一次只需完成第 1–6 节**；语音转录、AI 和 Apple Calendar 都是之后的选装项。
 
@@ -192,12 +192,12 @@ OCR 只影响支持的图片文字识别，不翻译正文，也不表示普通�
 
 ## 7. 选装：Apple Silicon 本地语音转录
 
-**基础 Capture 成功后再做。** 需要 Apple M 系列芯片；MLX 不是 Intel 路线。后端已有 ffmpeg，但 Whisper 程序和模型需另外安装。
+**基础 Capture 成功后再做。** 需要 Apple M 系列芯片；MLX 不是 Intel 路线。独立引擎不包含 ffmpeg、Whisper 或模型。这条选装路线使用 [Homebrew](https://brew.sh/)；只有需要语音转录时才另行安装，并按它自己的要求准备环境。仅转换文档可跳过本节。
 
 在 Terminal 运行下面整个代码框，等每行完成：
 
 ```bash
-brew install pipx
+brew install python@3.12 pipx ffmpeg
 pipx install --python "$(brew --prefix python@3.12)/bin/python3.12" mlx-whisper
 pipx ensurepath
 ```
@@ -208,7 +208,7 @@ pipx ensurepath
 command -v mlx_whisper
 ```
 
-应显示程序路径。然后按 **⌘Q** 退出并重开 Obsidian；无需填写 Whisper 的程序路径。
+应显示程序路径。然后按 **⌘Q** 退出并重开 Obsidian；无需填写 Whisper 的程序路径。视频 URL Capture 还需 `yt-dlp`（`brew install yt-dlp`）；下面的本地音频测试无需它。参考官方 [pipx 安装说明](https://pipx.pypa.io/latest/how-to/install-pipx.html)和 [Homebrew Python 配方](https://formulae.brew.sh/formula/python@3.12)。
 
 在 Capture 弹窗的 **Drop a local file here** 区域放入自己有权使用的 **10–30 秒本地音频**，保留 **Auto-detect speech**，关闭两项 AI 开关，再点 **Capture**。默认模型是 `mlx-community/whisper-large-v3-turbo`，第一次使用要联网下载，需磁盘空间和等待时间。**完成标志是 Inbox 笔记中有可人工核对的转录文字**，不是仅看到程序路径。
 
@@ -227,6 +227,8 @@ command -v mlx_whisper
    等下载完成并看到模型名称。Terminal 找不到 `ollama` 时，先回 Ollama 完成首次命令行设置，再重开 Terminal；不要更改 OMD 的 Python 路径。
 3. 在 **Settings → OMD Home → AI answers**，把 **Answer provider** 设为 **Ollama on this computer**，点 **Check setup** 读取模型，再在答案模型下拉框选已下载模型，重新 **Check setup**。列表仍旧时运行命令 **OMD Home: Refresh local AI models**。
 4. 需要格式整理或链接标签建议时，展开 **Advanced AI controls → Local writing tools**，在 **Local writing model** 选文本模型；然后**回上方 AI answers 点 Check setup**。该模型行没有另一个检查按钮。这些写作功能只用本地 Ollama。
+
+   如果选定的答案或写作模型尚未安装，点设置提示旁的 **Copy install command**，在 Terminal 执行这条精确命令，等下载完成后再点 **Check setup**。插件会刷新模型列表并保留原模型和 provider；复制命令本身不会安装模型。
 5. 需要语义检索时再下载独立 embedding 模型：
 
    ```bash
@@ -266,7 +268,7 @@ b5 支持含**恰好一个 HTTP(S) URL** 的抖音或小红书 / Rednote 分享�
 
 ### 11A. 编译 helper
 
-目前需要在这台 Mac 上从同一 tag 编译。使用第 4B 节的 Xcode Command Line Tools；若跳过了该节且缺少工具，先完成 `xcode-select --install`。在 Terminal 检查：
+目前需要在这台 Mac 上从匹配插件的源码编译。只有这个选装 helper 需要 Xcode Command Line Tools，基础引擎安装不需要。缺少时用 `xcode-select --install` 发出请求，等系统安装真正完成后，再在 Terminal 检查：
 
 ```bash
 swift --version
@@ -274,7 +276,7 @@ swift --version
 
 需要 **Swift 6 或以上**；更旧时先更新开发工具。下面的 helper 脚本直接使用 Swift，**无需为它安装 Node.js 或执行 npm ci**。
 
-将下面整个代码框粘贴进 Terminal 并按 Return。它在任何一步失败时停止，不覆盖已有源码目录。如果提示 `~/Developer/omd-home-0.2.3` 已存在，把下面 clone 末尾和 cd 中的目录名一起换成一个新名字，再重试。
+下面使用的 **0.2.3 tag 要等发布后才存在**。在此之前测试候选时，把 `--branch 0.2.3` 换成 `--branch agent/public-beta-first-install`，使用与候选插件匹配的源码。将下面整个代码框粘贴进 Terminal 并按 Return。它在任何一步失败时停止，不覆盖已有源码目录。如果提示 `~/Developer/omd-home-0.2.3` 已存在，把下面 clone 末尾和 cd 中的目录名一起换成一个新名字，再重试。
 
 ```bash
 (
@@ -344,7 +346,7 @@ open dist
 
 ## 开发者：固定版本源码构建
 
-普通用户无需构建插件。开发者准备 Git、Node.js/npm 后，可复现 **0.2.3**：
+普通用户无需构建插件。开发者准备 Git、Node.js/npm 后，可在 **0.2.3 tag 发布后**复现该版本。此前测试候选时，将 `--branch 0.2.3` 换成 `--branch agent/public-beta-first-install`，并记录实际 checkout 的 commit：
 
 ```bash
 git clone --branch 0.2.3 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
@@ -353,4 +355,4 @@ npm ci
 npm run build
 ```
 
-结果仍是三个插件文件，不安装后端或模型。公开 main 包含这次发布的源码，未来仍会变化；固定 tag 方便复现。桌面验收见 [0.2.3 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.3/docs/manual-test-plan.md)。
+结果仍是三个插件文件，不安装后端或模型。推送候选分支或创建草稿 PR 不会更新 main、创建 tag 或发布安装包。分支会继续变化，复现候选时应保留精确 commit。桌面验收见 [manual test plan](manual-test-plan.md)。

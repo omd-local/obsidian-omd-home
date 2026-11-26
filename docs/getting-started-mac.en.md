@@ -2,7 +2,7 @@
 
 [Back to OMD Home](../README.md) · [简体中文](getting-started-mac.md) · **English**
 
-> **Unpublished candidate:** use the supplied local artifacts in a test vault. Versioned BRAT/tag downloads below become available only after publication. The public Home 0.2.2 / OMD 0.3.0b5 pair remains separate. See [candidate acceptance](first-install-beta.md).
+> **Candidate release assets are not published:** use the supplied local artifacts in a test vault. Versioned BRAT/tag downloads below become available only after publication. The current public releases remain Home 0.2.2 / OMD 0.3.0b5. Public candidate source or a draft PR does not publish installable assets. See [candidate acceptance](first-install-beta.md).
 
 Follow **prepare a vault → install the plugin → install the OMD backend → save your first webpage**. **Only sections 1–6 are needed for your first capture.** Transcription, AI, and Apple Calendar are optional additions afterward.
 
@@ -205,12 +205,12 @@ Notes normally go under `Sources/<source type>/` with adjacent `.omd.json` metad
 
 ## 7. Optional: local transcription on Apple Silicon
 
-**Complete basic Capture first.** This route needs an Apple M series chip; MLX is not the Intel route. The backend includes ffmpeg, but the Whisper program and model are separate.
+**Complete basic Capture first.** This route needs an Apple M series chip; MLX is not the Intel route. The independent engine does not include ffmpeg, Whisper or its model. This optional route uses [Homebrew](https://brew.sh/); install it separately and follow its own requirements only if you want transcription. Skip this section for document capture.
 
 Run this whole block in Terminal, waiting for each line to finish:
 
 ```bash
-brew install pipx
+brew install python@3.12 pipx ffmpeg
 pipx install --python "$(brew --prefix python@3.12)/bin/python3.12" mlx-whisper
 pipx ensurepath
 ```
@@ -221,7 +221,7 @@ As prompted, **close this Terminal window and open a new one**, then run:
 command -v mlx_whisper
 ```
 
-It should print the program path. Then use **⌘Q** to quit and reopen Obsidian; no Whisper executable path needs to be entered.
+It should print the program path. Then use **⌘Q** to quit and reopen Obsidian; no Whisper executable path needs to be entered. Video URL capture additionally needs `yt-dlp` (`brew install yt-dlp`); it is unnecessary for the local-audio test below. See the official [pipx installation guide](https://pipx.pypa.io/latest/how-to/install-pipx.html) and [Homebrew Python formula](https://formulae.brew.sh/formula/python@3.12).
 
 Drop a **10–30 second local audio file** you have permission to use onto **Drop a local file here** in Capture. Keep **Auto-detect speech** and both AI toggles off, then select **Capture**. The default model is `mlx-community/whisper-large-v3-turbo`; its first use requires a network download, disk space, and waiting time. **Success means an Inbox note contains a transcript you can check**, not merely that Terminal printed a program path.
 
@@ -240,6 +240,8 @@ Complete one real OMD capture before a demo; other standalone Whisper examples m
    Wait for completion and the model name in the list. If Terminal cannot find `ollama`, finish the app's initial CLI setup, then reopen Terminal; do not change OMD's Python path.
 3. Under **Settings → OMD Home → AI answers**, set **Answer provider** to **Ollama on this computer**. Select **Check setup** to load models, choose the downloaded answer model, and **Check setup** again. If the list is stale, run **OMD Home: Refresh local AI models**.
 4. For formatting or link/tag proposals, expand **Advanced AI controls → Local writing tools** and choose a text model under **Local writing model**. Then **return to Check setup under AI answers above**; the writing-model row has no separate check button. These writing tools use local Ollama only.
+
+   If the selected answer or writing model is missing, use **Copy install command** beside its setup message. Run that exact command in Terminal, wait for the download to finish, then **Check setup** again. The plugin refreshes the model list while retaining your selected model and provider; copying the command does not install it.
 5. For semantic search, download a separate embedding model:
 
    ```bash
@@ -279,7 +281,7 @@ Under **Settings → OMD Home → Capture and processing → Social capture acce
 
 ### 11A. Build the helper
 
-Build on this Mac from the matching plugin tag. Use the Xcode Command Line Tools from section 4B; if you skipped that section and the tools are missing, complete `xcode-select --install` first. Check in Terminal:
+Build on this Mac from the matching plugin source. This optional helper needs Xcode Command Line Tools, which the basic engine installation does not need. If absent, request them with `xcode-select --install`, wait for the system installation to finish, then check in Terminal:
 
 ```bash
 swift --version
@@ -287,7 +289,7 @@ swift --version
 
 You need **Swift 6 or newer**; update the developer tools first if older. The helper script uses Swift directly: **no Node.js installation or npm ci is needed for it**.
 
-Paste the whole block into Terminal and press Return. It stops if any step fails and refuses to overwrite an existing source directory. If `~/Developer/omd-home-0.2.3` already exists, change the directory name both at the end of clone and in cd to the same new name, then retry.
+The block below uses the **0.2.3 tag after publication**. While testing this candidate before that tag exists, replace `--branch 0.2.3` with `--branch agent/public-beta-first-install`; use source matching your candidate plugin. Paste the whole block into Terminal and press Return. It stops if any step fails and refuses to overwrite an existing source directory. If `~/Developer/omd-home-0.2.3` already exists, change the directory name both at the end of clone and in cd to the same new name, then retry.
 
 ```bash
 (
@@ -357,7 +359,7 @@ Report plugin and OMD versions, Mac chip, the failed step, and error text; inclu
 
 ## Developers: build the pinned plugin source
 
-Regular users need no plugin build. Developers with Git and Node.js/npm can reproduce **0.2.3**:
+Regular users need no plugin build. Developers with Git and Node.js/npm can reproduce **0.2.3 after its tag is published**. Before then, use `--branch agent/public-beta-first-install` instead, and record the checked-out commit for candidate testing:
 
 ```bash
 git clone --branch 0.2.3 --depth 1 https://github.com/omd-local/obsidian-omd-home.git
@@ -366,4 +368,4 @@ npm ci
 npm run build
 ```
 
-The output is still the three plugin files, without backend or models. Public main includes this release's source and will change; a fixed tag is reproducible. See the [0.2.3 manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.3/docs/manual-test-plan.md) for desktop acceptance.
+The output is still the three plugin files, without backend or models. Pushing a candidate branch or opening a draft PR does not update main, create a tag, or publish installable assets. A branch can change; retain the exact commit when reproducing a candidate. See the [manual test plan](manual-test-plan.md) for desktop acceptance.

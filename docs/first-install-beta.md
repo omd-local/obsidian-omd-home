@@ -1,6 +1,8 @@
 # First-install beta candidate: Home 0.2.3 / Engine 0.3.0b6
 
-This is an unpublished candidate prepared from the current public repositories.
+This candidate is prepared from the current public repositories; its release
+assets are not published. Public candidate branches and draft PRs allow source
+review and CI; they do not merge main, create release tags or publish installers.
 Versioned download and BRAT links are usable only after matching assets are
 published. Until then, use the supplied local files in a separate test vault.
 The current public Home 0.2.2 / engine 0.3.0b5 releases are unchanged.
