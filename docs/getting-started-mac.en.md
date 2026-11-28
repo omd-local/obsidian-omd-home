@@ -2,7 +2,7 @@
 
 [Back to OMD Home](../README.md) · [简体中文](getting-started-mac.md) · **English**
 
-> **Test the candidate from GitHub:** sign in to GitHub, download the Home PR artifact in [section 3](#manual-install), then the matching engine PR artifact in [section 4](#install-backend). No file transfer from another computer or source build is needed. Release assets are not published; versioned BRAT/tag downloads become available after publication. Current public releases remain Home 0.2.2 / OMD 0.3.0b5. See [candidate acceptance](first-install-beta.md).
+> **Test the candidate from GitHub:** sign in and download the Home PR artifact in [section 3](#manual-install). **New engine binary uploads are currently blocked by a license-notice gap and Intel dependency vulnerabilities.** Test plugin-only features or connect an existing compatible b5 engine first. Do not bypass the gates with an older successful run. Resume new-engine installation using [section 4](#install-backend) when the matching run passes the gates and provides its artifact. Release assets are not published; current public releases remain Home 0.2.2 / OMD 0.3.0b5. See [candidate status and acceptance](first-install-beta.md).
 
 Follow **prepare a vault → install the plugin → install the OMD backend → save your first webpage**. **For this PR candidate, follow sections 1 → 3 → 4–6**; section 2 applies after release. Transcription, AI, and Apple Calendar are optional additions afterward.
 
@@ -136,6 +136,9 @@ Homebrew, Xcode, Command Line Tools or accepting an Xcode license.
 
 ### 4A. Choose the matching independent package
 
+Use these download steps only after the new engine passes its license and dependency
+gates; do not substitute an older historical build while uploads are blocked.
+
 1. In **Apple menu → About This Mac**, check whether you have Apple Silicon
    (**arm64**) or Intel (**x86_64**).
 2. For this candidate, open [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16). Under **Checks**, open the successful **Build independent macOS engine** run summary, or use the [candidate build list](https://github.com/omd-local/markdown-everything/actions/workflows/macos-engine.yml?query=branch%3Aagent%2Fpublic-beta-first-install). While signed in, download **omd-engine-unsigned-arm64** for Apple Silicon or **omd-engine-unsigned-x86_64** for Intel from **Artifacts**. Match the PR's current engine commit; the engine and plugin have independent commits.
@@ -260,7 +263,7 @@ Complete one real OMD capture before a demo; other standalone Whisper examples m
    ollama pull bge-m3
    ```
 
-   Under **Advanced AI controls → Vault retrieval**, enable **Keyword + semantic search**, select `bge-m3`, and select **Test semantic search**. **Install bge-m3** also downloads it after an explicit click; opening settings does not. For keyword-only search, leave the switch off; no embedding model is needed.
+   Under **Advanced AI controls → Vault retrieval**, enable **Keyword + semantic search**, select `bge-m3`, and select **Test semantic search**. If the model is missing, use **Copy install command**, run it yourself in Terminal, wait for completion, then repeat **Check setup** and **Test semantic search**. The plugin does not download models; copying a command does not run it. For keyword-only search, leave the switch off; no embedding model is needed.
 6. Close Settings and type `@` plus a question answerable from your test notes in Home's omnibox. **Success means an answer has citations that open the original notes.** Vault Q&A is read-only. Preview formatting on a test note before Apply; enable Capture's AI toggles only after the relevant checks pass.
 
 Keep the endpoint `http://localhost:11434`; no Ollama executable path is needed. Custom endpoints require loopback on this Mac and an explicit port; select **Save endpoint** when changing one. A downloaded model may not fit every workflow, so follow each check's result.

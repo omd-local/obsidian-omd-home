@@ -3,11 +3,13 @@
 Use this checklist for every GitHub release and before submitting or updating OMD Home in
 Obsidian Community Plugins. A checked code gate does not replace the hands-on desktop gates.
 
-For the coordinated 2026-11-25 Mac release, pair Home **0.2.2** with backend
-**0.3.0b5**. The complete beginner installation route is available in
+For the current first-install candidate, pair Home **0.2.3** with Engine
+**0.3.0b6**. Neither candidate is a published release. The complete beginner installation route is available in
 [中文](getting-started-mac.md) and [English](getting-started-mac.en.md).
 Historical manual records remain historical; they do not assert that every
-native UI gate below was repeated for this source-and-distribution sync.
+native UI gate below was repeated for this candidate. Leave a manual gate unchecked
+until the final candidate is tested, recording commit/run, chip, macOS and Obsidian
+versions, result and evidence. PR artifacts expire after 14 days and are not release assets.
 DeepSeek stays unavailable until its disclosure is verified. iPhone direct
 capture and experimental answer-verification prototypes are outside this release.
 
@@ -26,14 +28,14 @@ capture and experimental answer-verification prototypes are outside this release
 - [ ] `npm run lint` succeeds without warnings.
 - [ ] `npm test` succeeds.
 - [ ] `npm run build` succeeds in production mode.
-- [ ] `npm audit --omit=dev` reports no unresolved production vulnerability.
+- [ ] `npm audit` reports no unresolved vulnerability across production and build dependencies; `npm audit --omit=dev` is also recorded separately.
 - [ ] `main.js` has no source map, developer machine paths, vault paths, credentials, or test-vault content.
 
 ## Desktop behavior
 
 - [ ] OMD Home loads with OMD, Python, Ollama, and EventKit absent; unrelated modules remain usable.
 - [ ] First-use OMD setup checks the app path and documented common locations automatically; a manual executable is available only under **Advanced OMD paths**.
-- [ ] Missing OMD exposes Copy install steps, the official install guide, and Check again in Settings and Needs attention without executing a shell, installer, package manager, or privilege prompt.
+- [ ] Missing OMD exposes Download OMD Engine, the official install guide, and Check again in Settings and Needs attention without executing a shell, installer, package manager, or privilege prompt.
 - [ ] Automatic discovery can skip a missing or outdated earlier candidate and retain the compatible resolved executable for capture, Vault Q&A, and enrichment.
 - [ ] Home, Inbox, Markdown events, capture entry points, tags, drag/push layout, visible resizing, standard-size reset, light/dark themes, narrow windows, and keyboard focus work.
 - [ ] Recent-note titles and paths share one left edge; an expanded omnibox result reflows the grid and never overlays another widget.
@@ -44,7 +46,7 @@ capture and experimental answer-verification prototypes are outside this release
 - [ ] Local answer and writing dropdowns show every downloaded local model; incompatible entries stay visible, disabled, and labelled with a reason. Unchecked uses a neutral adjacent status rail; Ready and actual errors have distinct prominent rails with text labels.
 - [ ] Invalid endpoint input lists the accepted `localhost`, `127.0.0.1`, and `[::1]` forms beside the field, preserves the last valid setting, and clears its error when corrected; a valid draft changes the active endpoint only after **Save endpoint**.
 - [ ] **Test semantic search** validates the selected local embedding model with English and Chinese probes, reports vector dimensions, and rejects remote, malformed, or dimension-mismatched responses.
-- [ ] Missing `bge-m3` offers an explicit **Install bge-m3** action that never runs without a click; other safe model IDs offer a copyable command. **Test semantic search** keeps **Advanced AI controls** open through success and failure.
+- [ ] A missing safe embedding model, including `bge-m3`, offers **Copy install command** and independent Terminal instructions. Copying sends no pull request, changes no selection and claims no installation success. After the user installs it, **Check setup** refreshes the catalog and **Test semantic search** verifies vectors while keeping **Advanced AI controls** open.
 - [ ] Hybrid retrieval can be disabled without making an embedding request; when enabled it labels answers as Hybrid or Sparse and exposes any fallback warning.
 - [ ] First-use hybrid indexing has a longer bounded timeout, remains cancellable, and namespaces cached vectors by the installed Ollama model digest when available.
 - [ ] D01 (`这些阳台番茄笔记给新手哪些建议？`) recalls both benchmark fixture notes with `bge-m3`, excludes distractors, and fails closed in the sparse-only control.
@@ -95,6 +97,7 @@ capture and experimental answer-verification prototypes are outside this release
 
 ## Release artifact
 
+- [ ] Final Home and Engine commits are reviewed and merged; the tagged source matches the tested candidate. Record both commits and the paired versions. Rebuild after any source, dependency or license change; an earlier PR artifact does not cover a later commit.
 - [ ] The Git tag exactly equals the manifest version, without a `v` prefix.
 - [ ] The public GitHub release contains exactly `main.js`, `manifest.json`, and `styles.css` as plugin assets.
 - [ ] A clean vault installs and loads those exact assets without a sibling source checkout.
@@ -104,6 +107,17 @@ capture and experimental answer-verification prototypes are outside this release
 - [ ] README and release notes do not promise auto-install, auto-pull, alternate ports, automatic hosted failover, silent evidence egress, or automatic provider switching.
 - [ ] The locally verified asset hashes match the published release assets.
 - [ ] The Community Plugins submission/reviewer feedback is complete before claiming Marketplace availability.
+
+## Independent macOS engine distribution
+
+- [ ] Build document-profile arm64 and x86_64 artifacts from the exact engine commit and pinned runtime/wheels. Retain the source revision, input provenance and full file/link manifest.
+- [ ] The bundle includes complete third-party license/notice materials and their inventory; `build_bundle.py --strict-release` passes with no release blockers. Cobble's missing original copyright notice is currently unresolved. Inspect the final app and expanded PKG, not only the source directory.
+- [ ] The exact architecture wheel requirements pass `pip-audit --disable-pip --require-hashes --strict`; do not substitute a newly resolved dependency set. Intel cryptography currently blocks Intel distribution because fixed upstream releases no longer provide Intel wheels. A clean ARM audit does not clear Intel.
+- [ ] Complete the [maintainer signing and notarization preparation](https://github.com/omd-local/markdown-everything/blob/agent/public-beta-first-install/docs/macos-signing.md). Sign nested native code and the app, sign PKG if distributing it, notarize and staple the supported containers. Record actual verification results, not just successful build commands.
+- [ ] Verify the final downloaded signed app with Gatekeeper and test basic Capture on a fresh Mac without Homebrew, Python setup, Xcode or CLT. Record each supported architecture, macOS 14 and the minimum Obsidian 1.11.4 separately; CI smoke is not a substitute.
+- [ ] If shipping PKG, run the real system Installer: clean installation, upgrade, existing CLI conflicts, canonical app location and optional CLI links. A ZIP-only release may defer PKG publication and this PKG-specific gate.
+- [ ] After signing/stapling, generate final checksums and an external bundle manifest. Do not mutate a signed app to update internal metadata. Publish the exact verified ZIP/PKG plus checksums as durable engine Release assets.
+- [ ] The plugin's Download OMD Engine button and main-branch guide lead to those actual artifacts. The guide distinguishes app ZIP, optional PKG, architecture, minimum macOS, independent Ollama/model setup and unsupported optional capabilities.
 
 ## Community directory submission
 
@@ -115,4 +129,9 @@ above are green.
 - [ ] Open **Plugins** and choose **New plugin**.
 - [ ] Enter the GitHub repository URL for OMD Home and select the `omd-local` owner.
 - [ ] Review and agree to the current Developer policies and continue-support prompt.
+- [ ] Review the directory's manifest, releases, source and build-verification results; resolve errors and review warnings before claiming availability. Ensure the default-branch manifest, tag and uploaded plugin assets describe the same release.
 - [ ] Wait for the directory review to pass before describing the plugin as ready for the Community directory.
+
+Official references: [Developer policies](https://docs.obsidian.md/community-directory/developer-policies),
+[directory setup and submission](https://docs.obsidian.md/community-directory/set-up-and-claim),
+[directory review FAQ](https://docs.obsidian.md/community-directory/faq).

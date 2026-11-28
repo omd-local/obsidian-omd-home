@@ -8,9 +8,13 @@ import test from "node:test";
 import ts from "typescript";
 import {
   buildModelEntry,
+  classifyEmbeddingSetup,
+  localModelNamesMatch,
   localModelPullCommand,
+  modelSupportsEmbedding,
   textModelInstallGuidance,
 } from "../src/local-ai-readiness.ts";
+import { modelIsCloudBacked } from "../src/ai-provider.ts";
 import {
   OmdBridge,
   portableOmdAppContents,
@@ -52,64 +56,82 @@ test("text install guidance distinguishes missing, unreachable, incompatible, an
   }
 });
 
-test("model recovery displays the command, copies it, and rechecks without installing or changing settings", async () => {
-  const source = ts.createSourceFile("settings.ts", await readFile(new URL("../src/settings.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
-  const method = source.statements.flatMap((node) => ts.isClassDeclaration(node) ? [...node.members] : [])
-    .find((node) => node.name?.getText(source) === "modelReadinessRail");
-  assert.ok(method);
-  const compiled = ts.transpileModule(`class Harness { ${method.getText(source)} }`, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const displayed: string[] = [];
-  const copied: string[] = [];
-  const buttons: Array<{ label: string; click: () => Promise<void> }> = [];
-  class Element {
-    addClass(..._names: string[]): void {}
-    setAttribute(_key: string, _value: string): void {}
-    createEl(_tag: string, options?: { text?: string }): Element {
-      if (options?.text) displayed.push(options.text);
-      return new Element();
+for (const kind of ["text", "embedding"] as const) {
+  test(`${kind} model recovery displays the command, copies it, and rechecks without installing or changing settings`, async () => {
+    const selectedModel = kind === "text" ? model : "bge-m3";
+    const methodName = kind === "text" ? "modelReadinessRail" : "embeddingModelSetting";
+    const source = ts.createSourceFile("settings.ts", await readFile(new URL("../src/settings.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
+    const method = source.statements.flatMap((node) => ts.isClassDeclaration(node) ? [...node.members] : [])
+      .find((node) => node.name?.getText(source) === methodName);
+    assert.ok(method);
+    const compiled = ts.transpileModule(`class Harness { ${method.getText(source)} }`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const displayed: string[] = [];
+    const copied: string[] = [];
+    const buttons: Array<{ label: string; click: () => Promise<void> }> = [];
+    class Element {
+      addClass(..._names: string[]): void {}
+      setAttribute(_key: string, _value: string): void {}
+      createEl(_tag: string, options?: { text?: string }): Element {
+        if (options?.text) displayed.push(options.text);
+        return new Element();
+      }
     }
-  }
-  class Setting {
-    settingEl = new Element();
-    descEl = new Element();
-    setName(_name: string): this { return this; }
-    setDesc(value: string): this { displayed.push(value); return this; }
-    addButton(callback: (button: any) => void): this {
-      const entry = { label: "", click: async () => {} };
-      const button = {
-        buttonEl: new Element(),
-        setButtonText(value: string) { entry.label = value; return this; },
-        setDisabled(_value: boolean) { return this; },
-        onClick(action: () => Promise<void>) { entry.click = action; return this; },
-      };
-      callback(button);
-      buttons.push(entry);
-      return this;
+    class Setting {
+      settingEl = new Element();
+      descEl = new Element();
+      setName(_name: string): this { return this; }
+      setDesc(value: string): this { displayed.push(value); return this; }
+      addDropdown(callback: (dropdown: any) => void): this {
+        const dropdown = {
+          addOption() { return this; }, addOptions() { return this; },
+          setValue() { return this; }, setDisabled() { return this; }, onChange() { return this; },
+        };
+        callback(dropdown);
+        return this;
+      }
+      addButton(callback: (button: any) => void): this {
+        const entry = { label: "", click: async () => {} };
+        const button = {
+          buttonEl: new Element(),
+          setButtonText(value: string) { entry.label = value; return this; },
+          setDisabled(_value: boolean) { return this; },
+          onClick(action: () => Promise<void>) { entry.click = action; return this; },
+        };
+        callback(button);
+        buttons.push(entry);
+        return this;
+      }
     }
-  }
-  const tab = new Function("Setting", "textModelInstallGuidance", "navigator", "Notice", "process", `${compiled}\nreturn new Harness();`)(
-    Setting, textModelInstallGuidance, { clipboard: { writeText: async (value: string) => { copied.push(value); } } }, class {}, process,
-  );
-  const settings = { aiModel: model, localWritingModel: model, ollamaHost: endpoint };
-  let checks = 0;
-  tab.plugin = {
-    settings, aiSetupBusy: () => false,
-    localAiState: { models: [], daemonCode: "ready", catalogCheckedAt: 1 },
-    checkLocalAiConnection: async () => { checks += 1; return true; },
-  };
-  tab.runAiSetupAction = async (action: () => Promise<void>) => await action();
-  tab.modelReadinessRail({}, "Answer model", { model, code: "selected_model_missing", detail: "missing" }, true);
-  assert.ok(displayed.includes(`OLLAMA_HOST='${endpoint}' ollama pull ${model}`));
-  assert.ok(displayed.some((value) => /terminal/iu.test(value)));
-  await buttons.find((button) => button.label === "Copy install command")?.click();
-  assert.deepEqual(copied, [`OLLAMA_HOST='${endpoint}' ollama pull ${model}`]);
-  await buttons.find((button) => button.label === "Check setup")?.click();
-  assert.equal(checks, 1);
-  assert.equal(tab.plugin.settings, settings);
-  assert.equal(settings.aiModel, model);
-});
+    const tab = new Function("Setting", "textModelInstallGuidance", "classifyEmbeddingSetup", "localModelNamesMatch", "modelIsCloudBacked", "modelSupportsEmbedding", "navigator", "Notice", "process", "Platform", `${compiled}\nreturn new Harness();`)(
+      Setting, textModelInstallGuidance, classifyEmbeddingSetup, localModelNamesMatch, modelIsCloudBacked, modelSupportsEmbedding,
+      { clipboard: { writeText: async (value: string) => { copied.push(value); } } }, class {}, process, { isWin: false },
+    );
+    const settings = { aiProvider: "ollama", aiModel: model, localWritingModel: model, embeddingModel: "bge-m3", ollamaHost: endpoint };
+    let checks = 0;
+    tab.plugin = {
+      settings, aiSetupBusy: () => false,
+      localAiState: { models: [], daemonCode: "ready", connectionCode: "ready", catalogCheckedAt: 1 },
+      ollamaLocalClient: new Proxy({}, { get: () => assert.fail("Copying a command must not call Ollama or download a model") }),
+      checkLocalAiConnection: async () => { checks += 1; return true; },
+    };
+    tab.runAiSetupAction = async (action: () => Promise<void>) => await action();
+    if (kind === "text") tab.modelReadinessRail({}, "Answer model", { model, code: "selected_model_missing", detail: "missing" }, true);
+    else tab.embeddingModelSetting({});
+    assert.ok(displayed.includes(`OLLAMA_HOST='${endpoint}' ollama pull ${selectedModel}`));
+    assert.ok(displayed.some((value) => /terminal/iu.test(value)));
+    assert.deepEqual(buttons.map((button) => button.label), ["Copy install command", "Check setup"]);
+    await buttons.find((button) => button.label === "Copy install command")?.click();
+    assert.deepEqual(copied, [`OLLAMA_HOST='${endpoint}' ollama pull ${selectedModel}`]);
+    assert.equal(checks, 0, "copying alone does not claim the model is installed or run setup checks");
+    await buttons.find((button) => button.label === "Check setup")?.click();
+    assert.equal(checks, 1);
+    assert.equal(tab.plugin.settings, settings);
+    assert.equal(settings.aiModel, model);
+    assert.equal(settings.embeddingModel, "bge-m3");
+  });
+}
 
 test("portable Python discovery is restricted to the selected engine app layout", () => {
   assert.equal(portableOmdAppContents("/Applications/OMD Engine.app/Contents/MacOS/omd"), "/Applications/OMD Engine.app/Contents");

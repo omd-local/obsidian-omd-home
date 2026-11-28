@@ -38,9 +38,11 @@ suggested links and tags before choosing **Apply**.
 
 ## Install
 
-> **First-install candidate testing:** download Home 0.2.3 and the independent
-> engine 0.3.0b6 from their PR workflow artifacts, then follow the same Mac guides
-> in a test vault. No source build or transfer from another computer is needed.
+> **First-install candidate testing:** download Home 0.2.3 from its PR workflow
+> artifact and follow the Mac guide in a test vault. New engine 0.3.0b6 binary
+> uploads are blocked pending the Cobble copyright notice and Intel dependency
+> vulnerability resolution. Test plugin-only features or an existing compatible
+> b5 engine first; do not bypass the gates with an older engine build.
 > Release assets are not published; versioned download/BRAT instructions apply
 > after publication. The current public
 > pair remains [Home 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2)
@@ -116,7 +118,7 @@ directory and create only the ordinary `plugins` and `omd-home` folders.
 OMD performs conversion on your computer. OMD Home does not install, update,
 or bundle OMD, Python, Ollama, or the EventKit helper.
 
-On **macOS 14+**, independently obtain the **OMD Engine 0.3.0b6** package matching
+Once the license and dependency gates pass, on **macOS 14+** independently obtain the **OMD Engine 0.3.0b6** package matching
 your Mac: **arm64** for Apple Silicon or **x86_64** for Intel. For this candidate,
 open [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16), then
 the successful **Build independent macOS engine** run under **Checks**. Download
@@ -367,10 +369,11 @@ Settings provide:
    ```
 
    Choose it under **Advanced AI controls > Vault retrieval**, then press
-   **Test semantic search**. If the selected `bge-m3` model is missing,
-   **Install bge-m3** runs the equivalent Ollama download only after you
-   click it. Opening settings, checking setup, and asking a question never download
-   a model automatically. **Switch to keyword search** turns off semantic search for
+   **Test semantic search**. If the selected model is missing, use
+   **Copy install command**, run the command yourself in Terminal, wait for it to
+   finish, then run **Check setup** and **Test semantic search** again. Copying,
+   checking setup, and asking a question do not download a model.
+   **Switch to keyword search** turns off semantic search for
    future vault questions and saves that choice; keyword search needs no embedding model.
 4. In **Settings > OMD Home > AI answers**, choose an answer provider.
    - For **Ollama on this computer**, choose a local model and press **Check setup**.
@@ -428,8 +431,8 @@ Official provider references:
 - [Anthropic API overview](https://platform.claude.com/docs/en/api/overview)
 - [DeepSeek API docs](https://api-docs.deepseek.com/api/deepseek-api)
 
-OMD Home does not download models in the background, auto-select models, or
-auto-switch providers. The explicit **Install bge-m3** action is described above.
+OMD Home does not download models, auto-select models, or auto-switch providers.
+Model installation commands are copied for you to run independently in Terminal.
 Local answer and writing dropdowns show all downloaded models that
 stay on this computer. Compatible completion models and models awaiting
 capability verification are selectable; known incompatible models remain
@@ -533,8 +536,8 @@ a repaired or replaced file is used.
 ## Privacy and failure boundaries
 
 - No OMD Home telemetry, ads, account creation, or payment flow.
-- No background helper install, executable update, model download, or model switch.
-  The explicit **Install bge-m3** action requires a click and downloads that model.
+- No helper install, executable update, model download, or automatic model switch.
+  Model setup displays a validated command; copying it does not execute it.
 - OMD setup actions copy official text or open an external guide. They never
   execute an installer or mutate a Python environment.
 - OMD Home reads and writes the current vault. A local file capture reads only

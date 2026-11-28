@@ -878,7 +878,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           if (value === "__custom__" || value === "__stale__") {
             this.customModelModes.add("qa");
             if (value === "__custom__") {
-              new Notice("Enter the exact model id, then run check setup to verify it.");
+              new Notice("Enter the exact model ID, then run check setup to verify it.");
             }
             this.rerenderLocalAiSection();
             return;
@@ -892,7 +892,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
       let draft = selector.customValue;
       setting.addText((text) => {
         text
-          .setPlaceholder("Exact provider model id")
+          .setPlaceholder("Exact provider model ID")
           .setValue(selector.customValue)
           .setDisabled(aiSetupBusy)
           .onChange((value) => {
@@ -906,7 +906,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .onClick(async () => {
           if (this.plugin.settings.aiProvider !== provider) return;
           if (!draft.trim()) {
-            new Notice("Enter the exact model id first.");
+            new Notice("Enter the exact model ID first.");
             return;
           }
           await this.saveAnswerModel(provider, draft, "Custom model id saved. Run Check setup to verify it is installed.");
@@ -1023,7 +1023,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           }
         }));
     } else {
-      status.setDesc("The selected text model is missing. Find its exact local model id in the Ollama model library, save it above, then run check setup. A safe install command could not be generated for this selection.");
+      status.setDesc("The selected text model is missing. Find its exact local model ID in the Ollama model library, save it above, then run check setup. A safe install command could not be generated for this selection.");
       status.descEl.createEl("p").createEl("a", { text: "Ollama model library", href: "https://ollama.com/library" });
     }
     status.addButton((button) => {
@@ -1508,7 +1508,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     if (selector.useCustom) {
       let draft = selector.customValue;
       setting.addText((text) => {
-        text.setPlaceholder("Custom Ollama model id");
+        text.setPlaceholder("Custom Ollama model ID");
         text.setValue(selector.customValue).setDisabled(aiSetupBusy);
         text.onChange((value) => {
           draft = value.trim();
@@ -1520,7 +1520,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
         .setDisabled(aiSetupBusy)
         .onClick(async () => {
           if (!draft.trim()) {
-            new Notice("Enter a custom model id first.");
+            new Notice("Enter a custom model ID first.");
             return;
           }
           this.customModelModes.add(workflow);
@@ -1621,15 +1621,6 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           await this.runAiSetupAction(() => this.plugin.testLocalEmbeddings(), "embedding-test");
         });
       });
-    } else if (presentation.action === "install-model" && presentation.installableModel) {
-      setting.addButton((button) => {
-        button.buttonEl?.setAttribute("data-omd-ai-action", "embedding-install");
-        return button.setButtonText(this.plugin.localAiState.activeAction === "install-embedding" ? "Installing…" : `Install ${presentation.installableModel}`)
-        .setDisabled(aiSetupBusy)
-        .onClick(async () => {
-          await this.runAiSetupAction(() => this.plugin.installEmbeddingModel(presentation.installableModel!, savedHost), "embedding-install");
-        });
-      });
     } else if (presentation.action === "copy-pull-command" && presentation.pullCommand) {
       const command = presentation.pullCommand;
       setting.descEl.createEl("pre").createEl("code", { text: command });
@@ -1640,7 +1631,7 @@ export class OmdHomeSettingTab extends PluginSettingTab {
           try {
             await navigator.clipboard.writeText(command);
             button.setButtonText("Copied");
-            new Notice("Ollama install command copied. Run it in terminal, then refresh models.");
+            new Notice("Install command copied. Run it in a terminal, then check setup and test semantic search.");
           } catch {
             new Notice("Copy failed. Select and copy the displayed install command.");
           }
@@ -1679,11 +1670,11 @@ export class OmdHomeSettingTab extends PluginSettingTab {
     }
     if (presentation.action === "copy-pull-command" || presentation.action === "refresh-models") {
       setting.addButton((button) => {
-        button.buttonEl?.setAttribute("data-omd-ai-action", "embedding-refresh");
-        return button.setButtonText(this.plugin.localAiState.activeAction === "refresh-models" ? "Refreshing…" : "Refresh models")
+        button.buttonEl?.setAttribute("data-omd-ai-action", "embedding-check");
+        return button.setButtonText(this.plugin.localAiState.activeAction === "check-connection" ? "Checking…" : "Check setup")
         .setDisabled(aiSetupBusy)
         .onClick(async () => {
-          await this.runAiSetupAction(() => this.plugin.refreshLocalAiCatalog(true), "embedding-refresh");
+          await this.runAiSetupAction(() => this.plugin.checkLocalAiConnection(), "embedding-check");
         });
       });
     }

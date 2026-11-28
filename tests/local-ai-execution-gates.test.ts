@@ -128,8 +128,17 @@ test("hybrid retrieval falls back to sparse search when local embedding safety c
   ]) {
     assert.match(mainSource, new RegExp(reason, "u"));
   }
-  assert.match(mainSource, /text: `Install \$\{installableModel\}`/u);
-  assert.match(mainSource, /downloads model data to Ollama and may take several minutes/u);
+  assert.match(mainSource, /text: "Copy install command"/u);
+  assert.match(mainSource, /Run this command in a terminal to install the model separately with Ollama/u);
+  assert.match(mainSource, /navigator\.clipboard\.writeText\(pullCommand\)/u);
+  assert.doesNotMatch(mainSource, /installEmbeddingModel|oneClickInstallableEmbeddingModel|\.pull\(/u);
+  const clientSource = readFileSync(resolve("src/ollama-local-client.ts"), "utf8");
+  assert.doesNotMatch(clientSource, /\/api\/pull|async pull\(/u);
+  const settingsSource = readFileSync(resolve("src/settings.ts"), "utf8");
+  assert.match(settingsSource, /"Copy install command"/u);
+  assert.match(settingsSource, /"Check setup"/u);
+  assert.match(settingsSource, /checkLocalAiConnection\(\)/u);
+  assert.match(settingsSource, /"Test semantic search"/u);
   assert.match(mainSource, /if \(this\.settings\.hybridRetrievalEnabled\)/u);
   assert.match(mainSource, /text: "Use keyword search by default"/u);
   assert.match(mainSource, /text: "Open retrieval settings"/u);

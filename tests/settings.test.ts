@@ -351,9 +351,9 @@ test("hybrid retrieval settings keep embedding choices local and expose an embed
   assert.match(source, /testLocalEmbeddings\(\)/u);
   assert.match(source, /classifyEmbeddingSetup\(/u);
   assert.match(source, /It is separate from the text model used to write answers or edit notes/u);
-  assert.match(source, /presentation\.action === "install-model"/u);
   assert.match(source, /presentation\.action === "copy-pull-command"/u);
-  assert.match(source, /this\.plugin\.installEmbeddingModel\(presentation\.installableModel/u);
+  assert.doesNotMatch(settings, /installEmbeddingModel|install-model/u);
+  assert.match(settings, /checkLocalAiConnection\(\)/u);
   assert.match(source, /Keyword search remains available/u);
   assert.match(source, /omd-settings-embedding-model/u);
   assert.match(stylesSource, /\.omd-answer-warning-actions/u);

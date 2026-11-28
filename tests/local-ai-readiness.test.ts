@@ -21,7 +21,6 @@ import {
   modelSupportsCompletion,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
-  oneClickInstallableEmbeddingModel,
   providerMode,
   resolveEmbeddingModelRevision,
   snapshotsMatch,
@@ -123,14 +122,14 @@ test("embedding setup distinguishes the daemon and model first-use states", () =
   assert.match(classifyEmbeddingSetup({ host, model, connectionCode: "daemon_unreachable" }).detail, /install.*open|open.*install/iu);
   const empty = classifyEmbeddingSetup({ host, model, models: [] });
   assert.equal(empty.kind, "no-local-models");
-  assert.equal(empty.action, "install-model");
-  assert.equal(empty.installableModel, "bge-m3");
+  assert.equal(empty.action, "copy-pull-command");
+  assert.equal(empty.pullCommand, `OLLAMA_HOST='${host}' ollama pull bge-m3`);
+  assert.match(empty.detail, /run it in a terminal/u);
   assert.equal(classifyEmbeddingSetup({ host, model, connectionCode: "no_models_installed", localAnswer: true }).needsTextModel, true);
   const missing = classifyEmbeddingSetup({ host, model: "all-minilm:22m", models: [localModel] });
   assert.equal(missing.kind, "model-missing");
   assert.equal(missing.action, "copy-pull-command");
   assert.equal(missing.pullCommand, `OLLAMA_HOST='${host}' ollama pull all-minilm:22m`);
-  assert.equal(missing.installableModel, null);
   const unsafe = classifyEmbeddingSetup({ host, model: "x;echo y", models: [localModel] });
   assert.equal(unsafe.action, "refresh-models");
   assert.equal(unsafe.pullCommand, null);
@@ -257,7 +256,7 @@ test("embedding model revision resolves from the installed catalog", () => {
   assert.equal(resolveEmbeddingModelRevision("", models), undefined);
 });
 
-test("bge-m3 latest aliases resolve consistently for catalog matching and one-click install", () => {
+test("bge-m3 latest aliases resolve consistently for catalog matching", () => {
   const installed = buildModelEntry({
     name: "bge-m3:latest",
     digest: "sha256:latest",
@@ -268,8 +267,6 @@ test("bge-m3 latest aliases resolve consistently for catalog matching and one-cl
   assert.equal(modelSupportsEmbedding(installed), true);
   assert.equal(modelSupportsEmbedding({ ...installed, capabilities: ["completion"] }), false);
   assert.equal(resolveEmbeddingModelRevision("BGE-M3", [installed]), "sha256:latest");
-  assert.equal(oneClickInstallableEmbeddingModel(" bge-m3 "), "bge-m3");
-  assert.equal(oneClickInstallableEmbeddingModel("BGE-M3:latest"), "bge-m3");
 });
 
 test("createWorkflowSnapshot and snapshotsMatch bind the workflow tuple", () => {

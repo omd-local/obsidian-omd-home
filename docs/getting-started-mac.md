@@ -2,7 +2,7 @@
 
 [返回 OMD Home 首页](../README.md) · **简体中文** · [English](getting-started-mac.en.md)
 
-> **从 GitHub 测试候选：** 登录 GitHub，按[第 3 节](#manual-install)下载 Home PR 的构建产物，按[第 4 节](#install-backend)下载引擎 PR 的匹配架构产物。无需从另一台电脑传文件，也无需自行编译。两者尚未发布 Release；固定版本的 BRAT／tag 下载要等发布后使用。当前公开发行版仍是 Home 0.2.2／OMD 0.3.0b5。见[候选验收说明](first-install-beta.md)。
+> **从 GitHub 测试候选：** 登录 GitHub，按[第 3 节](#manual-install)下载 Home PR 构建产物。**新引擎安装包的上传目前被许可缺口及 Intel 依赖漏洞门槛阻止**；先测试插件本身，或连接已有的兼容 b5 引擎。不要退回旧成功构建绕过门槛。引擎检查通过并提供匹配产物后，再按[第 4 节](#install-backend)测试首次安装。两者尚未发布 Release；当前公开发行版仍是 Home 0.2.2／OMD 0.3.0b5。见[候选状态与验收说明](first-install-beta.md)。
 
 按 **准备 Vault → 安装插件 → 安装 OMD 后端 → 保存第一篇网页** 的顺序操作。**本轮候选测试按第 1 → 3 → 4–6 节操作**；第 2 节留待版本发布后使用。语音转录、AI 和 Apple Calendar 都是之后的选装项。
 
@@ -133,6 +133,8 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 
 ### 4A. 选择对应架构的独立安装包
 
+以下下载步骤在新引擎的许可与依赖门槛通过后使用；当前不要从历史运行下载旧包代替。
+
 1. 在 **苹果菜单 → 关于本机** 确认芯片：Apple Silicon 对应 **arm64**，Intel 对应 **x86_64**。
 2. 本轮测试打开 [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16)，从 **Checks** 进入 **Build independent macOS engine** 的成功运行概览；也可从[该候选的构建列表](https://github.com/omd-local/markdown-everything/actions/workflows/macos-engine.yml?query=branch%3Aagent%2Fpublic-beta-first-install)进入。保持 GitHub 登录，在 **Artifacts** 下载 Apple Silicon 的 **omd-engine-unsigned-arm64** 或 Intel 的 **omd-engine-unsigned-x86_64**。选择对应 PR 当前引擎提交的成功构建；引擎与插件有各自独立的 commit。
    解压外层下载 ZIP，在其中的目录里找到 `OMD-Engine-arm64.zip` 或 `OMD-Engine-x86_64.zip`，再解压得到 app；也附有同架构 `.pkg`、校验文件和构建清单。本轮建议先用 app ZIP。产物保留 14 天，过期处理同第 3A 节。正式发布后也可从[引擎发布页](https://github.com/omd-local/markdown-everything/releases)下载匹配架构资产；wheel、源码包或 Homebrew 依赖不是独立 app。
@@ -248,7 +250,7 @@ command -v mlx_whisper
    ollama pull bge-m3
    ```
 
-   在 **Advanced AI controls → Vault retrieval** 开启 **Keyword + semantic search**、选择 `bge-m3`，点 **Test semantic search**。也可主动点 **Install bge-m3** 下载；打开设置不会自动下载。只需关键词检索时关闭该开关，无需 embedding 模型。
+   在 **Advanced AI controls → Vault retrieval** 开启 **Keyword + semantic search**、选择 `bge-m3`，点 **Test semantic search**。模型缺失时可点 **Copy install command**，自行在 Terminal 执行，等下载完成后再点 **Check setup** 和 **Test semantic search**。插件不会下载模型，复制命令也不会执行它。只需关键词检索时关闭该开关，无需 embedding 模型。
 6. 关闭设置，在 Home 的 omnibox 输入 `@` 和能从自己测试笔记回答的问题。**完成标志：答案有引用，点击引用能打开原笔记。** Vault Q&A 只读；格式整理先在测试笔记预览，再决定 Apply。上述检查通过后，才在下一次 Capture 开启所需 AI 开关。
 
 保留 endpoint `http://localhost:11434` 即可，无需填写 Ollama 程序路径。自定义地址只接受本机 loopback 和明确端口，保存时要点 **Save endpoint**。模型下载成功不代表适合所有功能，按每项检查结果处理。

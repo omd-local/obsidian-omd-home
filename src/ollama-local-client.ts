@@ -229,38 +229,6 @@ export class OllamaLocalClient {
     };
   }
 
-  async pull(host: string, model: string, signal?: AbortSignal): Promise<void> {
-    const selectedModel = model.trim();
-    if (!selectedModel) {
-      throw new LocalAiError("selected_model_missing", "Choose an embedding model before installing it.");
-    }
-    let body: Record<string, unknown>;
-    try {
-      body = await this.postJson(
-        host,
-        "/api/pull",
-        { model: selectedModel, stream: false },
-        30 * 60_000,
-        signal,
-      );
-    } catch (error) {
-      if (error instanceof LocalAiError && /Ollama responded with HTTP 404/u.test(error.message)) {
-        throw new LocalAiError("selected_model_missing", `Ollama could not find the model ${selectedModel} to install.`);
-      }
-      if (
-        error instanceof LocalAiError
-        && /Ollama (?:responded with HTTP|returned (?:a redirect|invalid JSON|an unexpected response body))/u.test(error.message)
-      ) {
-        throw new LocalAiError("smoke_failed", `Ollama was reachable, but it could not install ${selectedModel}.`);
-      }
-      throw error;
-    }
-    const status = cleanString(body.status).toLowerCase();
-    if (status !== "success") {
-      throw new LocalAiError("smoke_failed", `Ollama could not finish installing ${selectedModel}.`);
-    }
-  }
-
   private async getJson(
     host: string,
     path: string,

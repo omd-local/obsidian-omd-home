@@ -6,6 +6,35 @@ Release assets are not published. These draft PRs do not merge main or create
 release tags; versioned Release download and BRAT links apply after publication.
 The current public Home 0.2.2 / engine 0.3.0b5 releases are unchanged.
 
+## 2026-11-28 release-closure status
+
+Home's complete dependency audit is now zero, including the development build
+chain; CI and release builds gate on that full audit and zero lint warnings.
+All model setup is independent: the plugin displays/copies commands and never
+calls Ollama's model-download endpoint. The English/Chinese guide and manual
+test plan use **Copy install command → Terminal → Check setup**; embeddings also
+require **Test semantic search**.
+
+New engine binary uploads are blocked while either dependency or license gates
+fail. The native workflow still builds and tests both architectures and uploads
+review **JSON evidence**, not a passing binary, when these gates fail:
+
+- `cobble==0.1.4` declares BSD-2-Clause but omits its original package copyright
+  notice. Supplemental material and the separate vendored MIT notice do not
+  resolve this upstream gap. See the engine's
+  [license inventory and release blockers](https://github.com/omd-local/markdown-everything/blob/agent/public-beta-first-install/docs/third-party-licenses.md).
+- The exact Apple Silicon wheel lock has no known vulnerabilities in the current
+  pip-audit results. Intel's `cryptography==48.0.1` has three distinct known CVEs;
+  upstream removed macOS Intel support before the complete fix. Do not downgrade
+  or substitute an incompatible ARM wheel. Intel distribution remains blocked
+  until a separately validated solution or explicit release-scope change.
+
+Do not use an older successful run to bypass these gates. Historical artifacts
+and previous test results do not certify this revision. Home can still be tested
+with an existing compatible b5 engine, or without an engine for plugin-only
+features. New-engine first-install testing resumes when a matching run passes
+the gates and offers the binary artifact described below.
+
 ## Download and follow the Mac guide
 
 Use the same [English installation guide](https://github.com/omd-local/obsidian-omd-home/blob/agent/public-beta-first-install/docs/getting-started-mac.en.md#manual-install)
@@ -35,7 +64,7 @@ access; see [GitHub's instructions](https://docs.github.com/en/actions/how-tos/m
 
 ## Included
 
-- Missing selected local answer/writing models show an exact, validated Ollama
+- Missing selected local answer/writing/embedding models show an exact, validated Ollama
   install command, a copy action, and a fresh **Check setup** path. Copying a
   command does not install, select or change the provider/model.
 - macOS setup opens independent engine downloads and guidance. The app contains
@@ -76,12 +105,14 @@ This beta does not introduce phone pairing or require Remote Login.
 - The engine artifacts are unsigned and not notarized. Developer ID signing,
   notarization, Gatekeeper, actual system Installer execution, Intel, macOS 14,
   and a fresh Mac without developer tools still need acceptance.
-- Complete the engine's third-party notices before public binary distribution.
+- Resolve the upstream Cobble copyright-notice gap before public binary distribution;
+  the other supplemental materials and bundle inventory are included and validated.
+- Resolve Intel's exact-lock vulnerability blocker before distributing Intel binaries.
 - Minimum Obsidian 1.11.4 and real model download/narrow-settings UI checks still
   need desktop acceptance. Automated tests do not establish those results.
-- The existing full development-dependency audit and embedding-model download
-  policy review are separate unresolved marketplace work; this focused beta does
-  not claim to complete them.
+- Keep the complete dependency audit and independent model-installation boundary
+  passing after any final source or lockfile changes. These automated checks do
+  not establish Obsidian directory approval.
 
 Record exact versions, chip/macOS/Obsidian versions, steps and errors. Remove
 private paths, keys and cookies before sharing diagnostics.
