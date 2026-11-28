@@ -2,15 +2,15 @@
 
 [返回 OMD Home 首页](../README.md) · **简体中文** · [English](getting-started-mac.en.md)
 
-> **安装包尚未发布的候选：** 先使用提供的本地文件在测试 Vault 验收；下文固定版本的 BRAT／tag 下载须等实际发布后使用。当前公开发行版仍是 Home 0.2.2／OMD 0.3.0b5。公开候选源码或草稿 PR 不会自动发布安装包。见[候选验收说明](first-install-beta.md)。
+> **从 GitHub 测试候选：** 登录 GitHub，按[第 3 节](#manual-install)下载 Home PR 的构建产物，按[第 4 节](#install-backend)下载引擎 PR 的匹配架构产物。无需从另一台电脑传文件，也无需自行编译。两者尚未发布 Release；固定版本的 BRAT／tag 下载要等发布后使用。当前公开发行版仍是 Home 0.2.2／OMD 0.3.0b5。见[候选验收说明](first-install-beta.md)。
 
-按 **准备 Vault → 安装插件 → 安装 OMD 后端 → 保存第一篇网页** 的顺序操作。**第一次只需完成第 1–6 节**；语音转录、AI 和 Apple Calendar 都是之后的选装项。
+按 **准备 Vault → 安装插件 → 安装 OMD 后端 → 保存第一篇网页** 的顺序操作。**本轮候选测试按第 1 → 3 → 4–6 节操作**；第 2 节留待版本发布后使用。语音转录、AI 和 Apple Calendar 都是之后的选装项。
 
 本指南对应 **OMD Home 0.2.3 + OMD Engine 0.3.0b6 候选**。插件提供 Obsidian 界面，独立后端负责转换；安装插件不会同时安装后端或模型。OMD 的独立浏览器 UI 暂未发布，也不是使用 Home 的前提。
 
 | 你想做什么 | 安装到哪里为止 |
 |---|---|
-| 先看看 Home、搜索笔记和 Markdown 日历 | 完成第 1 节，再选第 2 或第 3 节安装插件 |
+| 先看看 Home、搜索笔记和 Markdown 日历 | 完成第 1 节，再按第 3 节安装候选插件 |
 | 把网页或文件保存为 Markdown | 继续完成第 4–6 节 |
 | 转录音频、使用 AI、同步 Apple Calendar | 基础 Capture 成功后，再选相应的第 7–11 节 |
 
@@ -21,13 +21,15 @@
 3. **已有 Vault：** 打开自己打算使用 OMD 的资料库。插件是按 Vault 安装的，要始终在同一个 Vault 中操作。
 4. **第一次用 Obsidian：** 在资料库管理窗口找到 **Create new vault → Create**，名称填 `OMD Demo`，点 **Browse** 选择自己的 Documents 文件夹，再点 **Create**。已在笔记界面时，可从左下角资料库菜单进入 **Manage Vaults…**。详见[官方资料库说明](https://obsidian.md/help/manage-vaults)。
 
-Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建隐藏的 `.obsidian` 设置目录；**你不需要自己创建这个隐藏目录**。下面推荐的 BRAT 路线完全不需要找它。
+Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建隐藏的 `.obsidian` 设置目录；**你不需要自己创建这个隐藏目录**。候选安装可从 Obsidian 的文件夹按钮打开插件目录。
 
 本文保留英文按钮名称，方便对应 OMD 当前界面。**Settings / 设置** 可点 Obsidian 左下角齿轮或按 **⌘,** 打开；**⌘** 是 Command，**⇧** 是 Shift，Return 是回车键。
 
-## 2. 推荐：用 BRAT 安装插件，不用找文件夹
+## 2. 版本发布后可选：用 BRAT 安装插件
 
 <a id="install-plugin"></a>
+
+**本轮 PR 候选测试直接去[第 3 节](#manual-install)。** 以下步骤要等 0.2.3 Release 发布后才能使用；BRAT 当前的公开旧版本不包含本轮首次安装修复。
 
 [BRAT](https://community.obsidian.md/plugins/obsidian42-brat) 是另一个第三方社区插件，作者是 **TfTHacker**。它替你下载并放好 OMD Home 文件。**OMD Home 目前尚未上架社区目录，因此这里先搜索 BRAT，再由 BRAT 安装 OMD Home。** 不想安装 BRAT 时，直接用[第 3 节的手动方法](#manual-install)；两种方式选一种即可。
 
@@ -48,13 +50,23 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 
 选择 **0.2.3** 会固定这个版本，不会自动升级 OMD Home。BRAT 的 **Latest version** 选项和更新检查属于另一种更新方式；不要在首次安装时误选。BRAT 也不会替你安装后端、模型或 Calendar helper。遇到 GitHub 请求额度限制时，可以稍后重试或改用手动方法，不必为了首次安装创建 token。参考 [BRAT 作者指南](https://tfthacker.com/brat-quick-guide)。
 
-## 3. 备用：手动下载并安装插件
+## 3. 从 GitHub 下载并安装候选插件
 
 <a id="manual-install"></a>
 
 **已经通过第 2 节看到 Home？跳过本节。** 如果是在已有 Vault 升级，先按[第 12 节](#12-升级备份与演示前检查)备份并停用插件，保留原来的 `data.json`。
 
-### 3A. 下载三个文件
+### 3A. 从 PR 下载测试包
+
+1. 在这台 Mac 的浏览器登录 GitHub，打开 [Home PR #8](https://github.com/omd-local/obsidian-omd-home/pull/8)。选择 **Checks**，通过 **CI** 打开对应运行的 **Summary / 运行概览**；也可从[候选分支的 CI 列表](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml?query=branch%3Aagent%2Fpublic-beta-first-install)进入。选择与 PR 当前提交对应、带绿色成功标记的最新运行。
+2. 在运行概览底部的 **Artifacts** 点击 **omd-home-pr-candidate**。这不是 Release 资产；[GitHub 要求登录后才能下载构建产物](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)。
+3. 解压下载的 ZIP，会得到 **omd-home** 文件夹，以及 `SHA256SUMS`、`build-info.json` 和 `TESTING.md`。打开 `omd-home`，里面直接是 `main.js`、`manifest.json`、`styles.css`，无需再解压另一个插件 ZIP。
+4. `build-info.json` 记录版本、`pull_request_head` 和运行链接；核对它对应本次要测试的 PR 提交，并保留供反馈。插件文件不包含引擎或模型，也不要求安装 Git、Node.js 或 npm。接着按 **3B** 复制其中三个文件。
+
+构建产物保留 **14 天**。如果显示过期或没有该名称，检查较新的成功运行；若 PR 当前提交没有可下载的成功构建，反馈运行链接，等待重新构建。不要把其他提交的包当作当前候选。
+
+<details>
+<summary><strong>版本发布后：也可从 Release 下载三个文件</strong></summary>
 
 打开 [OMD Home 0.2.3 发布页](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.3)，展开页面下方的 **Assets**，分别点击这三个文件；也可以直接用下表链接。文件通常出现在 Finder 的 **Downloads / 下载** 中。
 
@@ -65,6 +77,8 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 | `styles.css` | [下载 styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/styles.css) |
 
 **不要选 Source code (zip) 或 Source code (tar.gz)。** 无需解压这三个单独文件，也无需用代码编辑器打开。三个文件必须同版本，名称不能多出 `.txt` 或 `(1)`；Safari 或其他浏览器若给重复下载加了后缀，请先确认并改回上表名称。
+
+</details>
 
 ### 3B. 从 Obsidian 直接打开安装位置
 
@@ -120,9 +134,8 @@ Vault 就是保存笔记的普通文件夹。打开它后，Obsidian 会创建�
 ### 4A. 选择对应架构的独立安装包
 
 1. 在 **苹果菜单 → 关于本机** 确认芯片：Apple Silicon 对应 **arm64**，Intel 对应 **x86_64**。
-2. 打开[引擎官方发布页](https://github.com/omd-local/markdown-everything/releases)，
-   正式上传后选择匹配架构的 **0.3.0b6 OMD Engine** 资产。wheel、源码压缩包或
-   Homebrew 已下载的依赖都不是这个独立 app。候选尚未上传时，使用单独提供的测试包。
+2. 本轮测试打开 [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16)，从 **Checks** 进入 **Build independent macOS engine** 的成功运行概览；也可从[该候选的构建列表](https://github.com/omd-local/markdown-everything/actions/workflows/macos-engine.yml?query=branch%3Aagent%2Fpublic-beta-first-install)进入。保持 GitHub 登录，在 **Artifacts** 下载 Apple Silicon 的 **omd-engine-unsigned-arm64** 或 Intel 的 **omd-engine-unsigned-x86_64**。选择对应 PR 当前引擎提交的成功构建；引擎与插件有各自独立的 commit。
+   解压外层下载 ZIP，在其中的目录里找到 `OMD-Engine-arm64.zip` 或 `OMD-Engine-x86_64.zip`，再解压得到 app；也附有同架构 `.pkg`、校验文件和构建清单。本轮建议先用 app ZIP。产物保留 14 天，过期处理同第 3A 节。正式发布后也可从[引擎发布页](https://github.com/omd-local/markdown-everything/releases)下载匹配架构资产；wheel、源码包或 Homebrew 依赖不是独立 app。
 3. 运行匹配的 `.pkg`，或解压 ZIP，将 **OMD Engine.app** 放进 **Applications** 或
    用户目录下的 **Applications**。ZIP 路线无需管理员安装。当前候选未签名、未公证，
    全新 Mac 和 Intel 验收尚未完成；遇到 Gatekeeper 拦截请记录反馈，不要关闭系统保护。

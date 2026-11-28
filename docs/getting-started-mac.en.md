@@ -2,15 +2,15 @@
 
 [Back to OMD Home](../README.md) · [简体中文](getting-started-mac.md) · **English**
 
-> **Candidate release assets are not published:** use the supplied local artifacts in a test vault. Versioned BRAT/tag downloads below become available only after publication. The current public releases remain Home 0.2.2 / OMD 0.3.0b5. Public candidate source or a draft PR does not publish installable assets. See [candidate acceptance](first-install-beta.md).
+> **Test the candidate from GitHub:** sign in to GitHub, download the Home PR artifact in [section 3](#manual-install), then the matching engine PR artifact in [section 4](#install-backend). No file transfer from another computer or source build is needed. Release assets are not published; versioned BRAT/tag downloads become available after publication. Current public releases remain Home 0.2.2 / OMD 0.3.0b5. See [candidate acceptance](first-install-beta.md).
 
-Follow **prepare a vault → install the plugin → install the OMD backend → save your first webpage**. **Only sections 1–6 are needed for your first capture.** Transcription, AI, and Apple Calendar are optional additions afterward.
+Follow **prepare a vault → install the plugin → install the OMD backend → save your first webpage**. **For this PR candidate, follow sections 1 → 3 → 4–6**; section 2 applies after release. Transcription, AI, and Apple Calendar are optional additions afterward.
 
 This guide covers **OMD Home 0.2.3 + OMD Engine 0.3.0b6 candidate**. The plugin provides the Obsidian interface; the separate backend converts sources. Installing the plugin does not install the backend or models. OMD's separate browser UI is deferred and is not needed for Home.
 
 | What you want to do | Where to stop |
 |---|---|
-| Explore Home, note search, and Markdown calendar events | Complete section 1, then install the plugin using either section 2 or 3 |
+| Explore Home, note search, and Markdown calendar events | Complete section 1, then install the candidate plugin using section 3 |
 | Save webpages or files as Markdown | Continue through sections 4–6 |
 | Transcribe audio, use AI, or sync Apple Calendar | After basic Capture succeeds, choose the relevant sections 7–11 |
 
@@ -21,13 +21,15 @@ This guide covers **OMD Home 0.2.3 + OMD Engine 0.3.0b6 candidate**. The plugin 
 3. **Existing vault:** open the vault where you want to use OMD. Plugins are installed per vault; stay in this same vault throughout the instructions.
 4. **New to Obsidian:** in the vault management window, find **Create new vault → Create**, enter `OMD Demo`, use **Browse** to choose your Documents folder, then select **Create**. From an open vault, use the bottom-left vault menu → **Manage Vaults…**. See the [official vault guide](https://obsidian.md/help/manage-vaults).
 
-A vault is an ordinary folder containing your notes. Obsidian creates its hidden `.obsidian` settings directory when you open it; **you do not need to create that hidden directory yourself**. The recommended BRAT route below avoids finding it altogether.
+A vault is an ordinary folder containing your notes. Obsidian creates its hidden `.obsidian` settings directory when you open it; **you do not need to create that hidden directory yourself**. Use Obsidian's folder button to open the plugin directory for the candidate installation.
 
 The instructions use the English labels shown by OMD. Open **Settings** using the bottom-left gear or **⌘,**. **⌘** means Command, **⇧** means Shift, and Return is the Enter key.
 
-## 2. Recommended: install with BRAT, without finding folders
+## 2. After release: optional installation with BRAT
 
 <a id="install-plugin"></a>
+
+**For this PR candidate, go directly to [section 3](#manual-install).** The steps below require the 0.2.3 Release to exist. The older public version currently available through BRAT does not include these first-install fixes.
 
 [BRAT](https://community.obsidian.md/plugins/obsidian42-brat) is a separate third-party community plugin by **TfTHacker**. It downloads and places the OMD Home files for you. **OMD Home is not yet listed in Community plugins: search for BRAT first, then use it to install OMD Home.** If you prefer no BRAT, use the [manual method in section 3](#manual-install). Choose one method.
 
@@ -48,7 +50,7 @@ The instructions use the English labels shown by OMD. Open **Settings** using th
 
 Selecting **0.2.3** pins that version; OMD Home will not update automatically. BRAT's **Latest version** selection and update checks are a different update option, so do not select Latest accidentally during this installation. BRAT does not install the backend, models, or Calendar helper. If GitHub rate-limits a request, retry later or use the manual method; creating a token is not a required first-install step. See the [BRAT author's guide](https://tfthacker.com/brat-quick-guide).
 
-## 3. Alternative: install the plugin manually
+## 3. Download and install the candidate plugin from GitHub
 
 <a id="3-put-the-files-in-the-hidden-plugin-folder"></a>
 
@@ -56,7 +58,17 @@ Selecting **0.2.3** pins that version; OMD Home will not update automatically. B
 
 **Already opened Home through section 2? Skip this section.** For an existing-vault upgrade, first [back up and disable the plugin as described in section 12](#12-upgrades-backups-and-demo-checks), preserving `data.json`.
 
-### 3A. Download the three files
+### 3A. Download the PR test package
+
+1. Sign in to GitHub in this Mac's browser and open [Home PR #8](https://github.com/omd-local/obsidian-omd-home/pull/8). Under **Checks**, open **CI** and its run **Summary**; alternatively use the [candidate branch's CI list](https://github.com/omd-local/obsidian-omd-home/actions/workflows/ci.yml?query=branch%3Aagent%2Fpublic-beta-first-install). Choose the latest successful run corresponding to the PR's current commit.
+2. At the bottom of the run summary, under **Artifacts**, select **omd-home-pr-candidate**. This is a workflow artifact, separate from Release assets; [GitHub requires you to be signed in to download it](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
+3. Unpack the downloaded ZIP. It contains an **omd-home** folder plus `SHA256SUMS`, `build-info.json` and `TESTING.md`. The folder directly contains `main.js`, `manifest.json` and `styles.css`; there is no second plugin ZIP to unpack.
+4. `build-info.json` records the version, `pull_request_head` and workflow run URL. Check that it identifies the PR commit you intend to test, and retain it for feedback. This package contains no engine or models and needs no Git, Node.js or npm installation. Continue with **3B** to copy its three plugin files.
+
+Artifacts are retained for **14 days**. If expired or absent, check newer successful runs. If the PR's current commit has no downloadable successful build, report its run URL and wait for a rebuild. Do not identify a different commit's package as the current candidate.
+
+<details>
+<summary><strong>After release: download the three files from Release assets instead</strong></summary>
 
 Open the [OMD Home 0.2.3 release](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.3), expand **Assets** near the bottom, and select each of these files, or use the direct links below. Downloads normally appear in Finder's **Downloads** folder.
 
@@ -67,6 +79,8 @@ Open the [OMD Home 0.2.3 release](https://github.com/omd-local/obsidian-omd-home
 | `styles.css` | [Download styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/styles.css) |
 
 **Do not choose Source code (zip) or Source code (tar.gz).** These three individual files need no extraction or code editor. All must come from the same version and have exactly these names, without an extra `.txt` or `(1)` suffix. If your browser renames duplicate downloads, check and restore the names above.
+
+</details>
 
 ### 3B. Open the installation location from Obsidian
 
@@ -124,10 +138,8 @@ Homebrew, Xcode, Command Line Tools or accepting an Xcode license.
 
 1. In **Apple menu → About This Mac**, check whether you have Apple Silicon
    (**arm64**) or Intel (**x86_64**).
-2. Open the [official engine releases](https://github.com/omd-local/markdown-everything/releases).
-   Choose the matching **0.3.0b6 OMD Engine** asset when published. A wheel,
-   source archive or downloaded Homebrew dependency is not that app package.
-   For the unpublished candidate, use the separately supplied test artifact.
+2. For this candidate, open [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16). Under **Checks**, open the successful **Build independent macOS engine** run summary, or use the [candidate build list](https://github.com/omd-local/markdown-everything/actions/workflows/macos-engine.yml?query=branch%3Aagent%2Fpublic-beta-first-install). While signed in, download **omd-engine-unsigned-arm64** for Apple Silicon or **omd-engine-unsigned-x86_64** for Intel from **Artifacts**. Match the PR's current engine commit; the engine and plugin have independent commits.
+   Unpack the outer download and find `OMD-Engine-arm64.zip` or `OMD-Engine-x86_64.zip` within its directories. Unpack that ZIP to obtain the app. A matching `.pkg`, checksum file and build manifest are also included. Start with the app ZIP for this test. Artifacts expire after 14 days; use the recovery steps in section 3A. After release, matching assets may instead be downloaded from the [official engine releases](https://github.com/omd-local/markdown-everything/releases). Wheels, source archives and Homebrew dependencies are not the standalone app.
 3. Open the matching `.pkg`, or unpack the ZIP and move **OMD Engine.app** to
    **Applications** or your home folder's **Applications**. The ZIP route needs
    no administrator installation. Candidate artifacts are unsigned, not

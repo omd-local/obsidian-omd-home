@@ -38,10 +38,11 @@ suggested links and tags before choosing **Apply**.
 
 ## Install
 
-> **Unpublished first-install candidate:** Home 0.2.3 and the independent engine
-> 0.3.0b6 are under acceptance testing. Until their release assets are published,
-> install the supplied candidate files manually in a test vault; the versioned
-> download/BRAT instructions below apply after publication. The current public
+> **First-install candidate testing:** download Home 0.2.3 and the independent
+> engine 0.3.0b6 from their PR workflow artifacts, then follow the same Mac guides
+> in a test vault. No source build or transfer from another computer is needed.
+> Release assets are not published; versioned download/BRAT instructions apply
+> after publication. The current public
 > pair remains [Home 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2)
 > and [OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5).
 > See [candidate scope and acceptance](docs/first-install-beta.md).
@@ -56,7 +57,21 @@ conversion does not need AI.
 ### 1. Install the Obsidian plugin
 
 You need **Obsidian desktop 1.11.4 or newer**. OMD Home is **desktop-only**;
-it does not run on Obsidian Mobile. Until it is listed in Community Plugins,
+it does not run on Obsidian Mobile.
+
+For this candidate, sign in to GitHub and open [Home PR #8](https://github.com/omd-local/obsidian-omd-home/pull/8).
+From **Checks**, open the latest successful **CI** run corresponding to the PR's
+current commit. On its run summary, download **Artifacts → omd-home-pr-candidate**.
+Unpack it and install the three files inside `omd-home` using the same
+[English](docs/getting-started-mac.en.md#manual-install) or
+[简体中文](docs/getting-started-mac.md#manual-install) guide. The download includes
+checksums, build information and test instructions. Artifacts are retained for
+14 days; the guides explain expired or missing builds.
+
+<details>
+<summary><strong>After the 0.2.3 Release is published: BRAT and manual Release downloads</strong></summary>
+
+Until it is listed in Community Plugins,
 the easiest installation route is **BRAT**, a separate community plugin that
 downloads and places the release files for you:
 
@@ -94,18 +109,24 @@ directory and create only the ordinary `plugins` and `omd-home` folders.
 
 </details>
 
+</details>
+
 ### 2. Install the local OMD backend for capture
 
 OMD performs conversion on your computer. OMD Home does not install, update,
 or bundle OMD, Python, Ollama, or the EventKit helper.
 
 On **macOS 14+**, independently obtain the **OMD Engine 0.3.0b6** package matching
-your Mac: **arm64** for Apple Silicon or **x86_64** for Intel. Use the installer,
-or unpack the ZIP and move **OMD Engine.app** to **Applications** or
+your Mac: **arm64** for Apple Silicon or **x86_64** for Intel. For this candidate,
+open [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16), then
+the successful **Build independent macOS engine** run under **Checks**. Download
+**omd-engine-unsigned-arm64** or **omd-engine-unsigned-x86_64** from its summary's
+**Artifacts**. Unpack the download, find the matching `OMD-Engine-…zip` inside
+its directories, then unpack that app ZIP and move **OMD Engine.app** to **Applications** or
 `~/Applications`. Candidate packages are unsigned and not notarized; they are
 for controlled testing and have not passed fresh-Mac or Intel acceptance.
-Only download assets actually attached to the
-[official engine release](https://github.com/omd-local/markdown-everything/releases).
+After release, matching assets can instead be obtained from the
+[official engine releases](https://github.com/omd-local/markdown-everything/releases).
 The source-code archive and Python wheel are not the independent app package.
 
 The app contains Python and basic document converters. The basic route needs

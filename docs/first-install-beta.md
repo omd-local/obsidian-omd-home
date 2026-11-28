@@ -1,11 +1,37 @@
 # First-install beta candidate: Home 0.2.3 / Engine 0.3.0b6
 
-This candidate is prepared from the current public repositories; its release
-assets are not published. Public candidate branches and draft PRs allow source
-review and CI; they do not merge main, create release tags or publish installers.
-Versioned download and BRAT links are usable only after matching assets are
-published. Until then, use the supplied local files in a separate test vault.
+This candidate is prepared from the current public repositories. Download its
+PR workflow artifacts directly from GitHub and use a separate test vault.
+Release assets are not published. These draft PRs do not merge main or create
+release tags; versioned Release download and BRAT links apply after publication.
 The current public Home 0.2.2 / engine 0.3.0b5 releases are unchanged.
+
+## Download and follow the Mac guide
+
+Use the same [English installation guide](https://github.com/omd-local/obsidian-omd-home/blob/agent/public-beta-first-install/docs/getting-started-mac.en.md#manual-install)
+or [简体中文安装指南](https://github.com/omd-local/obsidian-omd-home/blob/agent/public-beta-first-install/docs/getting-started-mac.md#manual-install)
+on the test Mac. Follow sections **1 → 3 → 4–6** for basic Capture.
+
+1. Sign in to GitHub and open [Home PR #8](https://github.com/omd-local/obsidian-omd-home/pull/8).
+   Under **Checks**, open the latest successful **CI** run corresponding to the
+   PR's current commit. On its run summary, download **Artifacts → omd-home-pr-candidate**.
+2. Unpack the download. `omd-home/` directly contains `main.js`, `manifest.json`
+   and `styles.css`; install those files using guide section 3B. Keep
+   `SHA256SUMS`, `build-info.json` and this `TESTING.md` outside the plugin folder.
+   The build information records the PR head, tested commit and run URL; retain
+   it to identify your test. No Git, Node.js or local build is required.
+3. Open [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16),
+   then its successful **Build independent macOS engine** run under **Checks**.
+   Download **omd-engine-unsigned-arm64** for Apple Silicon or
+   **omd-engine-unsigned-x86_64** for Intel. Unpack the download, find the matching
+   `OMD-Engine-<architecture>.zip` within its directories, then unpack that ZIP
+   and install the app using guide section 4. Engine and plugin commits are
+   independent; retain each run's link. The app ZIP is the recommended first test.
+
+Both workflows retain artifacts for **14 days**. If missing or expired, use a
+newer successful run for the same PR commit, or report the run URL and wait for
+a rebuild. Downloading artifacts requires a signed-in GitHub account with read
+access; see [GitHub's instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
 
 ## Included
 
@@ -30,9 +56,10 @@ This beta does not introduce phone pairing or require Remote Login.
 
 1. Back up an existing vault; preferably create a separate test vault. Keep
    candidate plugin updates pinned while testing.
-2. Install the candidate's `main.js`, `manifest.json` and `styles.css` together.
+2. Download the Home PR artifact and install its `main.js`, `manifest.json` and
+   `styles.css` together using the Mac guide.
    Confirm Home opens without an engine and shows actionable engine setup.
-3. Independently install a matching engine artifact, then **Capture and
+3. Download and independently install the matching engine PR artifact, then **Capture and
    processing → Check again**. Test a small HTML/PDF and a simple public URL with
    AI options off. A ZIP installation needs the app's full path in Terminal.
 4. With Ollama running but the selected text model absent, confirm the command
