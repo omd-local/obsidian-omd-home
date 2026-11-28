@@ -136,6 +136,8 @@ import {
   discoverOmdExecutable,
   isAutomaticOmdExecutable,
   OMD_INSTALL_GUIDE_URL,
+  OMD_MAC_INSTALL_GUIDE_URL,
+  OMD_ENGINE_DOWNLOAD_URL,
   omdInstallInstructions,
   resolveOmdExecutablePath,
   type OmdDiscoveryMode,
@@ -159,7 +161,6 @@ import {
   mergeInspectedModelEntry,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
-  oneClickInstallableEmbeddingModel,
   providerMode,
   resolveEmbeddingModelRevision,
 } from "./local-ai-readiness";
@@ -634,7 +635,11 @@ export default class OmdHomePlugin extends Plugin {
   }
 
   openOmdInstallGuide(): void {
-    window.open(OMD_INSTALL_GUIDE_URL, "_blank", "noopener,noreferrer");
+    window.open(process.platform === "darwin" ? OMD_MAC_INSTALL_GUIDE_URL : OMD_INSTALL_GUIDE_URL, "_blank", "noopener,noreferrer");
+  }
+
+  openOmdEngineDownload(): void {
+    window.open(OMD_ENGINE_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
   }
 
   openCloudAiGuide(): void {
@@ -2603,74 +2608,6 @@ export default class OmdHomePlugin extends Plugin {
     }
   }
 
-  async installEmbeddingModel(expectedModel: string, expectedHost?: string): Promise<boolean> {
-    if (!this.canStartAiSetupAction()) return false;
-    this.clearIssue("ai");
-    const model = oneClickInstallableEmbeddingModel(expectedModel);
-    this.setLocalAiFeedback("neutral", model ? `Installing ${model} with Ollama…` : "Choose an embedding model first.");
-    const actionToken = this.beginLocalAiAction("install-embedding");
-    let installed = false;
-    try {
-      if (!model) {
-        throw new LocalAiError(
-          "selected_model_incompatible",
-          "This model is not available for one-click installation. Open retrieval settings for manual setup guidance.",
-        );
-      }
-      if (!localModelNamesMatch(this.settings.embeddingModel, expectedModel)) {
-        throw new LocalAiError(
-          "snapshot_mismatch",
-          "The embedding model changed after this action was shown. Open retrieval settings and review the current model.",
-        );
-      }
-      const host = normalizeLocalOllamaHost(this.settings.ollamaHost);
-      if (expectedHost !== undefined && host !== expectedHost) {
-        throw new LocalAiError("snapshot_mismatch", "The Ollama endpoint changed. Open retrieval settings to review the current endpoint.");
-      }
-      await this.withLocalAiSignal(async (signal) => {
-        const catalog = await this.ollamaLocalClient.tags(host, signal);
-        signal.throwIfAborted();
-        const existing = catalog.find((entry) => localModelNamesMatch(entry.name, model));
-        if (!existing) {
-          await this.ollamaLocalClient.pull(host, model, signal);
-        }
-        const inspected = mergeInspectedModelEntry(
-          existing,
-          buildModelEntry(await this.safeShowModel(host, model, signal)),
-          model,
-        );
-        if (modelIsCloudBacked(inspected)) {
-          throw new LocalAiError("selected_model_remote_blocked", `${model} was identified as cloud-backed and was not accepted for local retrieval.`);
-        }
-        if (!modelSupportsEmbedding(inspected)) {
-          throw new LocalAiError("selected_model_incompatible", `${model} does not advertise embedding support.`);
-        }
-      });
-      if (this.unloaded || actionToken !== this.localAiActionToken) return false;
-      installed = true;
-      const probe = this.localAiEmbeddingProbe;
-      if (probe?.host === host && localModelNamesMatch(probe.model, model) && probe.code !== "ready") {
-        this.localAiEmbeddingProbe = null;
-      }
-      this.clearIssue("ai");
-      const feedback = `${model} is installed and supports local embeddings. Refreshing the local model catalog…`;
-      this.setLocalAiFeedback("success", feedback);
-      new Notice(feedback);
-    } catch (error) {
-      if (!this.unloaded && actionToken === this.localAiActionToken && !isAbortError(error)) {
-        this.reportLocalAiWorkflowIssue(error);
-        this.setLocalAiFeedback("error", `Embedding model installation failed. ${message(error)}`);
-        new Notice(message(error));
-      }
-    } finally {
-      this.finishLocalAiAction(actionToken);
-    }
-    if (installed && !this.unloaded && actionToken === this.localAiActionToken) {
-      await this.refreshLocalAiCatalog(false);
-    }
-    return installed;
-  }
-
   async useSparseRetrieval(): Promise<boolean> {
     if (!this.settings.hybridRetrievalEnabled) {
       new Notice("Keyword search is already selected.");
@@ -4324,27 +4261,18 @@ export default class OmdHomePlugin extends Plugin {
       const diagnostic = diagnostics.createDiv({ cls: "omd-answer-warning" });
       diagnostic.createSpan({ text: humanizeRetrievalWarning(warning, context) });
       if (!isEmbeddingRetrievalWarning(warning)) continue;
-      const installableModel = warning === "hybrid_retrieval_model_not_installed"
-        ? oneClickInstallableEmbeddingModel(embeddingFallbackModel ?? "")
-        : null;
-      const pullCommand = warning === "hybrid_retrieval_model_not_installed" && !installableModel
+      const pullCommand = warning === "hybrid_retrieval_model_not_installed"
         ? embeddingModelPullCommand(embeddingFallbackModel ?? "", retrievalEndpoint, Platform.isWin)
         : null;
-      if (installableModel) {
+      if (pullCommand) {
         diagnostic.createDiv({
           cls: "omd-answer-warning-detail",
-          text: `Installing ${installableModel} downloads model data to Ollama and may take several minutes.`,
+          text: "Run this command in a terminal to install the model separately with Ollama. After it finishes, open retrieval settings, check setup, then test semantic search.",
         });
+        diagnostic.createEl("code", { text: pullCommand });
       }
       const warningActions = diagnostic.createDiv({ cls: "omd-answer-warning-actions" });
-      if (installableModel) {
-        const install = warningActions.createEl("button", { type: "button", text: `Install ${installableModel}` });
-        install.title = `Install ${installableModel} with Ollama at ${retrievalEndpoint}`;
-        install.disabled = this.aiSetupBusy();
-        install.addEventListener("click", () => void this.installEmbeddingModel(installableModel, retrievalEndpoint).then((installed) => {
-          if (installed && install.isConnected) install.textContent = "Installed";
-        }));
-      } else if (pullCommand) {
+      if (pullCommand) {
         const copyCommand = warningActions.createEl("button", { type: "button", text: "Copy install command" });
         copyCommand.title = `Copy ${pullCommand}`;
         copyCommand.addEventListener("click", () => {
@@ -4356,7 +4284,7 @@ export default class OmdHomePlugin extends Plugin {
           }
           void navigator.clipboard.writeText(pullCommand).then(() => {
             if (copyCommand.isConnected) copyCommand.textContent = "Copied";
-            new Notice("Ollama install command copied. Run it in terminal, then refresh models.");
+            new Notice("Install command copied. Run it in a terminal, then check setup and test semantic search.");
           }).catch(() => {
             new Notice(`Copy failed. Run this in Terminal: ${pullCommand}`);
           });
@@ -4365,7 +4293,7 @@ export default class OmdHomePlugin extends Plugin {
         const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
         settings.addEventListener("click", () => this.openRetrievalSettings());
       }
-      if (installableModel || pullCommand) {
+      if (pullCommand) {
         const settings = warningActions.createEl("button", { type: "button", text: "Open retrieval settings" });
         settings.addEventListener("click", () => this.openRetrievalSettings());
       }
@@ -5356,7 +5284,7 @@ function omdReadyMessage(
 function omdUnavailableMessage(error: unknown, automatic: boolean): string {
   if (isEnrichmentError(error) && error.code === "missing_executable") {
     return automatic
-      ? "OMD was not found in the app path or common install locations. Install OMD, then check again."
+      ? "OMD was not found in the app path or common install locations. If already installed, select its executable in Advanced OMD paths. Otherwise install OMD independently, then choose Check again. The plugin can use the engine app without a terminal PATH entry."
       : "The custom OMD executable could not be found. Use automatic discovery or update the override in Advanced OMD paths.";
   }
   if (isEnrichmentError(error)

@@ -348,13 +348,17 @@ export class OmdHomeView extends ItemView {
             new Notice(ready ? "OMD was found automatically." : this.plugin.enrichmentCapability.message);
           }));
         }
-        if (this.plugin.enrichmentCapability.code === "missing_executable") {
+        if (this.plugin.enrichmentCapability.code === "missing_executable"
+          && (process.platform !== "darwin" || this.plugin.usesAutomaticOmdDiscovery())) {
           const copy = controls.createEl("button", {
             cls: "omd-inline-action",
             type: "button",
-            text: "Copy install steps",
+            text: process.platform === "darwin" ? "Download OMD engine" : "Copy install steps",
           });
-          copy.addEventListener("click", () => void this.plugin.copyOmdInstallInstructions());
+          copy.addEventListener("click", () => {
+            if (process.platform === "darwin") this.plugin.openOmdEngineDownload();
+            else void this.plugin.copyOmdInstallInstructions();
+          });
         }
         const guide = controls.createEl("button", {
           cls: "omd-inline-action",

@@ -89,8 +89,8 @@ test("README keeps privacy, dependency, and local and hosted AI disclosures alig
   assert.match(readme, /\*\*Check setup\*\* for the selected provider, model, and safety boundary/iu);
   assert.match(readme, /\*\*Test semantic search\*\* for local retrieval/iu);
   assert.match(readme, /OMD Home: Refresh local AI models[\s\S]*?without changing the saved selection/iu);
-  assert.match(readme, /Opening settings, checking setup, and asking a question never download\s*a model automatically/iu);
-  assert.match(readme, /does not download models in the background, auto-select models, or\s*auto-switch providers/iu);
+  assert.match(readme, /OMD Home does not download models, auto-select models, or auto-switch providers/iu);
+  assert.match(readme, /Model installation commands are copied for you to run independently in Terminal/iu);
   assert.match(readme, /OMD Home does not require that setting for local model use, and\s*it never writes the file for you/iu);
   assert.doesNotMatch(readme, /Phase 1a local AI allows only the default local Ollama endpoints|requires Ollama Cloud to be disabled/iu);
   assert.match(readme, /Nothing is written until you explicitly press \*\*Apply\*\*/u);

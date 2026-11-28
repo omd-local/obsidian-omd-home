@@ -121,7 +121,7 @@ export class EnrichmentReviewView extends ItemView {
     const phase = describeEnrichmentPhase(this.state.phase);
     const header = scroll.createDiv({ cls: "omd-enrichment-header" });
     const title = header.createDiv({ cls: "omd-enrichment-title-block" });
-    title.createSpan({ cls: "omd-enrichment-eyebrow", text: "OMD ENRICHMENT" });
+    title.createSpan({ cls: "omd-enrichment-eyebrow", text: "OMD enrichment" });
     title.createEl("h2", { text: phase.title });
     title.createEl("p", { cls: "omd-enrichment-subtitle", text: this.state.detailText || phase.detail });
 
@@ -156,9 +156,9 @@ export class EnrichmentReviewView extends ItemView {
     });
     status.createSpan({ cls: "omd-enrichment-status-copy", text: this.state.statusText || phase.detail });
     if (this.state.phase === "reviewed") {
-      status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · Reviewed" });
+      status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · reviewed" });
     } else {
-      status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · Inbox" });
+      status.createSpan({ cls: "omd-enrichment-workflow-status", text: "Status · inbox" });
     }
 
     if (showsProposal(this.state)) this.renderProposal(scroll);
@@ -201,7 +201,7 @@ export class EnrichmentReviewView extends ItemView {
   private renderEmpty(): void {
     this.contentEl.empty();
     const empty = this.contentEl.createDiv({ cls: "omd-enrichment-empty" });
-    empty.createSpan({ cls: "omd-enrichment-eyebrow", text: "OMD REVIEW" });
+    empty.createSpan({ cls: "omd-enrichment-eyebrow", text: "OMD review" });
     empty.createEl("h2", { text: "No note selected" });
     empty.createEl("p", { text: "Choose review on an inbox note to read it beside this pane." });
   }
@@ -445,7 +445,8 @@ export class EnrichmentReviewView extends ItemView {
       if (suggestion.detail) body.createDiv({ cls: "omd-enrichment-item-detail", text: suggestion.detail });
       if (selectable) {
         row.addEventListener("click", (event) => {
-          if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) return;
+          const target = event.target as Node | null;
+          if (target?.instanceOf(HTMLInputElement) || target?.instanceOf(HTMLButtonElement)) return;
           if (checkbox) toggle(!checkbox.checked);
         });
       }
@@ -629,7 +630,7 @@ export class EnrichmentReviewView extends ItemView {
   }
 
   private currentFocusKey(): string | null {
-    const active = document.activeElement;
+    const active = this.contentEl.ownerDocument.activeElement;
     if (!active?.instanceOf(HTMLElement) || !this.contentEl.contains(active)) return null;
     return active.dataset.omdFocusKey ?? null;
   }

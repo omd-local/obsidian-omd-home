@@ -111,7 +111,7 @@ export class OmdCalendarView extends ItemView {
       this.calendar = new Calendar(this.hostEl, {
         plugins: [classicThemePlugin, dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin],
         initialView: "dayGridMonth",
-        colorScheme: document.body.classList.contains("theme-dark") ? "dark" : "light",
+        colorScheme: this.contentEl.ownerDocument.body.classList.contains("theme-dark") ? "dark" : "light",
         firstDay: 1,
         nowIndicator: true,
         selectable: true,
@@ -174,7 +174,7 @@ export class OmdCalendarView extends ItemView {
       this.calendar.render();
     }
     if (!this.calendar) return;
-    this.calendar.setOption("colorScheme", document.body.classList.contains("theme-dark") ? "dark" : "light");
+    this.calendar.setOption("colorScheme", this.contentEl.ownerDocument.body.classList.contains("theme-dark") ? "dark" : "light");
     replaceCalendarEvents(this.calendar, this.visibleEvents().map(toFullCalendarEvent));
   }
 

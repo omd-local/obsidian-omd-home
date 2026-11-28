@@ -26,15 +26,6 @@ const WORKFLOW_LABELS: Record<LocalAiWorkflowId, string> = {
 
 export const LOCAL_AI_CACHE_TTL_MS = 60_000;
 
-const ONE_CLICK_INSTALLABLE_EMBEDDING_MODELS = new Map([
-  ["bge-m3", "bge-m3"],
-]);
-
-export function oneClickInstallableEmbeddingModel(value: string): string | null {
-  const canonical = value.trim().toLowerCase().replace(/:latest$/u, "");
-  return ONE_CLICK_INSTALLABLE_EMBEDDING_MODELS.get(canonical) ?? null;
-}
-
 export function localModelNamesMatch(left: string, right: string): boolean {
   const canonical = (value: string): string => value.trim().toLowerCase().replace(/:latest$/u, "");
   return Boolean(canonical(left)) && canonical(left) === canonical(right);
@@ -57,7 +48,7 @@ export function normalizeLocalOllamaHost(input: string): string {
   );
 }
 
-export function embeddingModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
+export function localModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
   const model = value.trim();
   const id = /^(?:[A-Za-z0-9][A-Za-z0-9_-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$/u;
   if (model.length > 256 || !id.test(model) || modelIsCloudBacked({ name: model })) return null;
@@ -72,16 +63,37 @@ export function embeddingModelPullCommand(value: string, endpoint: string, windo
     : `OLLAMA_HOST='${host}' ollama pull ${model}`;
 }
 
+export function embeddingModelPullCommand(value: string, endpoint: string, windows: boolean): string | null {
+  return localModelPullCommand(value, endpoint, windows);
+}
+
+export function textModelInstallGuidance(input: {
+  model: string;
+  host: string;
+  windows?: boolean;
+  models: readonly LocalAiModelEntry[];
+  catalogChecked: boolean;
+  connectionCode: LocalAiRuntimeState["daemonCode"];
+  code: LocalAiWorkflowDisplayState["code"];
+}): { model: string; pullCommand: string | null } | null {
+  if (input.connectionCode !== "ready" && input.connectionCode !== "no_models_installed") return null;
+  if (input.code !== "selected_model_missing" && input.code !== "no_models_installed" && input.code !== "unchecked") return null;
+  const model = input.model.trim();
+  if (!model) return null;
+  const missing = input.code === "selected_model_missing" || input.code === "no_models_installed"
+    || (input.catalogChecked && !input.models.some((entry) => localModelNamesMatch(entry.name, model)));
+  return missing ? { model, pullCommand: localModelPullCommand(model, input.host, input.windows ?? false) } : null;
+}
+
 export interface EmbeddingSetupPresentation {
   kind: "unchecked" | "daemon-unreachable" | "connection-failed"
     | "no-local-models" | "model-not-selected" | "model-missing" | "model-incompatible"
     | "model-cloud-backed" | "embedding-only" | "test-failed" | "ready" | "verified";
   title: string;
   detail: string;
-  action: "check-setup" | "open-ollama" | "start-ollama" | "install-model" | "copy-pull-command"
+  action: "check-setup" | "open-ollama" | "start-ollama" | "copy-pull-command"
     | "refresh-models" | "choose-model" | "test-embeddings";
   needsTextModel: boolean;
-  installableModel: string | null;
   pullCommand: string | null;
 }
 
@@ -107,7 +119,7 @@ export function classifyEmbeddingSetup(input: {
     title: string,
     detail: string,
     action: EmbeddingSetupPresentation["action"],
-  ): EmbeddingSetupPresentation => ({ kind, title, detail, action, needsTextModel, installableModel: null, pullCommand: null });
+  ): EmbeddingSetupPresentation => ({ kind, title, detail, action, needsTextModel, pullCommand: null });
 
   switch (input.connectionCode) {
     case "invalid_host":
@@ -142,17 +154,14 @@ export function classifyEmbeddingSetup(input: {
   const noLocalModels = input.connectionCode === "no_models_installed" || localModels?.length === 0;
   const missing = probe?.code === "selected_model_missing" || (input.models && !selected);
   if (noLocalModels || missing) {
-    const installableModel = oneClickInstallableEmbeddingModel(model);
-    const pullCommand = installableModel ? null : embeddingModelPullCommand(model, input.host, input.windows ?? false);
+    const pullCommand = embeddingModelPullCommand(model, input.host, input.windows ?? false);
     const kind = noLocalModels ? "no-local-models" : "model-missing";
     const title = noLocalModels ? "No local models installed" : "Embedding model missing";
-    const action = installableModel ? "install-model" : pullCommand ? "copy-pull-command" : "refresh-models";
-    const detail = installableModel
-      ? `Install ${installableModel} for local retrieval, then run Test semantic search. Download size and time depend on the model.`
-      : pullCommand
-        ? "Copy the install command and run it in a terminal. After it finishes, choose Refresh models, then Test semantic search."
-        : "Install an embedding-capable model from the Ollama model library, then refresh the catalog, select it, and run Test semantic search.";
-    return { ...present(kind, title, detail, action), installableModel, pullCommand };
+    const action = pullCommand ? "copy-pull-command" : "refresh-models";
+    const detail = pullCommand
+      ? "Copy the install command and run it in a terminal. Ollama downloads the model separately; size and time depend on the model. After it finishes, choose Check setup, then Test semantic search."
+      : "Install an embedding-capable model from the Ollama model library, then choose Check setup, select it, and run Test semantic search.";
+    return { ...present(kind, title, detail, action), pullCommand };
   }
   // Catalog entries can omit capabilities. Test semantic search inspects the selected model directly.
   if (selected?.capabilities.length && !modelSupportsEmbedding(selected) && !verifiedProbe) {

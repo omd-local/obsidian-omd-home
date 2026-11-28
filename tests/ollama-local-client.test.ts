@@ -21,7 +21,7 @@ test("normalizeLocalOllamaHost is shared with the client contract", () => {
   );
 });
 
-test("OllamaLocalClient parses version, status, tags, show, smoke, embed, and pull responses", async () => {
+test("OllamaLocalClient parses version, status, tags, show, smoke, and embed responses", async () => {
   const client = new OllamaLocalClient({
     requestJson: async ({ path, body }) => {
       switch (path) {
@@ -63,9 +63,6 @@ test("OllamaLocalClient parses version, status, tags, show, smoke, embed, and pu
             headers: {},
             body: JSON.stringify({ model: "bge-m3", embeddings: [[0.1, 0.2], [0.3, 0.4]] }),
           };
-        case "/api/pull":
-          assert.deepEqual(body, { model: "bge-m3", stream: false });
-          return { statusCode: 200, headers: {}, body: JSON.stringify({ status: "success" }) };
         default:
           throw new Error(`Unexpected path ${path}`);
       }
@@ -95,7 +92,6 @@ test("OllamaLocalClient parses version, status, tags, show, smoke, embed, and pu
   assert.equal(embed.vectorCount, 2);
   assert.equal(embed.dimensions, 2);
   assert.ok(embed.latencyMs >= 0);
-  await client.pull("http://localhost:11434", "bge-m3");
 });
 
 test("OllamaLocalClient rejects redirects and empty smoke output", async () => {
@@ -305,34 +301,6 @@ test("OllamaLocalClient rejects malformed embedding payloads", async () => {
     (error: unknown) => error instanceof LocalAiError && error.code === "smoke_failed",
   );
 });
-
-for (const response of [{ status: "downloading" }, {}]) {
-  test(`OllamaLocalClient rejects an unfinished model installation response ${JSON.stringify(response)}`, async () => {
-    const client = new OllamaLocalClient({
-      requestJson: async ({ path, timeoutMs }) => {
-        assert.equal(path, "/api/pull");
-        assert.equal(timeoutMs, 30 * 60_000);
-        return { statusCode: 200, headers: {}, body: JSON.stringify(response) };
-      },
-    });
-    await assert.rejects(
-      client.pull("http://localhost:11434", "bge-m3"),
-      (error: unknown) => error instanceof LocalAiError && error.code === "smoke_failed",
-    );
-  });
-}
-
-for (const [statusCode, expectedCode] of [[404, "selected_model_missing"], [500, "smoke_failed"]] as const) {
-  test(`OllamaLocalClient keeps pull HTTP ${statusCode} distinct from daemon reachability`, async () => {
-    const client = new OllamaLocalClient({
-      requestJson: async () => ({ statusCode, headers: {}, body: JSON.stringify({ error: "redacted" }) }),
-    });
-    await assert.rejects(
-      client.pull("http://localhost:11434", "bge-m3"),
-      (error: unknown) => error instanceof LocalAiError && error.code === expectedCode,
-    );
-  });
-}
 
 test("the default response reader rejects redirects and oversized bodies", async () => {
   const redirect = fakeResponse(302, { location: "/elsewhere" });

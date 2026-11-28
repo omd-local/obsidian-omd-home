@@ -142,7 +142,7 @@ export interface LocalAiRuntimeState {
   workflows: Record<LocalAiWorkflowId, LocalAiWorkflowDisplayState>;
   models: LocalAiModelEntry[];
   modelChecks: Record<string, LocalAiCheckedModel>;
-  activeAction: "" | "refresh-models" | "check-connection" | "install-embedding" | "test-embeddings" | `smoke:${LocalAiWorkflowId}`;
+  activeAction: "" | "refresh-models" | "check-connection" | "test-embeddings" | `smoke:${LocalAiWorkflowId}`;
 }
 
 export interface LocalAiActionFeedback {

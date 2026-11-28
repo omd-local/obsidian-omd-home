@@ -2879,7 +2879,7 @@ cp "docs/benchmark-vault/Calendar/Events/2026-09-18-garden-swap.md" \
 7. **Daemon fallback（可选但推荐）**：记录当前 endpoint，临时改为
    `http://localhost:9999` 并点击 **Save endpoint**，运行 D01。应安全降级为 Keyword search，并只提供
    **Use keyword search by default** 与 **Open retrieval settings**；daemon 不可达时不能显示
-   **Install model**。测试后点击 **Use automatic**，Check setup，并再次 **Test semantic search**。
+   模型安装命令。测试后点击 **Use automatic**，Check setup，并再次 **Test semantic search**。
 
 AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目标是 `4/4`，M01 至少 `3/4`；
 若跨语言召回不稳定，应如实记当前模型的质量 FAIL，不能用 keyword 命中掩盖 semantic 结论。
@@ -2887,15 +2887,14 @@ AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目�
 #### AI-09B：`bge-m3` multilingual release gate（本次必做）
 
 当前 test-vault 已保存 `all-minilm:22m`，因此它不会凭空显示“`bge-m3` saved, not installed”或
-**Install bge-m3**。不要为制造该状态手改 `data.json`，也不要删除当前唯一可用 embedding model。
+安装命令。不要为制造该状态手改 `data.json`，也不要删除当前唯一可用 embedding model。
 
-1. 选择且只选择一种安装路径：
-   - **验证一键安装 UX**：在 disposable clean vault 使用默认保存的 `bge-m3`，先 Check setup，确认
-     `bge-m3 (saved, not installed)`、**Install bge-m3** 和 keyword fallback，再明确点击一次 **Install bge-m3**。
-   - **继续当前 test-vault**：在 Terminal 明确运行 `ollama pull bge-m3`。此路径不验证 **Install bge-m3** 按钮。
-
-   不要同时运行两种路径。pull 期间应显示 installing／progress 或准确 failure；页面加载、Check setup、
-   **Test semantic search** 和普通提问本身都不得触发 pull。
+1. 在 disposable clean vault 使用默认保存的 `bge-m3`，先 Check setup，确认
+   `bge-m3 (saved, not installed)`、**Copy install command** 和 keyword fallback。
+   点击复制，确认内容是 `ollama pull bge-m3`，且没有下载请求、安装进度或模型/provider 切换。
+   然后自行在 Terminal 执行该命令；下载进度和失败信息由 Terminal 显示。
+   已有模型的 test-vault 可直接继续，不要为本测试删除模型。
+   页面加载、复制命令、Check setup、**Test semantic search** 和普通提问都不得触发 pull。
 2. 安装完成后运行 `ollama list`，再点击 **Check setup**：
    - `bge-m3` 在 **Embedding model** 中可选择；
    - 若它出现在 Answer model 目录，必须 disabled 并标为 embedding-only；
@@ -2920,7 +2919,7 @@ AI-09A 的通过只证明当前 `all-minilm:22m` 路径可用。D01 与 B04 目�
    Ollama 发 embedding traffic”无法仅凭普通 UI 可靠证明；这些项必须引用自动测试或 agent-assisted
    request/cache instrumentation，不能仅凭回答成功手工记 PASS。
 
-总通过条件：模型角色不混淆；除测试者明确点击 **Install bge-m3** 或运行 `ollama pull bge-m3` 外无自动下载；
+总通过条件：模型角色不混淆；只有测试者自行在 Terminal 运行 `ollama pull bge-m3` 才会下载；
 **Test semantic search** 的 vector 数量／维度明确；Advanced disclosure 保持展开；hybrid、rerank、keyword-only 与
 fallback header／actions 准确；fixtures 不被写入 embedding 数据；回答不引用 lettuce／calendar distractor。
 

@@ -3,6 +3,8 @@ import { posix, win32 } from "node:path";
 import type { SpawnOptions, SpawnResult } from "./omd-bridge.ts";
 
 export const OMD_INSTALL_GUIDE_URL = "https://github.com/omd-local/markdown-everything#quick-start";
+export const OMD_MAC_INSTALL_GUIDE_URL = "https://github.com/omd-local/markdown-everything/blob/main/docs/macos-engine.md";
+export const OMD_ENGINE_DOWNLOAD_URL = "https://github.com/omd-local/markdown-everything/releases";
 
 export type OmdDiscoveryMode = "automatic" | "custom";
 
@@ -51,6 +53,11 @@ export function omdExecutableCandidates(
   const preferred = preferredExecutable.trim();
   const candidates: string[] = [];
   if (preferred && pathApi.isAbsolute(preferred)) candidates.push(preferred);
+  const home = environment.homeDirectory.trim().replace(/[\\/]+$/u, "");
+  if (environment.platform === "darwin") {
+    candidates.push("/Applications/OMD Engine.app/Contents/MacOS/omd");
+    if (home) candidates.push(`${home}/Applications/OMD Engine.app/Contents/MacOS/omd`);
+  }
   if (environment.platform === "darwin") candidates.push(
     "/opt/homebrew/opt/omd/bin/omd",
     "/usr/local/opt/omd/bin/omd",
@@ -73,7 +80,6 @@ export function omdExecutableCandidates(
     candidates.push("/usr/local/bin/omd", "/usr/bin/omd", "/snap/bin/omd");
   }
 
-  const home = environment.homeDirectory.trim().replace(/[\\/]+$/u, "");
   if (home) {
     if (environment.platform === "win32") {
       candidates.push(
@@ -177,9 +183,14 @@ export async function resolveOmdExecutablePath(
 export function omdInstallInstructions(platform: NodeJS.Platform): OmdInstallInstructions {
   if (platform === "darwin") {
     return {
-      buttonLabel: "Copy install commands",
-      notice: "Copied the official Homebrew install commands.",
-      commands: "brew install omd-local/omd/omd\nomd doctor",
+      buttonLabel: "Copy install steps",
+      notice: "Copied the independent OMD Engine installation steps.",
+      commands: [
+        `Download the macOS OMD Engine package for your Mac's architecture from ${OMD_ENGINE_DOWNLOAD_URL}`,
+        "Run the .pkg installer, or unzip the .zip download and move OMD Engine.app to /Applications or ~/Applications.",
+        "In Obsidian, open OMD Home settings and choose Check again. No terminal PATH change is needed for the plugin.",
+        'Optional terminal check: "/Applications/OMD Engine.app/Contents/MacOS/omd" --version',
+      ].join("\n"),
     };
   }
   if (platform === "win32") {

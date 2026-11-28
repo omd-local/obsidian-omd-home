@@ -2,7 +2,7 @@
 
 <img src="docs/assets/omd-home-icon.png" alt="OMD Home pixel icon: a doorway inside a Markdown note" width="64">
 
-<sub>OMD HOME // PUBLIC BETA 0.2.2</sub>
+<sub>OMD HOME // PUBLIC BETA 0.2.3 // CANDIDATE</sub>
 
 # OMD Home
 
@@ -38,9 +38,20 @@ suggested links and tags before choosing **Apply**.
 
 ## Install
 
+> **First-install candidate testing:** download Home 0.2.3 from its PR workflow
+> artifact and follow the Mac guide in a test vault. New engine 0.3.0b6 binary
+> uploads are blocked pending the Cobble copyright notice and Intel dependency
+> vulnerability resolution. Test plugin-only features or an existing compatible
+> b5 engine first; do not bypass the gates with an older engine build.
+> Release assets are not published; versioned download/BRAT instructions apply
+> after publication. The current public
+> pair remains [Home 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2)
+> and [OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5).
+> See [candidate scope and acceptance](docs/first-install-beta.md).
+
 For a complete Mac walkthrough, follow the [English guide](docs/getting-started-mac.en.md)
-or [简体中文指南](docs/getting-started-mac.md). The steps below pair **OMD Home 0.2.2**
-with **OMD backend 0.3.0b5**. Install the plugin and backend separately; basic
+or [简体中文指南](docs/getting-started-mac.md). The steps below pair **OMD Home 0.2.3**
+with **OMD Engine 0.3.0b6**. Install the plugin and backend separately; basic
 conversion does not need AI.
 
 <a id="from-a-github-release"></a>
@@ -48,7 +59,21 @@ conversion does not need AI.
 ### 1. Install the Obsidian plugin
 
 You need **Obsidian desktop 1.11.4 or newer**. OMD Home is **desktop-only**;
-it does not run on Obsidian Mobile. Until it is listed in Community Plugins,
+it does not run on Obsidian Mobile.
+
+For this candidate, sign in to GitHub and open [Home PR #8](https://github.com/omd-local/obsidian-omd-home/pull/8).
+From **Checks**, open the latest successful **CI** run corresponding to the PR's
+current commit. On its run summary, download **Artifacts → omd-home-pr-candidate**.
+Unpack it and install the three files inside `omd-home` using the same
+[English](docs/getting-started-mac.en.md#manual-install) or
+[简体中文](docs/getting-started-mac.md#manual-install) guide. The download includes
+checksums, build information and test instructions. Artifacts are retained for
+14 days; the guides explain expired or missing builds.
+
+<details>
+<summary><strong>After the 0.2.3 Release is published: BRAT and manual Release downloads</strong></summary>
+
+Until it is listed in Community Plugins,
 the easiest installation route is **BRAT**, a separate community plugin that
 downloads and places the release files for you:
 
@@ -56,21 +81,21 @@ downloads and places the release files for you:
    search for **BRAT** by **TfTHacker**, then **Install** and **Enable** it.
 2. In **Settings > BRAT**, select **Add beta plugin** and paste
    `https://github.com/omd-local/obsidian-omd-home`. Click outside the field and wait for the version list.
-3. Choose **0.2.2**, leave GitHub token blank for this public repository,
+3. Choose **0.2.3**, leave GitHub token blank for this public repository,
    check **Enable after installing the plugin**, and select **Add plugin**.
 4. Close Settings, press **Command–P**, and run **OMD Home: Open home**.
 
-Choosing **0.2.2** pins that plugin version. BRAT does not install the backend,
+Choosing **0.2.3** pins that plugin version. BRAT does not install the backend,
 models, or Calendar helper. Follow the full [English](docs/getting-started-mac.en.md#install-plugin)
 or [简体中文](docs/getting-started-mac.md#install-plugin) guide for each click and the manual alternative.
 
 <details>
 <summary><strong>Install manually without BRAT</strong></summary>
 
-1. Download the three assets from [release 0.2.2](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.2):
-   [main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/main.js),
-   [manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/manifest.json), and
-   [styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.2/styles.css).
+1. Download the three assets from [release 0.2.3](https://github.com/omd-local/obsidian-omd-home/releases/tag/0.2.3):
+   [main.js](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/main.js),
+   [manifest.json](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/manifest.json), and
+   [styles.css](https://github.com/omd-local/obsidian-omd-home/releases/download/0.2.3/styles.css).
 2. In the target vault, open **Settings > Community plugins**, turn on community plugins if needed,
    and select the **folder icon** beside Installed plugins. This opens the current vault's plugin folder.
 3. Create an ordinary folder named `omd-home` there; on Mac use **Command–Shift–N**.
@@ -86,32 +111,40 @@ directory and create only the ordinary `plugins` and `omd-home` folders.
 
 </details>
 
+</details>
+
 ### 2. Install the local OMD backend for capture
 
-[OMD 0.3.0b5](https://github.com/omd-local/markdown-everything/releases/tag/v0.3.0b5)
-performs conversion on your computer. OMD Home does not install, update,
+OMD performs conversion on your computer. OMD Home does not install, update,
 or bundle OMD, Python, Ollama, or the EventKit helper.
 
-For **Apple Silicon / macOS 15+**, the [Mac guide](docs/getting-started-mac.en.md#install-backend)
-covers opening Terminal, the official Homebrew `.pkg` installer, developer tools,
-and shell path setup. Once `brew --version` works, run this in **Terminal**:
+Once the license and dependency gates pass, on **macOS 14+** independently obtain the **OMD Engine 0.3.0b6** package matching
+your Mac: **arm64** for Apple Silicon or **x86_64** for Intel. For this candidate,
+open [Engine PR #16](https://github.com/omd-local/markdown-everything/pull/16), then
+the successful **Build independent macOS engine** run under **Checks**. Download
+**omd-engine-unsigned-arm64** or **omd-engine-unsigned-x86_64** from its summary's
+**Artifacts**. Unpack the download, find the matching `OMD-Engine-…zip` inside
+its directories, then unpack that app ZIP and move **OMD Engine.app** to **Applications** or
+`~/Applications`. Candidate packages are unsigned and not notarized; they are
+for controlled testing and have not passed fresh-Mac or Intel acceptance.
+After release, matching assets can instead be obtained from the
+[official engine releases](https://github.com/omd-local/markdown-everything/releases).
+The source-code archive and Python wheel are not the independent app package.
 
-```bash
-brew install omd-local/omd/omd
-omd --version
-```
-
-The version should be **0.3.0b5**. Homebrew also installs Python 3.12, common
-document converters, ffmpeg, Tesseract and its language packs, and yt-dlp.
-Whisper and its model, Ollama and AI models, and the Calendar helper are
-separate optional setup steps.
+The app contains Python and basic document converters. The basic route needs
+no Homebrew, Xcode, Command Line Tools or Xcode license acceptance. OCR,
+ffmpeg/yt-dlp, transcription, Ollama/models and Calendar remain optional.
+See the [English](docs/getting-started-mac.en.md#install-backend) or
+[简体中文](docs/getting-started-mac.md#install-backend) steps for installation,
+existing Homebrew commands and conflict recovery.
 
 In **Settings > OMD Home**, scroll to **Capture and processing** and select
 **Detect OMD** or **Check again**. These backend checks are separate from AI's
-**Check setup**. Home normally discovers OMD automatically; if it finds an older or different installation, see
-[Connect OMD](#connect-omd). Windows and Linux users can follow the
-[backend quick start](https://github.com/omd-local/markdown-everything#quick-start)
-and [platform support](#platform-support) notes.
+**Check setup**. Home finds system and user Applications without a shell PATH
+change. A ZIP install does not create the bare `omd` command; use the executable
+inside the app when testing in Terminal. Existing custom paths stay authoritative;
+see [Connect OMD](#connect-omd) to clear an old override. Windows and Linux retain
+the [backend source-install route](https://github.com/omd-local/markdown-everything#quick-start).
 
 ### 3. Save your first Markdown note
 
@@ -126,8 +159,9 @@ Home provides the Obsidian interface.
 
 **Upgrading:** back up your vault, stop captures and disable the plugin before
 replacing the three plugin files. Preserve `data.json`, your notes and any
-separately installed helper. Update the backend with `brew update` followed by
-`brew upgrade omd-local/omd/omd`. See the Mac guides for recovery and helper upgrades.
+separately installed helper. Upgrade the engine independently using a matching
+app package; existing Homebrew installations retain their separate upgrade path.
+See the Mac guides for recovery and helper upgrades.
 
 ## Core workflows
 
@@ -321,6 +355,13 @@ Settings provide:
    ollama pull qwen3:4b-instruct
    ```
 
+   When the checked catalog is missing your selected answer or writing model,
+   Settings shows its exact safe command and **Copy install command**. Run it in
+   Terminal, wait for the download to finish, then choose **Check setup** again.
+   That check refreshes the catalog and verifies the same model. Unreachable
+   Ollama and incompatible models receive different recovery guidance; the
+   plugin does not download or switch a text model for you.
+
 3. To add semantic search to keyword search, install a local embedding model such as `bge-m3`:
 
    ```bash
@@ -328,10 +369,11 @@ Settings provide:
    ```
 
    Choose it under **Advanced AI controls > Vault retrieval**, then press
-   **Test semantic search**. If the selected `bge-m3` model is missing,
-   **Install bge-m3** runs the equivalent Ollama download only after you
-   click it. Opening settings, checking setup, and asking a question never download
-   a model automatically. **Switch to keyword search** turns off semantic search for
+   **Test semantic search**. If the selected model is missing, use
+   **Copy install command**, run the command yourself in Terminal, wait for it to
+   finish, then run **Check setup** and **Test semantic search** again. Copying,
+   checking setup, and asking a question do not download a model.
+   **Switch to keyword search** turns off semantic search for
    future vault questions and saves that choice; keyword search needs no embedding model.
 4. In **Settings > OMD Home > AI answers**, choose an answer provider.
    - For **Ollama on this computer**, choose a local model and press **Check setup**.
@@ -351,8 +393,9 @@ Settings provide:
 5. If local models changed on disk, run **OMD Home: Refresh local AI models**
    from the command palette, then return to **Check setup**.
 6. Leave the Python bridge override blank to use the bridge bundled in
-   `main.js`. On macOS and Linux, OMD Home derives the Python interpreter from
-   the detected OMD launcher shebang. On Windows, it verifies `python.exe`
+   `main.js`. For OMD Engine.app, Home verifies and uses Python inside the
+   same app, including paths with spaces and a CLI symlink. Other macOS/Linux
+   installs retain launcher-shebang discovery. On Windows, it verifies `python.exe`
    beside the launcher or at the root of its `Scripts` environment. For a
    non-standard environment, set an explicit Python executable.
 
@@ -388,8 +431,8 @@ Official provider references:
 - [Anthropic API overview](https://platform.claude.com/docs/en/api/overview)
 - [DeepSeek API docs](https://api-docs.deepseek.com/api/deepseek-api)
 
-OMD Home does not download models in the background, auto-select models, or
-auto-switch providers. The explicit **Install bge-m3** action is described above.
+OMD Home does not download models, auto-select models, or auto-switch providers.
+Model installation commands are copied for you to run independently in Terminal.
 Local answer and writing dropdowns show all downloaded models that
 stay on this computer. Compatible completion models and models awaiting
 capability verification are selectable; known incompatible models remain
@@ -411,7 +454,7 @@ it never writes the file for you.
 
 Apple Calendar integration needs macOS 14+ and a separately built EventKit helper.
 Follow the [complete Calendar steps](docs/getting-started-mac.en.md#11-optional-apple-calendar)
-to clone the pinned 0.2.2 source, build with Swift 6+ and Xcode Command Line
+to clone the pinned 0.2.3 source, build with Swift 6+ and Xcode Command Line
 Tools, and copy `omd-eventkit` through Finder into the actual plugin folder.
 The helper build uses `sh scripts/build-eventkit.sh`; it needs neither Node.js
 nor npm dependencies. Markdown-only events need no helper.
@@ -486,19 +529,22 @@ a repaired or replaced file is used.
 
 | Platform | Available now |
 |---|---|
-| **macOS desktop** | Home, Inbox, omnibox, and Markdown events; capture and AI require compatible tools. Selected-calendar sync requires macOS 14+ and the helper. See the guide for current Homebrew system requirements. |
+| **macOS desktop** | Home, Inbox, omnibox, and Markdown events; capture and AI require compatible tools. Selected-calendar sync requires macOS 14+ and the helper. The independent document engine requires macOS 14+; see the guide for candidate test limits. |
 | **Windows and Linux desktop** | Home, capture, Inbox, omnibox, Markdown events, and local AI; no Apple Calendar integration |
 | **Mobile** | The plugin is desktop-only. |
 
 ## Privacy and failure boundaries
 
 - No OMD Home telemetry, ads, account creation, or payment flow.
-- No background helper install, executable update, model download, or model switch.
-  The explicit **Install bge-m3** action requires a click and downloads that model.
+- No helper install, executable update, model download, or automatic model switch.
+  Model setup displays a validated command; copying it does not execute it.
 - OMD setup actions copy official text or open an external guide. They never
   execute an installer or mutate a Python environment.
 - OMD Home reads and writes the current vault. A local file capture reads only
   the external path you explicitly submit; it does not scan neighboring files.
+- Some local processing creates temporary Markdown or audio copies in the system
+  temporary directory. Normal cleanup removes them; interrupted processes can
+  leave temporary files. They are not uploaded by this temporary-file step.
 - Optional social capture stores separate local cookie paths. See the
   [cookie access boundaries](#douyin-and-xiaohongshu--rednote-access) before
   enabling these routes.
@@ -561,12 +607,13 @@ used by Homebrew, MacPorts, user installs, and local Python environments. It
 probes candidates for the compatible OMD capability contract and can continue
 past a missing or outdated candidate to find a current one.
 
-If no compatible install is found, **Settings > OMD Home > Capture and processing** and the Home
-**Needs attention** widget provide **Copy install commands**, **Install guide**,
-and **Check again**. These actions only copy instructions or open the official
-[backend guide](https://github.com/omd-local/markdown-everything#quick-start);
-they do not download a release, run a shell, request administrator access, or
-change a Python environment.
+If no compatible install is found on macOS, **Settings > OMD Home > Capture and processing**
+and Home's **Needs attention** offer **Download OMD engine**, **Install guide**
+and **Check again**. Home discovers `/Applications/OMD Engine.app` and
+`~/Applications/OMD Engine.app`. Download opens the official release page; the
+user downloads and installs the engine independently. Other desktop systems
+retain copyable source-install steps. These actions do not execute an installer,
+run a package manager, request administrator access or change a Python environment.
 
 Most users should leave **Advanced OMD paths** closed. Open it only to select a
 specific OMD or Python environment when automatic discovery cannot reach the
@@ -578,8 +625,10 @@ Capability checks determine readiness; a version number alone does not verify
 every optional tool or model.
 
 To launch the bundled bridge, OMD Home may read the detected OMD launcher's
-first line only to identify its Python interpreter. It then starts only the
-local executable you configured or that passed automatic capability checks.
+file to inspect its shebang, or resolve and validate the interpreter inside
+the selected OMD Engine.app. Portable bridge execution uses isolated Python
+with bytecode writes disabled. Home starts only the local executable you
+configured or that passed automatic capability checks.
 
 ### Commands and status
 
@@ -640,7 +689,7 @@ more than one URL, or a non-HTTP(S) scheme is rejected instead of guessing.
 <summary><strong>Build the pinned release and install into a test vault</strong></summary>
 
 ```bash
-git clone --branch 0.2.2 --single-branch https://github.com/omd-local/obsidian-omd-home.git
+git clone --branch 0.2.3 --single-branch https://github.com/omd-local/obsidian-omd-home.git
 cd obsidian-omd-home
 npm ci
 npm run build
@@ -691,8 +740,8 @@ fixture update with `--accept`.
 | Read this | When you need it |
 |---|---|
 | [Mac guide: English](docs/getting-started-mac.en.md) / [简体中文](docs/getting-started-mac.md) | Downloads, backend, first capture, optional features, upgrades, and recovery |
-| [Manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/manual-test-plan.md) | Exact desktop QA, local AI benchmarks, background work, reload, and unload cases |
-| [Release checklist](https://github.com/omd-local/obsidian-omd-home/blob/0.2.2/docs/release-checklist.md) | Community Plugins packaging, privacy, compatibility, and release gates |
+| [Manual test plan](https://github.com/omd-local/obsidian-omd-home/blob/0.2.3/docs/manual-test-plan.md) | Exact desktop QA, local AI benchmarks, background work, reload, and unload cases |
+| [Release checklist](https://github.com/omd-local/obsidian-omd-home/blob/0.2.3/docs/release-checklist.md) | Community Plugins packaging, privacy, compatibility, and release gates |
 | [Security policy](SECURITY.md) | Supported versions and private vulnerability reporting |
 | [Third-party notices](THIRD_PARTY_NOTICES) | Licences and notices for bundled third-party components |
 

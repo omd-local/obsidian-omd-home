@@ -27,7 +27,6 @@ import {
   mergeInspectedModelEntry,
   modelSupportsEmbedding,
   normalizeLocalOllamaHost,
-  oneClickInstallableEmbeddingModel,
   providerMode,
   resolveEmbeddingModelRevision,
 } from "../src/local-ai-readiness.ts";
@@ -152,7 +151,6 @@ function mainHarness(extraMethods: string[] = [], dependencies: Record<string, u
     aiProviderDestination,
     isHostedApiProvider,
     LocalAiError,
-    oneClickInstallableEmbeddingModel,
     embeddingModelPullCommand,
     selectedAiModel,
     ...dependencies,
@@ -3284,44 +3282,6 @@ function localSetupHarness(model: LocalAiModelInfo & { digest?: string }, remote
   return { plugin, calls, vaultCalls };
 }
 
-function embeddingInstallHarness(savedModel: string, catalog: LocalAiModelInfo[] = []): { plugin: Harness; calls: string[] } {
-  const calls: string[] = [];
-  const plugin = mainHarness(["installEmbeddingModel"], {
-    buildModelEntry,
-    localModelNamesMatch,
-    mergeInspectedModelEntry,
-    modelIsCloudBacked,
-    modelSupportsEmbedding,
-    normalizeLocalOllamaHost,
-    oneClickInstallableEmbeddingModel,
-  });
-  Object.assign(plugin.settings, {
-    embeddingModel: savedModel,
-    ollamaHost: "http://localhost:11434",
-  });
-  plugin.canStartAiSetupAction = () => true;
-  plugin.beginLocalAiAction = (action: string) => {
-    calls.push(`begin:${action}`);
-    return ++plugin.localAiActionToken;
-  };
-  plugin.finishLocalAiAction = (token: number) => { calls.push(`finish:${token}`); };
-  plugin.withLocalAiSignal = async (task: (signal: AbortSignal) => Promise<unknown>) => await task(new AbortController().signal);
-  plugin.reportLocalAiWorkflowIssue = (error: unknown) => { plugin.issues.push(error); };
-  plugin.safeShowModel = async (_host: string, model: string) => {
-    calls.push(`show:${model}`);
-    return { name: model, capabilities: ["embedding"] };
-  };
-  plugin.ollamaLocalClient = {
-    tags: async () => {
-      calls.push("tags");
-      return catalog.map((entry) => buildModelEntry(entry));
-    },
-    pull: async (_host: string, model: string) => { calls.push(`pull:${model}`); },
-  };
-  plugin.refreshLocalAiCatalog = async (force: boolean) => { calls.push(`refresh:${String(force)}`); };
-  return { plugin, calls };
-}
-
 const credential = {
   provider: "openai",
   source: "keychain",
@@ -3612,49 +3572,6 @@ test("catalog refresh invalidates a verified embedding probe when its model revi
   plugin.ollamaLocalClient.tags = async () => [buildModelEntry({ name: "bge-m3", capabilities: ["embedding"] })];
   await plugin.refreshLocalAiCatalog();
   assert.equal(plugin.localAiEmbeddingProbe, null);
-});
-
-test("one-click embedding installation enforces its allowlist and stale-action snapshot before network access", async () => {
-  const unsupported = embeddingInstallHarness("nomic-embed-text");
-  assert.equal(await unsupported.plugin.installEmbeddingModel("nomic-embed-text"), false);
-  assert.deepEqual(unsupported.calls, ["begin:install-embedding", "finish:1"]);
-
-  const stale = embeddingInstallHarness("other-model");
-  assert.equal(await stale.plugin.installEmbeddingModel("bge-m3"), false);
-  assert.deepEqual(stale.calls, ["begin:install-embedding", "finish:1"]);
-
-  const changedEndpoint = embeddingInstallHarness("bge-m3");
-  assert.equal(await changedEndpoint.plugin.installEmbeddingModel("bge-m3", "http://localhost:22434"), false);
-  assert.deepEqual(changedEndpoint.calls, ["begin:install-embedding", "finish:1"]);
-  assert.match(changedEndpoint.plugin.feedback.at(-1), /endpoint changed/u);
-});
-
-test("one-click embedding installation canonicalizes aliases and downloads only when explicitly requested", async () => {
-  const installed = embeddingInstallHarness("BGE-M3", [{
-    name: "bge-m3:latest",
-    capabilities: ["embedding"],
-  }]);
-  assert.equal(await installed.plugin.installEmbeddingModel("BGE-M3:latest"), true);
-  assert.deepEqual(installed.calls, [
-    "begin:install-embedding",
-    "tags",
-    "show:bge-m3",
-    "finish:1",
-    "refresh:false",
-  ]);
-
-  const missing = embeddingInstallHarness("bge-m3");
-  missing.plugin.localAiEmbeddingProbe = { host: "http://localhost:11434", model: "bge-m3", code: "selected_model_missing" };
-  assert.equal(await missing.plugin.installEmbeddingModel("bge-m3"), true);
-  assert.equal(missing.plugin.localAiEmbeddingProbe, null);
-  assert.deepEqual(missing.calls, [
-    "begin:install-embedding",
-    "tags",
-    "pull:bge-m3",
-    "show:bge-m3",
-    "finish:1",
-    "refresh:false",
-  ]);
 });
 
 test("Use keyword search by default persists the retrieval choice once and leaves an already-keyword setup unchanged", async () => {
@@ -4131,7 +4048,7 @@ for (const provider of ["ollama", "openai"] as const) {
 }
 
 for (const [warning, model, expectedButtons] of [
-  ["hybrid_retrieval_model_not_installed", "bge-m3", ["Install bge-m3", "Open retrieval settings", "Use keyword search by default"]],
+  ["hybrid_retrieval_model_not_installed", "bge-m3", ["Copy install command", "Open retrieval settings", "Use keyword search by default"]],
   ["hybrid_retrieval_model_not_installed", "all-minilm:22m", ["Copy install command", "Open retrieval settings", "Use keyword search by default"]],
   ["hybrid_retrieval_daemon_unreachable", null, ["Open retrieval settings", "Use keyword search by default"]],
   ["hybrid_retrieval_model_unsupported", null, ["Open retrieval settings", "Use keyword search by default"]],
@@ -4163,8 +4080,8 @@ for (const [warning, model, expectedButtons] of [
         if (options.text) texts.push(options.text);
         return element();
       },
-      createEl(_tag: string, options: { text?: string } = {}) {
-        if (options.text) buttons.push(options.text);
+      createEl(tag: string, options: { text?: string } = {}) {
+        if (options.text) (tag === "button" ? buttons : texts).push(options.text);
         return { isConnected: true, disabled: false, addEventListener() {} };
       },
     });
@@ -4190,7 +4107,7 @@ for (const [warning, model, expectedButtons] of [
   });
 }
 
-test("embedding install disclosure precedes its consequential action", () => {
+test("embedding recovery displays the external install command before the copy action", () => {
   const plugin = mainHarness();
   plugin.settings.hybridRetrievalEnabled = true;
   const events: string[] = [];
@@ -4217,50 +4134,53 @@ test("embedding install disclosure precedes its consequential action", () => {
     "http://localhost:11434",
   );
 
-  const disclosure = events.findIndex((value) => /downloads model data/u.test(value));
-  const install = events.indexOf("Install bge-m3");
+  const disclosure = events.indexOf("OLLAMA_HOST='http://localhost:11434' ollama pull bge-m3");
+  const install = events.indexOf("Copy install command");
   assert.ok(disclosure >= 0, events.join(" | "));
   assert.ok(install > disclosure, events.join(" | "));
+  assert.ok(events.some((value) => /terminal/iu.test(value)), events.join(" | "));
 });
 
-test("a manual embedding install command follows the warning endpoint and rechecks the route on click", async () => {
-  const host = "http://127.0.0.1:22434";
-  const model = "all-minilm:22m";
-  const copied: string[] = [];
-  const plugin = mainHarness(["currentLocalAiHost"], {
-    normalizeLocalOllamaHost, localModelNamesMatch,
-    navigator: { clipboard: { writeText: async (value: string) => { copied.push(value); } } },
+for (const model of ["bge-m3", "all-minilm:22m"]) {
+  test(`the external ${model} install command follows the warning endpoint and rechecks the route on click`, async () => {
+    const host = "http://127.0.0.1:22434";
+    const copied: string[] = [];
+    const plugin = mainHarness(["currentLocalAiHost"], {
+      normalizeLocalOllamaHost, localModelNamesMatch,
+      navigator: { clipboard: { writeText: async (value: string) => { copied.push(value); } } },
+    });
+    Object.assign(plugin.settings, { embeddingModel: model, ollamaHost: host });
+    plugin.ollamaLocalClient = new Proxy({}, { get: () => assert.fail("Copying must not call Ollama or install a model") });
+    let settingsOpened = 0;
+    plugin.openRetrievalSettings = () => { settingsOpened++; };
+    let click!: () => void;
+    const container = {
+      createDiv() { return container; },
+      createSpan() {},
+      createEl(_tag: string, options: { text: string }) {
+        return {
+          isConnected: true,
+          addEventListener(_event: string, listener: () => void) {
+            if (options.text === "Copy install command") click = listener;
+          },
+        };
+      },
+    };
+
+    plugin.renderRetrievalDiagnostics(container, ["hybrid_retrieval_model_not_installed"], model, host);
+    click();
+    await Promise.resolve();
+    assert.deepEqual(copied, [embeddingModelPullCommand(model, host, false)]);
+    assert.ok(copied[0].includes(host));
+    plugin.settings.ollamaHost = "http://localhost:11434";
+    click();
+    plugin.settings.ollamaHost = host;
+    plugin.settings.embeddingModel = "changed-model";
+    click();
+    assert.equal(copied.length, 1);
+    assert.equal(settingsOpened, 2);
   });
-  Object.assign(plugin.settings, { embeddingModel: model, ollamaHost: host });
-  let settingsOpened = 0;
-  plugin.openRetrievalSettings = () => { settingsOpened++; };
-  let click!: () => void;
-  const container = {
-    createDiv() { return container; },
-    createSpan() {},
-    createEl(_tag: string, options: { text: string }) {
-      return {
-        isConnected: true,
-        addEventListener(_event: string, listener: () => void) {
-          if (options.text === "Copy install command") click = listener;
-        },
-      };
-    },
-  };
-
-  plugin.renderRetrievalDiagnostics(container, ["hybrid_retrieval_model_not_installed"], model, host);
-  click();
-  await Promise.resolve();
-  assert.deepEqual(copied, [embeddingModelPullCommand(model, host, false)]);
-  assert.ok(copied[0].includes(host));
-  plugin.settings.ollamaHost = "http://localhost:11434";
-  click();
-  plugin.settings.ollamaHost = host;
-  plugin.settings.embeddingModel = "bge-m3";
-  click();
-  assert.equal(copied.length, 1);
-  assert.equal(settingsOpened, 2);
-});
+}
 
 test("retrieval diagnostics use answer wording after an answer exists", () => {
   const plugin = mainHarness();

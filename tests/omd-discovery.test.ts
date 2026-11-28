@@ -17,7 +17,10 @@ const macEnvironment = {
 
 test("automatic OMD discovery includes PATH, environment, package manager, and user locations", () => {
   const candidates = omdExecutableCandidates("omd", macEnvironment);
-  assert.equal(candidates[0], "/opt/homebrew/opt/omd/bin/omd");
+  assert.deepEqual(candidates.slice(0, 2), [
+    "/Applications/OMD Engine.app/Contents/MacOS/omd",
+    "/Users/example/Applications/OMD Engine.app/Contents/MacOS/omd",
+  ]);
   assert.ok(candidates.includes("omd"));
   assert.ok(candidates.includes("/Users/example/active-conda/bin/omd"));
   assert.ok(candidates.includes("/opt/homebrew/bin/omd"));
@@ -32,8 +35,10 @@ test("automatic OMD discovery tries an already verified executable before PATH c
     macEnvironment,
     "/Applications/OMD/bin/omd",
   );
-  assert.deepEqual(candidates.slice(0, 4), [
+  assert.deepEqual(candidates.slice(0, 6), [
     "/Applications/OMD/bin/omd",
+    "/Applications/OMD Engine.app/Contents/MacOS/omd",
+    "/Users/example/Applications/OMD Engine.app/Contents/MacOS/omd",
     "/opt/homebrew/opt/omd/bin/omd",
     "/usr/local/opt/omd/bin/omd",
     "omd",
@@ -54,6 +59,20 @@ test("automatic discovery keeps the verified executable when another compatible 
   assert.equal(result.executable, verified);
   assert.deepEqual(result.candidatesTried, [verified]);
   assert.deepEqual(probed, [verified]);
+});
+
+test("automatic discovery finds a user-installed engine app before consulting terminal PATH", async () => {
+  const userApp = "/Users/example/Applications/OMD Engine.app/Contents/MacOS/omd";
+  const attempts: string[] = [];
+  const result = await discoverOmdExecutable("omd", macEnvironment, async (executable) => {
+    attempts.push(executable);
+    if (executable !== userApp) throw new OmdEnrichmentError("missing_executable", "missing");
+  }, async (candidate) => {
+    assert.notEqual(candidate, "omd", "app discovery must not require a terminal PATH entry");
+    return candidate;
+  });
+  assert.equal(result.executable, userApp);
+  assert.deepEqual(attempts, ["/Applications/OMD Engine.app/Contents/MacOS/omd", userApp]);
 });
 
 test("a custom OMD executable is the only discovery candidate", () => {
@@ -96,7 +115,7 @@ test("automatic discovery probes and returns the same resolved absolute PATH exe
     macEnvironment,
     async (executable) => {
       probed.push(executable);
-      if (executable.endsWith("/opt/omd/bin/omd")) {
+      if (executable.includes(".app/") || executable.endsWith("/opt/omd/bin/omd")) {
         throw new OmdEnrichmentError("missing_executable", "missing");
       }
     },
@@ -105,11 +124,15 @@ test("automatic discovery probes and returns the same resolved absolute PATH exe
 
   assert.equal(result.executable, "/opt/homebrew/bin/omd");
   assert.deepEqual(probed, [
+    "/Applications/OMD Engine.app/Contents/MacOS/omd",
+    "/Users/example/Applications/OMD Engine.app/Contents/MacOS/omd",
     "/opt/homebrew/opt/omd/bin/omd",
     "/usr/local/opt/omd/bin/omd",
     "/opt/homebrew/bin/omd",
   ]);
   assert.deepEqual(result.candidatesTried, [
+    "/Applications/OMD Engine.app/Contents/MacOS/omd",
+    "/Users/example/Applications/OMD Engine.app/Contents/MacOS/omd",
     "/opt/homebrew/opt/omd/bin/omd",
     "/usr/local/opt/omd/bin/omd",
     "omd",
@@ -125,7 +148,7 @@ test("automatic discovery falls back to PATH when the verified absolute hint is 
     macEnvironment,
     async (executable) => {
       probed.push(executable);
-      if (executable === stale || executable.endsWith("/opt/omd/bin/omd")) {
+      if (executable === stale || executable.includes(".app/") || executable.endsWith("/opt/omd/bin/omd")) {
         throw new OmdEnrichmentError("missing_executable", "removed");
       }
     },
@@ -136,12 +159,16 @@ test("automatic discovery falls back to PATH when the verified absolute hint is 
   assert.equal(result.executable, legacy);
   assert.deepEqual(result.candidatesTried, [
     stale,
+    "/Applications/OMD Engine.app/Contents/MacOS/omd",
+    "/Users/example/Applications/OMD Engine.app/Contents/MacOS/omd",
     "/opt/homebrew/opt/omd/bin/omd",
     "/usr/local/opt/omd/bin/omd",
     "omd",
   ]);
   assert.deepEqual(probed, [
     stale,
+    "/Applications/OMD Engine.app/Contents/MacOS/omd",
+    "/Users/example/Applications/OMD Engine.app/Contents/MacOS/omd",
     "/opt/homebrew/opt/omd/bin/omd",
     "/usr/local/opt/omd/bin/omd",
     legacy,
@@ -227,14 +254,17 @@ test("blank and command-name settings use automatic discovery", () => {
   assert.equal(isAutomaticOmdExecutable("/usr/local/bin/omd"), false);
 });
 
-test("install guidance is platform-specific and always ends with an OMD health check", () => {
+test("macOS install guidance uses the independent engine and an absolute verification command", () => {
   const mac = omdInstallInstructions("darwin");
   const linux = omdInstallInstructions("linux");
   const windows = omdInstallInstructions("win32");
-  assert.match(mac.commands, /brew install omd-local\/omd\/omd/u);
+  assert.match(mac.commands, /OMD Engine\.app/u);
+  assert.match(mac.commands, /No terminal PATH change is needed/u);
+  assert.match(mac.commands, /"\/Applications\/OMD Engine\.app\/Contents\/MacOS\/omd" --version$/u);
+  assert.doesNotMatch(mac.commands, /brew install|xcode|sudo|pip install/u);
   assert.match(linux.commands, /python3 -m pip install/u);
   assert.match(windows.commands, /py -m pip install/u);
-  for (const instructions of [mac, linux, windows]) {
+  for (const instructions of [linux, windows]) {
     assert.match(instructions.commands, /omd doctor$/u);
   }
 });

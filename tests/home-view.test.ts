@@ -167,11 +167,13 @@ test("maintenance actions are available through Obsidian commands", () => {
 });
 
 test("missing OMD has guided recovery on Home without running an installer", () => {
-  assert.match(homeSource, /text: "Copy install steps"/u);
+  assert.match(homeSource, /text: process\.platform === "darwin" \? "Download OMD engine" : "Copy install steps"/u);
+  assert.match(homeSource, /this\.plugin\.openOmdEngineDownload\(\)/u);
   assert.match(homeSource, /text: this\.plugin\.enrichmentCapability\.code === "missing_executable" \? "Install guide" : "Update guide"/u);
   assert.match(homeSource, /text: "Check again"/u);
   assert.match(mainSource, /navigator\.clipboard\.writeText\(instructions\.commands\)/u);
-  assert.match(mainSource, /window\.open\(OMD_INSTALL_GUIDE_URL/u);
+  assert.match(mainSource, /window\.open\(process\.platform === "darwin" \? OMD_MAC_INSTALL_GUIDE_URL : OMD_INSTALL_GUIDE_URL/u);
+  assert.match(mainSource, /window\.open\(OMD_ENGINE_DOWNLOAD_URL/u);
   assert.doesNotMatch(mainSource, /brew install[\s\S]{0,120}spawnProcess|spawnProcess[\s\S]{0,120}brew install/u);
 });
 

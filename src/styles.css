@@ -1315,6 +1315,12 @@
 }
 .omd-settings-model-status .setting-item-info { padding-block: 8px; }
 .omd-settings-model-status .setting-item-name { font-weight: 600; }
+
+.omd-settings-model-status .setting-item-description pre {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .omd-settings-endpoint-validation,
 .omd-settings-path-validation {
   grid-column: 1 / -1;

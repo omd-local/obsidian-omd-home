@@ -351,9 +351,9 @@ test("hybrid retrieval settings keep embedding choices local and expose an embed
   assert.match(source, /testLocalEmbeddings\(\)/u);
   assert.match(source, /classifyEmbeddingSetup\(/u);
   assert.match(source, /It is separate from the text model used to write answers or edit notes/u);
-  assert.match(source, /presentation\.action === "install-model"/u);
   assert.match(source, /presentation\.action === "copy-pull-command"/u);
-  assert.match(source, /this\.plugin\.installEmbeddingModel\(presentation\.installableModel/u);
+  assert.doesNotMatch(settings, /installEmbeddingModel|install-model/u);
+  assert.match(settings, /checkLocalAiConnection\(\)/u);
   assert.match(source, /Keyword search remains available/u);
   assert.match(source, /omd-settings-embedding-model/u);
   assert.match(stylesSource, /\.omd-answer-warning-actions/u);
@@ -783,7 +783,8 @@ test("Python bridge settings prefer the bundled bridge while retaining an explic
 test("OMD setup makes automatic discovery primary and keeps path overrides advanced", () => {
   assert.match(source, /renderOmdSetup\(containerEl\)/u);
   assert.doesNotMatch(source, /OMD Home finds compatible local tools automatically/u);
-  assert.match(source, /OMD not installed/u);
+  assert.match(source, /OMD not found/u);
+  assert.match(source, /Download OMD engine/u);
   assert.match(source, /instructions\.buttonLabel/u);
   assert.match(source, /copyOmdInstallInstructions\(\)/u);
   assert.match(source, /Install guide/u);

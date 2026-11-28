@@ -7,6 +7,9 @@ on:
       - master
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -22,14 +25,51 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit all dependencies, including the build toolchain
+        run: npm audit --audit-level=low
+
       - name: Typecheck
         run: npm run typecheck
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --max-warnings=0
 
       - name: Test
         run: npm test
 
       - name: Build
         run: npm run build
+
+      - name: Prepare plugin test package
+        if: github.event_name == 'pull_request'
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p dist/pr-candidate/omd-home
+          install -m 644 main.js manifest.json styles.css dist/pr-candidate/omd-home/
+          install -m 644 docs/first-install-beta.md dist/pr-candidate/TESTING.md
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
+          const info = {
+            plugin_version: manifest.version,
+            tested_commit: process.env.GITHUB_SHA,
+            pull_request_head: process.env.PR_HEAD_SHA,
+            workflow_run_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+          writeFileSync('dist/pr-candidate/build-info.json', JSON.stringify(info, null, 2) + '\n');
+          JS
+          (
+            cd dist/pr-candidate
+            sha256sum omd-home/main.js omd-home/manifest.json omd-home/styles.css \
+              build-info.json TESTING.md > SHA256SUMS
+          )
+
+      - name: Upload plugin test package
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: omd-home-pr-candidate
+          path: dist/pr-candidate/
+          if-no-files-found: error
+          retention-days: 14
